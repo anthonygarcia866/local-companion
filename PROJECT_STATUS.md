@@ -56,3 +56,4 @@ Forked, baseline builds, no app-code changes yet.
 
 ## Lessons learned
 - **Smart App Control blocks the Rust toolchain (2026-10-08).** Windows Smart App Control in enforce mode blocks the unsigned `rustc_driver` DLL (`0xC0E90002`). Tauri then panics with an unhelpful `Option::unwrap()` error that points nowhere near the cause. Fix: turn SAC off on the dev machine. This is why code signing is on the roadmap.
+- **`gh` defaults a fork's PRs to upstream (2026-10-08).** In a fork, `gh pr create` and similar commands target the parent repo (Louis-CFM/coucou) unless told otherwise. Fix: `gh repo set-default anthonygarcia866/local-companion` (done on this machine); CLAUDE.md forbids any gh activity on upstream.
