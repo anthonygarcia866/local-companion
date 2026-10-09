@@ -1,5 +1,5 @@
 {
- "_generated": "By scripts/gen-strings.mjs from NotchBuddy/Resources/Localizable.xcstrings. Do not edit: run `node scripts/gen-strings.mjs`.",
+ "_generated": "By scripts/gen-strings.mjs from src/i18n/Localizable.xcstrings. Do not edit: run `node scripts/gen-strings.mjs`.",
  "languages": [
   "en",
   "zh-Hans",

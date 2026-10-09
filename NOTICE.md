@@ -10,7 +10,7 @@ Coucou's name, its **Mochi** character, its app icon and its sounds are © Louis
 - Every sound file and every Mochi image, GIF and video (`NotchBuddy/Resources/sounds/`, the Xcode asset catalogs, `docs/media/`, `design/`, `windows/screenshots/`) was deleted, together with upstream's website pages that showed them.
 - The Windows app's drawing of Mochi (face, hands, outfits, the mailbox morph) was removed. Until Glim's own mascot lands, the app draws a plain, faceless orb.
 
-`LICENSE-ASSETS.md` is kept because the unbuilt macOS/iOS source tree (`NotchBuddy/`) still contains Coucou-branded code. It is not part of any Glim build.
+Upstream's macOS/iOS source tree (`NotchBuddy/`), its iPhone relay (`relay/`) and its Linux packaging (`linux/`) were later deleted from this fork as well. `LICENSE-ASSETS.md` is kept as upstream's statement about its assets.
 
 ## Glim's own brand
 

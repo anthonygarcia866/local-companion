@@ -150,7 +150,7 @@ test("a language change relabels what was built, in place, and says so once", ()
 // ── The tables ────────────────────────────────────────────────────────────────
 
 test("strings.json is what the generator makes of the Mac's catalog", () => {
-  const catalog = JSON.parse(readFileSync(join(WINDOWS, "../NotchBuddy/Resources/Localizable.xcstrings"), "utf8"));
+  const catalog = JSON.parse(readFileSync(join(WINDOWS, "src/i18n/Localizable.xcstrings"), "utf8"));
   assert.deepEqual(generate(catalog), MAC);
 });
 

@@ -25,7 +25,9 @@ Tests: `npm test` (front end) and `cargo test --workspace` (Rust), both from `wi
 - `windows/` — the app (Tauri 2: Rust in `src-tauri/`, TypeScript in `src/`, the hook relay in `hook/`).
 - `windows/src-tauri/src/net/` — the network choke point.
 - `docs/brand/` — Glim's name, mascot and icon artwork.
-- `NotchBuddy/`, `relay/`, `linux/` — upstream Coucou's macOS/iOS app, its cloud relay and Linux packaging. Not built or shipped by Glim.
+- `tests/fake_local_llm.py` — an OpenAI-compatible stand-in server for testing the local chat path.
+
+Upstream's macOS/iOS app, its iPhone relay and its Linux packaging were removed from this fork; they remain in [upstream's repo](https://github.com/Louis-CFM/coucou).
 
 ## License
 
