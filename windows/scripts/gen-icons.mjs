@@ -9,7 +9,7 @@
 //   npm run icons
 
 import { execSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +61,11 @@ try {
     SMALL_ICO_SIZES.has(img.size) ? smallLayers.find((s) => s.size === img.size) : img,
   );
   writeIco(join(out, "icon.ico"), layers);
+  // Cargo doesn't rerun the build script when icon.ico changes, so the next
+  // build would keep embedding the old icon in glim.exe. Touching build.rs
+  // forces it.
+  const now = new Date();
+  utimesSync(join(root, "src-tauri", "build.rs"), now, now);
   console.log(`Wrote ${[...FROM_MAIN, "32x32.png", "icon.ico"].join(", ")} to ${out}`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
