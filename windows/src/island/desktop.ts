@@ -5,22 +5,18 @@
 
 import { Bridge, emitToWindow, onEvent, type DesktopMode } from "../core/bridge";
 import type { BotEmoteName } from "../core/layout";
-import { Sound } from "../core/sound";
 import { State } from "../core/state";
 import {
   DESKTOP_EVENTS, DesktopMochiController, alertActive, type DesktopSnapshot,
 } from "../mochi/desktop-logic";
-import { SeasonCache, parseOutfit } from "../mochi/wardrobe";
 
 /** Label of the desktop Mochi's window (desktop.rs LABEL). */
-const WINDOW = "mochi";
+const WINDOW = "character";
 
 /** What the life cycle needs from the island. */
 export interface DesktopHost {
   /** Shows the island (compact) if it is hidden. */
   reveal(): void;
-  /** Right-click on the desktop Mochi: the wardrobe, or back. */
-  wardrobeFromDesktop(): void;
   /** Three pokes on the desktop Mochi. */
   dizzyFromDesktop(): void;
 }
@@ -32,7 +28,6 @@ export class DesktopLink {
   /** The pointer is dragging Mochi out of the island. */
   carrying = false;
 
-  private seasons = new SeasonCache();
   private pushed = "";
   private pendingCarry: { x: number; y: number } | null = null;
   private carryFrame = false;
@@ -49,7 +44,6 @@ export class DesktopLink {
       },
       emote: (emote: BotEmoteName, duration = 1.8) =>
         void emitToWindow(WINDOW, DESKTOP_EVENTS.emote, { emote, duration }),
-      play: (sound) => Sound.play(sound),
       alertActive: () => alertActive(State),
       revealIsland: () => {
         if (State.mode === "hidden") this.host.reveal();
@@ -73,7 +67,6 @@ export class DesktopLink {
       this.onDropped(e.from, e.home),
     );
     await onEvent<null>(DESKTOP_EVENTS.home, () => void this.controller.flyHome());
-    await onEvent<null>(DESKTOP_EVENTS.wardrobe, () => this.host.wardrobeFromDesktop());
     await onEvent<null>(DESKTOP_EVENTS.dizzy, () => this.host.dizzyFromDesktop());
     // The window's page (re)loaded: it knows nothing yet.
     await onEvent<null>(DESKTOP_EVENTS.ready, () => {
@@ -157,9 +150,6 @@ export class DesktopLink {
   private push() {
     const snapshot: DesktopSnapshot = {
       state: State.effectiveState,
-      outfit: State.wardrobePreview ?? this.seasons.get(parseOutfit(State.settings.mochiOutfit)),
-      soundEnabled: State.settings.soundEnabled,
-      soundVolume: State.settings.soundVolume,
       paused: State.paused,
     };
     const key = JSON.stringify(snapshot);

@@ -1,6 +1,6 @@
 // The 1080 × 1920 image of the week, drawn once into an offscreen canvas —
 // port of RecapShareImageView in WeeklyRecapView.swift. Same colours, sizes
-// and order; Mochi comes from the island's own engine.
+// and order; the character comes from the island's own engine.
 
 import { BotEngine } from "../mochi/engine";
 import { formatCount, formatDuration, weekRangeLabel, type WeeklySummary } from "./summary";
@@ -30,7 +30,7 @@ const T = {
   get longestSession() { return t("Longest session"); },
   get approved() { return t("Approved"); },
   get denied() { return t("Denied"); },
-  footer: "Coucou · github.com/Louis-CFM/coucou",
+  footer: "Glim",
 };
 
 /**
@@ -131,8 +131,8 @@ function badge(x: Ctx, left: number, top: number, w: number, label: string, valu
   x.fillText(ellipsize(x, value, w - 64 - labelW - 16), left + w - 32, mid);
 }
 
-/** A still Mochi, drawn by the same engine as the island's. */
-function drawMochi(x: Ctx, cx: number, top: number, size: number) {
+/** A still character, drawn by the same engine as the island's. */
+function drawCharacter(x: Ctx, cx: number, top: number, size: number) {
   const engine = new BotEngine();
   engine.setState("idle", true);
   engine.update(1 / 60);
@@ -175,7 +175,7 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
   const MOCHI = 220;
   const MOCHI_DRAW = 320;
   const blockH =
-    MOCHI + 20 + 62 + 6 + 36 + 14 + 29 + 80 + // Mochi, Coucou, title, range
+    MOCHI + 20 + 62 + 6 + 36 + 14 + 29 + 80 + // character, name, title, range
     110 + 6 + 26 + // time + caption
     56 + 94 + // stat row
     (hasLines ? 24 + 34 : 0) +
@@ -185,13 +185,13 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
 
   x.textBaseline = "top";
 
-  drawMochi(x, cx, y + MOCHI / 2 - MOCHI_DRAW / 2 - MOCHI_DRAW * 0.02, MOCHI_DRAW);
+  drawCharacter(x, cx, y + MOCHI / 2 - MOCHI_DRAW / 2 - MOCHI_DRAW * 0.02, MOCHI_DRAW);
   y += MOCHI + 20;
 
   x.fillStyle = INK;
   x.textAlign = "center";
   font(x, 900, 52);
-  x.fillText("Coucou", cx, y);
+  x.fillText("Glim", cx, y);
   y += 62 + 6;
 
   x.fillStyle = DIM;

@@ -1,4 +1,4 @@
-// The desktop Mochi's own window (mochi.html): draws him, and turns clicks and
+// The desktop character's own window (character.html): draws him, and turns clicks and
 // drags on him into pokes, flights home, the wardrobe and a new spot. Port of
 // DesktopBotView + the mouse half of DesktopMochiController (DesktopMochi.swift).
 //
@@ -9,7 +9,6 @@
 
 import { Bridge, emitToWindow, onEvent, type DesktopMode } from "../core/bridge";
 import type { BotEmoteName } from "../core/layout";
-import { Sound } from "../core/sound";
 import { BotEngine } from "../mochi/engine";
 import {
   DESKTOP_EVENTS, DOUBLE_CLICK_MS, DRAG_THRESHOLD, PANEL_SIZE, agentActive, gaze, isOverBody,
@@ -36,7 +35,7 @@ class DesktopMochi {
   private mode: DesktopMode = "off";
 
   private snap: DesktopSnapshot = {
-    state: "idle", outfit: "none", soundEnabled: true, soundVolume: 0.12, paused: false,
+    state: "idle", paused: false,
   };
 
   private visible = false;
@@ -74,7 +73,6 @@ class DesktopMochi {
   }
 
   async start() {
-    void Sound.preload();
     const info = await Bridge.desktopInfo();
     if (info) this.mode = info.mode;
 
@@ -104,8 +102,6 @@ class DesktopMochi {
   private onSnapshot(s: DesktopSnapshot) {
     this.snap = s;
     this.informed = true;
-    Sound.setEnabled(s.soundEnabled);
-    Sound.setVolume(s.soundVolume);
     if (agentActive(s.state)) this.lastAgentActive = performance.now();
     if (!this.asleep) this.engine.setState(s.state);
     this.updateSleep(performance.now());
@@ -121,7 +117,6 @@ class DesktopMochi {
       this.lastAgentActive = performance.now();
       this.asleep = false;
       this.engine.setState(this.snap.state, true);
-      this.engine.setOutfit(this.snap.outfit, false);
       this.schedule();
       return;
     }
@@ -131,7 +126,6 @@ class DesktopMochi {
     this.setOffset({ x: 0, y: 0 });
     if (this.timer != null) window.clearTimeout(this.timer);
     this.timer = null;
-    Sound.idle();
   }
 
   private updateSleep(now: number) {
@@ -146,7 +140,6 @@ class DesktopMochi {
     // Asleep, Rust stops the cursor poll; his whole little window then listens
     // for the pointer, and the first move over it wakes him.
     void Bridge.desktopSetAsleep(sleep);
-    if (sleep) Sound.idle();
     this.schedule();
   }
 
@@ -196,7 +189,6 @@ class DesktopMochi {
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return;
     const engine = this.engine;
-    engine.setOutfit(this.snap.outfit, true);
     if (!this.asleep) {
       // Windows: the global cursor. Linux: only while the pointer is over him.
       const fresh = this.mode === "poll" || now - this.lastPointer < 1500;
@@ -224,7 +216,6 @@ class DesktopMochi {
 
   private wireInput() {
     document.addEventListener("pointerdown", (e) => {
-      Sound.resume();
       if (e.button !== 0 || !isOverBody(this.local(e))) return;
       this.press = { client: this.local(e), screen: { x: e.screenX, y: e.screenY } };
       this.dragging = false;
@@ -272,10 +263,7 @@ class DesktopMochi {
       void emitToWindow(ISLAND, DESKTOP_EVENTS.home);
     });
 
-    document.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      if (isOverBody(this.local(e))) void emitToWindow(ISLAND, DESKTOP_EVENTS.wardrobe);
-    });
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
 
     document.addEventListener("pointerleave", () => {
       if (this.mode !== "poll" && !this.dragging) this.cursor = null;
@@ -350,5 +338,5 @@ class DesktopMochi {
   }
 }
 
-const canvas = document.getElementById("mochi");
+const canvas = document.getElementById("character");
 if (canvas instanceof HTMLCanvasElement) void new DesktopMochi(canvas).start();

@@ -3,8 +3,7 @@
 // The shortcuts are registered from Rust through tauri-plugin-global-shortcut
 // (RegisterHotKey on Windows, XGrabKey on X11). A press is handed to the island
 // as a `shortcut` event carrying the action id; the island does the rest, the
-// same way it handles the tray menu. The wardrobe is the exception: it goes out
-// as its own `open-wardrobe` event, which the wardrobe view listens to.
+// same way it handles the tray menu.
 //
 // Default keys. The Mac uses ⌃⌥ + a letter. On Windows Ctrl+Alt *is* AltGr on
 // most European layouts, so a global Ctrl+Alt+E would swallow every € typed on
@@ -14,8 +13,7 @@
 // on E, Q, M, W, C and on every digit and most punctuation keys:
 //
 //   Ctrl+Alt+Space   open the chat           Ctrl+Alt+→ / ←  next / previous pill
-//   Ctrl+Alt+A       waiting permission      Ctrl+Alt+S      mute Mochi
-//   Ctrl+Alt+T       open the terminal       Ctrl+Alt+G      wardrobe
+//   Ctrl+Alt+A       waiting permission      Ctrl+Alt+T      open the terminal
 //   Ctrl+Alt+N       open / close the island (off by default, as on the Mac)
 //
 // ⌃⌥[ and ⌃⌥] became the arrows (brackets are AltGr characters almost
@@ -62,10 +60,12 @@ pub const ACTIONS: &[ActionDef] = &[
     action("attachFrontWindow", "Ctrl+Alt+F", true, false),
     action("nextPill", "Ctrl+Alt+Right", true, true),
     action("prevPill", "Ctrl+Alt+Left", true, true),
-    action("muteToggle", "Ctrl+Alt+S", true, true),
-    // Mochi on the desktop is not in this version.
+    // Glim has no sounds yet: nothing to mute.
+    action("muteToggle", "Ctrl+Alt+S", true, false),
+    // The character on the desktop is not in this version.
     action("desktopToggle", "Ctrl+Alt+D", true, false),
-    action("wardrobeToggle", "Ctrl+Alt+G", true, true),
+    // The wardrobe (upstream's outfits for Mochi) was removed with the character.
+    action("wardrobeToggle", "Ctrl+Alt+G", true, false),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -270,14 +270,10 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 /// Hands an action to the island.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
-    if action == "wardrobeToggle" {
-        let _ = app.emit_to(WINDOW_LABEL, "open-wardrobe", ());
-    } else {
-        let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
-    }
+    let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
 }
 
-/// Unregisters everything Coucou holds.
+/// Unregisters everything the app holds.
 fn release<R: Runtime>(app: &AppHandle<R>) {
     if let Some(gs) = app.try_state::<GlobalShortcut<R>>() {
         if let Err(err) = gs.unregister_all() {
@@ -426,7 +422,7 @@ mod tests {
     fn the_actions_not_ported_yet_are_reserved_not_registered() {
         let plan = plan(&Bindings::new(), never);
         for (def, outcome) in plan {
-            let reserved = matches!(def.id, "attachFrontWindow" | "desktopToggle");
+            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle");
             assert_eq!(def.ported, !reserved);
             match outcome {
                 Ok(_) => assert!(def.ported && def.enabled_by_default, "{}", def.id),
@@ -513,7 +509,7 @@ mod tests {
     fn stored_bindings_override_the_defaults_and_the_rest_fall_back() {
         let mut stored = Bindings::new();
         stored.insert("openChat".into(), Binding { keys: "Ctrl+Shift+K".into(), enabled: true });
-        stored.insert("muteToggle".into(), Binding { keys: String::new(), enabled: true });
+        stored.insert("nextPill".into(), Binding { keys: String::new(), enabled: true });
         let chat = effective(find("openChat").unwrap(), &stored);
         assert_eq!(chat.keys, "Ctrl+Shift+K");
         let alert = effective(find("goToAlert").unwrap(), &stored);
@@ -521,8 +517,8 @@ mod tests {
         let toggle = effective(find("toggleIsland").unwrap(), &stored);
         assert!(!toggle.enabled);
         let plan = plan(&stored, never);
-        let mute = plan.iter().find(|(d, _)| d.id == "muteToggle").unwrap();
-        assert_eq!(mute.1.as_ref().unwrap_err().status, Status::Off);
+        let next = plan.iter().find(|(d, _)| d.id == "nextPill").unwrap();
+        assert_eq!(next.1.as_ref().unwrap_err().status, Status::Off);
     }
 
     // testLoadSaveRoundTrip
@@ -541,11 +537,12 @@ mod tests {
     #[test]
     fn the_command_line_names_an_action() {
         let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "openChat"])), Some("openChat"));
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "wardrobeToggle"])), Some("wardrobeToggle"));
-        assert_eq!(from_args(&args(&["coucou", "--shortcut"])), None);
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "rm -rf"])), None);
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "desktopToggle"])), None);
-        assert_eq!(from_args(&args(&["coucou"])), None);
+        assert_eq!(from_args(&args(&["glim", "--shortcut", "openChat"])), Some("openChat"));
+        assert_eq!(from_args(&args(&["glim", "--shortcut", "wardrobeToggle"])), None);
+        assert_eq!(from_args(&args(&["glim", "--shortcut", "muteToggle"])), None);
+        assert_eq!(from_args(&args(&["glim", "--shortcut"])), None);
+        assert_eq!(from_args(&args(&["glim", "--shortcut", "rm -rf"])), None);
+        assert_eq!(from_args(&args(&["glim", "--shortcut", "desktopToggle"])), None);
+        assert_eq!(from_args(&args(&["glim"])), None);
     }
 }

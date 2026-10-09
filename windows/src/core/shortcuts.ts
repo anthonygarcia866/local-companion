@@ -26,8 +26,8 @@ export const SHORTCUT_TEXT = {
   attachFrontWindow: N_("Attach the front window to the chat"),
   nextPill: N_("Next pill"),
   prevPill: N_("Previous pill"),
-  muteToggle: N_("Mute or unmute Mochi"),
-  desktopToggle: N_("Send Mochi to the desktop"),
+  muteToggle: N_("Mute or unmute Glim"),
+  desktopToggle: N_("Send Glim to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
   island: {
     nextPrev: N_("Next or previous pill"),
@@ -75,9 +75,10 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("attachFrontWindow", "Ctrl+Alt+F", true, false),
   def("nextPill", "Ctrl+Alt+Right", true, true),
   def("prevPill", "Ctrl+Alt+Left", true, true),
-  def("muteToggle", "Ctrl+Alt+S", true, true),
+  // No sounds and no wardrobe in Glim yet: reserved like the other unported ones.
+  def("muteToggle", "Ctrl+Alt+S", true, false),
   def("desktopToggle", "Ctrl+Alt+D", true, false),
-  def("wardrobeToggle", "Ctrl+Alt+G", true, true),
+  def("wardrobeToggle", "Ctrl+Alt+G", true, false),
 ];
 
 export interface Binding {

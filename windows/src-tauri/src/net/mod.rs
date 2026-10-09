@@ -1,14 +1,19 @@
-// Network helpers shared by the chat providers: address checks, bounded reads
-// and HTTP clients.
+// THE network choke point. This module is the only code in the app allowed to
+// make an outbound request: nothing else imports the HTTP client (a test below
+// scans the sources and fails if anything does).
 //
-// Every answer a server sends is read with a ceiling, so a misbehaving or
-// hostile server (a local model address can point anywhere) cannot make the
-// app hold an unbounded amount of memory.
+// Phase 0 allowlist: http(s) to `127.0.0.1` or `localhost`, any port. Anything
+// else (another host, a LAN address, a redirect that leaves this machine, a
+// system proxy) is refused before a socket is opened. Ollama and LM Studio are
+// the only callers (local_chat.rs).
+//
+// Every answer a server sends is read with a ceiling, so a misbehaving local
+// server cannot make the app hold an unbounded amount of memory.
 
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use reqwest::Url;
+pub use reqwest::{Method, RequestBuilder, Response, Url};
 
 use crate::i18n::{t, tf};
 
@@ -43,7 +48,8 @@ pub fn is_loopback_url(url: &Url) -> bool {
 /// a missing scheme becomes `http://`, trailing slashes and the documentation
 /// sub-paths people paste (`/api`, `/v1`) go, and the loopback names become
 /// 127.0.0.1 — on Windows `localhost` may resolve to ::1 first while Ollama
-/// only listens on IPv4. Only http and https, and no `user:password@`.
+/// only listens on IPv4. Only http and https, no `user:password@`, and only
+/// an address the allowlist accepts.
 pub fn normalise_server_url(raw: &str) -> Result<Url, String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -72,6 +78,8 @@ pub fn normalise_server_url(raw: &str) -> Result<Url, String> {
     url.set_path(&path);
     url.set_query(None);
     url.set_fragment(None);
+    // Only a server on this machine can be connected at all.
+    check(&url)?;
     Ok(url)
 }
 
@@ -80,49 +88,66 @@ pub fn join(base: &Url, tail: &str) -> String {
     format!("{}/{}", base.as_str().trim_end_matches('/'), tail.trim_start_matches('/'))
 }
 
-/// The Messages endpoint for an Anthropic-compatible gateway given in
-/// COUCOU_ANTHROPIC_BASE_URL. A base URL (`https://gw.example.com`,
-/// `…/v1`) gets `/v1/messages` added; a full endpoint is kept. The key goes
-/// wherever this points, so it must be https — plain http only to this machine.
-pub fn anthropic_endpoint(raw: &str) -> Result<Url, String> {
-    const VAR: &str = "COUCOU_ANTHROPIC_BASE_URL";
-    let mut url = Url::parse(raw.trim()).map_err(|_| format!("{VAR} is not a valid URL."))?;
-    match url.scheme() {
-        "https" => {}
-        "http" if is_loopback_url(&url) => {}
-        "http" => return Err(format!("{VAR} must use https:// (plain http only to this computer).")),
-        _ => return Err(format!("{VAR} must start with https://.")),
-    }
-    if !url.username().is_empty() || url.password().is_some() || url.host_str().is_none() {
-        return Err(format!("{VAR} must not carry a user name or password."));
-    }
-    let path = url.path().trim_end_matches('/').to_string();
-    let path = if path.ends_with("/v1/messages") {
-        path
-    } else if path.ends_with("/v1") {
-        format!("{path}/messages")
+// ── The allowlist ─────────────────────────────────────────────────────────────
+
+/// The only hosts a request may go to. Exact names: not `::1`, not other
+/// 127.x addresses, not `*.localhost`.
+pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
+
+/// Why a request was refused, for the message and the log.
+pub fn refusal(url: &str) -> String {
+    tf("Blocked: Glim only connects to this computer (127.0.0.1 or localhost), not {url}.", &[("url", url)])
+}
+
+/// Ok when `url` may be requested: http or https, no credentials, and a host
+/// on the allowlist. Every request and every redirect hop passes through here.
+pub fn check(url: &Url) -> Result<(), String> {
+    let allowed = matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url
+            .host_str()
+            .map(|h| h.to_ascii_lowercase())
+            .is_some_and(|h| ALLOWED_HOSTS.contains(&h.as_str()));
+    if allowed {
+        Ok(())
     } else {
-        format!("{path}/v1/messages")
-    };
-    url.set_path(&path);
-    url.set_fragment(None);
+        Err(refusal(&host_for_log(url)))
+    }
+}
+
+/// `check` for a URL as text.
+pub fn check_str(raw: &str) -> Result<Url, String> {
+    let url = Url::parse(raw.trim()).map_err(|_| refusal(raw.trim()))?;
+    check(&url)?;
     Ok(url)
 }
 
-/// A client for `url`: requests to this machine skip any system proxy, which
-/// would otherwise see (and usually fail) a loopback address.
-pub fn client(url: &Url, timeout: Duration) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
+/// A request to `url`, or an error if the allowlist refuses it. The client:
+/// * never uses a proxy (a system proxy would carry the request off the machine);
+/// * resolves `localhost` to 127.0.0.1 itself, whatever the hosts file says;
+/// * follows a redirect only to another allowed address.
+///
+/// The returned builder can take headers and a body, but not a new URL.
+pub fn request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBuilder, String> {
+    check(url)?;
+    let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10).min(timeout))
-        .timeout(timeout);
-    if is_loopback_url(url) {
-        builder = builder.no_proxy();
-    }
-    builder.build().map_err(|e| e.to_string())
+        .timeout(timeout)
+        .no_proxy()
+        .resolve("localhost", SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| match check(attempt.url()) {
+            Ok(()) if attempt.previous().len() < 5 => attempt.follow(),
+            Ok(()) => attempt.stop(),
+            Err(e) => attempt.error(e),
+        }))
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(client.request(method, url.clone()))
 }
 
 /// The body of `response`, refused past `limit` bytes.
-pub async fn read_capped(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
+pub async fn read_capped(mut response: Response, limit: usize) -> Result<Vec<u8>, String> {
     if response.content_length().is_some_and(|n| n > limit as u64) {
         return Err(t("The server's answer is too large."));
     }
@@ -150,7 +175,7 @@ pub fn error_detail(body: &[u8]) -> String {
         if let Some(m) = v.get("message").and_then(|m| m.as_str()) {
             return m.to_string();
         }
-        // Gemini answers some errors as a one-element array.
+        // Some servers answer errors as a one-element array.
         if let Some(m) = v.pointer("/0/error/message").and_then(|m| m.as_str()) {
             return m.to_string();
         }
@@ -190,8 +215,11 @@ pub(crate) mod tests {
         assert_eq!(n("localhost:11434/api").unwrap(), "http://127.0.0.1:11434/");
         assert_eq!(n("0.0.0.0:11434").unwrap(), "http://127.0.0.1:11434/");
         assert_eq!(n("http://[::1]:8000").unwrap(), "http://127.0.0.1:8000/");
-        assert_eq!(n("https://llm.example.com/proxy/v1?x=1#y").unwrap(), "https://llm.example.com/proxy");
-        assert_eq!(n("gpu-box.lan:8000").unwrap(), "http://gpu-box.lan:8000/");
+        assert_eq!(n("http://127.0.0.1:1234/proxy/v1?x=1#y").unwrap(), "http://127.0.0.1:1234/proxy");
+        // Anything off this machine is refused at the door.
+        assert!(n("https://llm.example.com/proxy/v1").unwrap_err().starts_with("Blocked"));
+        assert!(n("gpu-box.lan:8000").unwrap_err().starts_with("Blocked"));
+        assert!(n("192.168.1.20:11434").unwrap_err().starts_with("Blocked"));
     }
 
     #[test]
@@ -208,24 +236,8 @@ pub(crate) mod tests {
     fn join_puts_one_slash_between_base_and_path() {
         let base = normalise_server_url("http://127.0.0.1:11434").unwrap();
         assert_eq!(join(&base, "/v1/models"), "http://127.0.0.1:11434/v1/models");
-        let base = Url::parse("https://api.openai.com/v1").unwrap();
-        assert_eq!(join(&base, "chat/completions"), "https://api.openai.com/v1/chat/completions");
-    }
-
-    #[test]
-    fn the_anthropic_gateway_is_taken_as_a_base_url_and_must_be_https() {
-        let e = |s: &str| anthropic_endpoint(s).map(|u| u.to_string());
-        assert_eq!(e("https://gw.example.com").unwrap(), "https://gw.example.com/v1/messages");
-        assert_eq!(e("https://gw.example.com/").unwrap(), "https://gw.example.com/v1/messages");
-        assert_eq!(e("https://gw.example.com/anthropic").unwrap(), "https://gw.example.com/anthropic/v1/messages");
-        assert_eq!(e("https://gw.example.com/v1").unwrap(), "https://gw.example.com/v1/messages");
-        assert_eq!(e("https://gw.example.com/v1/messages/").unwrap(), "https://gw.example.com/v1/messages");
-        assert_eq!(e(" http://localhost:4000 ").unwrap(), "http://localhost:4000/v1/messages");
-        assert_eq!(e("http://127.0.0.1:4000/v1").unwrap(), "http://127.0.0.1:4000/v1/messages");
-        assert!(e("http://gw.example.com").is_err());
-        assert!(e("ftp://gw.example.com").is_err());
-        assert!(e("https://me:secret@gw.example.com").is_err());
-        assert!(e("not a url").is_err());
+        let base = Url::parse("http://localhost:1234/v1").unwrap();
+        assert_eq!(join(&base, "chat/completions"), "http://localhost:1234/v1/chat/completions");
     }
 
     #[test]
@@ -269,7 +281,7 @@ pub(crate) mod tests {
     fn a_body_past_the_ceiling_is_refused_with_or_without_a_length() {
         let get = |url: String| async move {
             let url = Url::parse(&url).unwrap();
-            let response = client(&url, Duration::from_secs(5)).unwrap().get(url).send().await.unwrap();
+            let response = request(Method::GET, &url, Duration::from_secs(5)).unwrap().send().await.unwrap();
             read_capped(response, 1000).await
         };
         // Declared length too large.
@@ -281,5 +293,101 @@ pub(crate) mod tests {
         // Under the ceiling: read whole.
         let url = serve_once("200 OK", "Content-Length: 3\r\n", b"abc".to_vec());
         assert_eq!(block_on(get(url)).unwrap(), b"abc");
+    }
+
+    // ── The allowlist, tested by actually trying ──────────────────────────────
+
+    #[test]
+    fn only_127_0_0_1_and_localhost_are_allowed() {
+        for ok in ["http://127.0.0.1:11434/v1/models", "http://localhost:1234", "https://LOCALHOST:8443/x", "http://127.0.0.1"] {
+            assert!(check_str(ok).is_ok(), "{ok}");
+        }
+        for no in [
+            "https://example.com",
+            "http://example.com:11434",
+            "http://192.168.1.10:11434",
+            "http://10.0.0.2",
+            "http://[::1]:11434",
+            "http://127.0.0.2",
+            "http://0.0.0.0:11434",
+            "http://app.localhost",
+            "http://localhost.example.com",
+            "http://127.0.0.1.nip.io",
+            "http://user:pw@127.0.0.1",
+            "ftp://127.0.0.1",
+            "file:///C:/Windows/win.ini",
+            "not a url",
+        ] {
+            assert!(check_str(no).is_err(), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_request_to_an_external_host_is_refused_before_anything_is_sent() {
+        let url = Url::parse("https://example.com").unwrap();
+        let err = request(Method::GET, &url, Duration::from_secs(5)).err().expect("refused");
+        assert!(err.contains("example.com"), "{err}");
+        assert!(err.starts_with("Blocked"), "{err}");
+        // And through the same path a caller would use end to end.
+        let result = block_on(async { request(Method::GET, &url, Duration::from_secs(5))?.send().await.map_err(|e| e.to_string()) });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_redirect_off_this_machine_is_refused() {
+        let url = serve_once("302 Found", "Location: https://example.com/\r\nContent-Length: 0\r\n", Vec::new());
+        let url = Url::parse(&url).unwrap();
+        let result = block_on(async { request(Method::GET, &url, Duration::from_secs(5)).unwrap().send().await });
+        let err = result.expect_err("the redirect must not be followed");
+        assert!(err.is_redirect(), "{err:?}");
+    }
+
+    #[test]
+    fn a_system_proxy_is_never_used() {
+        // A proxy that would answer for every host: requests must still go
+        // straight to the local server.
+        let proxy = serve_once("200 OK", "Content-Length: 5\r\n", b"proxy".to_vec());
+        let server = serve_once("200 OK", "Content-Length: 6\r\n", b"direct".to_vec());
+        std::env::set_var("HTTP_PROXY", &proxy);
+        std::env::set_var("ALL_PROXY", &proxy);
+        let url = Url::parse(&server).unwrap();
+        let body = block_on(async {
+            let r = request(Method::GET, &url, Duration::from_secs(5)).unwrap().send().await.unwrap();
+            read_capped(r, 100).await.unwrap()
+        });
+        std::env::remove_var("HTTP_PROXY");
+        std::env::remove_var("ALL_PROXY");
+        assert_eq!(body, b"direct");
+    }
+
+    /// The choke point is only a choke point if nothing goes around it: no
+    /// source file outside src/net/ may name the HTTP client or open a socket.
+    #[test]
+    fn no_other_module_can_reach_the_network() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let forbidden = [
+            "reqwest", "TcpStream", "TcpListener", "UdpSocket", "tokio::net::Tcp", "tokio::net::Udp",
+            "ToSocketAddrs", "WinHttp", "WinInet", "URLDownloadToFile",
+        ];
+        let mut offenders = Vec::new();
+        let mut stack = vec![src.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    if path != src.join("net") {
+                        stack.push(path);
+                    }
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for word in forbidden {
+                        if text.contains(word) {
+                            offenders.push(format!("{} uses {word}", path.display()));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "network access outside src/net/: {offenders:#?}");
     }
 }

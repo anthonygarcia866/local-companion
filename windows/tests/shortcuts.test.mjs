@@ -65,13 +65,15 @@ test("the defaults are the same on both sides of the bridge", () => {
 });
 
 // testEnabledByDefault
-test("only the island toggle is off by default; the two not ported yet are reserved", () => {
+test("only the island toggle is off by default; the four not in this version are reserved", () => {
+  // Mute and the wardrobe went with upstream's sounds and outfits.
+  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle"];
   for (const d of SHORTCUTS) {
     assert.equal(d.enabledByDefault, d.id !== "toggleIsland", d.id);
-    assert.equal(d.ported, !["attachFrontWindow", "desktopToggle"].includes(d.id), d.id);
+    assert.equal(d.ported, !reserved.includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "wardrobeToggle",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill",
   ]);
 });
 
@@ -247,7 +249,6 @@ const host = {
   emote: (e) => did.push(`emote:${e}`),
   setPinned: (on) => did.push(`pin:${on}`),
   takeKeyboard: () => did.push("keyboard"),
-  wardrobeAnywhere: () => did.push("wardrobe"),
 };
 const resume = () => did.push("resume");
 // The island listens on `window`, which here is the bare global object.
@@ -266,13 +267,9 @@ beforeEach(() => {
   State.pendingApproval = null;
   State.stateOverride = null;
   State.chatHistory = [];
-  State.settings = { ...DEFAULT_SETTINGS };
+  // Three pills, for the pill keys to move between.
+  State.settings = { ...DEFAULT_SETTINGS, activeIntegrations: ["ai_ollama", "ai_lmstudio"] };
   State.loadIntegrationTasks();
-});
-
-test("the wardrobe shortcut's own event opens the wardrobe", () => {
-  emit("open-wardrobe", null);
-  assert.deepEqual(did, ["resume", "wardrobe"]);
 });
 
 test("a global shortcut arrives as an event and opens the chat", () => {
@@ -394,17 +391,8 @@ test("next and previous pill wrap around and open the overview", () => {
   assert.deepEqual(did, ["resume", "alert:overview", "resume", "alert:overview"]);
 });
 
-test("mute flips the sound, saves it, and Mochi reacts", () => {
-  runGlobalShortcut(host, "muteToggle", resume);
-  assert.equal(State.settings.soundEnabled, false);
-  assert.equal(sent("save_settings").at(-1).settings.soundEnabled, false);
-  runGlobalShortcut(host, "muteToggle", resume);
-  assert.equal(State.settings.soundEnabled, true);
-  assert.deepEqual(did, ["emote:annoyed", "emote:happy"]);
-});
-
 test("actions that aren't the island's do nothing here", () => {
-  for (const id of ["wardrobeToggle", "attachFrontWindow", "desktopToggle", "nonsense"]) {
+  for (const id of ["muteToggle", "wardrobeToggle", "attachFrontWindow", "desktopToggle", "nonsense"]) {
     runGlobalShortcut(host, id, resume);
   }
   assert.deepEqual(did, []);

@@ -1,10 +1,10 @@
-// The chat, whoever answers it: the conversation, the system prompt, and which
-// provider a turn goes to. Each provider's own wire format lives in its module:
-// claude.rs (Anthropic), openai_compat.rs (OpenAI, Google AI, OpenRouter) and
-// local_chat.rs (Ollama, LM Studio, any OpenAI-compatible server).
+// The chat: the conversation, the system prompt, and which local model server
+// a turn goes to. The wire format lives in local_chat.rs (Ollama, LM Studio).
+// There are no cloud providers and no API keys: the only servers are on this
+// machine, and net/ refuses anything else.
 //
-// API keys never leave the credential store and file bytes never cross the IPC
-// boundary: the island sends the question and gets the answer's text back.
+// File bytes never cross the IPC boundary: the island sends the question and
+// gets the answer's text back.
 
 use std::sync::Mutex;
 
@@ -13,9 +13,10 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::settings::Settings;
-use crate::{claude, local_chat, openai_compat, secrets};
+use crate::local_chat;
 
-pub const ANTHROPIC: &str = "anthropic";
+/// The provider a fresh install talks to.
+pub const DEFAULT_PROVIDER: &str = "ollama";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -41,8 +42,7 @@ pub struct ModelInfo {
 // ── Conversation ──────────────────────────────────────────────────────────────
 
 /// The conversation is kept twice: in the wire format of the provider that
-/// answered last (Claude's carries web search blocks no other provider would
-/// understand), and as plain text turns. Switching provider mid-conversation
+/// answered last, and as plain text turns. Switching provider mid-conversation
 /// rebuilds the history from the plain turns, so nothing in one provider's
 /// format is ever sent to another.
 #[derive(Default)]
@@ -111,25 +111,19 @@ impl Chat {
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-/// Mochi's instructions. Greets the user by their first name when the account
-/// has one worth using (identity.rs), and only claims web search where the
-/// provider runs it (Claude).
-pub fn system_prompt(web_search: bool) -> String {
-    system_prompt_for(crate::identity::first_name(), web_search)
+/// Glim's instructions. Greets the user by their first name when the account
+/// has one worth using (identity.rs).
+pub fn system_prompt() -> String {
+    system_prompt_for(crate::identity::first_name())
 }
 
-fn system_prompt_for(first_name: Option<&str>, web_search: bool) -> String {
+fn system_prompt_for(first_name: Option<&str>) -> String {
     let opening = match first_name {
-        Some(name) => format!("You are Mochi, {name}'s personal AI assistant living at the top of their screen."),
-        None => "You are Mochi, a personal AI assistant living at the top of the user's screen.".to_string(),
-    };
-    let abilities = if web_search {
-        "You have web search access and can help with absolutely anything — research, coding, finding places, recommendations, tasks, questions."
-    } else {
-        "You can help with absolutely anything — research, coding, recommendations, tasks, questions. You have no web access: say so when something needs current information."
+        Some(name) => format!("You are Glim, {name}'s personal AI assistant living at the top of their screen."),
+        None => "You are Glim, a personal AI assistant living at the top of the user's screen.".to_string(),
     };
     format!(
-        "{opening} {abilities} \
+        "{opening} You run entirely on this computer and have no web access: say so when something needs current information. \
 Respond in the user's language. Be thorough and complete — use as much detail as the task requires. \
 Use light Markdown when it helps: short paragraphs, bullet lists, **bold**, `inline code` and fenced code blocks. Avoid tables and big headings: the chat window is small."
     )
@@ -157,22 +151,19 @@ pub fn plain_question(first: bool, context: Option<&ChatContext>, query: &str) -
 
 // ── Which provider ────────────────────────────────────────────────────────────
 
-/// The model chosen for `provider`, or its default.
+/// The model chosen for `provider`; empty until one is picked.
 pub fn model_for(settings: &Settings, provider: &str) -> String {
-    if provider == ANTHROPIC {
-        let m = settings.model.trim();
-        return if m.is_empty() { claude::DEFAULT_MODEL.to_string() } else { m.to_string() };
-    }
-    settings
-        .chat_models
-        .get(provider)
-        .map(|m| m.trim().to_string())
-        .filter(|m| !m.is_empty())
-        .or_else(|| openai_compat::provider(provider).map(|p| p.default_model.to_string()))
-        .unwrap_or_default()
+    settings.chat_models.get(provider).map(|m| m.trim().to_string()).unwrap_or_default()
 }
 
-/// A file rides along only if it is one of Coucou's own copies of a dropped
+/// The provider in the settings, or the default when it is not a local server
+/// (a settings.json from before the cloud providers were removed).
+fn provider_of(settings: &Settings) -> &str {
+    let p = settings.chat_provider.as_str();
+    if local_chat::server(settings, p).is_some() { p } else { DEFAULT_PROVIDER }
+}
+
+/// A file rides along only if it is one of the app's own copies of a dropped
 /// file (files.rs puts them in the inbox). The page names the path, so without
 /// this any file the user can read could be sent to a chat provider.
 fn checked_context(context: ChatContext) -> Result<ChatContext, String> {
@@ -196,7 +187,7 @@ fn is_inside(dir: &std::path::Path, path: &std::path::Path) -> bool {
         && std::fs::symlink_metadata(&file).map(|m| m.is_file()).unwrap_or(false)
 }
 
-/// One chat turn with the provider chosen in the settings.
+/// One chat turn with the local server chosen in the settings.
 pub async fn send(
     app: &AppHandle,
     chat: &Chat,
@@ -205,37 +196,19 @@ pub async fn send(
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
     let context = context.map(checked_context).transpose()?;
-    let provider = settings.chat_provider.as_str();
+    let provider = provider_of(settings);
     let model = model_for(settings, provider);
-    if provider == ANTHROPIC || provider.is_empty() {
-        return claude::send(chat, &model, query, context).await;
-    }
-    if let Some(p) = openai_compat::provider(provider) {
-        return openai_compat::send(chat, p, &model, query, context).await;
-    }
-    if let Some(server) = local_chat::server(settings, provider) {
-        return local_chat::send(app, chat, &server, &model, query, context).await;
-    }
-    Err(format!("Unknown chat provider: {provider}"))
+    let server = local_chat::server(settings, provider).ok_or_else(|| format!("Unknown chat provider: {provider}"))?;
+    local_chat::send(app, chat, &server, &model, query, context).await
 }
 
-/// The models `provider` offers. Asked only when the user opens the picker on
-/// that provider, and only once it has a key (or, for a local server, an
-/// address): nothing is sent anywhere before that.
+/// The models a local server offers. Asked only when the user opens the
+/// picker on that server, and only once it has an address.
 pub async fn models(settings: &Settings, provider: &str) -> Result<Vec<ModelInfo>, String> {
-    let no_key = || crate::i18n::t("No API key — add it in Settings.");
-    if provider == ANTHROPIC {
-        let key = secrets::get(claude::KEY).ok_or_else(no_key)?;
-        return claude::models(&key).await;
+    match local_chat::server(settings, provider) {
+        Some(server) => local_chat::models(&server).await,
+        None => Err(format!("Unknown chat provider: {provider}")),
     }
-    if let Some(p) = openai_compat::provider(provider) {
-        let key = secrets::get(p.key).ok_or_else(no_key)?;
-        return openai_compat::models(p, &key).await;
-    }
-    if let Some(server) = local_chat::server(settings, provider) {
-        return local_chat::models(&server).await;
-    }
-    Err(format!("Unknown chat provider: {provider}"))
 }
 
 #[cfg(test)]
@@ -252,71 +225,55 @@ mod tests {
     #[test]
     fn a_turn_is_recorded_only_once_it_succeeds() {
         let chat = Chat::default();
-        let t = chat.begin("anthropic");
+        let t = chat.begin("ollama");
         assert!(t.first);
         assert!(t.history.is_empty());
         // A failed turn records nothing: the next one is still the first.
-        let t = chat.begin("anthropic");
+        let t = chat.begin("ollama");
         assert!(t.first);
         chat.commit(&t, json!({"role":"user","content":[{"type":"text","text":"hi"}]}), json!({"role":"assistant","content":[{"type":"text","text":"hello"}]}), "hi", "hello");
-        let t = chat.begin("anthropic");
+        let t = chat.begin("ollama");
         assert!(!t.first);
         assert_eq!(t.history.len(), 2);
         assert!(t.history[0]["content"].is_array());
     }
 
     #[test]
-    fn switching_provider_never_sends_claude_blocks_to_another_one() {
+    fn switching_provider_rebuilds_the_history_from_plain_turns() {
         let chat = Chat::default();
-        let t = chat.begin("anthropic");
-        let blocks = json!([
-            {"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"x"}},
-            {"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[]},
-            {"type":"text","text":"Found it."}
-        ]);
-        chat.commit(&t, json!({"role":"user","content":[{"type":"text","text":"look"}]}), json!({"role":"assistant","content":blocks}), "look", "Found it.");
+        let t = chat.begin("ollama");
+        chat.commit(&t, json!({"role":"user","content":[{"type":"text","text":"look"}]}), json!({"role":"assistant","content":[{"type":"text","text":"Found it."}]}), "look", "Found it.");
 
-        let t = chat.begin("openai");
+        let t = chat.begin("lmstudio");
         assert!(!t.first);
         assert_eq!(
             turn_texts(&t.history),
             vec![("user".into(), json!("look")), ("assistant".into(), json!("Found it."))]
         );
-        let raw = serde_json::to_string(&t.history).unwrap();
-        assert!(!raw.contains("web_search"), "{raw}");
-
-        // And back: Claude gets the plain turns too, including OpenAI's answer.
-        chat.commit(&t, json!({"role":"user","content":"more"}), json!({"role":"assistant","content":"Sure."}), "more", "Sure.");
-        let t = chat.begin("anthropic");
-        assert_eq!(t.history.len(), 4);
-        assert_eq!(t.history[3], json!({"role":"assistant","content":"Sure."}));
-        assert!(!serde_json::to_string(&t.history).unwrap().contains("web_search"));
     }
 
     #[test]
     fn an_answer_that_lands_after_a_reset_or_a_switch_is_dropped() {
         let chat = Chat::default();
-        let t = chat.begin("openai");
+        let t = chat.begin("lmstudio");
         chat.reset();
         chat.commit(&t, json!({"role":"user","content":"q"}), json!({"role":"assistant","content":"a"}), "q", "a");
-        assert!(chat.begin("openai").first);
+        assert!(chat.begin("lmstudio").first);
 
-        let t = chat.begin("openai");
-        let _other = chat.begin("google");
+        let t = chat.begin("lmstudio");
+        let _other = chat.begin("ollama");
         chat.commit(&t, json!({"role":"user","content":"q"}), json!({"role":"assistant","content":"a"}), "q", "a");
-        assert!(chat.begin("google").first);
+        assert!(chat.begin("ollama").first);
     }
 
     #[test]
-    fn the_prompt_greets_by_first_name_and_claims_web_search_only_for_claude() {
-        let p = system_prompt_for(Some("Louis"), true);
-        assert!(p.starts_with("You are Mochi, Louis's personal AI assistant living at the top of their screen."));
-        assert!(p.contains("web search access"));
-        assert!(p.contains("light Markdown"));
-        let p = system_prompt_for(None, false);
-        assert!(p.starts_with("You are Mochi, a personal AI assistant living at the top of the user's screen."));
-        assert!(!p.contains("web search"));
+    fn the_prompt_greets_by_first_name_and_says_it_is_offline() {
+        let p = system_prompt_for(Some("Ada"));
+        assert!(p.starts_with("You are Glim, Ada's personal AI assistant living at the top of their screen."));
         assert!(p.contains("no web access"));
+        assert!(p.contains("light Markdown"));
+        let p = system_prompt_for(None);
+        assert!(p.starts_with("You are Glim, a personal AI assistant living at the top of the user's screen."));
     }
 
     #[test]
@@ -330,22 +287,24 @@ mod tests {
     }
 
     #[test]
-    fn the_model_comes_from_the_settings_or_the_provider_default() {
+    fn the_model_comes_from_the_settings_and_only_local_servers_are_used() {
         let mut s = Settings::default();
-        assert_eq!(model_for(&s, "anthropic"), claude::DEFAULT_MODEL);
-        assert_eq!(model_for(&s, "openai"), openai_compat::provider("openai").unwrap().default_model);
         assert_eq!(model_for(&s, "ollama"), "");
-        s.chat_models.insert("openai".into(), " gpt-x ".into());
-        s.chat_models.insert("ollama".into(), "llama3.2".into());
-        s.model = "claude-haiku-4-5".into();
-        assert_eq!(model_for(&s, "openai"), "gpt-x");
+        s.chat_models.insert("ollama".into(), " llama3.2 ".into());
         assert_eq!(model_for(&s, "ollama"), "llama3.2");
-        assert_eq!(model_for(&s, "anthropic"), "claude-haiku-4-5");
+        assert_eq!(provider_of(&s), "ollama");
+        // A cloud provider left in an old settings.json falls back to Ollama.
+        for old in ["anthropic", "openai", "google", "openrouter", "custom", ""] {
+            s.chat_provider = old.into();
+            assert_eq!(provider_of(&s), "ollama", "{old}");
+        }
+        s.chat_provider = "lmstudio".into();
+        assert_eq!(provider_of(&s), "lmstudio");
     }
 
     #[test]
     fn only_files_in_the_inbox_ride_along() {
-        let base = std::env::temp_dir().join(format!("coucou-chat-ctx-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("glim-chat-ctx-{}", std::process::id()));
         let inbox = base.join("inbox");
         std::fs::create_dir_all(inbox.join("sub")).unwrap();
         std::fs::write(inbox.join("a.txt"), b"a").unwrap();

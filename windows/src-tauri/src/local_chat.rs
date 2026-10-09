@@ -1,18 +1,16 @@
-// Chat with a model server the user runs: Ollama, LM Studio, or any other
-// server that speaks the OpenAI API (vLLM, llama.cpp, Unsloth…) — the same
-// integration as LocalChat.swift, plus that last one.
+// Chat with a model server the user runs on this machine: Ollama or LM Studio,
+// through the OpenAI-compatible API both of them serve.
 //
 // The answer is streamed token by token. Each step goes to the island as a
 // `chat-delta` event carrying the text visible so far, and the island shows it
 // growing; the reply of the command is the finished text. `<think>` blocks of
 // reasoning models stay hidden while open and are dropped from the answer.
 //
-// Nothing leaves the machine unless the user pointed the server address
-// somewhere else: that address is the only place this module talks to.
+// Nothing leaves the machine: every request goes through net::request, which
+// only allows 127.0.0.1 and localhost.
 
 use std::time::{Duration, Instant};
 
-use reqwest::Url;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
@@ -21,10 +19,7 @@ use crate::chat::{self, Chat, ChatContext, ChatReply, ModelInfo};
 use crate::island::WINDOW_LABEL;
 use crate::settings::Settings;
 use crate::i18n::{t, tf};
-use crate::{net, secrets};
-
-/// Credential store entry of the key of the user's own OpenAI-compatible server.
-pub const CUSTOM_KEY: &str = "openai-compatible-key";
+use crate::net::{self, Method, Url};
 
 const MAX_TOKENS: u32 = 4096;
 /// A text file is sent inline up to this many characters; the rest is cut.
@@ -34,50 +29,10 @@ const DELTA_INTERVAL: Duration = Duration::from_millis(1000 / 15);
 /// Ceilings for a streamed answer: one event line, and the whole answer.
 const MAX_LINE: usize = 1024 * 1024;
 const MAX_ANSWER: usize = 4 * 1024 * 1024;
-/// Ollama and LM Studio ignore the key, but some clients insist on sending one.
-const NO_KEY: &str = "ollama";
+/// Ollama and LM Studio ignore the key, but expect the header to be there.
+const BEARER: &str = "Bearer ollama";
 /// Models that embed or rank rather than chat are left out of the list.
 const NOT_CHAT: &[&str] = &["embed", "bge-", "all-minilm", "clip", "rerank"];
-
-// ── The custom server's key ───────────────────────────────────────────────────
-//
-// The key is stored together with the one address it was entered for, and is
-// only ever sent there. The address in the settings, or the one given to
-// "Connect", can be changed from the page; the key cannot follow it. And a key
-// never goes over plain http to another machine.
-
-#[derive(Serialize, serde::Deserialize)]
-struct BoundKey {
-    url: String,
-    key: String,
-}
-
-fn may_carry_key(url: &Url) -> bool {
-    url.scheme() == "https" || net::is_loopback_url(url)
-}
-
-/// Settings → Local models: stores the key for the address typed next to it.
-pub fn set_custom_key(typed_url: &str, key: &str) -> Result<(), String> {
-    let url = net::normalise_server_url(typed_url)?;
-    if !may_carry_key(&url) {
-        return Err(t("A key is only sent over https, or to a server on this computer."));
-    }
-    let bound = BoundKey { url: url.as_str().trim_end_matches('/').to_string(), key: key.trim().to_string() };
-    let value = serde_json::to_string(&bound).map_err(|e| e.to_string())?;
-    secrets::set(CUSTOM_KEY, &value)
-}
-
-/// The key, if it was entered for exactly this address.
-fn custom_key_for(url: &Url) -> Option<String> {
-    let stored = secrets::get(CUSTOM_KEY)?;
-    key_for(&stored, url)
-}
-
-fn key_for(stored: &str, url: &Url) -> Option<String> {
-    let bound: BoundKey = serde_json::from_str(stored).ok()?;
-    (may_carry_key(url) && bound.url == url.as_str().trim_end_matches('/') && !bound.key.is_empty())
-        .then_some(bound.key)
-}
 
 /// A model server as the settings describe it.
 pub struct Server {
@@ -85,25 +40,20 @@ pub struct Server {
     pub name: &'static str,
     /// As stored: empty until the user connects it.
     pub url: String,
-    pub key: Option<String>,
 }
 
-/// Ollama, LM Studio or "custom", from the settings; None for any other id.
+/// Ollama or LM Studio, from the settings; None for any other id.
 pub fn server(settings: &Settings, id: &str) -> Option<Server> {
-    let (id, name, url, key) = match id {
-        "ollama" => ("ollama", "Ollama", &settings.ollama_url, None),
-        "lmstudio" => ("lmstudio", "LM Studio", &settings.lmstudio_url, None),
-        "custom" => {
-            let key = net::normalise_server_url(&settings.custom_url).ok().and_then(|u| custom_key_for(&u));
-            ("custom", crate::i18n::n_("OpenAI-compatible server"), &settings.custom_url, key)
-        }
+    let (id, name, url) = match id {
+        "ollama" => ("ollama", "Ollama", &settings.ollama_url),
+        "lmstudio" => ("lmstudio", "LM Studio", &settings.lmstudio_url),
         _ => return None,
     };
-    Some(Server { id, name, url: url.clone(), key })
+    Some(Server { id, name, url: url.clone() })
 }
 
-/// The usual address of a server on this machine; none for "custom". Ollama's
-/// own OLLAMA_HOST wins when it is set, as the Ollama CLI does.
+/// The usual address of the server on this machine. Ollama's own OLLAMA_HOST
+/// wins when it is set, as the Ollama CLI does (the allowlist still applies).
 fn usual_address(id: &str) -> Option<String> {
     match id {
         "ollama" => Some(
@@ -115,10 +65,6 @@ fn usual_address(id: &str) -> Option<String> {
         "lmstudio" => Some("http://127.0.0.1:1234".into()),
         _ => None,
     }
-}
-
-fn bearer(key: Option<&str>) -> String {
-    format!("Bearer {}", key.filter(|k| !k.is_empty()).unwrap_or(NO_KEY))
 }
 
 fn unreachable(url: &Url) -> String {
@@ -147,8 +93,7 @@ pub struct Connected {
 pub async fn connect(id: &str, typed: &str) -> Result<Connected, String> {
     let raw = if typed.trim().is_empty() { usual_address(id).unwrap_or_default() } else { typed.to_string() };
     let url = net::normalise_server_url(&raw)?;
-    let key = if id == "custom" { custom_key_for(&url) } else { None };
-    let models = list(&url, key.as_deref()).await?;
+    let models = list(&url).await?;
     Ok(Connected {
         url: url.as_str().trim_end_matches('/').to_string(),
         models,
@@ -159,7 +104,7 @@ pub async fn connect(id: &str, typed: &str) -> Result<Connected, String> {
 /// The models of a connected server, for the picker in the chat view.
 pub async fn models(server: &Server) -> Result<Vec<ModelInfo>, String> {
     let url = base_url(server)?;
-    let models = list(&url, server.key.as_deref()).await?;
+    let models = list(&url).await?;
     if models.is_empty() {
         return Err(tf("No models yet. Download one in {name} first.", &[("name", &t(server.name))]));
     }
@@ -167,10 +112,10 @@ pub async fn models(server: &Server) -> Result<Vec<ModelInfo>, String> {
 }
 
 /// `GET /v1/models`, chat models only, or why the server can't be reached.
-async fn list(base: &Url, key: Option<&str>) -> Result<Vec<String>, String> {
-    let response = net::client(base, Duration::from_secs(5))?
-        .get(net::join(base, "v1/models"))
-        .header("Authorization", bearer(key))
+async fn list(base: &Url) -> Result<Vec<String>, String> {
+    let endpoint = Url::parse(&net::join(base, "v1/models")).map_err(|e| e.to_string())?;
+    let response = net::request(Method::GET, &endpoint, Duration::from_secs(5))?
+        .header("Authorization", BEARER)
         .send()
         .await
         .map_err(|_| unreachable(base))?;
@@ -268,9 +213,9 @@ pub async fn send(
     }
     let turn = chat.begin(server.id);
     let user = json!({ "role": "user", "content": user_text(turn.first, context.as_ref(), &query) });
-    let body = request_body(model, &chat::system_prompt(false), &turn.history, &user);
+    let body = request_body(model, &chat::system_prompt(), &turn.history, &user);
 
-    let answer = stream(&base, server.key.as_deref(), model, &body, |visible| {
+    let answer = stream(&base, model, &body, |visible| {
         let _ = app.emit_to(WINDOW_LABEL, "chat-delta", visible);
     })
     .await?;
@@ -327,14 +272,13 @@ fn progressive_filter(text: &str) -> String {
 /// whole answer without its thinking.
 async fn stream(
     base: &Url,
-    key: Option<&str>,
     model: &str,
     body: &Value,
     mut on_delta: impl FnMut(String),
 ) -> Result<String, String> {
-    let mut reply = net::client(base, Duration::from_secs(300))?
-        .post(net::join(base, "v1/chat/completions"))
-        .header("Authorization", bearer(key))
+    let endpoint = Url::parse(&net::join(base, "v1/chat/completions")).map_err(|e| e.to_string())?;
+    let mut reply = net::request(Method::POST, &endpoint, Duration::from_secs(300))?
+        .header("Authorization", BEARER)
         .json(body)
         .send()
         .await
@@ -434,19 +378,13 @@ mod tests {
     }
 
     #[test]
-    fn a_key_is_sent_as_the_bearer_and_without_one_the_placeholder_is() {
-        assert_eq!(bearer(Some("sk-abc")), "Bearer sk-abc");
-        assert_eq!(bearer(Some("")), "Bearer ollama");
-        assert_eq!(bearer(None), "Bearer ollama");
-    }
-
-    #[test]
     fn a_server_that_is_not_connected_says_so() {
         let s = Settings::default();
         let ollama = server(&s, "ollama").unwrap();
         assert_eq!(base_url(&ollama).unwrap_err(), "Connect Ollama in Settings → Local models first.");
         assert!(server(&s, "openai").is_none());
         assert_eq!(usual_address("lmstudio").as_deref(), Some("http://127.0.0.1:1234"));
+        assert!(server(&s, "custom").is_none());
         assert_eq!(usual_address("custom"), None);
     }
 
@@ -454,15 +392,15 @@ mod tests {
     fn the_model_list_leaves_out_embedding_models_and_says_when_nothing_answers() {
         let body = br#"{"data":[{"id":"llama3.2"},{"id":"nomic-embed-text"},{"id":"BGE-large"},{"id":"qwen2.5-coder"}]}"#;
         let u = serve_once("200 OK", &format!("Content-Length: {}\r\n", body.len()), body.to_vec());
-        assert_eq!(block_on(list(&url(&u), None)).unwrap(), vec!["llama3.2", "qwen2.5-coder"]);
+        assert_eq!(block_on(list(&url(&u))).unwrap(), vec!["llama3.2", "qwen2.5-coder"]);
 
         let u = serve_once("500 Internal Server Error", "Content-Length: 2\r\n", b"{}".to_vec());
-        assert!(block_on(list(&url(&u), None)).unwrap_err().starts_with("Cannot reach"));
+        assert!(block_on(list(&url(&u))).unwrap_err().starts_with("Cannot reach"));
         let u = serve_once("200 OK", "Content-Length: 8\r\n", b"not json".to_vec());
-        assert!(block_on(list(&url(&u), None)).unwrap_err().starts_with("Cannot reach"));
-        assert!(block_on(list(&url("http://127.0.0.1:1"), None)).unwrap_err().starts_with("Cannot reach"));
+        assert!(block_on(list(&url(&u))).unwrap_err().starts_with("Cannot reach"));
+        assert!(block_on(list(&url("http://127.0.0.1:1"))).unwrap_err().starts_with("Cannot reach"));
         let u = serve_once("401 Unauthorized", "Content-Length: 2\r\n", b"{}".to_vec());
-        assert!(block_on(list(&url(&u), Some("bad"))).unwrap_err().contains("refused the key"));
+        assert!(block_on(list(&url(&u))).unwrap_err().contains("refused the key"));
     }
 
     #[test]
@@ -475,6 +413,9 @@ mod tests {
         assert!(c.loopback);
         assert_eq!(block_on(connect("custom", " ")).unwrap_err(), "Enter the server address first.");
         assert!(block_on(connect("custom", "file:///etc")).is_err());
+        // A server on another machine is refused before anything is sent.
+        assert!(block_on(connect("ollama", "http://192.168.1.20:11434")).unwrap_err().starts_with("Blocked"));
+        assert!(block_on(connect("ollama", "https://example.com")).unwrap_err().starts_with("Blocked"));
     }
 
     #[test]
@@ -494,7 +435,7 @@ mod tests {
         body.push_str("data: [DONE]\n\n");
         let u = serve_once("200 OK", "Content-Type: text/event-stream\r\n", body.into_bytes());
         let mut seen = Vec::new();
-        let answer = block_on(stream(&url(&u), None, "m", &json!({}), |v| seen.push(v))).unwrap();
+        let answer = block_on(stream(&url(&u), "m", &json!({}), |v| seen.push(v))).unwrap();
         assert_eq!(answer, "## Answer\n\n- **item 1**\n```python\nprint('hello')\n```");
         assert_eq!(seen.last().unwrap(), &answer);
         assert!(seen.iter().all(|v| !v.contains("step") && !v.contains("internal")));
@@ -503,19 +444,19 @@ mod tests {
     #[test]
     fn stream_errors_say_what_happened() {
         let u = serve_once("404 Not Found", "Content-Length: 2\r\n", b"{}".to_vec());
-        let err = block_on(stream(&url(&u), None, "unknown-model", &json!({}), |_| {})).unwrap_err();
+        let err = block_on(stream(&url(&u), "unknown-model", &json!({}), |_| {})).unwrap_err();
         assert_eq!(err, "unknown-model isn't installed. Pick another model above the chat box.");
         let body = br#"{"error":{"message":"context too long"}}"#;
         let u = serve_once("400 Bad Request", &format!("Content-Length: {}\r\n", body.len()), body.to_vec());
-        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err(), "context too long");
+        assert_eq!(block_on(stream(&url(&u), "m", &json!({}), |_| {})).unwrap_err(), "context too long");
         let u = serve_once("200 OK", "", b"data: {\"error\":{\"message\":\"crashed\"}}\n".to_vec());
-        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err(), "crashed");
+        assert_eq!(block_on(stream(&url(&u), "m", &json!({}), |_| {})).unwrap_err(), "crashed");
     }
 
     #[test]
     fn an_endless_line_is_cut_off() {
         let u = serve_once("200 OK", "", vec![b'x'; MAX_LINE + 10]);
-        let err = block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err();
+        let err = block_on(stream(&url(&u), "m", &json!({}), |_| {})).unwrap_err();
         assert_eq!(err, "The server's answer is too large.");
     }
 
@@ -542,19 +483,5 @@ mod tests {
         std::fs::write(&bin, [0xff, 0xfe, 0x00, 0x80]).unwrap();
         assert_eq!(file_note("blob.bin", bin.to_str().unwrap()), "File: blob.bin");
         let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn the_custom_key_only_goes_to_the_address_it_was_entered_for() {
-        let url = |u: &str| net::normalise_server_url(u).unwrap();
-        let stored = serde_json::to_string(&BoundKey { url: "https://llm.example.com".into(), key: "sk-1".into() }).unwrap();
-        assert_eq!(key_for(&stored, &url("https://llm.example.com")).as_deref(), Some("sk-1"));
-        assert_eq!(key_for(&stored, &url("https://attacker.example")), None);
-        assert_eq!(key_for(&stored, &url("http://llm.example.com")), None);
-        // A plain string (the page can write one through secret_set) binds nothing.
-        assert_eq!(key_for("sk-raw", &url("https://llm.example.com")), None);
-        let local = serde_json::to_string(&BoundKey { url: "http://127.0.0.1:8080".into(), key: "k".into() }).unwrap();
-        assert_eq!(key_for(&local, &url("http://127.0.0.1:8080")).as_deref(), Some("k"));
-        assert!(!may_carry_key(&url("http://192.168.1.20:8080")));
     }
 }

@@ -13,7 +13,6 @@ import { Bridge, onEvent, type ChatContext, type ModelInfo } from "../core/bridg
 import {
   activeModel, pickModel, providerDef, visibleProviders, withModel, type ProviderDef,
 } from "../core/providers";
-import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
 import type { ViewHost } from "./views";
 import { N_, t, tl } from "../i18n/i18n";
@@ -25,7 +24,6 @@ const STRINGS = {
   switchModel: N_("Switch provider or model"),
   noModel: N_("Choose a model"),
   loading: N_("Loading models…"),
-  noKey: N_("No API key — add it in Settings."),
   openSettings: N_("Open Settings"),
 };
 
@@ -78,8 +76,6 @@ function buildPicker(onChange: () => void): Picker {
   const list = h("div", { class: "picker-list" });
   const el = h("div", { class: "picker" }, chips, h("div", { class: "picker-rule" }), list);
 
-  /** Models already asked for, by provider; a model server is asked again each time. */
-  const cache = new Map<string, ModelInfo[]>();
   let isOpen = false;
   let request = 0;
 
@@ -97,7 +93,6 @@ function buildPicker(onChange: () => void): Picker {
         if (p.id === State.settings.chatProvider) return;
         State.settings = { ...State.settings, chatProvider: p.id };
         saveSettings();
-        Sound.play("pop");
         drawChips();
         void loadModels();
         onChange();
@@ -135,7 +130,6 @@ function buildPicker(onChange: () => void): Picker {
       row.addEventListener("click", () => {
         State.settings = withModel(State.settings, p.id, m.id);
         saveSettings();
-        Sound.play("blip");
         close();
       });
       list.append(row);
@@ -146,22 +140,10 @@ function buildPicker(onChange: () => void): Picker {
   async function loadModels() {
     const p = providerDef(State.settings.chatProvider);
     const ticket = ++request;
-    const cached = p.urlField ? undefined : cache.get(p.id);
-    if (cached) {
-      drawModels(p, cached);
-      return;
-    }
-    // Nothing is asked of a provider that has no key yet.
-    if (p.key && !(await Bridge.secretPresent(p.key))) {
-      if (ticket === request) status(t(STRINGS.noKey), true);
-      return;
-    }
-    if (ticket !== request) return;
     status(t(STRINGS.loading));
     try {
       const models = await Bridge.chatModels(p.id);
       if (ticket !== request) return;
-      if (!p.urlField) cache.set(p.id, models);
       const keep = pickModel(p, models.map((m) => m.id), activeModel(State.settings));
       if (keep && keep !== activeModel(State.settings)) {
         State.settings = withModel(State.settings, p.id, keep);
@@ -170,7 +152,7 @@ function buildPicker(onChange: () => void): Picker {
       }
       drawModels(p, models);
     } catch (err) {
-      if (ticket === request) status(String(err).replace(/^Error:\s*/, ""), Boolean(p.key));
+      if (ticket === request) status(String(err).replace(/^Error:\s*/, ""), false);
     }
   }
 
@@ -271,7 +253,6 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     input.value = "";
     sending = true;
     drawModelButton();
-    Sound.play("send");
 
     State.chatHistory.push({ id: nextId++, role: "user", content: query });
     State.stateOverride = "thinking";
@@ -286,12 +267,10 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       const reply = await Bridge.chatSend(query, context);
       State.chatHistory.push({ id: nextId++, role: "assistant", content: reply.text });
       State.stateOverride = null;
-      Sound.play("finish");
     } catch (err) {
       State.stateOverride = null;
       State.noteMessage = String(err).replace(/^Error:\s*/, "");
       State.view = "note";
-      Sound.play("error");
     } finally {
       sending = false;
       live = null;

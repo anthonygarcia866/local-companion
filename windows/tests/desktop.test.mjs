@@ -168,7 +168,6 @@ function world({ alert = false, flyOutOk = true } = {}) {
         w.away = a;
       },
       emote: (e) => log.push(`emote:${e}`),
-      play: (s) => log.push(`sound:${s}`),
       alertActive: () => w.alert,
       revealIsland: () => log.push("reveal"),
       later: (fn, ms) => timers.push({ fn, ms }),
@@ -293,13 +292,12 @@ test("an alert that went up during the flight out sends him right back", async (
   assert.deepEqual(w.flying, ["home"]);
 });
 
-test("dropped on the desktop from the island: lands with a pop", () => {
+test("dropped on the desktop from the island: lands, happy", () => {
   const w = world();
   w.c.installed();
   assert.equal(w.c.phase, "onDesktop");
   assert.equal(w.c.enabled, true);
   assert.equal(w.away, true);
-  assert.ok(w.log.includes("sound:pop"));
   assert.ok(w.log.includes("emote:happy"));
 });
 
@@ -318,7 +316,6 @@ test("double click or dropped on the island: home for good", async () => {
   assert.ok(w.log.includes("home-forget"));
   await w.land();
   assert.equal(w.away, false);
-  assert.ok(w.log.includes("sound:peek"));
 
   // An alert now leaves him in the island.
   w.alert = true;
