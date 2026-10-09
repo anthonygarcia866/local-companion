@@ -3,7 +3,7 @@
 Repo: `anthonygarcia866/local-companion`. Dev machine location: `C:\Users\antho\local-companion`.
 
 ## Name
-The app and its mascot are both named **Glim** (decided 2026-10-08). Product name `Glim`, bundle identifier `com.glim.app`, executable `glim.exe`, installers `Glim-Windows-<version>-setup.exe` / `.msi`. The brand artwork is in `docs/brand/` (see below).
+The app and its mascot are both named **Glim** (decided 2026-10-08). Product name `Glim`, bundle identifier `com.anthonygarcia.glim`, executable `glim.exe`, installers `Glim-Windows-<version>-setup.exe` / `.msi`. The brand artwork is in `docs/brand/` (see below).
 
 ## Vision
 A local-first Windows desktop companion.
@@ -48,13 +48,15 @@ A local-first Windows desktop companion.
 - **Phase 2** — SOP recorder.
 - **Phase 3** — delegation layer.
 - **Code signing before distribution** (e.g. Azure Trusted Signing). Users with Smart App Control on can't run unsigned builds, and a privacy product that asks users to disable a security feature is a non-starter.
-- **Rename the integration identifiers** (deferred, see "Claude Code integration"): `coucou-hook.exe`, the `coucou-hook` marker in `~/.claude/settings.json`, the `\\.\pipe\coucou-<SID>` pipe, the `%APPDATA%\Coucou` / `%LOCALAPPDATA%\Coucou` folders, the other agents' `coucou.*` plugin/config names and the `coucou_agent` payload field. They must change together, with a migration for existing installs.
-- **Decide what to do with the non-Windows trees**: `NotchBuddy/` (macOS/iOS app — still contains Coucou-branded Swift code that draws Mochi), `relay/` (upstream's Cloudflare Worker for the iPhone link — a cloud service), `linux/`, `scripts/*.sh`, `tests/*.swift`, `docs/*.md` (upstream's docs), and the `build.yml`/`release.yml`/`linux.yml` workflows. None of it is built or shipped by Glim today.
+- **Rename the integration identifiers** (DECIDED 2026-10-09: one PR after Phase 0a merges, incl. migrating the existing data folder and an end-to-end hook check; deferred, see "Claude Code integration"): `coucou-hook.exe`, the `coucou-hook` marker in `~/.claude/settings.json`, the `\\.\pipe\coucou-<SID>` pipe, the `%APPDATA%\Coucou` / `%LOCALAPPDATA%\Coucou` folders, the other agents' `coucou.*` plugin/config names and the `coucou_agent` payload field. They must change together, with a migration for existing installs.
+- **Delete the non-Windows trees** (DECIDED 2026-10-09: separate small PR after Phase 0a merges): `NotchBuddy/` (macOS/iOS app — still contains Coucou-branded Swift code that draws Mochi), `relay/` (upstream's Cloudflare Worker for the iPhone link — a cloud service), `linux/`, `scripts/*.sh`, `tests/*.swift`, `docs/*.md` (upstream's docs), and the `build.yml`/`release.yml`/`linux.yml` workflows. None of it is built or shipped by Glim today.
+
+## Decided 2026-10-09
+- Bundle identifier is `com.anthonygarcia.glim` (was `com.glim.app`, which made the bundler warn about the macOS `.app` extension).
+- `docs/brand/` artwork is all rights reserved; the code stays MIT (see `NOTICE.md`).
 
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
-- `com.glim.app` makes the Tauri bundler warn ("ends with `.app` … conflicts with the application bundle extension on macOS"). Harmless on Windows; revisit if a macOS build ever happens.
-- Is `docs/brand/` artwork meant to be MIT like the code, or reserved like upstream's? `NOTICE.md` currently says © Anthony Garcia without a license grant.
 
 ## Current status
 Phase 0a implemented on branch `phase-0a-lockdown` (PR open, not merged).

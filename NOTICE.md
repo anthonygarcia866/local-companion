@@ -14,4 +14,4 @@ Coucou's name, its **Mochi** character, its app icon and its sounds are © Louis
 
 ## Glim's own brand
 
-The Glim name, mascot and app icon (`docs/brand/`) are © 2026 Anthony Garcia.
+The Glim name, mascot and app icon (`docs/brand/`, and the icons rendered from them) are © 2026 Anthony Garcia. All rights reserved: they are **not** covered by the MIT License, which applies to the code only.
