@@ -1,17 +1,16 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent } from "./core/bridge";
-import { Sound } from "./core/sound";
+import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
 import { registerHookHandlers } from "./island/hooks";
-import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
+import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
 import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages } from "./i18n/i18n";
 
-/** Shows the language Settings asks for ("" = the system's, when Coucou has it). */
+/** Shows the language Settings asks for ("" = the system's, when Glim has it). */
 function applyLanguage() {
   setLanguage(resolveLanguage(State.settings.language, systemLanguages()));
 }
@@ -19,8 +18,6 @@ function applyLanguage() {
 async function main() {
   const root = document.getElementById("root");
   if (!root) return;
-
-  void Sound.preload();
 
   const island = new Island(root);
 
@@ -43,11 +40,8 @@ async function main() {
   await onEvent<{ x: number; y: number }>("cursor", ({ x, y }) => island.onCursor(x, y));
   await onEvent<boolean>("pointer-inside", (inside) => island.setPointerInside(inside));
 
-  /** Pause has to reach Rust too, or the pollers keep calling out. */
   const setPaused = (on: boolean) => {
-    if (State.paused === on) return;
     State.paused = on;
-    void Bridge.setPaused(on);
   };
 
   await onEvent<string>("tray", (what) => {
@@ -63,10 +57,6 @@ async function main() {
       case "recap":
         setPaused(false);
         void Recap.open(island);
-        break;
-      case "wardrobe":
-        setPaused(false);
-        island.alert("wardrobe");
         break;
       case "pause":
         setPaused(!State.paused);
@@ -91,7 +81,7 @@ async function main() {
   });
 
   registerHookHandlers(island);
-  registerIntegrationHandlers(island);
+  void refreshConfigured();
   registerShortcutHandlers(island, () => setPaused(false));
 
   // Monday recap: app start (greeting over), an agent starting work, waking up.
@@ -101,12 +91,6 @@ async function main() {
   await onEvent<null>("recap-check", checkRecap);
 
   island.launch();
-
-  // In a plain browser there is no wake strip behind the cursor: make the whole
-  // page wake the island so the visuals can be checked with `npm run dev`.
-  if (!IS_TAURI) {
-    document.addEventListener("click", () => Sound.resume(), { once: true });
-  }
 }
 
 void main();

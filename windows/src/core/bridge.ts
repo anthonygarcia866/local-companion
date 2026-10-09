@@ -16,7 +16,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T |
   try {
     return await invoke<T>(cmd, args);
   } catch (err) {
-    console.error(`[coucou] ${cmd} failed`, err);
+    console.error(`[glim] ${cmd} failed`, err);
     return null;
   }
 }
@@ -56,6 +56,7 @@ export const Bridge = {
   /** Displays the island can be pinned to: `key` is what `settings.screen` stores. */
   listMonitors: () => call<{ key: string; label: string }[]>("list_monitors"),
 
+  /** Only a page on this machine opens: Rust checks it against net/'s allowlist. */
   openUrl: (url: string) => call<void>("open_url", { url }),
 
   /** "Open terminal" → opens the folder in VS Code when `code` is on PATH. */
@@ -78,12 +79,12 @@ export const Bridge = {
 
   openSettingsWindow: () => call<void>("open_settings_window"),
 
-  /** Writes to %LOCALAPPDATA%\Coucou\coucou.log, next to the Rust lines. */
+  /** Writes to the app's log file (%LOCALAPPDATA%\Coucou\coucou.log), next to the Rust lines. */
   log: (message: string) => call<void>("log_line", { message }),
 
   // ── Claude Code hooks ─────────────────────────────────────────────────────
   hooksStatus: () => call<HookStatus>("hooks_status"),
-  /** Pill ID → whether that agent's hooks reach Coucou (read-only, Mac #183). */
+  /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */
   hooksPreview: (install: boolean) => callOrThrow<HookPreview>("hooks_preview", { install }),
@@ -111,12 +112,6 @@ export const Bridge = {
   /** Same rules as hooksApply: an explicit click, and only for the diff that was shown. */
   statusLineApply: (install: boolean, fingerprint: string) =>
     callOrThrow<string>("status_line_apply", { install, fingerprint }),
-  /**
-   * Asks the Codex CLI (`codex app-server`) for its plan limits, as Codex's
-   * /status does. The raw `account/rateLimits/read` result, or null when Codex
-   * is missing, not signed in or slow (15 s).
-   */
-  codexPlanUsage: () => call<unknown>("codex_plan_usage"),
 
   approvalDecision: (requestId: string, decision: "allow" | "deny") =>
     call<void>("approval_decision", { requestId, decision }),
@@ -129,38 +124,21 @@ export const Bridge = {
   /** "Nobody can act on this" — Claude Code asks in the terminal right away. */
   approvalDecline: (requestId: string) => call<void>("approval_decline", { requestId }),
 
-  // ── Chat, files, secrets ──────────────────────────────────────────────────
-  /** One chat turn. The API key and any file bytes never leave Rust. */
+  // ── Chat and files ────────────────────────────────────────────────────────
+  /** One chat turn with the local model server. File bytes never leave Rust. */
   chatSend: (query: string, context: ChatContext | null) =>
     callOrThrow<{ text: string }>("chat_send", { query, context }),
   chatReset: () => call<void>("chat_reset"),
   /**
-   * The models a provider offers, for the picker in the chat view. Rust asks
-   * the provider only when it has a key (or a server address).
+   * The models a local server offers, for the picker in the chat view. Rust
+   * asks the server only once it has an address.
    */
   chatModels: (provider: string) => callOrThrow<ModelInfo[]>("chat_models", { provider }),
   /** Settings → Local models → Connect: does the server answer, and with which models? */
-  /** The custom server's key, bound to the address it is entered for. */
-  localSetKey: (url: string, key: string) => call<void>("local_set_key", { url, key }),
-
-  localConnect: (provider: "ollama" | "lmstudio" | "custom", url: string) =>
+  localConnect: (provider: "ollama" | "lmstudio", url: string) =>
     callOrThrow<LocalServer>("local_connect", { provider, url }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
-  /** Only ever tells you whether a key exists — never its value. */
-  secretPresent: (key: string) => call<boolean>("secret_present", { key }),
-  secretSet: (key: string, value: string) => callOrThrow<void>("secret_set", { key, value }),
-  secretClear: (key: string) => callOrThrow<void>("secret_clear", { key }),
-
-  // ── Integrations ──────────────────────────────────────────────────────────
-  refreshIntegration: (id: string) => call<void>("refresh_integration", { id }),
-  /** The GitHub card is on screen: refetch that part if it is stale. */
-  githubRefresh: (section: "pulse" | "activity") => call<void>("github_refresh", { section }),
-  /** Opens the configured n8n instance in the browser. */
-  openN8n: () => call<void>("open_n8n"),
-
-  /** Tray → Pause. Stops the integration pollers, not just the island. */
-  setPaused: (paused: boolean) => call<void>("set_paused", { paused }),
 
   // ── Global shortcuts ──────────────────────────────────────────────────────
   /** How each global shortcut went when Rust last registered them. */
@@ -182,7 +160,7 @@ export const Bridge = {
   /** Opens the folder of the image saved last. */
   recapRevealSaved: () => call<void>("recap_reveal_saved"),
 
-  // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
+  // ── The character on the desktop (src-tauri/src/desktop.rs) ───────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
   desktopPickUp: (x: number, y: number) => call<boolean>("desktop_mochi_pick_up", { x, y }),
@@ -214,7 +192,7 @@ export interface ShortcutsReport {
   command: string;
 }
 
-/** How the desktop Mochi's window works here (platform::DesktopMode). */
+/** How the desktop character's window works here (platform::DesktopMode). */
 export type DesktopMode = "poll" | "window" | "layer" | "off";
 
 export interface DesktopInfo {
@@ -223,21 +201,14 @@ export interface DesktopInfo {
   onDesktop: boolean;
 }
 
-/** An event for one window only (island ⇄ desktop Mochi). Never throws. */
+/** An event for one window only (island ⇄ desktop character). Never throws. */
 export async function emitToWindow(label: string, event: string, payload?: unknown) {
   if (!IS_TAURI) return;
   try {
     await emitTo(label, event, payload);
   } catch (err) {
-    console.error(`[coucou] emit ${event} failed`, err);
+    console.error(`[glim] emit ${event} failed`, err);
   }
-}
-
-export interface IntegrationUpdate {
-  id: string;
-  data: Record<string, unknown>;
-  error: string | null;
-  event: { success: boolean; label: string; detail: string | null } | null;
 }
 
 export type ChatContext =
@@ -265,7 +236,7 @@ export interface DroppedFile {
 
 export interface HookStatus {
   installed: boolean;
-  /** Coucou's status line relay (plan usage) is the status line in settings.json. */
+  /** The app's status line relay (plan usage) is the status line in settings.json. */
   planRelayInstalled: boolean;
   settingsPath: string;
   hookPath: string;
@@ -278,7 +249,7 @@ export interface AgentHookStatus {
   id: string;
   name: string;
   installed: boolean;
-  /** The file (or files, one per line) Coucou writes. */
+  /** The file (or files, one per line) the app writes. */
   path: string;
   hookReady: boolean;
   /** The island can allow or deny this agent's permission requests. */
@@ -305,7 +276,7 @@ export interface HookPreview {
 
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
 async function callOrThrow<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!IS_TAURI) throw new Error("not running inside Coucou");
+  if (!IS_TAURI) throw new Error("not running inside Glim");
   return invoke<T>(cmd, args);
 }
 

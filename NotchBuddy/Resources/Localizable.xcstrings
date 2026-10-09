@@ -385,66 +385,66 @@
         }
       }
     },
-    "Allow Coucou to control Music": {
+    "Allow Glim to control Music": {
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السماح لـ Coucou بالتحكم في الموسيقى"
+            "value": "السماح لـ Glim بالتحكم في الموسيقى"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou-কে Music নিয়ন্ত্রণ করতে দিন"
+            "value": "Glim-কে Music নিয়ন্ত্রণ করতে দিন"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow Coucou to control Music"
+            "value": "Allow Glim to control Music"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que Coucou controle Music"
+            "value": "Permitir que Glim controle Music"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autoriser Coucou à contrôler Music"
+            "value": "Autoriser Glim à contrôler Music"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou को Music नियंत्रित करने दें"
+            "value": "Glim को Music नियंत्रित करने दें"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Izinkan Coucou mengontrol Music"
+            "value": "Izinkan Glim mengontrol Music"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que o Coucou controle o Music"
+            "value": "Permitir que o Glim controle o Music"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешить Coucou управлять Music"
+            "value": "Разрешить Glim управлять Music"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许 Coucou 控制音乐"
+            "value": "允许 Glim 控制音乐"
           }
         }
       }
@@ -1217,66 +1217,66 @@
         }
       }
     },
-    "Choose the tools you use. Coucou only shows what you declare here.": {
+    "Choose the tools you use. Glim only shows what you declare here.": {
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اختر الأدوات التي تستخدمها. يعرض Coucou فقط ما تُعلنه هنا."
+            "value": "اختر الأدوات التي تستخدمها. يعرض Glim فقط ما تُعلنه هنا."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "আপনি যে টুলগুলো ব্যবহার করেন তা বেছে নিন। Coucou শুধুমাত্র আপনার ঘোষণা করা জিনিস দেখায়।"
+            "value": "আপনি যে টুলগুলো ব্যবহার করেন তা বেছে নিন। Glim শুধুমাত্র আপনার ঘোষণা করা জিনিস দেখায়।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose the tools you use. Coucou only shows what you declare here."
+            "value": "Choose the tools you use. Glim only shows what you declare here."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige las herramientas que usas. Coucou solo muestra lo que declares aquí."
+            "value": "Elige las herramientas que usas. Glim solo muestra lo que declares aquí."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisis les outils que tu utilises. Coucou n'affiche que ce que tu déclares ici."
+            "value": "Choisis les outils que tu utilises. Glim n'affiche que ce que tu déclares ici."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "वे टूल चुनें जो आप उपयोग करते हैं। Coucou केवल वही दिखाता है जो आप यहाँ घोषित करते हैं।"
+            "value": "वे टूल चुनें जो आप उपयोग करते हैं। Glim केवल वही दिखाता है जो आप यहाँ घोषित करते हैं।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pilih alat yang Anda gunakan. Coucou hanya menampilkan yang Anda deklarasikan di sini."
+            "value": "Pilih alat yang Anda gunakan. Glim hanya menampilkan yang Anda deklarasikan di sini."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha as ferramentas que você usa. O Coucou mostra apenas o que você declarar aqui."
+            "value": "Escolha as ferramentas que você usa. O Glim mostra apenas o que você declarar aqui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выбери инструменты, которые ты используешь. Coucou показывает только то, что ты здесь объявишь."
+            "value": "Выбери инструменты, которые ты используешь. Glim показывает только то, что ты здесь объявишь."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择你使用的工具。Coucou 只显示你在这里声明的内容。"
+            "value": "选择你使用的工具。Glim 只显示你在这里声明的内容。"
           }
         }
       }
@@ -5057,66 +5057,66 @@
         }
       }
     },
-    "Open Coucou": {
+    "Open Glim": {
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح Coucou"
+            "value": "فتح Glim"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou খুলুন"
+            "value": "Glim খুলুন"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Coucou"
+            "value": "Open Glim"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir Coucou"
+            "value": "Abrir Glim"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir Coucou"
+            "value": "Ouvrir Glim"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou खोलें"
+            "value": "Glim खोलें"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buka Coucou"
+            "value": "Buka Glim"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir Coucou"
+            "value": "Abrir Glim"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть Coucou"
+            "value": "Открыть Glim"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 Coucou"
+            "value": "打开 Glim"
           }
         }
       }
@@ -6145,66 +6145,66 @@
         }
       }
     },
-    "Restart Coucou": {
+    "Restart Glim": {
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تشغيل Coucou"
+            "value": "إعادة تشغيل Glim"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou পুনরায় শুরু করুন"
+            "value": "Glim পুনরায় শুরু করুন"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart Coucou"
+            "value": "Restart Glim"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar Coucou"
+            "value": "Reiniciar Glim"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Redémarrer Coucou"
+            "value": "Redémarrer Glim"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou को पुनः आरंभ करें"
+            "value": "Glim को पुनः आरंभ करें"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mulai ulang Coucou"
+            "value": "Mulai ulang Glim"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar Coucou"
+            "value": "Reiniciar Glim"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перезапустить Coucou"
+            "value": "Перезапустить Glim"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重启 Coucou"
+            "value": "重启 Glim"
           }
         }
       }
@@ -8326,61 +8326,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد تثبيت خطافات Coucou في ~/.claude؟"
+            "value": "هل تريد تثبيت خطافات Glim في ~/.claude؟"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.claude-এ Coucou হুক ইনস্টল করবেন?"
+            "value": "~/.claude-এ Glim হুক ইনস্টল করবেন?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Coucou hooks in ~/.claude?"
+            "value": "Install Glim hooks in ~/.claude?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Instalar los hooks de Coucou en ~/.claude?"
+            "value": "¿Instalar los hooks de Glim en ~/.claude?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer les hooks Coucou dans ~/.claude ?"
+            "value": "Installer les hooks Glim dans ~/.claude ?"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "~/.claude में Coucou हुक इंस्टॉल करें?"
+            "value": "~/.claude में Glim हुक इंस्टॉल करें?"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pasang hooks Coucou di ~/.claude?"
+            "value": "Pasang hooks Glim di ~/.claude?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalar os hooks do Coucou em ~/.claude?"
+            "value": "Instalar os hooks do Glim em ~/.claude?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установить хуки Coucou в ~/.claude?"
+            "value": "Установить хуки Glim в ~/.claude?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "是否将 Coucou Hooks 安装到 ~/.claude？"
+            "value": "是否将 Glim Hooks 安装到 ~/.claude？"
           }
         }
       }
@@ -10886,61 +10886,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "التعليمات المُرسَلة من iPhone تستخدم النموذج المفتوح حاليًا في الدردشة. يُطبَّق موجه النظام وتاريخ المحادثة. التعليمات المُرسَلة أثناء توقف Coucou تُضاف إلى قائمة الانتظار وتُنفَّذ عند التشغيل التالي."
+            "value": "التعليمات المُرسَلة من iPhone تستخدم النموذج المفتوح حاليًا في الدردشة. يُطبَّق موجه النظام وتاريخ المحادثة. التعليمات المُرسَلة أثناء توقف Glim تُضاف إلى قائمة الانتظار وتُنفَّذ عند التشغيل التالي."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone থেকে পাঠানো নির্দেশনা চ্যাটে বর্তমানে খোলা মডেল ব্যবহার করে। সিস্টেম প্রম্পট এবং কথোপকথনের ইতিহাস প্রযোজ্য। Coucou চলছে না থাকলে পাঠানো নির্দেশনাগুলো কিউতে রাখা হয় এবং পরবর্তী চালুতে চালানো হয়।"
+            "value": "iPhone থেকে পাঠানো নির্দেশনা চ্যাটে বর্তমানে খোলা মডেল ব্যবহার করে। সিস্টেম প্রম্পট এবং কথোপকথনের ইতিহাস প্রযোজ্য। Glim চলছে না থাকলে পাঠানো নির্দেশনাগুলো কিউতে রাখা হয় এবং পরবর্তী চালুতে চালানো হয়।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An instruction sent from the iPhone uses the model open in chat. The system prompt and conversation history apply. Instructions sent when Coucou is not running are queued and executed on next launch."
+            "value": "An instruction sent from the iPhone uses the model open in chat. The system prompt and conversation history apply. Instructions sent when Glim is not running are queued and executed on next launch."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Una instrucción enviada desde el iPhone usa el modelo abierto actualmente en el chat. Se aplican el prompt de sistema y el historial de conversación. Las instrucciones enviadas mientras Coucou no está en ejecución se ponen en cola y se ejecutan en el siguiente inicio."
+            "value": "Una instrucción enviada desde el iPhone usa el modelo abierto actualmente en el chat. Se aplican el prompt de sistema y el historial de conversación. Las instrucciones enviadas mientras Glim no está en ejecución se ponen en cola y se ejecutan en el siguiente inicio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une instruction envoyée depuis l'iPhone utilise le modèle ouvert dans le chat. Le prompt système et l'historique de conversation s'appliquent. Les instructions envoyées quand Coucou ne tourne pas sont mises en file d'attente et exécutées au prochain démarrage."
+            "value": "Une instruction envoyée depuis l'iPhone utilise le modèle ouvert dans le chat. Le prompt système et l'historique de conversation s'appliquent. Les instructions envoyées quand Glim ne tourne pas sont mises en file d'attente et exécutées au prochain démarrage."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone से भेजा गया निर्देश चैट में वर्तमान में खुले मॉडल का उपयोग करता है। सिस्टम प्रॉम्प्ट और बातचीत का इतिहास लागू होता है। Coucou चल नहीं रहे होने पर भेजे गए निर्देश कतार में रखे जाते हैं और अगली बार चालू होने पर चलाए जाते हैं।"
+            "value": "iPhone से भेजा गया निर्देश चैट में वर्तमान में खुले मॉडल का उपयोग करता है। सिस्टम प्रॉम्प्ट और बातचीत का इतिहास लागू होता है। Glim चल नहीं रहे होने पर भेजे गए निर्देश कतार में रखे जाते हैं और अगली बार चालू होने पर चलाए जाते हैं।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instruksi yang dikirim dari iPhone menggunakan model yang sedang terbuka di chat. Prompt sistem dan riwayat percakapan berlaku. Instruksi yang dikirim saat Coucou tidak berjalan dimasukkan ke antrean dan dijalankan saat peluncuran berikutnya."
+            "value": "Instruksi yang dikirim dari iPhone menggunakan model yang sedang terbuka di chat. Prompt sistem dan riwayat percakapan berlaku. Instruksi yang dikirim saat Glim tidak berjalan dimasukkan ke antrean dan dijalankan saat peluncuran berikutnya."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uma instrução enviada pelo iPhone usa o modelo aberto no momento no chat. O prompt de sistema e o histórico de conversa se aplicam. Instruções enviadas enquanto o Coucou não está em execução ficam na fila e são executadas no próximo início."
+            "value": "Uma instrução enviada pelo iPhone usa o modelo aberto no momento no chat. O prompt de sistema e o histórico de conversa se aplicam. Instruções enviadas enquanto o Glim não está em execução ficam na fila e são executadas no próximo início."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Инструкция, отправленная с iPhone, использует модель, открытую в чате. Системный промпт и история разговора применяются. Инструкции, отправленные пока Coucou не запущен, ставятся в очередь и выполняются при следующем запуске."
+            "value": "Инструкция, отправленная с iPhone, использует модель, открытую в чате. Системный промпт и история разговора применяются. Инструкции, отправленные пока Glim не запущен, ставятся в очередь и выполняются при следующем запуске."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 iPhone 发送的指令使用聊天中当前打开的模型。系统提示和对话历史适用。Coucou 未运行时发送的指令将排队，并在下次启动时执行。"
+            "value": "从 iPhone 发送的指令使用聊天中当前打开的模型。系统提示和对话历史适用。Glim 未运行时发送的指令将排队，并在下次启动时执行。"
           }
         }
       }
@@ -11014,61 +11014,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمر عبر ريلاي Coucou إلى خدمة Apple للإشعارات. يُرسَل فقط اسم الوكيل وحالته: لا اسم مشروع ولا أمر ولا مسار."
+            "value": "يمر عبر ريلاي Glim إلى خدمة Apple للإشعارات. يُرسَل فقط اسم الوكيل وحالته: لا اسم مشروع ولا أمر ولا مسار."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple-এর পুশ সার্ভিসে Coucou রিলের মাধ্যমে যায়। শুধুমাত্র এজেন্টের নাম এবং অবস্থা পাঠানো হয়: কোনো প্রজেক্ট নাম, কমান্ড বা পাথ নয়।"
+            "value": "Apple-এর পুশ সার্ভিসে Glim রিলের মাধ্যমে যায়। শুধুমাত্র এজেন্টের নাম এবং অবস্থা পাঠানো হয়: কোনো প্রজেক্ট নাম, কমান্ড বা পাথ নয়।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Goes through the Coucou relay to Apple's push service. Only the agent name and state are sent: no project name, command, or path."
+            "value": "Goes through the Glim relay to Apple's push service. Only the agent name and state are sent: no project name, command, or path."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pasa por el relay de Coucou al servicio push de Apple. Solo se envían el nombre y el estado del agente: sin nombre de proyecto, comando ni ruta."
+            "value": "Pasa por el relay de Glim al servicio push de Apple. Solo se envían el nombre y el estado del agente: sin nombre de proyecto, comando ni ruta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passe par le relais Coucou vers le service push d'Apple. Seuls le nom et l'état de l'agent sont envoyés : aucun nom de projet, commande ou chemin."
+            "value": "Passe par le relais Glim vers le service push d'Apple. Seuls le nom et l'état de l'agent sont envoyés : aucun nom de projet, commande ou chemin."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou रिले के माध्यम से Apple के पुश सर्विस से जाता है। केवल एजेंट का नाम और स्थिति भेजी जाती है: कोई प्रोजेक्ट नाम, कमांड या पाथ नहीं।"
+            "value": "Glim रिले के माध्यम से Apple के पुश सर्विस से जाता है। केवल एजेंट का नाम और स्थिति भेजी जाती है: कोई प्रोजेक्ट नाम, कमांड या पाथ नहीं।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melewati relay Coucou ke layanan push Apple. Hanya nama dan status agen yang dikirim: tanpa nama proyek, perintah, atau jalur."
+            "value": "Melewati relay Glim ke layanan push Apple. Hanya nama dan status agen yang dikirim: tanpa nama proyek, perintah, atau jalur."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passa pelo relay do Coucou para o serviço push da Apple. Apenas o nome e o estado do agente são enviados: sem nome de projeto, comando ou caminho."
+            "value": "Passa pelo relay do Glim para o serviço push da Apple. Apenas o nome e o estado do agente são enviados: sem nome de projeto, comando ou caminho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проходит через ретранслятор Coucou к сервису push Apple. Отправляются только имя и состояние агента: без имени проекта, команды или пути."
+            "value": "Проходит через ретранслятор Glim к сервису push Apple. Отправляются только имя и состояние агента: без имени проекта, команды или пути."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通过 Coucou 中继传至 Apple 推送服务。仅发送 Agent 的名称和状态：不含项目名称、命令或路径。"
+            "value": "通过 Glim 中继传至 Apple 推送服务。仅发送 Agent 的名称和状态：不含项目名称、命令或路径。"
           }
         }
       }
@@ -11078,61 +11078,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نقل Mochi إلى Dynamic Island في iPhone عند إغلاق Mac"
+            "value": "نقل Glim إلى Dynamic Island في iPhone عند إغلاق Mac"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac লক থাকলে Mochi-কে আমার iPhone-এর Dynamic Island-এ নিয়ে যান"
+            "value": "Mac লক থাকলে Glim-কে আমার iPhone-এর Dynamic Island-এ নিয়ে যান"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Mochi to my iPhone's Dynamic Island when my Mac is locked"
+            "value": "Move Glim to my iPhone's Dynamic Island when my Mac is locked"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mover a Mochi a la Dynamic Island de mi iPhone cuando mi Mac esté bloqueado"
+            "value": "Mover a Glim a la Dynamic Island de mi iPhone cuando mi Mac esté bloqueado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Déplacer Mochi vers la Dynamic Island de mon iPhone quand mon Mac est verrouillé"
+            "value": "Déplacer Glim vers la Dynamic Island de mon iPhone quand mon Mac est verrouillé"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac लॉक होने पर Mochi को मेरे iPhone की Dynamic Island पर ले जाएं"
+            "value": "Mac लॉक होने पर Glim को मेरे iPhone की Dynamic Island पर ले जाएं"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pindahkan Mochi ke Dynamic Island iPhone saya saat Mac terkunci"
+            "value": "Pindahkan Glim ke Dynamic Island iPhone saya saat Mac terkunci"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mover o Mochi para a Dynamic Island do meu iPhone quando meu Mac estiver bloqueado"
+            "value": "Mover o Glim para a Dynamic Island do meu iPhone quando meu Mac estiver bloqueado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переносить Mochi на Dynamic Island моего iPhone, когда Mac заблокирован"
+            "value": "Переносить Glim на Dynamic Island моего iPhone, когда Mac заблокирован"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 锁定时将 Mochi 移至我 iPhone 的灵动岛"
+            "value": "Mac 锁定时将 Glim 移至我 iPhone 的灵动岛"
           }
         }
       }
@@ -11142,61 +11142,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُرسل جلساتك إلى iCloud الخاص بك لتطبيق Coucou على iPhone. تُشفَّر أسماء المشاريع والأوامر والأسئلة بمفاتيح iCloud الخاصة بك. إيقاف التشغيل يحذفها من iCloud."
+            "value": "يُرسل جلساتك إلى iCloud الخاص بك لتطبيق Glim على iPhone. تُشفَّر أسماء المشاريع والأوامر والأسئلة بمفاتيح iCloud الخاصة بك. إيقاف التشغيل يحذفها من iCloud."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou iPhone অ্যাপের জন্য আপনার সেশনগুলো আপনার প্রাইভেট iCloud-এ পাঠায়। প্রজেক্টের নাম, কমান্ড এবং প্রশ্নগুলো আপনার iCloud কী দিয়ে এনক্রিপ্ট করা হয়। বন্ধ করলে iCloud থেকে মুছে যাবে।"
+            "value": "Glim iPhone অ্যাপের জন্য আপনার সেশনগুলো আপনার প্রাইভেট iCloud-এ পাঠায়। প্রজেক্টের নাম, কমান্ড এবং প্রশ্নগুলো আপনার iCloud কী দিয়ে এনক্রিপ্ট করা হয়। বন্ধ করলে iCloud থেকে মুছে যাবে।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sends your sessions to your private iCloud for the Coucou app on iPhone. Project names, commands, and questions are encrypted with your iCloud keys. Disabling removes data from iCloud."
+            "value": "Sends your sessions to your private iCloud for the Glim app on iPhone. Project names, commands, and questions are encrypted with your iCloud keys. Disabling removes data from iCloud."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envía tus sesiones a tu iCloud privado para la app Coucou de iPhone. Los nombres de proyecto, comandos y preguntas se cifran con tus claves de iCloud. Desactivarlo las elimina de iCloud."
+            "value": "Envía tus sesiones a tu iCloud privado para la app Glim de iPhone. Los nombres de proyecto, comandos y preguntas se cifran con tus claves de iCloud. Desactivarlo las elimina de iCloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoie tes sessions sur ton iCloud privé pour l'app Coucou sur iPhone. Les noms de projets, commandes et questions sont chiffrés avec tes clés iCloud. Désactiver supprime les données d'iCloud."
+            "value": "Envoie tes sessions sur ton iCloud privé pour l'app Glim sur iPhone. Les noms de projets, commandes et questions sont chiffrés avec tes clés iCloud. Désactiver supprime les données d'iCloud."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou iPhone ऐप के लिए आपके सेशन आपके प्राइवेट iCloud में भेजता है। प्रोजेक्ट नाम, कमांड और सवाल आपकी iCloud कुंजियों से एन्क्रिप्ट किए जाते हैं। बंद करने पर iCloud से हटा दिए जाते हैं।"
+            "value": "Glim iPhone ऐप के लिए आपके सेशन आपके प्राइवेट iCloud में भेजता है। प्रोजेक्ट नाम, कमांड और सवाल आपकी iCloud कुंजियों से एन्क्रिप्ट किए जाते हैं। बंद करने पर iCloud से हटा दिए जाते हैं।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mengirim sesi Anda ke iCloud pribadi Anda untuk aplikasi Coucou iPhone. Nama proyek, perintah, dan pertanyaan dienkripsi dengan kunci iCloud Anda. Mematikannya menghapusnya dari iCloud."
+            "value": "Mengirim sesi Anda ke iCloud pribadi Anda untuk aplikasi Glim iPhone. Nama proyek, perintah, dan pertanyaan dienkripsi dengan kunci iCloud Anda. Mematikannya menghapusnya dari iCloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envia suas sessões para seu iCloud privado para o app Coucou no iPhone. Nomes de projetos, comandos e perguntas são criptografados com suas chaves do iCloud. Desativar remove-os do iCloud."
+            "value": "Envia suas sessões para seu iCloud privado para o app Glim no iPhone. Nomes de projetos, comandos e perguntas são criptografados com suas chaves do iCloud. Desativar remove-os do iCloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправляет твои сессии в личный iCloud для приложения Coucou на iPhone. Имена проектов, команды и вопросы шифруются твоими ключами iCloud. Отключение удаляет их из iCloud."
+            "value": "Отправляет твои сессии в личный iCloud для приложения Glim на iPhone. Имена проектов, команды и вопросы шифруются твоими ключами iCloud. Отключение удаляет их из iCloud."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将你的会话发送到私有 iCloud，供 Coucou iPhone 应用使用。项目名称、命令和问题使用你的 iCloud 密钥加密。关闭后将从 iCloud 中删除。"
+            "value": "将你的会话发送到私有 iCloud，供 Glim iPhone 应用使用。项目名称、命令和问题使用你的 iCloud 密钥加密。关闭后将从 iCloud 中删除。"
           }
         }
       }
@@ -11590,61 +11590,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض استخدام خطة Claude (الحدود الخمس ساعات والأسبوعية) في ترويسة الشريط العلوي. تضيف Coucou سطر حالة مُرحِّلاً إلى ~/.claude/settings.json. إن كان لديك سطر حالة بالفعل، يستمر في العمل كالمعتاد. للخططَين Pro وMax فقط."
+            "value": "يعرض استخدام خطة Claude (الحدود الخمس ساعات والأسبوعية) في ترويسة الشريط العلوي. تضيف Glim سطر حالة مُرحِّلاً إلى ~/.claude/settings.json. إن كان لديك سطر حالة بالفعل، يستمر في العمل كالمعتاد. للخططَين Pro وMax فقط."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "নচ হেডারে আপনার Claude প্ল্যানের ব্যবহার (৫ ঘণ্টা ও সাপ্তাহিক সীমা) দেখায়। Coucou ~/.claude/settings.json-এ একটি স্ট্যাটাস লাইন রিলে যোগ করে। আপনার কাছে ইতিমধ্যে স্ট্যাটাস লাইন থাকলে তা আগের মতোই কাজ করবে। শুধুমাত্র Pro এবং Max প্ল্যানের জন্য।"
+            "value": "নচ হেডারে আপনার Claude প্ল্যানের ব্যবহার (৫ ঘণ্টা ও সাপ্তাহিক সীমা) দেখায়। Glim ~/.claude/settings.json-এ একটি স্ট্যাটাস লাইন রিলে যোগ করে। আপনার কাছে ইতিমধ্যে স্ট্যাটাস লাইন থাকলে তা আগের মতোই কাজ করবে। শুধুমাত্র Pro এবং Max প্ল্যানের জন্য।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows your Claude plan usage (5-hour and weekly limits) in the notch header. Coucou adds a status line relay in ~/.claude/settings.json. If you already have a status line, it keeps working as before. Pro and Max plans only."
+            "value": "Shows your Claude plan usage (5-hour and weekly limits) in the notch header. Glim adds a status line relay in ~/.claude/settings.json. If you already have a status line, it keeps working as before. Pro and Max plans only."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra el uso de tu plan Claude (límites de 5 horas y semanales) en el encabezado del notch. Coucou añade una línea de estado relay en ~/.claude/settings.json. Si ya tienes una línea de estado, seguirá funcionando como antes. Solo planes Pro y Max."
+            "value": "Muestra el uso de tu plan Claude (límites de 5 horas y semanales) en el encabezado del notch. Glim añade una línea de estado relay en ~/.claude/settings.json. Si ya tienes una línea de estado, seguirá funcionando como antes. Solo planes Pro y Max."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche ton utilisation du forfait Claude (limites de 5 heures et hebdomadaire) dans l'en-tête de l'encoche. Coucou ajoute un relais de ligne de statut dans ~/.claude/settings.json. Si tu as déjà une ligne de statut, elle continue de fonctionner comme avant. Forfaits Pro et Max uniquement."
+            "value": "Affiche ton utilisation du forfait Claude (limites de 5 heures et hebdomadaire) dans l'en-tête de l'encoche. Glim ajoute un relais de ligne de statut dans ~/.claude/settings.json. Si tu as déjà une ligne de statut, elle continue de fonctionner comme avant. Forfaits Pro et Max uniquement."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "नॉच हेडर में आपके Claude प्लान का उपयोग (5 घंटे और साप्ताहिक सीमाएं) दिखाता है। Coucou ~/.claude/settings.json में एक स्टेटस लाइन रिले जोड़ता है। अगर आपके पास पहले से स्टेटस लाइन है, तो वह पहले की तरह काम करती रहेगी। केवल Pro और Max प्लान के लिए।"
+            "value": "नॉच हेडर में आपके Claude प्लान का उपयोग (5 घंटे और साप्ताहिक सीमाएं) दिखाता है। Glim ~/.claude/settings.json में एक स्टेटस लाइन रिले जोड़ता है। अगर आपके पास पहले से स्टेटस लाइन है, तो वह पहले की तरह काम करती रहेगी। केवल Pro और Max प्लान के लिए।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menampilkan penggunaan paket Claude (batas 5 jam dan mingguan) di header notch. Coucou menambahkan relay baris status ke ~/.claude/settings.json. Jika Anda sudah memiliki baris status, tetap berjalan seperti sebelumnya. Hanya untuk paket Pro dan Max."
+            "value": "Menampilkan penggunaan paket Claude (batas 5 jam dan mingguan) di header notch. Glim menambahkan relay baris status ke ~/.claude/settings.json. Jika Anda sudah memiliki baris status, tetap berjalan seperti sebelumnya. Hanya untuk paket Pro dan Max."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra o uso do seu plano Claude (limites de 5 horas e semanais) no cabeçalho do notch. O Coucou adiciona um relay de linha de status ao ~/.claude/settings.json. Se você já tiver uma linha de status, ela continua funcionando normalmente. Apenas planos Pro e Max."
+            "value": "Mostra o uso do seu plano Claude (limites de 5 horas e semanais) no cabeçalho do notch. O Glim adiciona um relay de linha de status ao ~/.claude/settings.json. Se você já tiver uma linha de status, ela continua funcionando normalmente. Apenas planos Pro e Max."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывает использование плана Claude (лимиты на 5 часов и на неделю) в шапке нотча. Coucou добавляет ретранслятор строки статуса в ~/.claude/settings.json. Если строка статуса уже есть, она продолжит работать как прежде. Только для планов Pro и Max."
+            "value": "Показывает использование плана Claude (лимиты на 5 часов и на неделю) в шапке нотча. Glim добавляет ретранслятор строки статуса в ~/.claude/settings.json. Если строка статуса уже есть, она продолжит работать как прежде. Только для планов Pro и Max."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在刘海标头中显示你的 Claude 计划用量（5 小时及每周限额）。Coucou 会在 ~/.claude/settings.json 中添加一条状态栏中继。如果你已有状态栏，它将照常运行。仅限 Pro 和 Max 计划。"
+            "value": "在刘海标头中显示你的 Claude 计划用量（5 小时及每周限额）。Glim 会在 ~/.claude/settings.json 中添加一条状态栏中继。如果你已有状态栏，它将照常运行。仅限 Pro 和 Max 计划。"
           }
         }
       }
@@ -12870,61 +12870,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تظهر طلبات الموافقة في الشريط. إذا لم تكن Coucou تعمل، يعود Hermes إلى طرفيته الخاصة."
+            "value": "تظهر طلبات الموافقة في الشريط. إذا لم تكن Glim تعمل، يعود Hermes إلى طرفيته الخاصة."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "নচে অনুমোদন অনুরোধ দেখানো হয়। Coucou না চললে Hermes তার নিজের প্রম্পটে ফলব্যাক করে।"
+            "value": "নচে অনুমোদন অনুরোধ দেখানো হয়। Glim না চললে Hermes তার নিজের প্রম্পটে ফলব্যাক করে।"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approval requests appear in the notch. If Coucou is not running, Hermes falls back to its own prompt."
+            "value": "Approval requests appear in the notch. If Glim is not running, Hermes falls back to its own prompt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las solicitudes de aprobación aparecen en el notch. Si Coucou no está en ejecución, Hermes usa su propio prompt."
+            "value": "Las solicitudes de aprobación aparecen en el notch. Si Glim no está en ejecución, Hermes usa su propio prompt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les demandes d'approbation s'affichent dans le notch. Si Coucou ne tourne pas, Hermes utilise son propre prompt."
+            "value": "Les demandes d'approbation s'affichent dans le notch. Si Glim ne tourne pas, Hermes utilise son propre prompt."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "नॉच में अनुमोदन अनुरोध दिखाए जाते हैं। यदि Coucou नहीं चल रहा तो Hermes अपने प्रॉम्प्ट पर वापस जाता है।"
+            "value": "नॉच में अनुमोदन अनुरोध दिखाए जाते हैं। यदि Glim नहीं चल रहा तो Hermes अपने प्रॉम्प्ट पर वापस जाता है।"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permintaan persetujuan muncul di notch. Jika Coucou tidak berjalan, Hermes menggunakan promptnya sendiri."
+            "value": "Permintaan persetujuan muncul di notch. Jika Glim tidak berjalan, Hermes menggunakan promptnya sendiri."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solicitações de aprovação aparecem no notch. Se Coucou não estiver em execução, Hermes usa seu próprio prompt."
+            "value": "Solicitações de aprovação aparecem no notch. Se Glim não estiver em execução, Hermes usa seu próprio prompt."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Запросы подтверждения отображаются в notch. Если Coucou не запущен, Hermes использует собственный prompt."
+            "value": "Запросы подтверждения отображаются в notch. Если Glim не запущен, Hermes использует собственный prompt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "审批请求显示在刘海中。若 Coucou 未运行，Hermes 将回退到其自己的提示。"
+            "value": "审批请求显示在刘海中。若 Glim 未运行，Hermes 将回退到其自己的提示。"
           }
         }
       }
@@ -12993,7 +12993,6 @@
         }
       }
     },
-
     "plugin.install": {
       "localizations": {
         "ar": {
@@ -14727,61 +14726,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإعدادات — Coucou"
+            "value": "الإعدادات — Glim"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "সেটিংস — Coucou"
+            "value": "সেটিংস — Glim"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings — Coucou"
+            "value": "Settings — Glim"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes — Coucou"
+            "value": "Ajustes — Glim"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages — Coucou"
+            "value": "Réglages — Glim"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "सेटिंग्स — Coucou"
+            "value": "सेटिंग्स — Glim"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pengaturan — Coucou"
+            "value": "Pengaturan — Glim"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurações — Coucou"
+            "value": "Configurações — Glim"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки — Coucou"
+            "value": "Настройки — Glim"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置 — Coucou"
+            "value": "设置 — Glim"
           }
         }
       }
@@ -14983,61 +14982,61 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi على / إيقاف سطح المكتب"
+            "value": "Glim على / إيقاف سطح المكتب"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi ডেস্কটপে চালু / বন্ধ"
+            "value": "Glim ডেস্কটপে চালু / বন্ধ"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi to desktop on/off"
+            "value": "Glim to desktop on/off"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi en el escritorio sí / no"
+            "value": "Glim en el escritorio sí / no"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi sur le bureau oui / non"
+            "value": "Glim sur le bureau oui / non"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi डेस्कटॉप पर चालू / बंद"
+            "value": "Glim डेस्कटॉप पर चालू / बंद"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi di desktop ya / tidak"
+            "value": "Glim di desktop ya / tidak"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi na área de trabalho sim / não"
+            "value": "Glim na área de trabalho sim / não"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi на рабочем столе вкл / выкл"
+            "value": "Glim на рабочем столе вкл / выкл"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mochi 桌面开/关"
+            "value": "Glim 桌面开/关"
           }
         }
       }
@@ -16770,7 +16769,6 @@
         }
       }
     },
-
     "status.codex-hooks-installed": {
       "localizations": {
         "ar": {
@@ -19969,66 +19967,66 @@
         }
       }
     },
-    "Allow Coucou to control Spotify": {
+    "Allow Glim to control Spotify": {
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السماح لـ Coucou بالتحكم في Spotify"
+            "value": "السماح لـ Glim بالتحكم في Spotify"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou-কে Spotify নিয়ন্ত্রণ করতে দিন"
+            "value": "Glim-কে Spotify নিয়ন্ত্রণ করতে দিন"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow Coucou to control Spotify"
+            "value": "Allow Glim to control Spotify"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que Coucou controle Spotify"
+            "value": "Permitir que Glim controle Spotify"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autoriser Coucou à contrôler Spotify"
+            "value": "Autoriser Glim à contrôler Spotify"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucou को Spotify नियंत्रित करने दें"
+            "value": "Glim को Spotify नियंत्रित करने दें"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Izinkan Coucou mengontrol Spotify"
+            "value": "Izinkan Glim mengontrol Spotify"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que o Coucou controle o Spotify"
+            "value": "Permitir que o Glim controle o Spotify"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешить Coucou управлять Spotify"
+            "value": "Разрешить Glim управлять Spotify"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许 Coucou 控制 Spotify"
+            "value": "允许 Glim 控制 Spotify"
           }
         }
       }

@@ -63,21 +63,21 @@ test("placeholders are filled in every language, unknown ones are left as they a
 });
 
 test("plurals follow each language's rules", () => {
-  const files = (n) => tn("{count} repo", "{count} repos", n);
-  assert.equal(files(1), "1 repo");
-  assert.equal(files(3), "3 repos");
+  const models = (n) => tn("{count} model", "{count} models", n);
+  assert.equal(models(1), "1 model");
+  assert.equal(models(3), "3 models");
   inLanguage("fr", () => {
-    assert.equal(files(1), "1 dépôt");
-    assert.equal(files(0), "0 dépôt"); // French: 0 and 1 are singular
-    assert.equal(files(5), "5 dépôts");
+    assert.equal(models(1), "1 modèle");
+    assert.equal(models(0), "0 modèle"); // French: 0 and 1 are singular
+    assert.equal(models(5), "5 modèles");
   });
   inLanguage("ru", () => {
-    assert.equal(files(1), "1 репозиторий");
-    assert.equal(files(3), "3 репозитория");
-    assert.equal(files(5), "5 репозиториев");
-    assert.equal(files(21), "21 репозиторий");
+    assert.equal(models(1), "1 модель");
+    assert.equal(models(3), "3 модели");
+    assert.equal(models(5), "5 моделей");
+    assert.equal(models(21), "21 модель");
   });
-  inLanguage("zh-Hans", () => assert.equal(files(7), "7 个仓库"));
+  inLanguage("zh-Hans", () => assert.equal(models(7), "7 个模型"));
   // The Mac's plural entry: Spanish one/other.
   inLanguage("es", () => {
     assert.equal(tn("✓ Connected · {count} model", "✓ Connected · {count} models", 1), "✓ Conectado · 1 modelo");
@@ -86,11 +86,11 @@ test("plurals follow each language's rules", () => {
 });
 
 test("labels() tables and dates read in the current language", () => {
-  const table = labels({ bow: N_("Bow"), hat: N_("Party hat") });
-  assert.equal(table.bow, "Bow");
+  const table = labels({ chat: N_("Open the chat"), next: N_("Next pill") });
+  assert.equal(table.chat, "Open the chat");
   inLanguage("fr", () => {
-    assert.equal(table.bow, "Nœud");
-    assert.deepEqual(Object.keys(table), ["bow", "hat"]);
+    assert.equal(table.chat, "Ouvrir le chat");
+    assert.deepEqual(Object.keys(table), ["chat", "next"]);
     assert.match(monthShort(9), /^oct/);
   });
   assert.equal(monthShort(9), "Oct");
@@ -101,7 +101,7 @@ test("labels() tables and dates read in the current language", () => {
 
 // ── Choosing the language ─────────────────────────────────────────────────────
 
-test("System follows the system's language when Coucou has it, else English", () => {
+test("System follows the system's language when Glim has it, else English", () => {
   assert.equal(resolveLanguage("", ["fr-FR", "en-US"]), "fr");
   assert.equal(resolveLanguage("", ["de-DE", "es-MX"]), "es");
   assert.equal(resolveLanguage("", ["pt-PT"]), "pt-BR");
@@ -241,7 +241,7 @@ test("every string the code shows is translated in every language", () => {
 test("lookup() answers from the merged tables", () => {
   assert.equal(lookup("Allow", "en"), undefined);
   assert.equal(lookup("Allow", "pt-BR"), "Permitir");
-  assert.equal(typeof lookup("{count} repos", "ru"), "object");
+  assert.equal(typeof lookup("{count} models", "ru"), "object");
 });
 
 // ── No English left outside t() ───────────────────────────────────────────────
@@ -250,7 +250,7 @@ test("lookup() answers from the merged tables", () => {
 // upload canvas or the recap that is exactly a translated string, and is not
 // the argument of t() / tl() / tn() / N_(), is English that would stay English.
 
-const CHECKED = ["src/views", "src/settings", "src/island", "src/upload", "src/recap", "src/mochi/wardrobe.ts", "src/main.ts"];
+const CHECKED = ["src/views", "src/settings", "src/island", "src/upload", "src/recap", "src/main.ts"];
 /** Literals that are a translated word but are values in the code, not text on screen. */
 const NOT_TEXT = new Set([
   "file", // the kind of a chat context: { kind: "file" }

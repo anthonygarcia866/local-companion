@@ -1,27 +1,21 @@
-// Coucou for Windows — app wiring and the commands the island calls.
+// Glim for Windows — app wiring and the commands the island calls.
 
 mod agent_hooks;
 mod agents;
 mod chat;
-mod claude;
-mod codex_plan;
 mod config_file;
 mod desktop;
 mod files;
-mod github;
 mod hooks;
 mod i18n;
 mod identity;
-mod integrations;
 mod island;
 mod local_chat;
 mod log;
 mod net;
-mod openai_compat;
 mod pipe;
 mod platform;
 mod recap;
-mod secrets;
 mod session_window;
 mod settings;
 mod shortcuts;
@@ -85,7 +79,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let shortcuts_changed = current.shortcuts != settings.shortcuts;
-        // Where Mochi sits on the desktop is desktop.rs's to say, not a webview's.
+        // Where the character sits on the desktop is desktop.rs's to say, not a webview's.
         let mut settings = settings.clone();
         settings.desktop_mochi = current.desktop_mochi.clone();
         *current = settings;
@@ -99,14 +93,13 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let manager = app.autolaunch();
         let result = if settings.autostart { manager.enable() } else { manager.disable() };
         if let Err(err) = result {
-            eprintln!("[coucou] autostart: {err}");
+            eprintln!("[glim] autostart: {err}");
         }
     }
     if screen_changed {
         let collapsed = shared.gate.collapsed.load(Ordering::Relaxed);
         island::apply_geometry(&app, &settings.screen, collapsed);
     }
-    integrations::settings_saved(&app, &settings.active_integrations);
     if shortcuts_changed {
         shortcuts::apply(&app, &settings.shortcuts);
     }
@@ -131,7 +124,7 @@ fn set_system_languages(app: AppHandle, languages: Vec<String>) {
 fn language_changed(app: &AppHandle) {
     tray::retitle(app);
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.set_title(&i18n::t("Settings — Coucou"));
+        let _ = window.set_title(&i18n::t("Settings — Glim"));
     }
 }
 
@@ -180,12 +173,14 @@ fn list_monitors(app: AppHandle) -> Vec<island::MonitorChoice> {
     island::monitor_choices(&app)
 }
 
+/// Opens a link in the browser — only a page on this machine (net/'s
+/// allowlist), so the app never hands the browser an address off the machine.
 #[tauri::command]
 fn open_url(url: String) {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
-        return;
+    match net::check_str(&url) {
+        Ok(url) => platform::open_url(url.as_str()),
+        Err(err) => log::line(err),
     }
-    platform::open_url(&url);
 }
 
 /// "Open terminal" opens the working folder in VS Code when `code` is on PATH,
@@ -274,13 +269,6 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Tray → Pause. Paused means paused: the pollers stop talking to the network,
-/// not just the island stopping showing things.
-#[tauri::command]
-fn set_paused(paused: bool) {
-    integrations::set_paused(paused);
-}
-
 // ── Claude Code hooks ─────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -288,7 +276,7 @@ fn hooks_status() -> HookStatus {
     hooks::status()
 }
 
-/// Pill ID → whether that agent's hooks reach Coucou. Read-only.
+/// Pill ID → whether that agent's hooks reach the app. Read-only.
 #[tauri::command]
 fn agent_hooks_status() -> std::collections::HashMap<String, bool> {
     agent_hooks::status()
@@ -380,13 +368,6 @@ fn status_line_apply(
     Ok(backup)
 }
 
-/// Codex plan usage, asked of the Codex CLI (`codex app-server`) when its pill
-/// shows. Off the main thread: it can take a few seconds.
-#[tauri::command]
-async fn codex_plan_usage() -> Option<serde_json::Value> {
-    tauri::async_runtime::spawn_blocking(codex_plan::read).await.ok().flatten()
-}
-
 #[tauri::command]
 fn approval_decision(app: AppHandle, request_id: String, decision: String) {
     recap::record_decision(&app, &request_id, &decision);
@@ -421,10 +402,10 @@ fn approval_decline(app: AppHandle, request_id: String) {
     pipe::decline(&app, &request_id);
 }
 
-// ── Chat, files and secrets ───────────────────────────────────────────────────
+// ── Chat and files ────────────────────────────────────────────────────────────
 
-/// One chat turn with the provider picked in the chat view. API keys and any
-/// file bytes stay on the Rust side.
+/// One chat turn with the local server picked in the chat view. File bytes
+/// stay on the Rust side.
 #[tauri::command]
 async fn chat_send(
     app: AppHandle,
@@ -437,8 +418,8 @@ async fn chat_send(
     chat::send(&app, &chat, &settings, query, context).await
 }
 
-/// The models a provider offers, for the picker in the chat view. Only asked
-/// once the user picked that provider, and only with its key or address.
+/// The models a local server offers, for the picker in the chat view. Only
+/// asked once the user picked that server, and only with its address.
 #[tauri::command]
 async fn chat_models(shared: State<'_, Shared>, provider: String) -> Result<Vec<ModelInfo>, String> {
     let settings = shared.settings.lock().unwrap().clone();
@@ -451,13 +432,6 @@ async fn local_connect(provider: String, url: String) -> Result<local_chat::Conn
     local_chat::connect(&provider, &url).await
 }
 
-/// Stores the custom server's key for the address typed next to it; it is only
-/// ever sent to that address.
-#[tauri::command]
-fn local_set_key(url: String, key: String) -> Result<(), String> {
-    local_chat::set_custom_key(&url, &key)
-}
-
 #[tauri::command]
 fn chat_reset(chat: State<Chat>) {
     chat.reset();
@@ -467,59 +441,6 @@ fn chat_reset(chat: State<Chat>) {
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
     files::ingest(&path)
-}
-
-/// The island may only ask whether a key exists — never read it.
-#[tauri::command]
-fn secret_present(key: String) -> bool {
-    secrets::present(&key)
-}
-
-#[tauri::command]
-fn secret_set(app: AppHandle, key: String, value: String) -> Result<(), String> {
-    // Bound to its server's address: only local_set_key may store it.
-    if key == local_chat::CUSTOM_KEY {
-        return Err("use local_set_key".into());
-    }
-    let before = (key == "github-token").then(|| secrets::get(&key));
-    secrets::set(&key, &value)?;
-    if let Some(before) = before {
-        if secrets::get(&key) != before {
-            integrations::github_token_changed(&app);
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn secret_clear(app: AppHandle, key: String) -> Result<(), String> {
-    let had = key == "github-token" && secrets::present(&key);
-    secrets::clear(&key)?;
-    if had {
-        integrations::github_token_changed(&app);
-    }
-    Ok(())
-}
-
-/// Opens the configured n8n instance — the URL lives in the Credential Manager.
-#[tauri::command]
-fn open_n8n() {
-    if let Some(url) = secrets::get("n8n-url") {
-        open_url(url);
-    }
-}
-
-/// Refresh buttons in the integration cards.
-#[tauri::command]
-async fn refresh_integration(app: AppHandle, id: String) {
-    integrations::poll_once(app, &id).await;
-}
-
-/// The GitHub card was opened: refetch its `section` ("pulse" or "activity")
-/// if it is stale. The pollers still decline while the pill is off or paused.
-#[tauri::command]
-fn github_refresh(section: String) {
-    integrations::github_refresh_if_stale(&section);
 }
 
 /// Lets the island write to the same log as the Rust side.
@@ -554,8 +475,16 @@ fn shortcuts_suspend(app: AppHandle, shared: State<Shared>, suspended: bool) {
 /// fixed by whichever webview is created first. Every window must therefore ask
 /// for the *same* arguments as the island (see `additionalBrowserArgs` in
 /// tauri.conf.json) — a mismatch makes the second window come up blank, with no
-/// error anywhere.
-pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+/// error anywhere. A test below holds the two together.
+///
+/// Local-only (PRIVACY.md): left alone, the WebView2 runtime calls Microsoft on
+/// its own — Edge's experiment config (config.edge.skype.com), the component
+/// updater (edge.microsoft.com), network-error reports (ecs.nel.measure.office.net)
+/// and a WPAD proxy lookup. Observed in a net-log of this app on 2026-10-09.
+/// The switches after the first two turn those off, and the resolver rule makes
+/// every host name but `localhost` fail to resolve inside the webview, so
+/// anything not listed here cannot reach the network either.
+pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings --no-proxy-server \"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost\"";
 
 /// In a dev build the pages are served by Vite, so the second window needs the
 /// absolute dev URL; a bundled build resolves it inside the app bundle.
@@ -577,7 +506,7 @@ fn create_settings_window(app: &AppHandle) {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
-        .title(i18n::t("Settings — Coucou"))
+        .title(i18n::t("Settings — Glim"))
         .inner_size(560.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
@@ -622,7 +551,7 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            // `coucou --shortcut <action>`: what a desktop's own keyboard
+            // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
             match shortcuts::from_args(&argv) {
                 Some(action) => shortcuts::dispatch(app, action),
@@ -670,7 +599,6 @@ pub fn run() {
             agent_hooks_apply,
             status_line_preview,
             status_line_apply,
-            codex_plan_usage,
             approval_decision,
             approval_answer,
             approval_ack,
@@ -679,17 +607,9 @@ pub fn run() {
             chat_send,
             chat_models,
             local_connect,
-            local_set_key,
             chat_reset,
             ingest_file,
-            secret_present,
-            secret_set,
-            secret_clear,
-            refresh_integration,
-            github_refresh,
-            open_n8n,
             open_settings_window,
-            set_paused,
             shortcuts_status,
             shortcuts_suspend,
             recap::recap_history,
@@ -716,7 +636,7 @@ pub fn run() {
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
-            // Same rule for Mochi's desktop window.
+            // Same rule for the character's desktop window.
             desktop::setup(&handle);
 
             if let Some(win) = island::window(&handle) {
@@ -742,24 +662,43 @@ pub fn run() {
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
 
-            log::line(format!("--- Coucou {} started ---", env!("CARGO_PKG_VERSION")));
+            log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
             pipe::start(handle.clone());
-            integrations::start(handle.clone());
             shortcuts::apply(&handle, &loaded.shortcuts);
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Coucou");
+        .expect("error while running Glim");
 }
 
 #[cfg(test)]
 mod tests {
-    use super::diff_file;
+    use super::{diff_file, BROWSER_ARGS};
+
+    #[test]
+    fn every_window_asks_webview2_for_the_same_locked_down_arguments() {
+        for conf in ["tauri.conf.json", "tauri.linux.conf.json"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(conf);
+            let json: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            let island = json.pointer("/app/windows/0/additionalBrowserArgs").and_then(|v| v.as_str());
+            assert_eq!(island, Some(BROWSER_ARGS), "{conf}");
+        }
+        for switch in [
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
+            "--no-proxy-server",
+            "\"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost\"",
+        ] {
+            assert!(BROWSER_ARGS.contains(switch), "{switch}");
+        }
+    }
 
     #[test]
     fn only_an_existing_file_by_its_full_path_reaches_the_editor() {
-        let dir = std::env::temp_dir().join(format!("coucou-diff-file-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glim-diff-file-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("edited.ts");
         std::fs::write(&file, "x").unwrap();

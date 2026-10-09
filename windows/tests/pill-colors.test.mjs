@@ -22,8 +22,11 @@ test("a colour is six hex digits, written #RRGGBB in upper case", () => {
   }
 });
 
-test("the palette is ten different colours the catalog already uses", () => {
+test("the palette is ten different colours", () => {
   // The same list as PillColors.palette on macOS (tests/PillColorsTests.swift).
+  // On the Mac every one is also a catalog colour; two of them (#F4505E,
+  // #F29B38) belonged to the GitHub and n8n pills, removed here, so only the
+  // rest still are.
   assert.deepEqual(PILL_PALETTE, [
     "#F5F6F8", "#F4505E", "#F29B38", "#FACC15", "#4ADE80",
     "#2DD4BF", "#38BDF8", "#818CF8", "#C084FC", "#E879F9",
@@ -32,7 +35,7 @@ test("the palette is ten different colours the catalog already uses", () => {
   assert.equal(new Set(PILL_PALETTE).size, 10);
   for (const hex of PILL_PALETTE) {
     assert.equal(normalizeHex(hex), hex, hex);
-    assert.ok(catalog.has(hex), `${hex} is not a catalog colour`);
+    if (hex !== "#F4505E" && hex !== "#F29B38") assert.ok(catalog.has(hex), `${hex} is not a catalog colour`);
   }
 });
 
@@ -82,9 +85,10 @@ test("with no preference every pill is painted as the catalog says", () => {
 
 test("a pill is created in the colour the user gave it", () => {
   State.settings.pillColors = { integration_claude: TEAL };
+  State.settings.activeIntegrations = ["ai_ollama"];
   State.loadIntegrationTasks();
   assert.equal(colorOf("integration_claude"), TEAL);
-  assert.equal(colorOf("integration_github"), pillDefinition("integration_github").color);
+  assert.equal(colorOf("ai_ollama"), pillDefinition("ai_ollama").color);
 });
 
 test("a colour picked later reaches the pills already on the island, and back", () => {

@@ -35,7 +35,8 @@ beforeEach(() => {
   State.paused = false;
   State.isPinned = false;
   State.pendingApproval = null;
-  State.settings = { ...DEFAULT_SETTINGS };
+  // Two other pills next to Claude Code's, to be behind.
+  State.settings = { ...DEFAULT_SETTINGS, activeIntegrations: ["ai_ollama", "ai_lmstudio"] };
   State.loadIntegrationTasks();
 });
 
@@ -168,7 +169,7 @@ test("an alert on an island that is already open only switches its view", () => 
 });
 
 test("a session finishing behind another pill only badges its own, for 5.2 s", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   hook({ hook_event_name: "Stop" });
   assert.deepEqual(asked, []);
   assert.equal(task().pillBadge, "finished");
@@ -180,7 +181,7 @@ test("a failed stop shows the error view, or the error badge behind another pill
   hook({ hook_event_name: "StopFailure" });
   assert.equal(task().state, "error");
   assert.deepEqual(asked, ["alert:error"]);
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   hook({ hook_event_name: "StopFailure" });
   assert.equal(task().pillBadge, "error");
 });
@@ -281,13 +282,13 @@ test("Codex, Copilot CLI and Muse Code get the card on their own pill", () => {
 });
 
 test("an agent's turn ending takes its card down and gives the front back", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   hook({ hook_event_name: "PermissionRequest", request_id: "r1", session_id: "s1", coucou_agent: "codex", tool_name: "Bash" });
   assert.equal(State.focusId, "agent_codex");
   asked = [];
   hook({ hook_event_name: "Stop", session_id: "s1", coucou_agent: "codex" });
   assert.equal(State.pendingApproval, null);
-  assert.equal(State.focusId, "integration_n8n");
+  assert.equal(State.focusId, "ai_ollama");
   // The stop no longer has the front: its pill is badged, the view is not taken.
   assert.equal(task("agent_codex").pillBadge, "finished");
   assert.ok(!asked.includes("alert:finished"));
@@ -435,31 +436,31 @@ test("the card names the most specific thing the tool carries", () => {
 });
 
 test("a request behind another pill comes to the front, and that pill comes back after (Mac #120)", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   ask("r1");
   assert.deepEqual(asked, ["alert:approval"]);
   assert.equal(State.focusId, CLAUDE);
   assert.deepEqual(sent("approval_ack"), [{ requestId: "r1" }]);
   State.endApproval();
-  assert.equal(State.focusId, "integration_n8n");
+  assert.equal(State.focusId, "ai_ollama");
   assert.equal(State.isPinned, false);
   assert.equal(task().state, "working");
 });
 
 test("the pill you were on comes back after a withdrawn card too", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   ask("r1");
   seconds(110);
   assert.equal(State.pendingApproval, null);
-  assert.equal(State.focusId, "integration_n8n");
+  assert.equal(State.focusId, "ai_ollama");
 });
 
 test("a pill picked while the card was up keeps the front after the answer", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   ask("r1");
-  State.setFocus("integration_github");
+  State.setFocus("ai_lmstudio");
   State.endApproval();
-  assert.equal(State.focusId, "integration_github");
+  assert.equal(State.focusId, "ai_lmstudio");
 });
 
 test("the card shows when the island is already open, and is what it reopens on", () => {
@@ -578,7 +579,7 @@ test("a permission request within 5.2 s of a stop keeps its card", () => {
 });
 
 test("a permission request behind another pill keeps the front past the stop timer", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   afterStop(() => ask("r1"));
   assert.equal(task().state, "approval");
   assert.equal(State.focusId, CLAUDE);
@@ -598,14 +599,14 @@ test("a question within 5.2 s of a stop stays a question", () => {
 test("a failed stop within 5.2 s of a stop stays an error, badge included", () => {
   afterStop({ hook_event_name: "StopFailure" });
   assert.equal(task().state, "error");
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   afterStop({ hook_event_name: "StopFailure" });
   assert.equal(task().state, "error");
   assert.equal(task().pillBadge, "error");
 });
 
 test("a new turn behind another pill drops the finished badge straight away", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   hook({ hook_event_name: "Stop" });
   assert.equal(task().pillBadge, "finished");
   hook({ hook_event_name: "UserPromptSubmit", prompt: "next" });
@@ -643,7 +644,7 @@ test("a second stop restarts the 5.2 s: the first stop's timer no longer counts"
 });
 
 test("the end of a Claude Code session leaves no stop timer behind", () => {
-  State.setFocus("integration_n8n");
+  State.setFocus("ai_ollama");
   hook({ hook_event_name: "Stop", cwd: "/p/proj" });
   hook({ hook_event_name: "SessionEnd", cwd: "/p/proj" });
   assert.equal(task().state, "idle");

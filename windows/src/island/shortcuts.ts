@@ -2,15 +2,13 @@
 // handleIslandKey from the macOS app.
 //
 // Global shortcuts are caught by Rust and arrive as a `shortcut` event with
-// the action id (the wardrobe goes out as `open-wardrobe` instead, for the
-// wardrobe view to pick up). The in-island keys are read here, while the
+// the action id. The in-island keys are read here, while the
 // island has the keyboard: it takes it for the chat, and when a global
 // shortcut opens it.
 
 import { Bridge, onEvent } from "../core/bridge";
 import type { BotEmoteName, IslandViewName } from "../core/layout";
 import { cyclePill, islandKeyAction, pillByNumber, type IslandKeyAction } from "../core/shortcuts";
-import { Sound } from "../core/sound";
 import { State } from "../core/state";
 
 const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
@@ -24,14 +22,11 @@ export interface ShortcutHost {
   setPinned(on: boolean): void;
   /** Gives the island the keyboard, so the in-island keys work (Mac: makeKey). */
   takeKeyboard(): void;
-  /** The wardrobe from any state, or back if it is open (Island.wardrobeAnywhere). */
-  wardrobeAnywhere(): void;
 }
 
 function focusPill(host: ShortcutHost, id: string | null, open: boolean) {
   if (!id) return;
   State.setFocus(id);
-  Sound.play("blip");
   if (open) host.alert("overview");
   else host.setView("overview");
 }
@@ -73,7 +68,6 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
       } else {
         // Nothing is waiting: Mochi says so.
         host.emote("annoyed");
-        Sound.play("error");
       }
       break;
     }
@@ -99,19 +93,8 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
       );
       break;
 
-    case "muteToggle": {
-      const on = !State.settings.soundEnabled;
-      State.settings.soundEnabled = on;
-      Sound.setEnabled(on);
-      void Bridge.saveSettings(State.settings);
-      if (on) Sound.play("tick");
-      host.emote(on ? "happy" : "annoyed");
-      State.notify();
-      break;
-    }
-
-    // wardrobeToggle never comes this way (Rust sends `open-wardrobe`), and
-    // attachFrontWindow / desktopToggle aren't in this version.
+    // muteToggle, wardrobeToggle, attachFrontWindow and desktopToggle aren't
+    // in this version: Rust never registers them.
     default:
       break;
   }
@@ -134,7 +117,6 @@ export function runIslandKey(host: ShortcutHost, action: IslandKeyAction) {
       State.droppedFile = null;
       State.promptContext = null;
       void Bridge.chatReset();
-      Sound.play("blip");
       host.setView("prompt");
       break;
     case "settings":
@@ -155,12 +137,6 @@ function inTextField(target: EventTarget | null): boolean {
 
 export function registerShortcutHandlers(host: ShortcutHost, resume: () => void) {
   void onEvent<string>("shortcut", (action) => runGlobalShortcut(host, action, resume));
-  // The wardrobe shortcut comes as its own event (shortcuts.rs): it opens the
-  // wardrobe (mochi/wardrobe.ts, views/wardrobe.ts), or closes it again.
-  void onEvent<null>("open-wardrobe", () => {
-    resume();
-    host.wardrobeAnywhere();
-  });
 
   // Capture phase: the chat field stops its own key events from bubbling.
   window.addEventListener(

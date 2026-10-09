@@ -133,27 +133,6 @@ pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     None
 }
 
-/// Where the Codex CLI may be, best first: %PATH% (codex.exe or npm's
-/// codex.cmd), then npm's global folder and the Volta / Bun / pnpm ones.
-/// Rust quotes the one fixed argument safely for a `.cmd` (see find_on_path).
-pub fn codex_candidates() -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = find_on_path("codex").into_iter().collect();
-    let var = |k: &str| std::env::var_os(k).map(PathBuf::from).filter(|p| p.is_absolute());
-    if let Some(appdata) = var("APPDATA") {
-        out.push(appdata.join("npm").join("codex.cmd"));
-    }
-    if let Some(local) = var("LOCALAPPDATA") {
-        out.push(local.join("Volta").join("bin").join("codex.exe"));
-        out.push(local.join("pnpm").join("codex.cmd"));
-    }
-    if let Some(home) = var("USERPROFILE") {
-        out.push(home.join(".bun").join("bin").join("codex.exe"));
-        out.push(home.join(".local").join("bin").join("codex.exe"));
-    }
-    out.retain(|p| p.is_file());
-    out
-}
-
 // ── Who we are ────────────────────────────────────────────────────────────────
 //
 // Named pipes share one machine-wide namespace, so the SID in the name is what
@@ -197,38 +176,21 @@ pub fn current_user_sid() -> Option<String> {
     }
 }
 
-// The display name only feeds Mochi's greeting (identity.rs). The calls are
+// The display name only feeds the chat's greeting (identity.rs). The calls are
 // declared here by hand, with their documented C signatures, so they need no
 // extra `windows` crate features.
-#[link(name = "secur32")]
-extern "system" {
-    fn GetUserNameExW(name_format: i32, name_buffer: *mut u16, size: *mut u32) -> u8;
-}
-
 #[link(name = "netapi32")]
 extern "system" {
     fn NetUserGetInfo(server: *const u16, user: *const u16, level: u32, buffer: *mut *mut u8) -> u32;
     fn NetApiBufferFree(buffer: *mut core::ffi::c_void) -> u32;
 }
 
-/// EXTENDED_NAME_FORMAT::NameDisplay.
-const NAME_DISPLAY: i32 = 3;
-
-/// The account's display name ("Louis Raille"): the directory's for a domain
-/// or Entra account, else the local account's "Full name", else nothing.
+/// The local account's "Full name", else nothing. Only the local account
+/// database is read (NetUserGetInfo with no server): the directory lookup of a
+/// domain or Entra account (GetUserNameExW) was removed because it can query a
+/// domain controller over the network.
 pub fn user_full_name() -> Option<String> {
-    directory_display_name().or_else(local_full_name).filter(|n| !n.trim().is_empty())
-}
-
-fn directory_display_name() -> Option<String> {
-    let mut buf = [0u16; 256];
-    let mut size = buf.len() as u32;
-    // On success `size` is the length copied, without the terminating null.
-    let ok = unsafe { GetUserNameExW(NAME_DISPLAY, buf.as_mut_ptr(), &mut size) } != 0;
-    if !ok || size as usize > buf.len() {
-        return None;
-    }
-    String::from_utf16(&buf[..size as usize]).ok()
+    local_full_name().filter(|n| !n.trim().is_empty())
 }
 
 fn local_full_name() -> Option<String> {

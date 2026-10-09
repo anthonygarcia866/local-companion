@@ -1,4 +1,4 @@
-// Mochi on the desktop — the pure logic, port of
+// The character on the desktop — the pure logic, port of
 // NotchBuddy/Sources/App/DesktopMochiLogic.swift and of the life cycle in
 // DesktopMochiController (DesktopMochi.swift). No DOM, no Tauri: the island
 // wires it up in src/island/desktop.ts, the desktop window draws him in
@@ -8,15 +8,10 @@
 // not needed: a point on the desktop is used as the OS reports it.
 
 import type { BotEmoteName, BotStateName } from "../core/layout";
-import type { Outfit } from "./wardrobe";
 
 /** What the island tells the desktop window, whenever it changes. */
 export interface DesktopSnapshot {
   state: BotStateName;
-  /** He is always the main Mochi, so always dressed (try-ons included). */
-  outfit: Outfit;
-  soundEnabled: boolean;
-  soundVolume: number;
   /** Tray → Pause: he dozes off and stays asleep. */
   paused: boolean;
 }
@@ -29,7 +24,6 @@ export const DESKTOP_EVENTS = {
   /** desktop window → island */
   ready: "desktop-mochi-ready",
   home: "desktop-mochi-home",
-  wardrobe: "desktop-mochi-wardrobe",
   dizzy: "desktop-mochi-dizzy",
   /** Rust → island: a drag ended, `{ from: "island" | "desktop", home }`. */
   dropped: "desktop-mochi-dropped",
@@ -187,7 +181,6 @@ export interface DesktopPorts {
   setAway(away: boolean): void;
   /** An emote on the desktop Mochi. */
   emote(emote: BotEmoteName, duration?: number): void;
-  play(sound: string): void;
   alertActive(): boolean;
   /** The island must be on screen for him to show the alert there. */
   revealIsland(): void;
@@ -234,7 +227,6 @@ export class DesktopMochiController {
     this.enabled = true;
     this.port.setAway(true);
     this.port.emote("happy", 0.6);
-    this.port.play("pop");
     this.landed();
   }
 
@@ -247,7 +239,6 @@ export class DesktopMochiController {
     this.phase = "home";
     this.enabled = false;
     await this.port.flyHome(true);
-    this.port.play("peek");
     this.port.setAway(false);
   }
 

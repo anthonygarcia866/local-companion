@@ -1,5 +1,5 @@
 // Preferences, stored as plain JSON in settings.json under platform::config_dir().
-// No secret ever lands here — API keys live in the OS keychain (see secrets.rs).
+// No secret ever lands here, and the app stores no API keys at all.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -13,8 +13,6 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
-    pub sound_enabled: bool,
-    pub sound_volume: f64,
     pub auto_close_interval: f64,
     pub absence_interval: f64,
     pub active_integrations: Vec<String>,
@@ -24,46 +22,34 @@ pub struct Settings {
     pub screen: String,
     pub autostart: bool,
     pub hooks_installed: bool,
-    /// Claude model used by the chat. Changeable in the settings window.
-    pub model: String,
     /// Show the Claude plan pill (5 h and weekly limits) in the island's header.
     /// Off until the user turns it on, so the header stays as it shipped.
     pub show_plan_in_notch: bool,
-    /// Coucou's status line relay is the one in Claude Code's settings.json.
+    /// The app's status line relay is the one in Claude Code's settings.json.
     /// Like `hooks_installed`, the real state wins at launch over what was stored.
     pub plan_relay_installed: bool,
-    /// Show the Codex plan pill (5 h / weekly limits from `codex app-server`).
-    /// Off by default; nothing is installed for it.
-    pub show_codex_plan_in_notch: bool,
-    /// Who the chat talks to: "anthropic", a cloud provider of
-    /// openai_compat.rs ("openai", "google", "openrouter"), or a model server
-    /// of local_chat.rs ("ollama", "lmstudio", "custom"). Picked in the chat view.
+    /// Which local model server the chat talks to: "ollama" or "lmstudio"
+    /// (local_chat.rs). Anything else (a cloud provider from an older build)
+    /// reads as "ollama". Picked in the chat view.
     pub chat_provider: String,
-    /// The model picked for each provider other than Anthropic (whose model is
-    /// `model`), by provider id.
+    /// The model picked for each provider, by provider id.
     pub chat_models: BTreeMap<String, String>,
     /// Addresses of the model servers once connected; empty means not connected.
     pub ollama_url: String,
     pub lmstudio_url: String,
-    /// Any other OpenAI-compatible server; its key, if any, is in the keychain.
-    pub custom_url: String,
     /// Global shortcuts the user changed, by action id; the others keep their
     /// default (see shortcuts.rs).
     pub shortcuts: crate::shortcuts::Bindings,
-    /// Mochi's outfit, picked in the wardrobe: "auto" (dresses for the
-    /// season), "none" or an outfit id — the Mac's raw values. The island reads
-    /// anything it doesn't know as "auto", so the value is stored as it comes.
-    pub mochi_outfit: String,
-    /// A colour of the user's own for a pill's Mochi, by pill ID ("#RRGGBB"),
-    /// picked in Settings → Active pills. Empty means the catalog's colours.
-    /// Kept as it comes, like `mochi_outfit`: src/core/pill-colors.ts reads
+    /// A colour of the user's own for a pill's character, by pill ID
+    /// ("#RRGGBB"), picked in Settings → Active pills. Empty means the
+    /// catalog's colours. Kept as it comes: src/core/pill-colors.ts reads
     /// whatever is not a colour as "no choice".
     pub pill_colors: BTreeMap<String, String>,
     /// Interface language: "" follows the system, else one of i18n::LANGUAGES
-    /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes, like `mochi_outfit`: a
+    /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes, like `pill_colors`: a
     /// code this build doesn't know reads as "".
     pub language: String,
-    /// Mochi on the desktop: whether he lives there, and his spot. Owned by
+    /// The character on the desktop: whether it lives there, and its spot. Owned by
     /// the Rust side (desktop.rs) — what a webview sends back is ignored.
     pub desktop_mochi: DesktopMochiPref,
 }
@@ -85,38 +71,23 @@ pub struct DesktopSpot {
     pub space: String,
 }
 
-fn default_model() -> String {
-    crate::claude::DEFAULT_MODEL.to_string()
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            sound_enabled: true,
-            sound_volume: 0.12,
             auto_close_interval: 15.0,
             absence_interval: 180.0,
-            active_integrations: vec![
-                "integration_resend".into(),
-                "integration_n8n".into(),
-                "integration_vercel".into(),
-                "integration_github".into(),
-            ],
+            active_integrations: Vec::new(),
             main_pill: "integration_claude".into(),
             screen: "primary".into(),
             autostart: false,
             hooks_installed: false,
-            model: default_model(),
             show_plan_in_notch: false,
             plan_relay_installed: false,
-            show_codex_plan_in_notch: false,
-            chat_provider: crate::chat::ANTHROPIC.into(),
+            chat_provider: crate::chat::DEFAULT_PROVIDER.into(),
             chat_models: BTreeMap::new(),
             ollama_url: String::new(),
             lmstudio_url: String::new(),
-            custom_url: String::new(),
             shortcuts: Default::default(),
-            mochi_outfit: "auto".into(),
             pill_colors: BTreeMap::new(),
             language: String::new(),
             desktop_mochi: DesktopMochiPref::default(),
@@ -373,26 +344,20 @@ mod tests {
     /// A settings.json in which no value is the default one.
     // Two #: the colours in it are written "#RRGGBB".
     const CUSTOM: &str = r##"{
-  "soundEnabled": false,
-  "soundVolume": 0.5,
   "autoCloseInterval": 30.0,
   "absenceInterval": 60.0,
-  "activeIntegrations": ["integration_notion"],
+  "activeIntegrations": ["agent_codex"],
   "mainPill": "agent_cursor",
   "screen": "cursor",
   "autostart": true,
   "hooksInstalled": true,
-  "model": "some-model",
   "showPlanInNotch": true,
   "planRelayInstalled": true,
-  "showCodexPlanInNotch": true,
   "chatProvider": "ollama",
-  "chatModels": { "ollama": "llama3.2", "openai": "gpt-x" },
+  "chatModels": { "ollama": "llama3.2", "lmstudio": "qwen2.5" },
   "ollamaUrl": "http://127.0.0.1:11434",
   "lmstudioUrl": "http://127.0.0.1:1234",
-  "customUrl": "https://llm.example.com",
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
-  "mochiOutfit": "witchHat",
   "pillColors": { "integration_claude": "#2DD4BF" },
   "language": "pt-BR",
   "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } }
@@ -424,7 +389,7 @@ mod tests {
     /// A fresh directory of our own, and the settings.json it will hold.
     fn scratch(name: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir()
-            .join(format!("coucou-settings-{name}-{}", std::process::id()));
+            .join(format!("glim-settings-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
@@ -478,19 +443,22 @@ mod tests {
     }
 
     #[test]
-    fn a_file_from_before_the_model_setting_keeps_everything_else() {
-        let loaded = shown(&parse(&custom_with("model", None)).unwrap());
-        let mut expected = custom();
-        expected["model"] = json!(crate::claude::DEFAULT_MODEL);
-        assert_eq!(loaded, expected);
-    }
-
-    #[test]
-    fn a_file_from_before_the_wardrobe_dresses_mochi_for_the_seasons() {
-        let loaded = parse(&custom_with("mochiOutfit", None)).unwrap();
-        assert_eq!(loaded.mochi_outfit, "auto");
-        assert_eq!(loaded.model, "some-model");
-        assert!(!loaded.sound_enabled);
+    fn a_file_from_an_older_build_drops_the_removed_settings_and_keeps_the_rest() {
+        // Sounds, the cloud chat model, the Codex pill, the custom server and
+        // the wardrobe are gone: their keys are ignored, nothing else moves.
+        let mut object = custom().as_object().unwrap().clone();
+        for (key, value) in [
+            ("soundEnabled", json!(false)),
+            ("soundVolume", json!(0.5)),
+            ("model", json!("claude-x")),
+            ("showCodexPlanInNotch", json!(true)),
+            ("customUrl", json!("https://llm.example.com")),
+            ("mochiOutfit", json!("witchHat")),
+        ] {
+            object.insert(key.into(), value);
+        }
+        let bytes = serde_json::to_vec(&object).unwrap();
+        assert_eq!(shown(&parse(&bytes).unwrap()), custom());
     }
 
     #[test]
@@ -498,7 +466,7 @@ mod tests {
         let loaded = parse(&custom_with("desktopMochi", None)).unwrap();
         assert_eq!(loaded.desktop_mochi, DesktopMochiPref::default());
         assert!(!loaded.desktop_mochi.on_desktop);
-        assert_eq!(loaded.mochi_outfit, "witchHat");
+        assert_eq!(loaded.language, "pt-BR");
     }
 
     #[test]
@@ -510,7 +478,7 @@ mod tests {
         .unwrap();
         // The whole field falls back, and nothing else does.
         assert_eq!(loaded.desktop_mochi, DesktopMochiPref::default());
-        assert_eq!(loaded.model, "some-model");
+        assert_eq!(loaded.screen, "cursor");
 
         let loaded = parse(&custom_with("desktopMochi", Some(json!({ "onDesktop": true })))).unwrap();
         assert!(loaded.desktop_mochi.on_desktop);
@@ -521,7 +489,7 @@ mod tests {
     fn a_file_from_before_the_colours_paints_every_pill_as_the_catalog_says() {
         let loaded = parse(&custom_with("pillColors", None)).unwrap();
         assert!(loaded.pill_colors.is_empty());
-        assert_eq!(loaded.mochi_outfit, "witchHat");
+        assert_eq!(loaded.language, "pt-BR");
     }
 
     #[test]
@@ -532,16 +500,12 @@ mod tests {
         // Not a map of strings: the colours fall back, and nothing else does.
         let loaded = parse(&custom_with("pillColors", Some(json!(["#2DD4BF"])))).unwrap();
         assert!(loaded.pill_colors.is_empty());
-        assert_eq!(loaded.model, "some-model");
+        assert_eq!(loaded.screen, "cursor");
     }
 
     #[test]
-    fn an_outfit_this_build_does_not_know_is_kept_as_written() {
-        // A newer build may add outfits: the island shows "auto" for it, but
-        // the choice must survive a save made by this one.
-        let loaded = parse(&custom_with("mochiOutfit", Some(json!("topHat")))).unwrap();
-        assert_eq!(loaded.mochi_outfit, "topHat");
-        // The language too: "" (follow the system) when absent, as it comes otherwise.
+    fn a_language_this_build_does_not_know_is_kept_as_written() {
+        // "" (follow the system) when absent, as it comes otherwise.
         assert_eq!(parse(&custom_with("language", None)).unwrap().language, "");
         assert_eq!(parse(&custom_with("language", Some(json!("xx")))).unwrap().language, "xx");
     }
@@ -560,9 +524,9 @@ mod tests {
     #[test]
     fn a_field_of_the_wrong_type_takes_its_default_and_the_rest_are_kept() {
         for (key, wrong) in [
-            ("soundVolume", json!("loud")),
-            ("soundEnabled", json!(1)),
-            ("activeIntegrations", json!("integration_n8n")),
+            ("autoCloseInterval", json!("long")),
+            ("hooksInstalled", json!(1)),
+            ("activeIntegrations", json!("agent_codex")),
             ("mainPill", json!(["agent_cursor"])),
             ("screen", Value::Null),
             ("shortcuts", json!("Ctrl+Alt+A")),
@@ -775,8 +739,6 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "soundEnabled",
-                "soundVolume",
                 "autoCloseInterval",
                 "absenceInterval",
                 "activeIntegrations",
@@ -784,17 +746,13 @@ mod tests {
                 "screen",
                 "autostart",
                 "hooksInstalled",
-                "model",
                 "showPlanInNotch",
                 "planRelayInstalled",
-                "showCodexPlanInNotch",
                 "chatProvider",
                 "chatModels",
                 "ollamaUrl",
                 "lmstudioUrl",
-                "customUrl",
                 "shortcuts",
-                "mochiOutfit",
                 "pillColors",
                 "language",
                 "desktopMochi",

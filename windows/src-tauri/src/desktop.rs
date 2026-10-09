@@ -27,7 +27,7 @@ use crate::island::{self, PollGate};
 use crate::platform::{self, DesktopMode, MouseShape};
 use crate::settings::{self, DesktopSpot};
 
-pub const LABEL: &str = "mochi";
+pub const LABEL: &str = "character";
 
 /// Side of the square window, logical pixels (DesktopMochiLogic.panelSize).
 pub const SIZE: f64 = 120.0;
@@ -301,17 +301,17 @@ pub fn setup(app: &AppHandle) {
 fn page_url(app: &AppHandle) -> WebviewUrl {
     #[cfg(dev)]
     if let Some(mut base) = app.config().build.dev_url.clone() {
-        base.set_path("/mochi.html");
+        base.set_path("/character.html");
         return WebviewUrl::External(base);
     }
     let _ = app;
-    WebviewUrl::App("mochi.html".into())
+    WebviewUrl::App("character.html".into())
 }
 
 fn create_window(app: &AppHandle, _mode: DesktopMode) -> Option<WebviewWindow> {
     let mut builder = WebviewWindowBuilder::new(app, LABEL, page_url(app))
         .additional_browser_args(crate::BROWSER_ARGS)
-        .title("Mochi")
+        .title("Glim")
         .inner_size(SIZE, SIZE)
         // GTK won't size a non-resizable window below its natural size (see
         // island::apply_geometry). Windows would grow resize borders instead.

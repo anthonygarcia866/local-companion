@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Coucou",
+  "productName": "Glim",
   "version": "0.2.0",
-  "identifier": "fr.louisraille.coucou",
+  "identifier": "com.anthonygarcia.glim",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,13 @@
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost",
-      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'; connect-src ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'; connect-src ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:* ws://localhost:1420"
     },
     "windows": [
       {
         "label": "island",
-        "title": "Coucou",
+        "title": "Glim",
         "url": "index.html",
         "width": 240,
         "height": 6,
@@ -35,7 +35,7 @@
         "minimizable": false,
         "closable": false,
         "dragDropEnabled": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required"
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings --no-proxy-server \"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost\""
       }
     ]
   },
@@ -49,10 +49,10 @@
       "icons/icon.ico"
     ],
     "resources": { "../target/release/coucou-hook.exe": "coucou-hook.exe" },
-    "copyright": "© Louis Raille",
+    "copyright": "© 2026 Anthony Garcia. Portions © 2026 Louis Raillé (MIT).",
     "category": "DeveloperTool",
-    "shortDescription": "Mochi lives at the top of your screen",
-    "longDescription": "Coucou puts Mochi at the top of your screen: it shows your Claude Code sessions and a few integrations, and lets you approve, answer, chat and drop files without leaving what you are doing.",
+    "shortDescription": "A local-only companion at the top of your screen",
+    "longDescription": "Glim lives at the top of your screen: it shows your coding agent sessions, lets you approve and answer them, and chats with a model running on your own computer. It only ever connects to this computer.",
     "windows": {
       "nsis": {
         "installMode": "currentUser",

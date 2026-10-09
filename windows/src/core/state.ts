@@ -6,11 +6,10 @@ import {
   DEFAULT_MAIN_PILL, HOST_OS, availablePills, orderPills, pillDefinition, sanitizeDeclared,
   toggleDeclared, type HostOs, type PillDefinition,
 } from "./pills";
-import type { CodexPlanUsage, PlanUsage } from "./plan";
+import type { PlanUsage } from "./plan";
 import type { ProviderId } from "./providers";
 import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
-import { DEFAULT_OUTFIT, type Outfit } from "../mochi/wardrobe";
 import { pillColor } from "./pill-colors";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
@@ -97,8 +96,6 @@ export interface IntegrationInfo {
 }
 
 export interface Settings {
-  soundEnabled: boolean;
-  soundVolume: number;
   autoCloseInterval: number;
   absenceInterval: number;
   /** Declared pills next to the main one (at most 4), in the order they were added. */
@@ -109,41 +106,31 @@ export interface Settings {
   screen: string;
   autostart: boolean;
   hooksInstalled: boolean;
-  /** Claude model used by the chat. */
-  model: string;
   /** Show the Claude plan pill (5 h and weekly limits) in the island's header. */
   showPlanInNotch: boolean;
-  /** Coucou's status line relay is installed in Claude Code's settings. */
+  /** The app's status line relay is installed in Claude Code's settings. */
   planRelayInstalled: boolean;
-  /** Show the Codex plan pill in the island's header. */
-  showCodexPlanInNotch: boolean;
-  /** Who the chat talks to (see core/providers.ts); picked in the chat view. */
+  /** Which local model server the chat talks to (see core/providers.ts). */
   chatProvider: ProviderId;
-  /** The model picked for each provider other than Anthropic, by provider id. */
+  /** The model picked for each provider, by provider id. */
   chatModels: Record<string, string>;
   /** Model server addresses once connected; empty means not connected. */
   ollamaUrl: string;
   lmstudioUrl: string;
-  customUrl: string;
   /** Global shortcuts the user changed, by action id (see core/shortcuts.ts). */
   shortcuts: Bindings;
   /**
-   * Mochi's outfit: "auto" (dresses for the season), "none" or an outfit id.
-   * Same raw values as the Mac's "mochiOutfit"; read it through parseOutfit.
-   */
-  mochiOutfit: string;
-  /**
-   * A colour of the user's own for a pill's Mochi, by pill ID ("#RRGGBB").
+   * A colour of the user's own for a pill's character, by pill ID ("#RRGGBB").
    * Empty means the catalog's colours; read it through core/pill-colors.ts.
    * Same key and values as the Mac's "pillColors".
    */
   pillColors: Record<string, string>;
   /**
-   * Interface language: "" follows the system (when Coucou has its language,
+   * Interface language: "" follows the system (when Glim has its language,
    * else English), or one of src/i18n's ten codes ("fr", "pt-BR", "zh-Hans"…).
    */
   language: string;
-  /** Mochi on the desktop. Rust owns it: whatever the page sends back is ignored. */
+  /** The character on the desktop. Rust owns it: whatever the page sends back is ignored. */
   desktopMochi?: {
     onDesktop: boolean;
     spot: { x: number; y: number; space: string } | null;
@@ -151,28 +138,20 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  soundEnabled: true,
-  soundVolume: 0.12,
   autoCloseInterval: 15,
   absenceInterval: 180,
-  activeIntegrations: [
-    "integration_resend", "integration_n8n", "integration_vercel", "integration_github",
-  ],
+  activeIntegrations: [],
   mainPill: DEFAULT_MAIN_PILL,
   screen: "primary",
   autostart: false,
   hooksInstalled: false,
-  model: "claude-opus-5",
   showPlanInNotch: false,
   planRelayInstalled: false,
-  showCodexPlanInNotch: false,
-  chatProvider: "anthropic",
+  chatProvider: "ollama",
   chatModels: {},
   ollamaUrl: "",
   lmstudioUrl: "",
-  customUrl: "",
   shortcuts: {},
-  mochiOutfit: DEFAULT_OUTFIT,
   pillColors: {},
   language: "",
 };
@@ -218,12 +197,8 @@ class AppState {
 
   /** Claude's 5 h / weekly limits, from the status line (null until the first call). */
   planUsage: PlanUsage | null = null;
-  /** Codex's limits, from `codex app-server` (null until it has answered). */
-  codexPlanUsage: CodexPlanUsage | null = null;
-  /** A plan card is open in place of the overview's left card. */
+  /** The plan card is open in place of the overview's left card. */
   showingPlanDetail = false;
-  /** Which one: the Codex card rather than Claude's. */
-  planDetailIsCodex = false;
   /** Per-pill file diffs, in order of reception. Steps carry their ids. */
   sessionDiffs = new Map<string, FileDiff[]>();
   private sessionDiffTimers = new Map<string, number>();
@@ -234,9 +209,6 @@ class AppState {
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
    */
   mochiOnDesktop = false;
-
-  /** Outfit shown on Mochi while the pointer rests on a wardrobe button. */
-  wardrobePreview: Outfit | null = null;
 
   lastActivity = performance.now();
 

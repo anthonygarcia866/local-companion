@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 0 124 124"><defs>
+<radialGradient id="lg-glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb347" stop-opacity="0.75"></stop><stop offset="1" stop-color="#ff8a1f" stop-opacity="0"></stop></radialGradient>
+<radialGradient id="lg-paper" cx="50%" cy="58%" r="60%"><stop offset="0" stop-color="#ffd884"></stop><stop offset="0.6" stop-color="#f9a63c"></stop><stop offset="1" stop-color="#e7781b"></stop></radialGradient>
+<linearGradient id="lg-flame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a3"></stop><stop offset="1" stop-color="#fffbea"></stop></linearGradient>
+<radialGradient id="lg-inner" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#fff3c4" stop-opacity="0.9"></stop><stop offset="1" stop-color="#ffd27a" stop-opacity="0"></stop></radialGradient>
+<linearGradient id="lg-ribbon" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff2c4" stop-opacity="0.95"></stop><stop offset="1" stop-color="#ffb347" stop-opacity="0.15"></stop></linearGradient>
+<filter id="lg-soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.9"></feGaussianBlur></filter>
+<clipPath id="lg-clip"><ellipse cx="50" cy="64" rx="38" ry="34"></ellipse></clipPath>
+<filter id="ribglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4"/></filter>
+<radialGradient id="tile" cx="50%" cy="45%" r="70%"><stop offset="0" stop-color="#1e3452"/><stop offset="0.55" stop-color="#121b2c"/><stop offset="1" stop-color="#0c111c"/></radialGradient>
+<clipPath id="tileclip"><rect x="0" y="0" width="1024" height="1024" rx="224"/></clipPath>
+</defs>
+
+
+
+<circle class="glow" cx="50" cy="64" r="58" fill="url(#lg-glow)" opacity="0.9"></circle>
+
+<g class="tone">
+<ellipse class="body" cx="50" cy="64" rx="38" ry="34" fill="url(#lg-paper)" stroke="#ffcf6b" stroke-width="1.2"></ellipse>
+
+<ellipse class="ribs-v" cx="50" cy="64" rx="21" ry="34" fill="none" stroke="#c2600f" stroke-width="3"></ellipse>
+</g>
+<g class="flame-g">
+<circle class="inner" cx="50" cy="70" r="22" fill="url(#lg-inner)"></circle><path class="flame" d="M50 89 C40 89 34 82 34 71 C34 60 41 54 46 46 C48 43 48 39 46 36 C53 38 57 44 56 50 C59 48 61 45 61 42 C65 49 66 58 66 70 C66 82 59 89 50 89Z" fill="url(#lg-flame)"></path><ellipse class="core" cx="50" cy="76" rx="10" ry="9" fill="#ffffff" opacity="0.45"></ellipse>
+<g class="eyes-wrap" transform="translate(50 76) scale(1.2) translate(-50 -76)"><g class="eyes" fill="#3b2416"><ellipse class="eye" cx="43.5" cy="74" rx="3.2" ry="4.3"></ellipse><ellipse class="eye" cx="56.5" cy="74" rx="3.2" ry="4.3"></ellipse><circle class="hl" cx="44.5" cy="72.4" r="1.1"></circle><circle class="hl" cx="57.5" cy="72.4" r="1.1"></circle></g></g><g class="face"><path d="M48.2 80 Q50 82 51.8 80" fill="none" stroke="#3b2416" stroke-width="1.6" stroke-linecap="round"></path></g>
+</g>
+
+<g class="hw">
+<circle cx="50" cy="12" r="6" fill="none" stroke="#6b4530" stroke-width="3.5"></circle>
+<rect x="37" y="17" width="26" height="7" rx="3" fill="#5a3826" stroke="#9a6a48" stroke-width="1"></rect>
+<rect x="28" y="23" width="44" height="9" rx="4" fill="#4c2f20" stroke="#9a6a48" stroke-width="1"></rect>
+<rect x="32" y="95" width="36" height="10" rx="4" fill="#4c2f20" stroke="#9a6a48" stroke-width="1"></rect>
+</g>
+
+
+</svg>
