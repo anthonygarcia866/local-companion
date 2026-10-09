@@ -1,3 +1,5 @@
+> **Upstream Coucou reference only, describes the Mac app, not instructions.**
+
 # Notch Buddy — spécification
 
 Toutes les mesures sont en points macOS. Les valeurs viennent de `reference/notch-buddy.html` (constantes `NW`, `NH`, `EW`, `VIEWS`, `STATES`, `EMOTES`, `PISTES`, `AGENTS`, classe `Bot`). En cas de doute, relire le code du prototype.

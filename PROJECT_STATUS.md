@@ -49,8 +49,7 @@ A local-first Windows desktop companion.
 - **Phase 3** — delegation layer.
 - **Code signing before distribution** (e.g. Azure Trusted Signing). Users with Smart App Control on can't run unsigned builds, and a privacy product that asks users to disable a security feature is a non-starter.
 - **Rename the integration identifiers** (DECIDED 2026-10-09: one PR after Phase 0a merges, incl. migrating the existing data folder and an end-to-end hook check; deferred, see "Claude Code integration"): `coucou-hook.exe`, the `coucou-hook` marker in `~/.claude/settings.json`, the `\\.\pipe\coucou-<SID>` pipe, the `%APPDATA%\Coucou` / `%LOCALAPPDATA%\Coucou` folders, the other agents' `coucou.*` plugin/config names and the `coucou_agent` payload field. They must change together, with a migration for existing installs.
-- **Upstream docs** `docs/AGENTS.md`, `docs/INTEGRATIONS.md`, `docs/SPEC.md` still describe the Mac app (paths, Swift files). Rewrite or delete when the agent integration is reworked.
-- **`linux.yml`** still builds Glim for Linux (AppImage/.deb/.rpm) from `windows/` and would publish on a `linux-v*` tag. Glim is Windows-first; decide whether to keep it.
+- **Upstream docs** in `docs/upstream/` (`AGENTS.md`, `INTEGRATIONS.md`, `SPEC.md`, `UPSTREAM_CLAUDE.md`) describe the Mac app and are reference only. Write Glim's own docs when the agent integration is reworked.
 
 ## Decided 2026-10-09
 - Bundle identifier is `com.anthonygarcia.glim` (was `com.glim.app`, which made the bundler warn about the macOS `.app` extension).
@@ -60,7 +59,7 @@ A local-first Windows desktop companion.
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
 ## Current status
-Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Non-Windows trees removed on branch `chore/remove-non-windows-trees` (PR open, not merged): `NotchBuddy/` (macOS + iPhone app), `relay/` (iPhone relay Worker), `linux/` (Arch recipe for upstream Coucou), the macOS-only `build.yml`/`release.yml` workflows, `scripts/` and `tests/*.swift` (Swift tests and tools that compiled `NotchBuddy/` sources), and `docs/IPHONE.md`. The string catalog moved to `windows/src/i18n/Localizable.xcstrings`; `scripts/gen-strings.mjs` and its test read it there.
+Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Non-Windows trees removed on branch `chore/remove-non-windows-trees` (PR open, not merged): `NotchBuddy/` (macOS + iPhone app), `relay/` (iPhone relay Worker), `linux/` (Arch recipe for upstream Coucou), the macOS-only `build.yml`/`release.yml` workflows, `scripts/` and `tests/*.swift` (Swift tests and tools that compiled `NotchBuddy/` sources), and `docs/IPHONE.md`; also `linux.yml` (Glim is Windows-only, decided 2026-10-09). Upstream's Mac-app docs moved to `docs/upstream/` with a reference-only note. The string catalog moved to `windows/src/i18n/Localizable.xcstrings`; `scripts/gen-strings.mjs` and its test read it there.
 
 - **Upstream:** [Louis-CFM/coucou](https://github.com/Louis-CFM/coucou), forked at `5cb2a27` (2026-10-08). Remotes: `origin` = anthonygarcia866/local-companion, `upstream` = Louis-CFM/coucou. Credited in `NOTICE.md`.
 - **Toolchain** (2026-10-08): git 2.54.0, gh 2.94.0, Node 24.16.0, npm 11.13.0, rustup 1.29.1, rustc/cargo 1.99.0, VS Build Tools 2022 17.14.41 (VC tools), WebView2 runtime 154.0.4258.62.
