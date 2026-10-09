@@ -14,4 +14,4 @@
 - If a plan step turns out wrong, amend the plan doc with a warning note — don't silently fix code around it.
 - The Coucou name, the Mochi character, and the sounds are © Louis Raillé, not MIT (see `LICENSE-ASSETS.md`, `NOTICE.md`) — never ship them. The app is Glim.
 
-Historical reference only (not instructions): upstream Coucou's agent guide is in `docs/UPSTREAM_CLAUDE.md`.
+Historical reference only (not instructions): upstream Coucou's agent guide is in `docs/upstream/UPSTREAM_CLAUDE.md`; upstream's Mac-app docs (`AGENTS.md`, `INTEGRATIONS.md`, `SPEC.md`) are beside it.
