@@ -28,6 +28,14 @@ test("src/mascot is what the port makes of the approved design", () => {
   assert.equal(read("src/mascot/lantern-svg.ts"), portSvg(DESIGN));
 });
 
+test("the port doesn't depend on the design file's line endings", () => {
+  // Windows CI checks the design out with CRLF (core.autocrlf); a dev box may have LF.
+  const lf = DESIGN.replace(/\r\n/g, "\n");
+  const crlf = lf.replace(/\n/g, "\r\n");
+  assert.equal(portCss(crlf), portCss(lf));
+  assert.equal(portSvg(crlf), portSvg(lf));
+});
+
 test("every group and class the design names is in the port", () => {
   const markup = lanternMarkup("t", "full");
   for (const cls of [
