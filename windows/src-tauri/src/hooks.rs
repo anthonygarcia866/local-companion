@@ -38,8 +38,11 @@ pub const HOOK_EVENTS: &[(&str, u64)] = &[
     ("SubagentStop", 10),
 ];
 
-/// Marker that identifies a Coucou entry inside settings.json.
-const MARKER: &str = "coucou-hook";
+// Glim's entries in settings.json are told apart by the relay they run:
+// `agents::MARKER` (glim-hook) now, `agents::LEGACY_MARKER` (coucou-hook)
+// before the rename. Installing replaces both and removing removes both, but
+// only the current name counts as installed: the old relay path is gone.
+use crate::agents::{names_relay, MARKER};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,25 +86,27 @@ fn hook_command(event: &str) -> String {
     agents::relay_command(Shell::Sh, event)
 }
 
+/// An entry Glim wrote, under the relay's current or old name.
 fn entry_is_ours(entry: &Value) -> bool {
+    entry_command_matches(entry, names_relay)
+}
+
+/// An entry that runs the current relay.
+fn entry_is_current(entry: &Value) -> bool {
+    entry_command_matches(entry, |c| c.contains(MARKER))
+}
+
+fn entry_command_matches(entry: &Value, test: impl Fn(&str) -> bool) -> bool {
     entry
         .get("hooks")
         .and_then(Value::as_array)
-        .map(|hooks| {
-            hooks.iter().any(|h| {
-                h.get("command")
-                    .and_then(Value::as_str)
-                    .map(|c| c.contains(MARKER))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
+        .is_some_and(|hooks| hooks.iter().any(|h| h.get("command").and_then(Value::as_str).is_some_and(&test)))
 }
 
-/// The status line in settings.json is Coucou's relay (old installs wrote
-/// `coucou-hook StatusLine`, new ones `coucou-hook --statusline`; both match).
+/// The status line in settings.json is Glim's relay, under either name (old
+/// installs wrote `coucou-hook StatusLine`, newer ones `… --statusline`).
 fn status_line_is_ours(v: &Value) -> bool {
-    v.get("command").and_then(Value::as_str).is_some_and(|c| c.contains(MARKER))
+    v.get("command").and_then(Value::as_str).is_some_and(names_relay)
 }
 
 /// Settings with Coucou's hooks added; everything else is left untouched. A
@@ -192,7 +197,7 @@ pub fn status() -> HookStatus {
                 .values()
                 .filter_map(Value::as_array)
                 .flatten()
-                .any(entry_is_ours)
+                .any(entry_is_current)
         })
         .unwrap_or(false);
     let hook_path = settings::hook_exe_path();
@@ -247,9 +252,13 @@ fn read_status_line_previous() -> Option<Value> {
     serde_json::from_slice::<Value>(&bytes).ok().filter(Value::is_object)
 }
 
-/// True when the `statusLine` in settings.json is Coucou's relay.
+/// True when the `statusLine` in settings.json is the current relay.
 pub fn plan_relay_installed(settings: &Value) -> bool {
-    settings.get("statusLine").is_some_and(status_line_is_ours)
+    settings
+        .get("statusLine")
+        .and_then(|v| v.get("command"))
+        .and_then(Value::as_str)
+        .is_some_and(|c| c.contains(MARKER))
 }
 
 /// `statusLine` as it reads after installing or removing the relay. `None`: the
@@ -338,7 +347,7 @@ fn save_status_line_previous(status_line: &Value) -> std::io::Result<()> {
     config_file::write_like(&path, &path, config_file::pretty(status_line).as_bytes())
 }
 
-/// Copies the relay (coucou-hook.exe / coucou-hook) into the local data dir's
+/// Copies the relay (glim-hook.exe / glim-hook) into the local data dir's
 /// bin/ on launch. In a bundled install it comes from the app resources; in
 /// `tauri dev` it sits next to the app binary in the workspace target directory.
 ///
@@ -530,7 +539,7 @@ mod tests {
     /// the home directory at a temp directory, and that is process-wide.
     #[test]
     fn writing_backs_up_preserves_and_refuses_a_changed_file() {
-        let tmp = std::env::temp_dir().join(format!("coucou-hooks-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("glim-hooks-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join(".claude")).unwrap();
         std::env::set_var(platform::HOME_VAR, &tmp);
@@ -546,7 +555,7 @@ mod tests {
 
         // Install.
         let plan = preview(true).expect("a BOM must not stop the preview");
-        assert!(plan.diff.contains("coucou-hook"), "the diff must show what changes");
+        assert!(plan.diff.contains("glim-hook"), "the diff must show what changes");
         let backup = write(true, &plan.fingerprint).expect("install should succeed");
 
         // The backup holds the original bytes, BOM and all.
@@ -576,5 +585,63 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"{ broken");
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── Entries from before the rename (coucou-hook) ──────────────────────────
+
+    fn legacy_settings() -> Value {
+        json!({
+            "hooks": {
+                "Stop": [
+                    {"hooks": [{"type": "command", "command": "\"C:/Users/me/AppData/Local/Coucou/bin/coucou-hook.exe\" Stop", "timeout": 10}]},
+                    {"hooks": [{"type": "command", "command": "other-tool.exe"}]}
+                ]
+            },
+            "statusLine": {"type": "command", "command": "\"C:/Users/me/AppData/Local/Coucou/bin/coucou-hook.exe\" --statusline", "padding": 1}
+        })
+    }
+
+    #[test]
+    fn old_entries_are_ours_but_do_not_read_as_installed() {
+        let legacy = legacy_settings();
+        let old = &legacy["hooks"]["Stop"][0];
+        assert!(entry_is_ours(old), "an install must replace it and an uninstall remove it");
+        assert!(!entry_is_current(old), "its relay path is gone, so it must not read as installed");
+        assert!(!entry_is_ours(&legacy["hooks"]["Stop"][1]));
+        assert!(status_line_is_ours(&legacy["statusLine"]));
+        assert!(!plan_relay_installed(&legacy));
+    }
+
+    #[test]
+    fn installing_over_old_entries_replaces_them_and_installing_again_changes_nothing() {
+        let once = merged(&legacy_settings()).unwrap();
+        let twice = merged(&once).unwrap();
+        assert_eq!(once, twice, "a second install must not add duplicates");
+        for (event, _) in HOOK_EVENTS {
+            let ours: Vec<&Value> = once["hooks"][*event].as_array().unwrap().iter().filter(|e| entry_is_ours(e)).collect();
+            assert_eq!(ours.len(), 1, "{event}: exactly one Glim entry");
+            assert!(entry_is_current(ours[0]), "{event}: and it runs glim-hook");
+        }
+        let stop = once["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop[0]["hooks"][0]["command"], "other-tool.exe", "the other tool's entry stays first");
+        assert!(!once["hooks"].to_string().contains(crate::agents::LEGACY_MARKER));
+        // The status line is a separate switch: installing hooks leaves it alone.
+        assert_eq!(once["statusLine"], legacy_settings()["statusLine"]);
+    }
+
+    #[test]
+    fn removing_takes_out_old_entries_too() {
+        let removed = without_ours(&legacy_settings()).unwrap();
+        assert_eq!(removed["hooks"], json!({"Stop": [{"hooks": [{"type": "command", "command": "other-tool.exe"}]}]}));
+    }
+
+    #[test]
+    fn an_old_status_line_relay_is_swapped_for_the_new_one_or_removed() {
+        let legacy = legacy_settings();
+        let installed = status_line_after(legacy.get("statusLine"), true, None).unwrap();
+        assert!(installed["command"].as_str().unwrap().contains("glim-hook"), "{installed}");
+        assert_eq!(installed["padding"], 1, "the rest of the status line stays");
+        assert!(plan_relay_installed(&json!({ "statusLine": installed })));
+        assert_eq!(status_line_after(legacy.get("statusLine"), false, None), None);
     }
 }

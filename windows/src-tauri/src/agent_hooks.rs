@@ -1,7 +1,7 @@
 // Whether each hook-driven pill is connected.
 //
 // A pill fed by hook events has no key: it is connected once the agent's config
-// routes its events to coucou-hook (Mac #183 — the idle card used to say "Key
+// routes its events to glim-hook (Mac #183 — the idle card used to say "Key
 // not configured" for these). Only reads; nothing here ever writes.
 //
 // Claude Code is read here, with the Mac's own rule. Every other agent is read
@@ -17,9 +17,11 @@ use serde_json::Value;
 
 /// Port of `coucouHooksPresent(inSettings:)` (ClaudeHookDetection.swift): true
 /// when a parsed `~/.claude/settings.json` routes Claude Code's SessionStart
-/// events to Coucou. The command text is what tells: Coucou's relay here is
-/// `coucou-hook`, the Mac's is `~/.claude/coucou/nb-hook` (or NotchBuddy in the
+/// events to Glim. The command text is what tells: the relay here is
+/// `glim-hook`, the Mac's is `~/.claude/coucou/nb-hook` (or NotchBuddy in the
 /// App Store build), so a settings file shared between machines reads the same.
+/// An entry for the relay's old name (`coucou-hook`) doesn't count: its path
+/// went with the old data folder, as in `hooks::status`.
 pub fn claude_hooks_present(settings: &Value) -> bool {
     let Some(groups) = settings
         .get("hooks")
@@ -33,7 +35,11 @@ pub fn claude_hooks_present(settings: &Value) -> bool {
             hooks.iter().any(|hook| {
                 hook.get("command")
                     .and_then(Value::as_str)
-                    .is_some_and(|c| c.contains("NotchBuddy") || c.contains("coucou"))
+                    .is_some_and(|c| {
+                        c.contains(crate::agents::MARKER)
+                            || (!c.contains(crate::agents::LEGACY_MARKER)
+                                && (c.contains("NotchBuddy") || c.contains("coucou")))
+                    })
             })
         })
     })
@@ -77,14 +83,22 @@ mod tests {
     // The ten cases of tests/ClaudeHookDetectionTests.swift, plus this build's relay.
 
     #[test]
-    fn the_hook_coucou_writes_is_installed() {
+    fn the_hook_glim_writes_is_installed() {
         assert!(claude_hooks_present(&settings(
             r#"{"hooks":{"SessionStart":[{"hooks":[
-              {"type":"command","command":"\"C:/Users/me/AppData/Local/Coucou/bin/coucou-hook.exe\" SessionStart"}]}]}}"#
+              {"type":"command","command":"\"C:/Users/me/AppData/Local/Glim/bin/glim-hook.exe\" SessionStart"}]}]}}"#
         )));
         assert!(claude_hooks_present(&settings(
             r#"{"hooks":{"SessionStart":[{"hooks":[
-              {"type":"command","command":"'/home/me/.local/share/coucou/bin/coucou-hook' SessionStart"}]}]}}"#
+              {"type":"command","command":"'/home/me/.local/share/coucou/bin/glim-hook' SessionStart"}]}]}}"#
+        )));
+    }
+
+    #[test]
+    fn a_hook_from_before_the_rename_does_not_count() {
+        assert!(!claude_hooks_present(&settings(
+            r#"{"hooks":{"SessionStart":[{"hooks":[
+              {"type":"command","command":"\"C:/Users/me/AppData/Local/Coucou/bin/coucou-hook.exe\" SessionStart"}]}]}}"#
         )));
     }
 

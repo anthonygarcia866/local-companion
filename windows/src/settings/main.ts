@@ -192,7 +192,7 @@ function claudeSection(status: HookStatus): HTMLElement {
     if (!status.hookReady) {
       body.append(h("div", {
         class: "notice warn",
-        text: t("coucou-hook.exe is not in place yet. Restart Glim; if it still fails, build it with `cargo build -p coucou-hook`."),
+        text: t("glim-hook.exe is not in place yet. Restart Glim; if it still fails, build it with `cargo build -p glim-hook`."),
       }));
     }
 

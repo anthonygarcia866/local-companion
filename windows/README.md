@@ -1,6 +1,6 @@
 # Glim for Windows
 
-The Glim app: Tauri 2, a Rust back end (`src-tauri/`), a TypeScript front end (`src/`, no framework) and the hook relay agents run on each event (`hook/`, built as `coucou-hook.exe` — the name is part of the Claude Code integration and is renamed in a later PR).
+The Glim app: Tauri 2, a Rust back end (`src-tauri/`), a TypeScript front end (`src/`, no framework) and the hook relay agents run on each event (`hook/`, built as `glim-hook.exe`). Data lives in `%APPDATA%\Glim` and `%LOCALAPPDATA%\Glim`; an older build's `Coucou` folders are moved there on first launch.
 
 See the [root README](../README.md) for what Glim is, [PRIVACY.md](../PRIVACY.md) for the network rules, and [PROJECT_STATUS.md](../PROJECT_STATUS.md) for where things stand.
 

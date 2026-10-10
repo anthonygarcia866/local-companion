@@ -454,7 +454,7 @@ fn write_history(path: &Path, history: &History) -> std::io::Result<()> {
     written
 }
 
-/// One line in coucou.log. Tests must never write to the real one.
+/// One line in glim.log. Tests must never write to the real one.
 fn note(message: String) {
     #[cfg(not(test))]
     crate::log::line(message);

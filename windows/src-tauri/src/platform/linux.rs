@@ -23,7 +23,7 @@ use tauri::{AppHandle, WebviewWindow};
 use super::{home_dir, LocalTime};
 
 /// File name of the Claude Code relay.
-pub const HOOK_EXE: &str = "coucou-hook";
+pub const HOOK_EXE: &str = "glim-hook";
 
 /// Environment variable holding the home directory.
 pub const HOME_VAR: &str = "HOME";
@@ -44,11 +44,17 @@ pub fn config_dir() -> PathBuf {
     xdg("XDG_CONFIG_HOME", ".config").join("coucou")
 }
 
-/// ~/.local/share/coucou — where coucou-hook, the inbox and the log live. The
+/// ~/.local/share/coucou — where glim-hook, the inbox and the log live. The
 /// relay has to sit at a stable path: an AppImage is mounted somewhere new on
 /// every launch.
 pub fn local_dir() -> PathBuf {
     xdg("XDG_DATA_HOME", ".local/share").join("coucou")
+}
+
+/// The Windows build renamed its data folders from Coucou to Glim; the Linux
+/// ones keep their names, so there is nothing to move.
+pub fn migrate_data_dirs() -> Vec<String> {
+    Vec::new()
 }
 
 /// Where a saved image goes, best first: the XDG pictures folder named in
@@ -200,7 +206,7 @@ fn is_private_dir(dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Where coucou-hook finds us: `$XDG_RUNTIME_DIR/coucou.sock`, or
+/// Where glim-hook finds us: `$XDG_RUNTIME_DIR/coucou.sock`, or
 /// `/run/user/<uid>/coucou.sock` when the variable is missing. A directory
 /// that is not ours and private means no relay at all — never a fallback to a
 /// shared place like /tmp. Must match `socket_path()` in hook/src/unix.rs

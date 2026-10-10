@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::os::windows::io::RawHandle;
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -34,7 +34,7 @@ use super::LocalTime;
 use crate::session_window::{self, Proc};
 
 /// File name of the Claude Code relay.
-pub const HOOK_EXE: &str = "coucou-hook.exe";
+pub const HOOK_EXE: &str = "glim-hook.exe";
 
 /// Environment variable holding the home directory.
 pub const HOME_VAR: &str = "USERPROFILE";
@@ -44,20 +44,108 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 // ── Files ─────────────────────────────────────────────────────────────────────
 
-/// %APPDATA%\Coucou — preferences.
+/// %APPDATA%\Glim — preferences.
 pub fn config_dir() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("Coucou")
+    base.join(DATA_DIR_NAME)
 }
 
-/// %LOCALAPPDATA%\Coucou — where coucou-hook.exe, the inbox and the log live.
+/// %LOCALAPPDATA%\Glim — where glim-hook.exe, the inbox, the recap and the log live.
 pub fn local_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("Coucou")
+    base.join(DATA_DIR_NAME)
+}
+
+/// The data folders' name, under %APPDATA% and %LOCALAPPDATA%.
+const DATA_DIR_NAME: &str = "Glim";
+
+/// What the data folders, the log and the relay were called before the rename
+/// (upstream Coucou's names). `migrate_data_dirs` moves them over.
+const LEGACY_DATA_DIR_NAME: &str = "Coucou";
+const LEGACY_LOG: &str = "coucou.log";
+const LEGACY_HOOK_EXE: &str = "coucou-hook.exe";
+
+/// Moves what an older build left in %APPDATA%\Coucou and %LOCALAPPDATA%\Coucou
+/// into the Glim folders, and returns what it did, for the log (which lives in
+/// one of these folders, so it can only be written afterwards). Runs on every
+/// launch before anything else touches the folders; once the old folders are
+/// gone it does nothing.
+///
+/// The whole folder is renamed when the new one doesn't exist yet. Otherwise
+/// (say a rename failed on an earlier launch because a relay was still running
+/// from the old folder) each entry missing from the new folder is moved on its
+/// own (folders on both sides are merged the same way), and the old folder goes
+/// once it is empty. Nothing that already exists in the new folder is
+/// overwritten.
+pub fn migrate_data_dirs() -> Vec<String> {
+    let mut notes = Vec::new();
+    for var in ["APPDATA", "LOCALAPPDATA"] {
+        let Some(base) = std::env::var_os(var).map(PathBuf::from) else { continue };
+        migrate_dir(&base.join(LEGACY_DATA_DIR_NAME), &base.join(DATA_DIR_NAME), &mut notes);
+    }
+    let local = local_dir();
+    // The log keeps its history under its new name.
+    let (old_log, new_log) = (local.join(LEGACY_LOG), local.join("glim.log"));
+    if old_log.exists() && !new_log.exists() {
+        match std::fs::rename(&old_log, &new_log) {
+            Ok(()) => notes.push(format!("renamed {} to {}", old_log.display(), new_log.display())),
+            Err(e) => notes.push(format!("could not rename {}: {e}", old_log.display())),
+        }
+    }
+    // The old relay: nothing can run it from here (the path hooks pointed at
+    // went with the old folder), and launch stages glim-hook.exe beside it.
+    let old_relay = local.join("bin").join(LEGACY_HOOK_EXE);
+    if old_relay.exists() {
+        match std::fs::remove_file(&old_relay) {
+            Ok(()) => notes.push(format!("removed {}", old_relay.display())),
+            Err(e) => notes.push(format!("could not remove {}: {e}", old_relay.display())),
+        }
+    }
+    notes
+}
+
+fn migrate_dir(old: &Path, new: &Path, notes: &mut Vec<String>) {
+    if !old.is_dir() {
+        return;
+    }
+    if !new.exists() {
+        match std::fs::rename(old, new) {
+            Ok(()) => {
+                notes.push(format!("moved {} to {}", old.display(), new.display()));
+                return;
+            }
+            Err(e) => notes.push(format!("could not move {} as a whole ({e}); moving its entries", old.display())),
+        }
+    }
+    if let Err(e) = std::fs::create_dir_all(new) {
+        notes.push(format!("could not create {}: {e}", new.display()));
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(old) else { return };
+    for entry in entries.flatten() {
+        let target = new.join(entry.file_name());
+        if target.exists() {
+            // Two folders of the same name (an inbox on both sides): merge them.
+            if entry.path().is_dir() && target.is_dir() {
+                migrate_dir(&entry.path(), &target, notes);
+            } else {
+                notes.push(format!("kept {} (already in {})", entry.path().display(), new.display()));
+            }
+            continue;
+        }
+        match std::fs::rename(entry.path(), &target) {
+            Ok(()) => notes.push(format!("moved {} to {}", entry.path().display(), target.display())),
+            Err(e) => notes.push(format!("could not move {}: {e}", entry.path().display())),
+        }
+    }
+    // Only succeeds once everything made it across.
+    if std::fs::remove_dir(old).is_ok() {
+        notes.push(format!("removed the empty {}", old.display()));
+    }
 }
 
 /// Where a saved image goes, best first: Pictures (also where OneDrive moves
@@ -136,8 +224,8 @@ pub fn find_on_path(stem: &str) -> Option<PathBuf> {
 // ── Who we are ────────────────────────────────────────────────────────────────
 //
 // Named pipes share one machine-wide namespace, so the SID in the name is what
-// keeps two accounts on the same machine from ever meeting on `coucou-*`.
-// coucou-hook computes the same string (hook/src/win.rs) and additionally checks
+// keeps two accounts on the same machine from ever meeting on `glim-*`.
+// glim-hook computes the same string (hook/src/win.rs) and additionally checks
 // that the process serving the pipe really is us.
 
 /// The SID of the account this process runs as, as `S-1-5-21-…`.
@@ -500,4 +588,88 @@ pub fn set_layer_overlay(_win: &WebviewWindow, _on: bool) {}
 /// Layer-shell only (Linux): the logical size of the display the island is on.
 pub fn layer_display(_island: &WebviewWindow, _mochi: &WebviewWindow) -> Option<(f64, f64)> {
     None
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::migrate_dir;
+    use std::path::PathBuf;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("glim-migrate-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_old_folder_moves_whole_when_the_new_one_does_not_exist() {
+        let base = scratch("whole");
+        let (old, new) = (base.join("Coucou"), base.join("Glim"));
+        std::fs::create_dir_all(old.join("inbox")).unwrap();
+        std::fs::write(old.join("recap.json"), "{}").unwrap();
+        let mut notes = Vec::new();
+        migrate_dir(&old, &new, &mut notes);
+        assert!(!old.exists(), "{notes:?}");
+        assert!(new.join("inbox").is_dir() && new.join("recap.json").is_file(), "{notes:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn when_both_exist_missing_entries_move_and_nothing_is_overwritten() {
+        let base = scratch("merge");
+        let (old, new) = (base.join("Coucou"), base.join("Glim"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("recap.json"), "old").unwrap();
+        std::fs::write(old.join("only-old.txt"), "moved").unwrap();
+        std::fs::write(new.join("recap.json"), "new").unwrap();
+        let mut notes = Vec::new();
+        migrate_dir(&old, &new, &mut notes);
+        assert_eq!(std::fs::read_to_string(new.join("recap.json")).unwrap(), "new", "never overwritten");
+        assert_eq!(std::fs::read_to_string(new.join("only-old.txt")).unwrap(), "moved");
+        assert!(old.join("recap.json").exists(), "what could not move stays where it was");
+        // Run again: nothing changes, nothing is lost.
+        migrate_dir(&old, &new, &mut notes);
+        assert_eq!(std::fs::read_to_string(old.join("recap.json")).unwrap(), "old");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_old_folder_goes_once_everything_has_moved() {
+        let base = scratch("empty");
+        let (old, new) = (base.join("Coucou"), base.join("Glim"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("a.txt"), "a").unwrap();
+        let mut notes = Vec::new();
+        migrate_dir(&old, &new, &mut notes);
+        assert!(!old.exists() && new.join("a.txt").exists(), "{notes:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_folder_on_both_sides_is_merged_and_the_old_one_goes() {
+        let base = scratch("nested");
+        let (old, new) = (base.join("Coucou"), base.join("Glim"));
+        std::fs::create_dir_all(old.join("inbox")).unwrap();
+        std::fs::create_dir_all(new.join("inbox")).unwrap();
+        std::fs::write(old.join("inbox").join("dropped.png"), "png").unwrap();
+        std::fs::write(old.join("glim-or-not.log"), "log").unwrap();
+        let mut notes = Vec::new();
+        migrate_dir(&old, &new, &mut notes);
+        assert!(new.join("inbox").join("dropped.png").is_file(), "{notes:?}");
+        assert!(new.join("glim-or-not.log").is_file(), "{notes:?}");
+        assert!(!old.exists(), "{notes:?}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn no_old_folder_means_nothing_happens() {
+        let base = scratch("none");
+        let mut notes = Vec::new();
+        migrate_dir(&base.join("Coucou"), &base.join("Glim"), &mut notes);
+        assert!(notes.is_empty() && !base.join("Glim").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

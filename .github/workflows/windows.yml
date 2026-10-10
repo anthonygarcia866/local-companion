@@ -67,7 +67,7 @@ jobs:
           if ($tag -ne $cargo) { $bad += "Cargo.toml says $cargo" }
           if ($bad) { throw "tag says $tag but $($bad -join '; ')" }
 
-      # `npm run build` (run by tauri as beforeBuildCommand) builds coucou-hook
+      # `npm run build` (run by tauri as beforeBuildCommand) builds glim-hook
       # first, which tauri.conf.json then bundles as a resource. `pack` then
       # copies the installer out of target/ under its shipping name.
       - name: Build and pack the installer
@@ -101,7 +101,7 @@ jobs:
 
       # The unsigned NSIS installer is what Defender false-positives on, so the
       # bare binaries go up as well. hooks.rs already falls back to looking for
-      # coucou-hook.exe next to coucou.exe, which is exactly this layout, so the
+      # glim-hook.exe next to glim.exe, which is exactly this layout, so the
       # portable pair runs with working Claude Code hooks and no installer.
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' || env.PUBLISH == 'true'
@@ -109,7 +109,7 @@ jobs:
           name: Glim-Windows-portable
           path: |
             windows/target/release/glim.exe
-            windows/target/release/coucou-hook.exe
+            windows/target/release/glim-hook.exe
           retention-days: 3
 
       - name: Publish the release

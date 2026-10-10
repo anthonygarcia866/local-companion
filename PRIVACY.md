@@ -29,7 +29,7 @@ The tests run with `cargo test --workspace` from `windows/`. The empirical check
 
 ## What still talks to other processes on this machine
 
-- **Agents' hooks** (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Muse Code, OpenCode, Amp, Hermes): the agent runs the relay `coucou-hook.exe` on each event, and the relay forwards the event to Glim over a named pipe `\\.\pipe\coucou-<user SID>`. Nothing in this path is networked. Details in `PROJECT_STATUS.md` → "Claude Code integration".
+- **Agents' hooks** (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Muse Code, OpenCode, Amp, Hermes): the agent runs the relay `glim-hook.exe` on each event, and the relay forwards the event to Glim over a named pipe `\\.\pipe\glim-<user SID>`. Nothing in this path is networked. Details in `PROJECT_STATUS.md` → "Claude Code integration".
 - **Ollama / LM Studio** on `127.0.0.1`. If you point `OLLAMA_HOST` at another machine, the allowlist refuses it.
 - **Launching other apps on request**: "Open terminal" brings the session's terminal forward or opens VS Code (`code`), the Claude Desktop pill opens the Claude app, and "Show folder" opens Explorer. Those apps are separate programs with their own network behaviour; Glim only starts or focuses them when you click.
 
