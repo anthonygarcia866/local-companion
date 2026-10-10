@@ -380,7 +380,18 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     if previous != dock {
         let _ = app.emit_to(WINDOW_LABEL, "placement", PlacementPayload { dock: dock.as_str(), vertical: dock.vertical() });
     }
-    let shape = if collapsed { Shape::Strip } else { Shape::Panel };
+    let shape = match crate::presence::current(app) {
+        crate::presence::Presence::Hidden => {
+            let _ = win.hide();
+            return;
+        }
+        crate::presence::Presence::Ember | crate::presence::Presence::Indicator => Shape::Ember,
+        crate::presence::Presence::Pill if collapsed => Shape::Strip,
+        crate::presence::Presence::Pill => Shape::Panel,
+    };
+    if !win.is_visible().unwrap_or(true) {
+        platform::show_no_activate(&win);
+    }
     let (rx, ry, lw, lh) = window_rect(dock, shape, ms.width as f64 / scale, ms.height as f64 / scale);
     let pw = (lw * scale).round().max(1.0) as u32;
     let ph = (lh * scale).round().max(1.0) as u32;
@@ -458,6 +469,14 @@ pub fn spawn_display_watch(app: AppHandle) {
             if displays != last_displays {
                 crate::log::line(format!("displays: {displays}"));
                 last_displays = displays;
+            }
+            let pref = app
+                .try_state::<crate::Shared>()
+                .map(|s| s.settings.lock().unwrap().screen.clone())
+                .unwrap_or_else(|| "primary".into());
+            if let Some(m) = target_monitor(&app, &pref) {
+                let (p, z) = (*m.position(), *m.size());
+                crate::presence::set_fullscreen(&app, platform::foreground_fullscreen((p.x, p.y, z.width, z.height)));
             }
             let now = current_screen_key(&app);
             let at = window(&app).and_then(|w| w.outer_position().ok()).map(|p| (p.x, p.y));

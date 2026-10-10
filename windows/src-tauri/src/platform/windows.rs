@@ -359,6 +359,72 @@ pub fn foreground_center() -> Option<(f64, f64)> {
     }
 }
 
+/// Shows the window without activating it (the island never takes focus).
+pub fn show_no_activate(win: &WebviewWindow) {
+    use ::windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    let Some(hwnd) = hwnd_of(win) else { return };
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+}
+
+/// A fullscreen app is in front on the display `(x, y, w, h)` (physical):
+/// Windows says so (a Direct3D fullscreen app, presentation mode), or the
+/// foreground window — not Glim's, not the desktop — covers the whole display.
+/// A maximised window leaves the taskbar out, so it doesn't count.
+pub fn foreground_fullscreen(display: (i32, i32, u32, u32)) -> bool {
+    use ::windows::Win32::Foundation::RECT;
+    use ::windows::Win32::UI::Shell::{
+        SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+    };
+    use ::windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
+    unsafe {
+        if let Ok(state) = SHQueryUserNotificationState() {
+            if state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE {
+                return true;
+            }
+        }
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return false;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() {
+            return false;
+        }
+        let mut class = [0u16; 64];
+        let n = GetClassNameW(hwnd, &mut class) as usize;
+        let class = String::from_utf16_lossy(&class[..n.min(class.len())]);
+        if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+            return false;
+        }
+        let mut r = RECT::default();
+        if GetWindowRect(hwnd, &mut r).is_err() {
+            return false;
+        }
+        covers((r.left, r.top, r.right, r.bottom), display)
+    }
+}
+
+/// Whether a window rectangle (left, top, right, bottom) covers the display.
+fn covers(r: (i32, i32, i32, i32), d: (i32, i32, u32, u32)) -> bool {
+    r.0 <= d.0 && r.1 <= d.1 && r.2 >= d.0 + d.2 as i32 && r.3 >= d.1 + d.3 as i32
+}
+
+#[cfg(test)]
+mod fullscreen_tests {
+    #[test]
+    fn a_window_covering_the_display_is_fullscreen_a_maximised_one_is_not() {
+        let display = (0, 0, 1920, 1080);
+        assert!(super::covers((0, 0, 1920, 1080), display));
+        // Maximised: borders past the edges, but the taskbar's 48 px left out.
+        assert!(!super::covers((-8, -8, 1928, 1040), display));
+        // Fullscreen on the display to the left.
+        assert!(!super::covers((-1920, 0, 0, 1080), display));
+    }
+}
+
 /// True while the left mouse button is held — the only signal we get that a
 /// drag might be in flight before it reaches the window.
 pub fn left_button_down() -> bool {

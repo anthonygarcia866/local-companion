@@ -21,6 +21,7 @@ mod session_window;
 mod settings;
 mod shortcuts;
 mod placement;
+mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
@@ -86,6 +87,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let mut settings = settings.clone();
         settings.desktop_mochi = current.desktop_mochi.clone();
         settings.docks = current.docks.clone();
+        settings.visibility = current.visibility.clone();
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -176,6 +178,20 @@ fn set_dock(app: AppHandle, dock: String) {
     if let Some(dock) = placement::Dock::parse(&dock) {
         island::set_dock(&app, None, dock);
     }
+}
+
+/// Settings' visibility picker and the ember's click (back to "normal").
+#[tauri::command]
+fn set_visibility(app: AppHandle, visibility: String) {
+    if let Some(v) = presence::Visibility::parse(&visibility) {
+        presence::set_visibility(&app, v);
+    }
+}
+
+/// What is on screen (pill, ember, hidden, recording indicator), for the page.
+#[tauri::command]
+fn presence_info(app: AppHandle) -> presence::PresencePayload {
+    presence::payload(&app)
 }
 
 /// Where the island is docked on its display, for the page's layout.
@@ -619,6 +635,22 @@ fn dev_dock(argv: &[String]) -> Option<placement::Dock> {
     dev_arg(argv, "--dock").and_then(|d| placement::Dock::parse(&d))
 }
 
+/// `glim.exe --visibility <normal|ember|hidden>`: as Settings or the hotkey
+/// would set it. `glim.exe --fullscreen <on|off|auto>`: pretends a fullscreen
+/// app is (or isn't) in front, to check the auto-hide. Dev only.
+fn dev_visibility(argv: &[String]) -> Option<presence::Visibility> {
+    dev_arg(argv, "--visibility").and_then(|v| presence::Visibility::parse(&v))
+}
+
+fn dev_fullscreen(argv: &[String]) -> Option<Option<bool>> {
+    match dev_arg(argv, "--fullscreen")?.as_str() {
+        "on" => Some(Some(true)),
+        "off" => Some(Some(false)),
+        "auto" => Some(None),
+        _ => None,
+    }
+}
+
 /// `glim.exe --dev-chat "<prompt>"`: sends the prompt through the island's own
 /// chat view (connecting Ollama first, as Settings → Connect does, if it isn't
 /// yet), so the real chat path — chat view → `chat_send` → `local_chat` →
@@ -669,6 +701,14 @@ pub fn run() {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
             }
+            if let Some(v) = dev_visibility(&argv) {
+                presence::set_visibility(app, v);
+                return;
+            }
+            if let Some(f) = dev_fullscreen(&argv) {
+                presence::set_dev_fullscreen(app, f);
+                return;
+            }
             if let Some(dock) = dev_dock(&argv) {
                 island::set_dock(app, None, dock);
                 return;
@@ -712,6 +752,8 @@ pub fn run() {
             focus_window,
             reposition,
             dock_drag_start,
+            set_visibility,
+            presence_info,
             set_dock,
             placement,
             list_monitors,
@@ -800,6 +842,9 @@ pub fn run() {
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
             island::spawn_display_watch(handle.clone());
+            // The visibility hotkey works in Rust: it has to reach a hidden window.
+            let cycle_handle = handle.clone();
+            shortcuts::on_cycle_visibility(move || presence::cycle(&cycle_handle));
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

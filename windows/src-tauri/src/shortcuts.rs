@@ -66,6 +66,10 @@ pub const ACTIONS: &[ActionDef] = &[
     action("desktopToggle", "Ctrl+Alt+D", true, false),
     // The wardrobe (upstream's outfits for Mochi) was removed with the character.
     action("wardrobeToggle", "Ctrl+Alt+G", true, false),
+    // Glim's own: Normal → Ember → Hidden (presence.rs). Handled here in Rust,
+    // since it has to reach a hidden window. H is AltGr-free on the layouts
+    // checked above; note Word and OneNote use Ctrl+Alt+H for highlight.
+    action("cycleVisibility", "Ctrl+Alt+H", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -267,9 +271,22 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
-/// Hands an action to the island.
+/// What the visibility hotkey runs (set up in lib.rs).
+static CYCLE_VISIBILITY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_cycle_visibility(f: impl Fn() + Send + Sync + 'static) {
+    let _ = CYCLE_VISIBILITY.set(Box::new(f));
+}
+
+/// Hands an action to the island; the visibility cycle runs here.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
+    if action == "cycleVisibility" {
+        if let Some(f) = CYCLE_VISIBILITY.get() {
+            f();
+        }
+        return;
+    }
     let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
 }
 
@@ -379,6 +396,8 @@ mod tests {
         "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
+    /// Glim's own actions, after the Mac ones.
+    const GLIM_IDS: [&str; 1] = ["cycleVisibility"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None
@@ -388,7 +407,8 @@ mod tests {
     #[test]
     fn every_mac_action_has_a_default_and_keeps_its_id() {
         let ids: Vec<_> = ACTIONS.iter().map(|a| a.id).collect();
-        assert_eq!(ids, MAC_IDS);
+        let expected: Vec<_> = MAC_IDS.iter().chain(GLIM_IDS.iter()).copied().collect();
+        assert_eq!(ids, expected);
     }
 
     // testAllDefaultsHaveModifier
