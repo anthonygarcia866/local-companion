@@ -16,10 +16,18 @@ interface CaptureMeta {
   caret: number | null;
 }
 
+interface Excerpt {
+  text: string;
+  start: number;
+  end: number;
+}
+
 interface Capture {
   meta: CaptureMeta;
   windowTitle: string;
-  text: string | null;
+  /** The current paragraph around the caret (≤500 chars before, ≤200 after);
+   *  the full field never reaches this page. */
+  excerpt: Excerpt | null;
   via: string;
 }
 
@@ -51,19 +59,30 @@ function render(c: Capture) {
     row("control type", m.controlType),
     row("pattern", m.pattern),
     row("readable", verdict, true),
-    row("chars", String(m.charCount)),
+    row("field length", `${m.charCount} chars`),
     row("caret", m.caret == null ? "—" : String(m.caret)),
     row("via", c.via),
   );
+  // Never taller than the window: it can't scroll (it never activates, so the
+  // wheel goes to the app behind it), so it shows only the window around the
+  // caret, which is short by construction.
   const text = document.createElement("pre");
   text.style.cssText =
-    "margin:10px 0 0;padding:8px;background:#16181d;border-radius:6px;white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto;font:12px/1.4 ui-monospace,Consolas,monospace";
-  text.textContent = m.password ? "(not read)" : c.text ?? "(nothing readable)";
+    "margin:10px 0 0;padding:8px;background:#16181d;border-radius:6px;white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,Consolas,monospace";
+  const e = c.excerpt;
+  if (m.password) text.textContent = "(not read)";
+  else if (!e) text.textContent = "(nothing readable)";
+  else {
+    const before = e.start > 0 ? "… " : "";
+    const after = e.end < m.charCount ? " …" : "";
+    text.textContent = `${before}${e.text}${after}`;
+    box.append(row("showing", `chars ${e.start}–${e.end} of ${m.charCount}`));
+  }
   box.append(text);
   root.replaceChildren(box);
   // The window title carries the metadata only (never the text), so the
   // panel can be checked from outside without capturing its pixels.
-  const title = `Capture debug — ${m.app} | ${m.controlType} | ${m.pattern} | readable=${m.readable} | chars=${m.charCount} | via=${c.via}`;
+  const title = `Capture debug — ${m.app} | ${m.controlType} | ${m.pattern} | readable=${m.readable} | chars=${m.charCount} | showing=${e ? `${e.start}-${e.end}` : "none"} | via=${c.via}`;
   if (title !== lastTitle) {
     lastTitle = title;
     void getCurrentWindow().setTitle(title);

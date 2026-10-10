@@ -27,7 +27,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
-use super::{control_type_name, record_to, results_path, Capture, CaptureMeta};
+use super::{caret_window, control_type_name, record_to, results_path, Capture, CaptureMeta, MAX_FIELD_CHARS};
 
 /// How often the focused field is re-read between focus events: the fallback
 /// that keeps capture working if focus events are late or missing, and what
@@ -35,8 +35,6 @@ use super::{control_type_name, record_to, results_path, Capture, CaptureMeta};
 const POLL: Duration = Duration::from_millis(300);
 /// How often the counters go to the log (counts and app names only).
 const REPORT_EVERY: Duration = Duration::from_secs(30);
-/// The most text read from one field (a whole document can be huge).
-const MAX_CHARS: i32 = 20_000;
 /// The window label of the debug panel.
 pub const PANEL: &str = "capture-debug";
 
@@ -146,7 +144,7 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
         // Ignored completely: no pattern is asked for, nothing is read.
         meta.password = true;
         meta.pattern = "skipped (password)".into();
-        return Capture { meta, window_title, text: None, via: String::new() };
+        return Capture { meta, window_title, excerpt: None, via: String::new() };
     }
 
     let (pattern, text, caret) = read_text(element);
@@ -154,7 +152,10 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
     meta.readable = text.is_some();
     meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
     meta.caret = caret;
-    Capture { meta, window_title, text, via: String::new() }
+    // The full text stays here and is dropped when this returns; only the
+    // window around the caret goes to the panel.
+    let excerpt = text.as_deref().map(|t| caret_window(t, caret));
+    Capture { meta, window_title, excerpt, via: String::new() }
 }
 
 /// (pattern that worked, text, caret) — TextPattern2, then TextPattern, then
@@ -193,7 +194,7 @@ fn read_text(element: &IUIAutomationElement) -> (&'static str, Option<String>, O
 }
 
 fn range_text(range: &IUIAutomationTextRange) -> WinResult<String> {
-    Ok(unsafe { range.GetText(MAX_CHARS)? }.to_string())
+    Ok(unsafe { range.GetText(MAX_FIELD_CHARS)? }.to_string())
 }
 
 /// Characters from the start of `doc` to the start of `at`.
@@ -203,7 +204,7 @@ fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Optio
         before
             .MoveEndpointByRange(TextPatternRangeEndpoint_End, at, TextPatternRangeEndpoint_Start)
             .ok()?;
-        Some(before.GetText(MAX_CHARS).ok()?.to_string().chars().count())
+        Some(before.GetText(MAX_FIELD_CHARS).ok()?.to_string().chars().count())
     }
 }
 

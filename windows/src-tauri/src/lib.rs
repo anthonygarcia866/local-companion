@@ -552,7 +552,7 @@ fn create_capture_panel(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, capture::uia::PANEL, url)
         .additional_browser_args(BROWSER_ARGS)
         .title("Capture debug — Glim (dev)")
-        .inner_size(460.0, 420.0)
+        .inner_size(460.0, 560.0)
         .position(40.0, 120.0)
         .always_on_top(true)
         .skip_taskbar(true)
