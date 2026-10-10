@@ -331,3 +331,9 @@ export function washRGBA(wash: Wash): string {
       return "rgba(0,0,0,0)";
   }
 }
+
+/** The overview's right card (the other pills, to switch to) only has a
+ *  reason to be there when there is another pill. */
+export function showsSwitcher(otherPills: number): boolean {
+  return otherPills > 0;
+}

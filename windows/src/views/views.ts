@@ -6,7 +6,7 @@ import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
 import { State, type AgentTask } from "../core/state";
-import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
+import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
@@ -288,6 +288,9 @@ function buildOverview(actions: ViewActions): ViewHost {
       jump.style.display = mode === "plan" || mode === "diff" ? "none" : "";
 
       const others = State.otherTasks.slice(0, 4);
+      // The right card is the switcher for the other pills: with none, it was
+      // an empty card. The session card takes the whole width instead.
+      el.classList.toggle("solo", !showsSwitcher(others.length));
       const pillKey = others.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}`).join("|");
       if (pillKey !== pillIds) {
         pillIds = pillKey;

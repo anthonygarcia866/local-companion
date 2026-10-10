@@ -409,6 +409,16 @@ body {
   flex: 1 1 auto;
 }
 
+/* No other pill to switch to: no empty switcher card (views.ts showsSwitcher). */
+.overview.solo > .right {
+  display: none;
+}
+
+.overview.solo > .left {
+  flex: 1 1 auto;
+  width: auto;
+}
+
 .card-body {
   position: relative;
   z-index: 1;
