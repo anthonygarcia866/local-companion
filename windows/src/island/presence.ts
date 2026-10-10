@@ -7,6 +7,7 @@
 import { Bridge } from "../core/bridge";
 import { Lantern, RECORDING_STATE } from "../mascot/lantern";
 import { h } from "../views/dom";
+import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
 
 export type PresenceKind = "pill" | "ember" | "hidden" | "indicator";
 
@@ -67,6 +68,44 @@ export class PresenceModel {
   }
 }
 
+/**
+ * The ember's mouse: a click brings the pill back; a press that moves past
+ * DRAG_THRESHOLD is a drag instead (Rust moves the window and snaps it to the
+ * nearest dock), and the click that follows its release is not a restore.
+ */
+export class EmberGesture {
+  private press: { x: number; y: number } | null = null;
+  private dragged = false;
+
+  down(x: number, y: number, button: number) {
+    if (button !== 0) return;
+    this.press = { x, y };
+    this.dragged = false;
+  }
+
+  /** True when this move starts the drag. */
+  move(x: number, y: number, buttons: number): boolean {
+    const p = this.press;
+    if (!p) return false;
+    if (!(buttons & 1)) {
+      this.press = null;
+      return false;
+    }
+    if (Math.hypot(x - p.x, y - p.y) <= DRAG_THRESHOLD) return false;
+    this.press = null;
+    this.dragged = true;
+    return true;
+  }
+
+  /** True when the click restores the pill (it wasn't the end of a drag). */
+  click(): boolean {
+    this.press = null;
+    const restore = !this.dragged;
+    this.dragged = false;
+    return restore;
+  }
+}
+
 /** The ember dot and the recording indicator, in the ember-sized window. */
 export class PresenceView {
   readonly el: HTMLElement;
@@ -79,8 +118,18 @@ export class PresenceView {
     this.dot = h("div", { class: "ember-dot" });
     this.indicator.el.classList.add("ember-indicator");
     this.el = h("button", { id: "ember", type: "button", "aria-label": "Glim" }, this.dot, this.indicator.el);
-    // Back to the pill. The indicator too: it is the island, just smaller.
-    this.el.addEventListener("click", () => this.model.restore());
+    // Click: back to the pill (the indicator too: it is the island, just
+    // smaller). Drag: move it to another dock.
+    const gesture = new EmberGesture();
+    this.el.addEventListener("mousedown", (e) => gesture.down(e.clientX, e.clientY, e.button));
+    window.addEventListener("mousemove", (e) => {
+      if (gesture.move(e.clientX, e.clientY, e.buttons)) void Bridge.dockDragStart();
+    });
+    this.el.addEventListener("click", () => {
+      if (gesture.click()) this.model.restore();
+    });
+    // No browser menu on the dot.
+    this.el.addEventListener("contextmenu", (e) => e.preventDefault());
     this.apply("pill");
   }
 

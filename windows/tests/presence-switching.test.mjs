@@ -90,7 +90,7 @@ test("clicking the ember asks for Normal, and Normal shows the pill", () => {
 
 test("the ember's click is wired to restore", () => {
   const src = readFileSync(new URL("../src/island/presence.ts", import.meta.url), "utf8");
-  assert.match(src, /this\.el\.addEventListener\("click", \(\) => this\.model\.restore\(\)\)/);
+  assert.match(src, /this\.el\.addEventListener\("click", \(\) => \{\s+if \(gesture\.click\(\)\) this\.model\.restore\(\);/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
   assert.match(main, /new PresenceView\(\{ showPill: \(\) => \{ if \(!State\.paused\) island\.reveal\(\); \} \}\)/);
 });

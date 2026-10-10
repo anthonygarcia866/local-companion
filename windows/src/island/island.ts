@@ -711,9 +711,13 @@ export class Island {
       }
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) <= DRAG_THRESHOLD) return;
       this.botPress = null;
-      if (!this.canDragOut()) return;
+      // The drop sequence draws a lantern of its own: not that one.
+      if (this.uploadActive) return;
+      // Dragging the lantern moves Glim: Rust carries the window and snaps it
+      // to the nearest dock on release, as for the closed pill. (Upstream
+      // carried its character out onto the desktop here; Glim doesn't.)
       this.cancelBotHover();
-      this.desktop.pickUp(e.clientX, e.clientY);
+      void Bridge.dockDragStart();
     });
     window.addEventListener("mouseup", (e) => {
       if (this.dockPress) {
@@ -809,12 +813,6 @@ export class Island {
     }
 
     this.ensureRunning();
-  }
-
-  /** The drop sequence draws a character of its own: not that one. */
-  private canDragOut(): boolean {
-    if (State.mode === "hidden" || !this.desktop.canPickUp()) return false;
-    return !(State.mode === "expanded" && this.uploadActive);
   }
 
   private isBotHit(x: number, y: number): boolean {

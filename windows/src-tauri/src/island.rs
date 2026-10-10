@@ -511,9 +511,11 @@ pub static DRAGGING: AtomicBool = AtomicBool::new(false);
 /// snaps to the nearest dock of the display under the cursor.
 pub fn start_dock_drag(app: &AppHandle) {
     if DRAGGING.swap(true, Ordering::SeqCst) {
+        crate::log::line("dock drag: already dragging");
         return;
     }
     let (Some(win), Some((cx, cy))) = (window(app), cursor_physical()) else {
+        crate::log::line("dock drag: no window or cursor");
         DRAGGING.store(false, Ordering::SeqCst);
         return;
     };
@@ -522,6 +524,7 @@ pub fn start_dock_drag(app: &AppHandle) {
         return;
     };
     let grab = (cx - origin.x as f64, cy - origin.y as f64);
+    crate::log::line(format!("dock drag started (button down: {})", left_button_down()));
     let app = app.clone();
     std::thread::spawn(move || {
         while left_button_down() {
