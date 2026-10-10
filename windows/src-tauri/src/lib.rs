@@ -158,7 +158,13 @@ fn set_island_rect(app: AppHandle, shared: State<Shared>, x: f64, y: f64, width:
 }
 
 #[tauri::command]
-fn focus_window(app: AppHandle, focused: bool) {
+fn focus_window(app: AppHandle, caller: tauri::WebviewWindow, focused: bool) {
+    // Only the island's own page asks for its chat field: no other window
+    // (Settings, the desktop character) may hand it the keyboard.
+    if caller.label() != island::WINDOW_LABEL {
+        log::line(format!("focus_window refused from window {:?}", caller.label()));
+        return;
+    }
     let Some(win) = island::window(&app) else { return };
     // Through tao (FOCUSABLE): tao rewrites the extended styles on every flag
     // change (click-through toggles, show/hide) from its own flags, so a
@@ -883,13 +889,9 @@ mod tests {
         // set behind its back is wiped on its next restyle (seen 2026-10-10:
         // Hidden → Normal took the foreground).
         assert_eq!(island["focusable"], false);
-        let src_lf = include_str!("lib.rs").replace("
-", "
-");
+        let src_lf = include_str!("lib.rs").replace("\r\n", "\n");
         let focus = &src_lf[src_lf.find("fn focus_window").unwrap()..];
-        assert!(focus[..focus.find("
-}
-").unwrap()].contains("let _ = win.set_focusable(focused);"));
+        assert!(focus[..focus.find("\n}\n").unwrap()].contains("let _ = win.set_focusable(focused);"));
 
         // CI checks the sources out with CRLF (core.autocrlf): compare as LF.
         let src = include_str!("lib.rs").replace("\r\n", "\n");

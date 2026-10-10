@@ -62,6 +62,13 @@ pub struct PollGate {
     pub rect: Mutex<IslandRect>,
     /// Mirrors the window flag so we only call into the OS when it changes.
     ignoring: AtomicBool,
+    /// The next poll tick decides click-through even if the cursor hasn't
+    /// moved: after a resize or a show the flag was reset to "take the mouse",
+    /// and a still cursor must not leave the whole panel swallowing clicks.
+    recheck: AtomicBool,
+    /// The window is the ember dot (or the recording indicator): all of it
+    /// takes the mouse, whatever island shape the page last pushed.
+    pub ember: AtomicBool,
 }
 
 impl PollGate {
@@ -72,6 +79,8 @@ impl PollGate {
             collapsed: AtomicBool::new(true),
             rect: Mutex::new(IslandRect::default()),
             ignoring: AtomicBool::new(false),
+            recheck: AtomicBool::new(false),
+            ember: AtomicBool::new(false),
         }
     }
 
@@ -82,6 +91,7 @@ impl PollGate {
     /// Forces the next poll tick to re-apply the flag (after a window resize).
     pub fn forget_ignore_state(&self) {
         self.ignoring.store(false, Ordering::Relaxed);
+        self.recheck.store(true, Ordering::Relaxed);
     }
 
     pub fn set_active(&self, on: bool) {
@@ -288,6 +298,25 @@ mod display_tests {
     }
 
     #[test]
+    fn the_ember_takes_the_mouse_whatever_rect_the_page_pushed() {
+        // The page last pushed the pill's rect; the window is now the 28 px dot.
+        let pill = IslandRect { x: 184.0, y: 0.0, w: 352.0, h: 56.0 };
+        assert!(takes_mouse(pill, 10.0, 10.0, true));
+        assert!(!takes_mouse(pill, 10.0, 10.0, false));
+        assert!(takes_mouse(pill, 300.0, 20.0, false));
+        // Nothing drawn: nothing takes the mouse (unless it is the ember).
+        assert!(!takes_mouse(IslandRect::default(), 0.0, 0.0, false));
+    }
+
+    #[test]
+    fn a_reset_flag_is_decided_again_without_the_cursor_moving() {
+        let gate = PollGate::new();
+        assert!(!gate.recheck.load(Ordering::Relaxed));
+        gate.forget_ignore_state();
+        assert!(gate.recheck.swap(false, Ordering::Relaxed));
+    }
+
+    #[test]
     fn a_window_moved_off_its_place_is_noticed() {
         assert!(!drifted(None, Some((0, 0))));
         assert!(!drifted(Some((100, 0, 720, 320)), Some((100, 0))));
@@ -382,6 +411,7 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     }
     let shape = match crate::presence::current(app) {
         crate::presence::Presence::Hidden => {
+            release_focus(&win);
             let _ = win.hide();
             return;
         }
@@ -394,6 +424,15 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     // always-on-top), so a window shown behind its back is hidden again. The
     // island is WS_EX_NOACTIVATE, so showing it never takes focus — kept by
     // tao itself: the window is built `focusable: false` (tauri.conf.json).
+    if shape != Shape::Panel {
+        // Only the open island's chat field ever takes focus; nothing smaller
+        // keeps it (a chat closed by the hotkey, Hidden or a fullscreen app
+        // never said focusWindow(false)).
+        release_focus(&win);
+    }
+    if let Some(shared) = app.try_state::<crate::Shared>() {
+        shared.gate.ember.store(shape == Shape::Ember, Ordering::Relaxed);
+    }
     if !win.is_visible().unwrap_or(true) {
         let _ = win.show();
     }
@@ -444,6 +483,12 @@ fn displays_summary(app: &AppHandle) -> String {
         })
         .collect();
     format!("{} — {}", list.len(), list.join("; "))
+}
+
+/// Back to never taking focus (tao's FOCUSABLE flag, so it sticks).
+fn release_focus(win: &WebviewWindow) {
+    let _ = win.set_focusable(false);
+    platform::set_activating(win, false);
 }
 
 /// Whether the window is no longer where apply_geometry put it: Windows moves
@@ -621,7 +666,8 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                     Ok(s) => (s.width as f64 / scale, s.height as f64 / scale),
                     Err(_) => (PANEL_W, PANEL_H),
                 };
-                if (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {
+                let recheck = gate.recheck.swap(false, Ordering::Relaxed);
+                if !recheck && (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {
                     continue;
                 }
                 last = (x, y);
@@ -630,11 +676,7 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 // shape. A small entry margin means the flag is already off by the
                 // time a moving cursor reaches a button.
                 let r = *gate.rect.lock().unwrap();
-                let on_island = r.w > 0.0
-                    && x >= r.x - HIT_MARGIN
-                    && x <= r.x + r.w + HIT_MARGIN
-                    && y >= r.y - HIT_MARGIN
-                    && y <= r.y + r.h + HIT_MARGIN;
+                let on_island = takes_mouse(r, x, y, gate.ember.load(Ordering::Relaxed));
 
                 // A file being dragged has to be able to find us. WS_EX_TRANSPARENT
                 // — what click-through is on Windows — hides the window from
@@ -671,6 +713,17 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             }
         }
     });
+}
+
+/// Whether the window takes the mouse at (`x`, `y`): over the island shape
+/// (with HIT_MARGIN), or anywhere while it is the ember dot.
+fn takes_mouse(r: IslandRect, x: f64, y: f64, ember: bool) -> bool {
+    ember
+        || (r.w > 0.0
+            && x >= r.x - HIT_MARGIN
+            && x <= r.x + r.w + HIT_MARGIN
+            && y >= r.y - HIT_MARGIN
+            && y <= r.y + r.h + HIT_MARGIN)
 }
 
 /// Re-applies click-through after the window or the island changed shape.
