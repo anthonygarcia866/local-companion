@@ -1,13 +1,13 @@
-// Relay server for coucou-hook.
+// Relay server for glim-hook.
 //
-// Windows: the named pipe `\\.\pipe\coucou-<sid>`, one instance per connection.
+// Windows: the named pipe `\\.\pipe\glim-<sid>`, one instance per connection.
 // Linux: the Unix socket `$XDG_RUNTIME_DIR/coucou.sock`. Every hook event is
 // forwarded to the island as a `hook` event. `PermissionRequest` is the only one
 // that keeps its connection open: it waits for the island's decision and writes
 // it back on the same connection, which is how approving from the island works.
 //
 // Claude Code is never blocked by us. Three things guarantee it:
-//   * coucou-hook gives the connection 300 ms and exits cleanly if we are closed;
+//   * glim-hook gives the connection 300 ms and exits cleanly if we are closed;
 //   * we only wait for a human once the island has *confirmed* the card is on
 //     screen, so a paused island or a webview that is not listening costs a few
 //     hundred milliseconds, not two minutes;
@@ -17,7 +17,7 @@
 // What we write back is the bare word `allow` or `deny` — or, when the request
 // was Claude Code asking a question, `{"answers":{…}}` with what was picked on
 // the island. Turning either into the documented hookSpecificOutput JSON is
-// coucou-hook's job, so the wire format Claude Code expects lives in exactly
+// glim-hook's job, so the wire format Claude Code expects lives in exactly
 // one place.
 
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ use crate::island::WINDOW_LABEL;
 use crate::log;
 use crate::session_window;
 
-/// Slightly under coucou-hook's own 110 s wait, so we always answer first.
+/// Slightly under glim-hook's own 110 s wait, so we always answer first.
 const DECISION_TIMEOUT: Duration = Duration::from_secs(108);
 /// How long the island gets to say "the card is up". This is the whole of B4:
 /// without it, an island that is paused, hidden behind a crashed webview or
@@ -61,12 +61,12 @@ pub struct Pending(pub Mutex<HashMap<String, mpsc::Sender<Reply>>>);
 
 static COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// `\\.\pipe\coucou-<sid>` — must match coucou-hook's `pipe_path()` exactly.
+/// `\\.\pipe\glim-<sid>` — must match glim-hook's `pipe_path()` exactly.
 #[cfg(windows)]
 pub fn pipe_name() -> String {
     let key = crate::platform::current_user_sid()
         .unwrap_or_else(|| std::env::var("USERNAME").unwrap_or_else(|_| "user".into()));
-    format!(r"\\.\pipe\coucou-{key}")
+    format!(r"\\.\pipe\glim-{key}")
 }
 
 #[cfg(windows)]
@@ -117,7 +117,7 @@ pub fn start(app: AppHandle) {
         // first_pipe_instance on Windows, we refuse to serve on top of it.
         if path.exists() {
             if std::os::unix::net::UnixStream::connect(&path).is_ok() {
-                log::line("another Coucou already serves the relay socket");
+                log::line("another Glim already serves the relay socket");
                 return;
             }
             let _ = std::fs::remove_file(&path);
@@ -234,7 +234,7 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
     let decision = wait_for_decision(&id, &mut rx).await;
     app.state::<Pending>().0.lock().unwrap().remove(&id);
 
-    // No decision: say nothing at all. coucou-hook then writes nothing to stdout
+    // No decision: say nothing at all. glim-hook then writes nothing to stdout
     // and Claude Code asks in the terminal, exactly as if Coucou were closed.
     if let Some(d) = decision {
         let _ = pipe.write_all(format!("{d}\n").as_bytes()).await;
@@ -335,7 +335,7 @@ pub fn decline(app: &AppHandle, request_id: &str) {
 }
 
 /// Called by the island's Allow / Deny buttons. Only ever a bare word: turning
-/// it into Claude Code's JSON is coucou-hook's job.
+/// it into Claude Code's JSON is glim-hook's job.
 pub fn answer(app: &AppHandle, request_id: &str, decision: &str) {
     let word = match decision {
         "allow" | "always" => "allow",

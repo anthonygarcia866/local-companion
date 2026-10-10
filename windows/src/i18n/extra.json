@@ -1849,16 +1849,16 @@
    "ru": "Ваш рабочий стол Wayland не позволяет приложениям слушать клавиши вне своих окон. Добавьте сочетания в настройках клавиатуры системы с такими командами:",
    "id": "Desktop Wayland Anda tidak mengizinkan aplikasi mendengarkan tombol di luar jendelanya sendiri. Tambahkan pintasan di pengaturan keyboard sistem Anda, dengan perintah berikut:"
   },
-  "coucou-hook.exe is not in place yet. Restart Glim; if it still fails, build it with `cargo build -p coucou-hook`.": {
-   "zh-Hans": "coucou-hook.exe 尚未就位。请重启 Glim；如果仍然失败，请用 `cargo build -p coucou-hook` 构建它。",
-   "hi": "coucou-hook.exe अभी अपनी जगह पर नहीं है। Glim फिर से शुरू करें; अगर फिर भी न हो, तो इसे `cargo build -p coucou-hook` से बनाएँ।",
-   "es": "coucou-hook.exe aún no está en su sitio. Reinicia Glim; si sigue fallando, compílalo con `cargo build -p coucou-hook`.",
-   "ar": "coucou-hook.exe ليس في مكانه بعد. أعد تشغيل Glim؛ وإن استمر الفشل فابنِه بالأمر `cargo build -p coucou-hook`.",
-   "fr": "coucou-hook.exe n'est pas encore en place. Redémarre Glim ; si ça échoue encore, compile-le avec `cargo build -p coucou-hook`.",
-   "bn": "coucou-hook.exe এখনো জায়গামতো নেই। Glim আবার চালু করুন; তবুও না হলে `cargo build -p coucou-hook` দিয়ে এটি বানান।",
-   "pt-BR": "O coucou-hook.exe ainda não está no lugar. Reinicie o Glim; se continuar falhando, compile-o com `cargo build -p coucou-hook`.",
-   "ru": "coucou-hook.exe ещё не на месте. Перезапустите Glim; если не поможет, соберите его командой `cargo build -p coucou-hook`.",
-   "id": "coucou-hook.exe belum ada di tempatnya. Mulai ulang Glim; jika masih gagal, build dengan `cargo build -p coucou-hook`."
+  "glim-hook.exe is not in place yet. Restart Glim; if it still fails, build it with `cargo build -p glim-hook`.": {
+   "zh-Hans": "glim-hook.exe 尚未就位。请重启 Glim；如果仍然失败，请用 `cargo build -p glim-hook` 构建它。",
+   "hi": "glim-hook.exe अभी अपनी जगह पर नहीं है। Glim फिर से शुरू करें; अगर फिर भी न हो, तो इसे `cargo build -p glim-hook` से बनाएँ।",
+   "es": "glim-hook.exe aún no está en su sitio. Reinicia Glim; si sigue fallando, compílalo con `cargo build -p glim-hook`.",
+   "ar": "glim-hook.exe ليس في مكانه بعد. أعد تشغيل Glim؛ وإن استمر الفشل فابنِه بالأمر `cargo build -p glim-hook`.",
+   "fr": "glim-hook.exe n'est pas encore en place. Redémarre Glim ; si ça échoue encore, compile-le avec `cargo build -p glim-hook`.",
+   "bn": "glim-hook.exe এখনো জায়গামতো নেই। Glim আবার চালু করুন; তবুও না হলে `cargo build -p glim-hook` দিয়ে এটি বানান।",
+   "pt-BR": "O glim-hook.exe ainda não está no lugar. Reinicie o Glim; se continuar falhando, compile-o com `cargo build -p glim-hook`.",
+   "ru": "glim-hook.exe ещё не на месте. Перезапустите Glim; если не поможет, соберите его командой `cargo build -p glim-hook`.",
+   "id": "glim-hook.exe belum ada di tempatnya. Mulai ulang Glim; jika masih gagal, build dengan `cargo build -p glim-hook`."
   },
   "finished": {
    "zh-Hans": "已完成",

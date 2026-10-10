@@ -57,11 +57,21 @@ jobs:
       - name: Island tests
         run: npm test
 
-      # The app bundles target/release/coucou-hook.exe as a resource, and its
+      # The app bundles target/release/glim-hook.exe as a resource, and its
       # build script refuses to run until that file exists. One command per
       # step: PowerShell carries on after a failed command in the same step.
       - name: Build the relay
-        run: cargo build --release -p coucou-hook
+        run: cargo build --release -p glim-hook
 
       - name: Rust tests
         run: cargo test --workspace --locked
+
+      # Tests must never create or change the user's data folders: Rust tests
+      # get a scratch folder each (platform::data_base), the island tests touch
+      # no files. A fresh runner has neither folder, so any here came from a test.
+      - name: Tests left the real data folders alone
+        shell: pwsh
+        run: |
+          $touched = @("$env:APPDATA\Glim", "$env:LOCALAPPDATA\Glim", "$env:APPDATA\Coucou", "$env:LOCALAPPDATA\Coucou") | Where-Object { Test-Path $_ }
+          if ($touched) { Get-ChildItem $touched -Recurse -Force | Select-Object FullName; throw "tests created or changed: $($touched -join ', ')" }
+          "no data folder was touched"

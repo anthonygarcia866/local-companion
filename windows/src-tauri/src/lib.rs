@@ -544,6 +544,11 @@ fn open_settings_window(app: AppHandle) {
 }
 
 pub fn run() {
+    // Before anything reads or creates the data folders (settings, log, relay).
+    let migrated = platform::migrate_data_dirs();
+    for note in &migrated {
+        log::line(format!("data folder migration: {note}"));
+    }
     platform::prepare_environment();
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
