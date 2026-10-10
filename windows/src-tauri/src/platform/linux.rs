@@ -298,6 +298,10 @@ pub fn cursor_physical() -> Option<(f64, f64)> {
     None
 }
 
+pub fn foreground_center() -> Option<(f64, f64)> {
+    None
+}
+
 pub fn left_button_down() -> bool {
     false
 }

@@ -274,19 +274,18 @@ fn own_tree() -> Option<std::collections::HashSet<u32>> {
         unsafe {
             let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { continue };
             let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
-            let ok = Process32FirstW(snap, &mut e).is_ok();
+            let first = Process32FirstW(snap, &mut e).is_ok();
+            let mut ok = first;
             while ok {
                 let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
                 let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_ascii_lowercase();
                 if super::OWN_IMAGES.contains(&name.as_str()) {
                     pairs.push((e.th32ProcessID, e.th32ParentProcessID));
                 }
-                if Process32NextW(snap, &mut e).is_err() {
-                    break;
-                }
+                ok = Process32NextW(snap, &mut e).is_ok();
             }
             let _ = CloseHandle(snap);
-            if !ok {
+            if !first {
                 continue;
             }
         }

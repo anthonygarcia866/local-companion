@@ -217,13 +217,29 @@ fn pick_display(pref: &str, displays: &[DisplayId]) -> Option<usize> {
     displays.iter().position(at)
 }
 
-/// The display the island lives on: a chosen one, the primary one, or the one
-/// under the cursor.
+/// The display "active" last resolved to, by DisplayId key: kept while Glim
+/// itself (or nothing) is in front.
+static LAST_ACTIVE: Mutex<Option<String>> = Mutex::new(None);
+
+/// The display the island lives on: a chosen one, the primary one, the one of
+/// the active (foreground) window, or the one under the cursor.
 fn target_monitor(app: &AppHandle, pref: &str) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
     let ids: Vec<DisplayId> = monitors.iter().map(describe).collect();
     if let Some(i) = pick_display(pref, &ids) {
         return Some(monitors[i].clone());
+    }
+    if pref == "active" {
+        if let Some((cx, cy)) = platform::foreground_center() {
+            if let Some(i) = monitors.iter().position(|m| monitor_contains(m, cx, cy)) {
+                *LAST_ACTIVE.lock().unwrap() = Some(ids[i].key());
+                return Some(monitors[i].clone());
+            }
+        }
+        let last = LAST_ACTIVE.lock().unwrap().clone();
+        if let Some(i) = last.and_then(|k| pick_display(&k, &ids)) {
+            return Some(monitors[i].clone());
+        }
     }
     if pref == "cursor" {
         if let Some((cx, cy)) = cursor_physical() {
@@ -271,6 +287,22 @@ mod display_tests {
     }
 
     #[test]
+    fn a_window_moved_off_its_place_is_noticed() {
+        assert!(!drifted(None, Some((0, 0))));
+        assert!(!drifted(Some((100, 0, 720, 320)), Some((100, 0))));
+        // Windows moved it to the display on the left while it was folded away.
+        assert!(drifted(Some((100, 0, 720, 320)), Some((-1272, -58))));
+        assert!(!drifted(Some((100, 0, 720, 320)), None));
+    }
+
+    #[test]
+    fn active_and_cursor_are_not_saved_displays() {
+        let lap = d("eDP-1", 0, 0, 1920, 1200);
+        assert_eq!(pick_display("active", &[lap.clone()]), None);
+        assert_eq!(pick_display("cursor", &[lap]), None);
+    }
+
+    #[test]
     fn preferences_saved_before_still_match() {
         let lap = d("eDP-1", 0, 0, 1920, 1200);
         let ext = d("HDMI-1", 1920, 0, 1920, 1080);
@@ -297,6 +329,10 @@ pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
         None => ScreenInfo { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, scale: 1.0 },
     }
 }
+
+/// Where apply_geometry last put the window: physical x, y, width, height.
+/// The display watch puts it back if anything else moves it.
+static PLACED: Mutex<Option<(i32, i32, u32, u32)>> = Mutex::new(None);
 
 /// Places and sizes the window. `collapsed` picks the wake strip instead of the panel.
 pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
@@ -327,7 +363,86 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     // Moving across displays can rescale the window: re-assert the physical size.
     let _ = win.set_size(PhysicalSize::new(pw, ph));
     let _ = win.set_always_on_top(true);
+
+    // Where it really landed (Windows may round on a scaled display): what the
+    // display watch compares against, so a rounding never reads as a drift.
+    let (x, y) = win.outer_position().map(|p| (p.x, p.y)).unwrap_or((x, y));
+    let placed = (x, y, pw, ph);
+    let mut last = PLACED.lock().unwrap();
+    if last.is_none_or(|l| (l.0, l.1) != (x, y)) {
+        let d = describe(&m);
+        crate::log::line(format!(
+            "island placed on {} ({}x{} at {},{}, scale {}) for screen={pref}",
+            d.name, d.w, d.h, d.x, d.y, scale
+        ));
+    }
+    *last = Some(placed);
 }
+
+/// Every display: name, logical size and origin, and scale. For the log.
+fn displays_summary(app: &AppHandle) -> String {
+    let Ok(monitors) = app.available_monitors() else { return "unknown".into() };
+    let list: Vec<String> = monitors
+        .iter()
+        .map(|m| {
+            let d = describe(m);
+            format!("{} {}x{} at {},{} scale {}", d.name, d.w, d.h, d.x, d.y, m.scale_factor())
+        })
+        .collect();
+    format!("{} — {}", list.len(), list.join("; "))
+}
+
+/// Whether the window is no longer where apply_geometry put it: Windows moves
+/// windows itself when a display sleeps, is unplugged or changes scale, and an
+/// island left on another display (or off every display) is unreachable.
+fn drifted(placed: Option<(i32, i32, u32, u32)>, now: Option<(i32, i32)>) -> bool {
+    match (placed, now) {
+        (Some(p), Some(n)) => (p.0, p.1) != n,
+        _ => false,
+    }
+}
+
+/// Watches, once a second and whether or not the island is showing: the
+/// display the island should be on (plugged in, unplugged, rearranged,
+/// rescaled, or the active window moving to another display), and the window
+/// drifting from where Glim put it. Either way the page is told to reposition.
+pub fn spawn_display_watch(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_screen = current_screen_key(&app);
+        let mut last_displays = displays_summary(&app);
+        crate::log::line(format!("displays: {last_displays}"));
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if DRAGGING.load(Ordering::Relaxed) {
+                continue;
+            }
+            let displays = displays_summary(&app);
+            if displays != last_displays {
+                crate::log::line(format!("displays: {displays}"));
+                last_displays = displays;
+            }
+            let now = current_screen_key(&app);
+            let at = window(&app).and_then(|w| w.outer_position().ok()).map(|p| (p.x, p.y));
+            let reason = if now.is_some() && now != last_screen {
+                last_screen = now;
+                Some("the island's display changed".to_string())
+            } else if drifted(*PLACED.lock().unwrap(), at) {
+                Some(format!("the window was moved off its place (now at {:?})", at.unwrap_or_default()))
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                crate::log::line(format!("{reason} — repositioning"));
+                let _ = app.emit_to(WINDOW_LABEL, "screen-changed", ());
+                // Until the page has placed it again, don't report the same drift twice.
+                *PLACED.lock().unwrap() = None;
+            }
+        }
+    });
+}
+
+/// Set while the pill is being dragged: the watch leaves the window alone.
+pub static DRAGGING: AtomicBool = AtomicBool::new(false);
 
 /// Position, size and scale of the monitor the island lives on. Any change here
 /// means the island has to be placed again.
@@ -347,36 +462,14 @@ fn current_screen_key(app: &AppHandle) -> Option<(i32, i32, u32, u32, u64)> {
 pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     std::thread::spawn(move || {
         let mut was_down = false;
-        // Remembered across wakes so a display change while hidden is noticed the
-        // moment the island comes back.
-        let mut last_screen: Option<(i32, i32, u32, u32, u64)> = None;
-        // Without a cursor to read (Linux) the loop only watches the display
-        // layout, and twice a second is plenty for that: waking at 60 Hz just to
-        // find no cursor costs CPU for nothing.
-        let (period, screen_every) = if platform::CURSOR_POLL { (16, 30) } else { (500, 1) };
+        // Without a cursor to read (Linux) there's nothing to do at 60 Hz.
+        let period = if platform::CURSOR_POLL { 16 } else { 500 };
         loop {
             gate.wait_until_active();
             let mut last = (f64::MIN, f64::MIN);
-            let mut ticks: u32 = 0;
             while gate.is_active() {
                 std::thread::sleep(Duration::from_millis(period));
-
-                // Monitors get plugged in, unplugged, rearranged and rescaled, and
-                // an island pinned to coordinates that no longer exist is an island
-                // nobody can reach. Checked about twice a second — the cursor poll
-                // is already running, so this costs one monitor query.
-                ticks = ticks.wrapping_add(1);
-                if ticks % screen_every == 0 {
-                    let now = current_screen_key(&app);
-                    if now.is_some() && now != last_screen {
-                        let first = last_screen.is_none();
-                        last_screen = now;
-                        if !first {
-                            crate::log::line("display layout changed — repositioning".to_string());
-                            let _ = app.emit_to(WINDOW_LABEL, "screen-changed", ());
-                        }
-                    }
-                }
+                // Display changes are spawn_display_watch's.
 
                 let Some(win) = window(&app) else { continue };
                 let Ok(origin) = win.outer_position() else { continue };

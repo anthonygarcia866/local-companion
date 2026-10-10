@@ -337,6 +337,28 @@ pub fn cursor_physical() -> Option<(f64, f64)> {
     Some((p.x as f64, p.y as f64))
 }
 
+/// The centre of the foreground window, in physical screen pixels, unless
+/// there is none or it is one of Glim's own windows (the "active window's
+/// display" setting keeps the island where it is then).
+pub fn foreground_center() -> Option<(f64, f64)> {
+    use ::windows::Win32::Foundation::RECT;
+    use ::windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 || pid == std::process::id() {
+            return None;
+        }
+        let mut r = RECT::default();
+        GetWindowRect(hwnd, &mut r).ok()?;
+        Some(((r.left + r.right) as f64 / 2.0, (r.top + r.bottom) as f64 / 2.0))
+    }
+}
+
 /// True while the left mouse button is held — the only signal we get that a
 /// drag might be in flight before it reaches the window.
 pub fn left_button_down() -> bool {
