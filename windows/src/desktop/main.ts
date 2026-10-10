@@ -73,6 +73,12 @@ class DesktopMochi {
     el.style.left = `${PANEL_SIZE / 2 - 50 * unit}px`;
     el.style.top = `${PANEL_SIZE / 2 + BODY_D / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
     el.style.pointerEvents = "none";
+    // Drawn only while he is out on the desktop. On Windows the hidden window
+    // is parked off screen but stays shown, and Windows moves off-screen
+    // windows back into view (cascaded at 208,208, 234,234…): upstream's canvas
+    // was blank until he flew out, but a lantern drawn from the start showed
+    // up there as a stray, click-through lantern nobody could move.
+    el.style.display = "none";
     this.lantern.setHeight(124 * unit);
     canvas.append(el);
     this.engine.particleOverhang = 0;
@@ -120,6 +126,7 @@ class DesktopMochi {
 
   private setVisible(on: boolean) {
     this.visible = on;
+    this.lantern.el.style.display = on ? "" : "none";
     if (on) {
       // The two pages may have started in either order: ask again if needed.
       if (!this.informed) void emitToWindow(ISLAND, DESKTOP_EVENTS.ready);
