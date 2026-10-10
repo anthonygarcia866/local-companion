@@ -24,7 +24,8 @@ async function main() {
   if (!root) return;
 
   const island = new Island(root);
-  const presence = new PresenceView();
+  // Pill: the compact island on screen (it may have been folded or paused).
+  const presence = new PresenceView({ showPill: () => { if (!State.paused) island.reveal(); } });
   root.append(presence.el);
 
   const boot = await Bridge.boot();

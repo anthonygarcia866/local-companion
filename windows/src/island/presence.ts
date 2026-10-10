@@ -35,23 +35,57 @@ export function presenceLook(kind: PresenceKind): { island: boolean; dot: boolea
   }
 }
 
+/** What the island does for presence: bring the pill out. */
+export interface PresenceHost {
+  /** The compact pill on screen, from wherever the island's own state is. */
+  showPill(): void;
+}
+
+/**
+ * The page's half, without the DOM. Pill means the pill is drawn: the island
+ * is told to show it on every switch to Pill, whatever its own state machine
+ * did meanwhile (it used to sit folded in its invisible wake strip, so Pill,
+ * the hotkey's Hidden → Normal and the ember's click all showed nothing).
+ */
+export class PresenceModel {
+  kind: PresenceKind = "pill";
+  private host: PresenceHost;
+
+  constructor(host: PresenceHost) {
+    this.host = host;
+  }
+
+  apply(kind: PresenceKind) {
+    this.kind = kind;
+    if (kind === "pill") this.host.showPill();
+    return presenceLook(kind);
+  }
+
+  /** A click on the ember or the recording indicator: back to the pill. */
+  restore() {
+    void Bridge.setVisibility("normal");
+  }
+}
+
 /** The ember dot and the recording indicator, in the ember-sized window. */
 export class PresenceView {
   readonly el: HTMLElement;
+  readonly model: PresenceModel;
   private dot: HTMLElement;
   private indicator = new Lantern({ detail: "notch", state: "idle", heightPx: 22 });
 
-  constructor() {
+  constructor(host: PresenceHost) {
+    this.model = new PresenceModel(host);
     this.dot = h("div", { class: "ember-dot" });
     this.indicator.el.classList.add("ember-indicator");
     this.el = h("button", { id: "ember", type: "button", "aria-label": "Glim" }, this.dot, this.indicator.el);
     // Back to the pill. The indicator too: it is the island, just smaller.
-    this.el.addEventListener("click", () => void Bridge.setVisibility("normal"));
+    this.el.addEventListener("click", () => this.model.restore());
     this.apply("pill");
   }
 
   apply(kind: PresenceKind) {
-    const look = presenceLook(kind);
+    const look = this.model.apply(kind);
     document.documentElement.dataset.presence = kind;
     this.dot.hidden = !look.dot;
     this.indicator.el.style.display = look.record ? "" : "none";

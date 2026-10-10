@@ -23,6 +23,13 @@ export class IslandStateMachine {
   }
   /** petit → hidden delay, seconds. */
   petitToHiddenDelay = 60;
+  /**
+   * Whether the compact island folds to hidden on its own after
+   * `petitToHiddenDelay`. On a Mac it tucks into the notch; a PC has no notch,
+   * so Glim turns this off: the pill stays, and getting smaller is what the
+   * visibility modes are for (presence.rs: Ember, Hidden).
+   */
+  foldsToHidden = true;
   /** coucou → petit once the greeting animation ends (no hover). */
   greetAutoCollapseDelay = 0.6;
   /** coucou → petit while the mouse hovers the greeting. */
@@ -127,7 +134,7 @@ export class IslandStateMachine {
     this.clear("petitHide");
     // A card folded away while it waits for an answer keeps the compact island
     // on screen, so it can be reopened (isHeldOpen on macOS).
-    if (this.pinned) return;
+    if (this.pinned || !this.foldsToHidden) return;
     this.petitHide = window.setTimeout(() => {
       this.petitHide = null;
       if (this.state === "petit" && !this.pinned) this.transition("hidden");

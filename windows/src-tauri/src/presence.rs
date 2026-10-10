@@ -222,6 +222,21 @@ mod tests {
         assert_eq!(presence(Visibility::Normal, true, true), Presence::Indicator);
     }
 
+    /// Hidden → Normal once left the window hidden: it was hidden through tao
+    /// and shown with a raw ShowWindow, and tao re-applies its own idea of
+    /// visibility on every later flag change. Both ways go through tao.
+    #[test]
+    fn the_island_is_shown_and_hidden_through_tao_only() {
+        let island = include_str!("island.rs").replace("
+", "
+");
+        let code = island.split("#[cfg(test)]").next().unwrap();
+        assert!(!code.contains("ShowWindow") && !code.contains("show_no_activate"));
+        assert!(code.contains("let _ = win.show();") && code.contains("let _ = win.hide();"));
+        let platform = include_str!("platform/windows.rs");
+        assert!(!platform.contains("fn show_no_activate"));
+    }
+
     #[test]
     fn the_hotkey_cycles_through_all_three() {
         let mut v = Visibility::Normal;

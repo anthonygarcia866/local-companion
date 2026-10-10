@@ -260,6 +260,9 @@ export class Island {
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    // Pill mode means the pill is on screen: it never folds into the invisible
+    // wake strip by itself (that made Normal look like Hidden).
+    this.fsm.foldsToHidden = false;
     this.fsm.onTransition = (from, to) => {
       // The launch is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
