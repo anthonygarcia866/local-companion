@@ -392,8 +392,8 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     // Through tao, both ways (`hide` above, `show` here): tao re-applies its
     // own idea of visibility on every later flag change (click-through,
     // always-on-top), so a window shown behind its back is hidden again. The
-    // island is WS_EX_NOACTIVATE (make_non_activating), so showing it never
-    // takes focus.
+    // island is WS_EX_NOACTIVATE, so showing it never takes focus — kept by
+    // tao itself: the window is built `focusable: false` (tauri.conf.json).
     if !win.is_visible().unwrap_or(true) {
         let _ = win.show();
     }

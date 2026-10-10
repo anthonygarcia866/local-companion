@@ -160,6 +160,11 @@ fn set_island_rect(app: AppHandle, shared: State<Shared>, x: f64, y: f64, width:
 #[tauri::command]
 fn focus_window(app: AppHandle, focused: bool) {
     let Some(win) = island::window(&app) else { return };
+    // Through tao (FOCUSABLE): tao rewrites the extended styles on every flag
+    // change (click-through toggles, show/hide) from its own flags, so a
+    // WS_EX_NOACTIVATE set behind its back was wiped and the island took focus
+    // when shown again. The raw toggle stays for Linux and the first frame.
+    let _ = win.set_focusable(focused);
     platform::set_activating(&win, focused);
     if focused {
         let _ = win.set_focus();
@@ -874,6 +879,17 @@ mod tests {
             .find(|w| w["label"] == "island")
             .expect("the island window");
         assert_eq!(island["focus"], false);
+        // tao owns WS_EX_NOACTIVATE only through its FOCUSABLE flag: anything
+        // set behind its back is wiped on its next restyle (seen 2026-10-10:
+        // Hidden → Normal took the foreground).
+        assert_eq!(island["focusable"], false);
+        let src_lf = include_str!("lib.rs").replace("
+", "
+");
+        let focus = &src_lf[src_lf.find("fn focus_window").unwrap()..];
+        assert!(focus[..focus.find("
+}
+").unwrap()].contains("let _ = win.set_focusable(focused);"));
 
         // CI checks the sources out with CRLF (core.autocrlf): compare as LF.
         let src = include_str!("lib.rs").replace("\r\n", "\n");
