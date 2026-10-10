@@ -25,6 +25,11 @@ pub struct Settings {
     /// The notch pill's size: "small" (24 px lantern, compact drawing),
     /// "medium" (36 px) or "large" (48 px, full detail).
     pub pill_size: String,
+    /// The island's dock on each display, by display key (as `at:` screen
+    /// preferences): "top-center", "top-left", "top-right", "left" or "right"
+    /// (placement.rs). A display not in here uses top centre. Owned by the
+    /// Rust side: what a webview sends back is ignored.
+    pub docks: BTreeMap<String, String>,
     pub autostart: bool,
     pub hooks_installed: bool,
     /// Show the Claude plan pill (5 h and weekly limits) in the island's header.
@@ -85,6 +90,7 @@ impl Default for Settings {
             main_pill: "integration_claude".into(),
             screen: "primary".into(),
             pill_size: "large".into(),
+            docks: BTreeMap::new(),
             autostart: false,
             hooks_installed: false,
             show_plan_in_notch: false,
@@ -356,6 +362,7 @@ mod tests {
   "mainPill": "agent_cursor",
   "screen": "cursor",
   "pillSize": "small",
+  "docks": { "at:0,0|DELL|1920x1080": "left" },
   "autostart": true,
   "hooksInstalled": true,
   "showPlanInNotch": true,
@@ -752,6 +759,7 @@ mod tests {
                 "mainPill",
                 "screen",
                 "pillSize",
+                "docks",
                 "autostart",
                 "hooksInstalled",
                 "showPlanInNotch",

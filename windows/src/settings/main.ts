@@ -588,6 +588,21 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  // Where the island sits on its display. Rust owns the docks (dragging the
+  // pill sets them too); this asks for the island's own display.
+  const position = h("select", {}) as HTMLSelectElement;
+  position.append(
+    h("option", { value: "top-center", text: t("Top centre") }),
+    h("option", { value: "top-left", text: t("Top left") }),
+    h("option", { value: "top-right", text: t("Top right") }),
+    h("option", { value: "left", text: t("Left edge (upright)") }),
+    h("option", { value: "right", text: t("Right edge (upright)") }),
+  );
+  void Bridge.placement().then((p) => {
+    if (p) position.value = p.dock;
+  });
+  position.addEventListener("change", () => void Bridge.setDock(position.value));
+
   return h(
     "section",
     {},
@@ -604,6 +619,10 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" },
       h("label", { text: t("Pill size") }),
       pillSize,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Position") }),
+      position,
     ),
     h("div", { class: "row" },
       h("label", { text: t("Launch at startup") }),

@@ -4,9 +4,9 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
-  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
+  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
-  islandSize, pillGeometry,
+  dockedBot, dockedSize, islandFrame, islandSize, isVerticalDock, pillGeometry,
   QUESTION_PICKER_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
@@ -107,6 +107,10 @@ export class Island {
 
   /** Where a press on Mochi started: moving past DRAG_THRESHOLD drags him out. */
   private botPress: { x: number; y: number } | null = null;
+  /** Where a press on the closed pill started: moving past DRAG_THRESHOLD
+   *  drags the pill to another dock (Rust moves the window); a release
+   *  before that opens the island. */
+  private dockPress: { x: number; y: number } | null = null;
 
   /** Drop sequence bookkeeping: last tick played, and whether the ✓ has fired. */
   private uploadTens = 0;
@@ -549,6 +553,7 @@ export class Island {
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
     }
+    ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
@@ -571,17 +576,22 @@ export class Island {
     const w = this.width.value;
     const hh = this.height.value;
     const r = this.radius.value;
+    const frame = islandFrame(State.dock, w, hh, r);
+    this.islandEl.style.left = `${frame.x}px`;
+    this.islandEl.style.top = `${frame.y}px`;
     this.islandEl.style.width = `${w}px`;
     this.islandEl.style.height = `${hh}px`;
-    this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
-    this.islandEl.style.transform = `translateX(-50%)`;
+    this.islandEl.style.borderRadius = frame.radius;
+    this.islandEl.style.transform = "none";
     // These follow the island as it resizes, so they belong here rather than in
-    // the state-driven DOM sync.
-    this.miniGrid.style.left = `${w - 40 - 14.5}px`;
-    this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
+    // the state-driven DOM sync. An upright pill carries the minis at its foot.
+    const upright = isVerticalDock(State.dock) && State.mode !== "expanded";
+    this.miniGrid.style.left = `${upright ? w / 2 - 14.5 : w - 40 - 14.5}px`;
+    this.miniGrid.style.top = `${upright ? hh - 40 - 14.5 : hh / 2 - 14.5}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
+    this.placeWakeStrip();
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const rect = { x: frame.x, y: frame.y, w, h: hh };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -589,11 +599,34 @@ export class Island {
     }
   }
 
-  /** Island rect in window coordinates (origin top-left of the 720×320 window). */
+  /** Island rect in window coordinates (origin top-left of the panel window). */
   private islandRect(): { x: number; y: number; w: number; h: number } {
-    const w = this.width.value;
-    const hh = this.height.value;
-    return { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const f = islandFrame(State.dock, this.width.value, this.height.value, 0);
+    return { x: f.x, y: f.y, w: f.w, h: f.h };
+  }
+
+  /**
+   * The wake strip: the whole window once it has shrunk to the strip; before
+   * that, the edge the island retracted into.
+   */
+  private placeWakeStrip() {
+    const s = this.wakeStrip.style;
+    const upright = isVerticalDock(State.dock);
+    if (this.collapsed) {
+      Object.assign(s, { left: "0", top: "0", right: "", width: "100%", height: "100%", transform: "none" });
+      return;
+    }
+    const f = islandFrame(State.dock, upright ? 6 : 240, upright ? 240 : 6, 0);
+    Object.assign(s, { left: `${f.x}px`, top: `${f.y}px`, right: "", width: `${f.w}px`, height: `${f.h}px`, transform: "none" });
+  }
+
+  /** The dock changed (a drop, Settings, or `--dock`): lay the island out again. */
+  setDock(dock: typeof State.dock) {
+    if (State.dock === dock) return;
+    State.dock = dock;
+    this.pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+    this.animateGeometry(false);
+    State.notify();
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -629,13 +662,16 @@ export class Island {
 
     this.islandEl.addEventListener("mousedown", (e) => {
       State.lastActivity = performance.now();
+      if (State.mode !== "expanded") {
+        // The closed pill: a press may become a drag to another dock; a
+        // release before that opens the island (see mouseup below).
+        if (e.button === 0) this.dockPress = { x: e.clientX, y: e.clientY };
+        else this.fsm.click();
+        return;
+      }
       // A press on Mochi may become a drag out to the desktop.
       if (e.button === 0 && this.isBotHit(e.clientX, e.clientY)) {
         this.botPress = { x: e.clientX, y: e.clientY };
-      }
-      if (State.mode !== "expanded") {
-        this.fsm.click();
-        return;
       }
       if (this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
@@ -655,6 +691,15 @@ export class Island {
         this.desktop.carry(e.clientX, e.clientY);
         return;
       }
+      const dock = this.dockPress;
+      if (dock && !(e.buttons & 1)) this.dockPress = null;
+      else if (dock && Math.hypot(e.clientX - dock.x, e.clientY - dock.y) > DRAG_THRESHOLD) {
+        // Rust moves the window with the cursor from here and snaps it to the
+        // nearest dock on release; the page only hears the new dock.
+        this.dockPress = null;
+        void Bridge.dockDragStart();
+        return;
+      }
       const press = this.botPress;
       if (!press) return;
       if (!(e.buttons & 1)) {
@@ -668,6 +713,10 @@ export class Island {
       this.desktop.pickUp(e.clientX, e.clientY);
     });
     window.addEventListener("mouseup", (e) => {
+      if (this.dockPress) {
+        this.dockPress = null;
+        this.fsm.click();
+      }
       this.botPress = null;
       if (this.desktop.carrying) this.desktop.carryEnd(e.clientX, e.clientY);
     });
@@ -883,7 +932,11 @@ export class Island {
   };
 
   private updateBotTargets() {
-    const p = botPosition(State.mode, State.view, this.height.value, State.uploadProgress, pillGeometry(State.settings.pillSize));
+    const p = dockedBot(
+      State.dock,
+      State.mode,
+      botPosition(State.mode, State.view, this.height.value, State.uploadProgress, pillGeometry(State.settings.pillSize)),
+    );
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
@@ -1035,7 +1088,7 @@ export class Island {
   }
 
   get panelSize() {
-    return { w: PANEL_W, h: PANEL_H };
+    return { w: PANEL_W, h: isVerticalDock(State.dock) ? PANEL_V_H : PANEL_H };
   }
 
   get chatHeight() {

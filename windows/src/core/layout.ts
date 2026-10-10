@@ -90,6 +90,57 @@ export function pillGeometry(size: PillSize | string): PillGeometry {
 }
 export const EXPANDED_CORNER = 22;
 
+/** Where the island is docked on its display (src-tauri/src/placement.rs). */
+export type Dock = "top-center" | "top-left" | "top-right" | "left" | "right";
+export const DOCKS: readonly Dock[] = ["top-center", "top-left", "top-right", "left", "right"];
+
+export function isDock(s: string): s is Dock {
+  return (DOCKS as readonly string[]).includes(s);
+}
+
+/** Upright along the left or right edge: the pill stands vertically and the
+ *  island opens sideways, away from the edge. */
+export function isVerticalDock(d: Dock): boolean {
+  return d === "left" || d === "right";
+}
+
+/** The window's height when docked upright (placement.rs PANEL_V_H). */
+export const PANEL_V_H = 400;
+/** Gap between a top-corner island and the display's side edge. */
+export const CORNER_GAP = 12;
+
+/**
+ * The island's drawn size for a dock: upright docks turn the pill (and the
+ * retracted island) on its side; the open island keeps its size.
+ */
+export function dockedSize(dock: Dock, mode: IslandMode, size: { w: number; h: number }): { w: number; h: number } {
+  return isVerticalDock(dock) && mode !== "expanded" ? { w: size.h, h: size.w } : size;
+}
+
+/** The island's frame in its window (window-logical px), and its corners. */
+export function islandFrame(dock: Dock, w: number, h: number, r: number): {
+  x: number; y: number; w: number; h: number; radius: string;
+} {
+  switch (dock) {
+    case "top-left":
+      return { x: CORNER_GAP, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+    case "top-right":
+      return { x: PANEL_W - CORNER_GAP - w, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+    case "left":
+      return { x: 0, y: (PANEL_V_H - h) / 2, w, h, radius: `0 ${r}px ${r}px 0` };
+    case "right":
+      return { x: PANEL_W - w, y: (PANEL_V_H - h) / 2, w, h, radius: `${r}px 0 0 ${r}px` };
+    default:
+      return { x: (PANEL_W - w) / 2, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+  }
+}
+
+/** The lantern's place in a docked island: an upright pill carries it at the
+ *  top, where a level pill has it on the left. */
+export function dockedBot(dock: Dock, mode: IslandMode, p: BotPlacement): BotPlacement {
+  return isVerticalDock(dock) && mode !== "expanded" ? { ...p, cx: p.cy, cy: p.cx } : p;
+}
+
 /** Invisible hover strip that wakes the island when hidden. */
 export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;

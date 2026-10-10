@@ -2,6 +2,7 @@
 
 import "./style.css";
 import "./mascot/lantern.css";
+import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
@@ -69,6 +70,12 @@ async function main() {
   });
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
+  // The dock on the island's display: a drop of the pill, Settings, `--dock`.
+  await onEvent<{ dock: string }>("placement", ({ dock }) => {
+    if (isDock(dock)) island.setDock(dock);
+  });
+  const placed = await Bridge.placement();
+  if (placed && isDock(placed.dock)) island.setDock(placed.dock);
   // Dev sessions only: `glim.exe --mascot-state <state|auto>` (see lib.rs).
   await onEvent<string>("mascot-force", (s) => island.forceLanternState(isLanternState(s) ? s : null));
   // Dev sessions only: `glim.exe --dev-chat "<prompt>"` (see lib.rs). Connects

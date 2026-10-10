@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
+use crate::placement::{nearest_dock, window_rect, Dock, Shape};
 use crate::platform::{self, cursor_physical, left_button_down};
 
 /// Logical size of the full window — the largest island view, like the macOS panel.
@@ -334,6 +335,37 @@ pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
 /// The display watch puts it back if anything else moves it.
 static PLACED: Mutex<Option<(i32, i32, u32, u32)>> = Mutex::new(None);
 
+/// The dock the island uses on the display it lives on (see placement.rs).
+static CURRENT_DOCK: Mutex<Dock> = Mutex::new(Dock::TopCenter);
+
+pub fn current_dock() -> Dock {
+    *CURRENT_DOCK.lock().unwrap()
+}
+
+/// What the page needs to lay the island out in its window.
+#[derive(Serialize, Clone)]
+pub struct PlacementPayload {
+    pub dock: &'static str,
+    pub vertical: bool,
+}
+
+/// The dock remembered for display `m` (settings.docks), matched the way
+/// `at:` display preferences are, so a rearranged or rescaled display keeps
+/// its dock. Top centre when none was chosen.
+fn dock_for(app: &AppHandle, m: &Monitor) -> Dock {
+    let Some(shared) = app.try_state::<crate::Shared>() else { return Dock::TopCenter };
+    let docks = shared.settings.lock().unwrap().docks.clone();
+    let Ok(monitors) = app.available_monitors() else { return Dock::TopCenter };
+    let ids: Vec<DisplayId> = monitors.iter().map(describe).collect();
+    let me = describe(m);
+    let Some(here) = ids.iter().position(|d| *d == me) else { return Dock::TopCenter };
+    docks
+        .iter()
+        .find(|(key, _)| pick_display(key, &ids) == Some(here))
+        .and_then(|(_, d)| Dock::parse(d))
+        .unwrap_or(Dock::TopCenter)
+}
+
 /// Places and sizes the window. `collapsed` picks the wake strip instead of the panel.
 pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let Some(win) = window(app) else { return };
@@ -343,11 +375,17 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let mp = *m.position();
     let ms = *m.size();
 
-    let (lw, lh) = if collapsed { (STRIP_W, STRIP_H) } else { (PANEL_W, PANEL_H) };
+    let dock = dock_for(app, &m);
+    let previous = std::mem::replace(&mut *CURRENT_DOCK.lock().unwrap(), dock);
+    if previous != dock {
+        let _ = app.emit_to(WINDOW_LABEL, "placement", PlacementPayload { dock: dock.as_str(), vertical: dock.vertical() });
+    }
+    let shape = if collapsed { Shape::Strip } else { Shape::Panel };
+    let (rx, ry, lw, lh) = window_rect(dock, shape, ms.width as f64 / scale, ms.height as f64 / scale);
     let pw = (lw * scale).round().max(1.0) as u32;
     let ph = (lh * scale).round().max(1.0) as u32;
-    let x = mp.x + (ms.width as i32 - pw as i32) / 2;
-    let y = mp.y;
+    let x = mp.x + (rx * scale).round() as i32;
+    let y = mp.y + (ry * scale).round() as i32;
 
     // GTK never sizes a non-resizable window below its natural size (200 px
     // here), so on Linux the 6 px wake strip would stay a 200 px block. tao
@@ -372,8 +410,8 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     if last.is_none_or(|l| (l.0, l.1) != (x, y)) {
         let d = describe(&m);
         crate::log::line(format!(
-            "island placed on {} ({}x{} at {},{}, scale {}) for screen={pref}",
-            d.name, d.w, d.h, d.x, d.y, scale
+            "island placed on {} ({}x{} at {},{}, scale {}) for screen={pref}, dock {}",
+            d.name, d.w, d.h, d.x, d.y, scale, dock.as_str()
         ));
     }
     *last = Some(placed);
@@ -443,6 +481,81 @@ pub fn spawn_display_watch(app: AppHandle) {
 
 /// Set while the pill is being dragged: the watch leaves the window alone.
 pub static DRAGGING: AtomicBool = AtomicBool::new(false);
+
+/// Starts dragging the pill: the window follows the cursor (it never takes
+/// focus: it is moved, not activated) until the left button is released, then
+/// snaps to the nearest dock of the display under the cursor.
+pub fn start_dock_drag(app: &AppHandle) {
+    if DRAGGING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (Some(win), Some((cx, cy))) = (window(app), cursor_physical()) else {
+        DRAGGING.store(false, Ordering::SeqCst);
+        return;
+    };
+    let Ok(origin) = win.outer_position() else {
+        DRAGGING.store(false, Ordering::SeqCst);
+        return;
+    };
+    let grab = (cx - origin.x as f64, cy - origin.y as f64);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        while left_button_down() {
+            if let Some((cx, cy)) = cursor_physical() {
+                let _ = win.set_position(PhysicalPosition::new((cx - grab.0).round() as i32, (cy - grab.1).round() as i32));
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        drop_dock_drag(&app);
+        DRAGGING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The drag ended: the nearest dock of the display under the cursor.
+fn drop_dock_drag(app: &AppHandle) {
+    let Some((cx, cy)) = cursor_physical() else { return };
+    let Ok(monitors) = app.available_monitors() else { return };
+    let Some(m) = monitors.iter().find(|m| monitor_contains(m, cx, cy)) else { return };
+    let scale = m.scale_factor();
+    let (mp, ms) = (*m.position(), *m.size());
+    let dock = nearest_dock(
+        (cx - mp.x as f64) / scale,
+        (cy - mp.y as f64) / scale,
+        ms.width as f64 / scale,
+        ms.height as f64 / scale,
+    );
+    crate::log::line(format!("pill dropped on {} — dock {}", describe(m).name, dock.as_str()));
+    set_dock(app, Some(m), dock);
+}
+
+/// Remembers `dock` for display `on` (the island's own display when None) and
+/// places the island there. A drop on another display moves the island to it,
+/// unless it follows the active window or the cursor anyway.
+pub fn set_dock(app: &AppHandle, on: Option<&Monitor>, dock: Dock) {
+    let Some(shared) = app.try_state::<crate::Shared>() else { return };
+    let pref = shared.settings.lock().unwrap().screen.clone();
+    let Some(target) = target_monitor(app, &pref) else { return };
+    let m = on.cloned().unwrap_or(target.clone());
+    let key = describe(&m).key();
+    let settings = {
+        let mut s = shared.settings.lock().unwrap();
+        // One entry per display: drop any older key that finds the same one.
+        let ids: Vec<DisplayId> = app.available_monitors().map(|v| v.iter().map(describe).collect()).unwrap_or_default();
+        let here = ids.iter().position(|d| *d == describe(&m));
+        s.docks.retain(|k, _| here.is_none() || pick_display(k, &ids) != here);
+        s.docks.insert(key.clone(), dock.as_str().to_string());
+        if describe(&m) != describe(&target) && pref != "active" && pref != "cursor" {
+            s.screen = key;
+        }
+        s.clone()
+    };
+    if let Err(err) = crate::settings::save(&settings) {
+        crate::log::line(format!("could not save settings: {err}"));
+    }
+    let collapsed = shared.gate.collapsed.load(Ordering::Relaxed);
+    apply_geometry(app, &settings.screen, collapsed);
+    let _ = app.emit_to(WINDOW_LABEL, "settings-changed", settings);
+}
 
 /// Position, size and scale of the monitor the island lives on. Any change here
 /// means the island has to be placed again.

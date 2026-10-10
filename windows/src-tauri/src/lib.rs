@@ -20,6 +20,7 @@ mod recap;
 mod session_window;
 mod settings;
 mod shortcuts;
+mod placement;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
@@ -80,9 +81,11 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let shortcuts_changed = current.shortcuts != settings.shortcuts;
-        // Where the character sits on the desktop is desktop.rs's to say, not a webview's.
+        // Where the character sits on the desktop is desktop.rs's to say, not a
+        // webview's; so are the docks (island.rs, set by dragging the pill).
         let mut settings = settings.clone();
         settings.desktop_mochi = current.desktop_mochi.clone();
+        settings.docks = current.docks.clone();
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -159,6 +162,27 @@ fn focus_window(app: AppHandle, focused: bool) {
     if focused {
         let _ = win.set_focus();
     }
+}
+
+/// The pill was pressed and moved: the window follows the cursor from here.
+#[tauri::command]
+fn dock_drag_start(app: AppHandle) {
+    island::start_dock_drag(&app);
+}
+
+/// Settings' position picker: the dock on the island's own display.
+#[tauri::command]
+fn set_dock(app: AppHandle, dock: String) {
+    if let Some(dock) = placement::Dock::parse(&dock) {
+        island::set_dock(&app, None, dock);
+    }
+}
+
+/// Where the island is docked on its display, for the page's layout.
+#[tauri::command]
+fn placement() -> island::PlacementPayload {
+    let dock = island::current_dock();
+    island::PlacementPayload { dock: dock.as_str(), vertical: dock.vertical() }
 }
 
 #[tauri::command]
@@ -589,6 +613,12 @@ fn dev_mascot_state(argv: &[String]) -> Option<String> {
     dev_arg(argv, "--mascot-state")
 }
 
+/// `glim.exe --dock <top-center|top-left|top-right|left-vertical|right-vertical>`:
+/// docks the island on its display, as dragging the pill there would. Dev only.
+fn dev_dock(argv: &[String]) -> Option<placement::Dock> {
+    dev_arg(argv, "--dock").and_then(|d| placement::Dock::parse(&d))
+}
+
 /// `glim.exe --dev-chat "<prompt>"`: sends the prompt through the island's own
 /// chat view (connecting Ollama first, as Settings → Connect does, if it isn't
 /// yet), so the real chat path — chat view → `chat_send` → `local_chat` →
@@ -639,6 +669,10 @@ pub fn run() {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
             }
+            if let Some(dock) = dev_dock(&argv) {
+                island::set_dock(app, None, dock);
+                return;
+            }
             if dev_open_settings(&argv) {
                 show_settings_window(app);
                 return;
@@ -677,6 +711,9 @@ pub fn run() {
             set_island_rect,
             focus_window,
             reposition,
+            dock_drag_start,
+            set_dock,
+            placement,
             list_monitors,
             open_url,
             open_in_vscode,

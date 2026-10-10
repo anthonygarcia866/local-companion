@@ -53,6 +53,14 @@ export const Bridge = {
 
   reposition: () => call<void>("reposition"),
 
+  /** The closed pill is being dragged: Rust moves the window with the cursor
+   *  and snaps it to the nearest dock on release ("placement" event). */
+  dockDragStart: () => call<void>("dock_drag_start"),
+  /** Settings' position picker: the dock on the island's own display. */
+  setDock: (dock: string) => call<void>("set_dock", { dock }),
+  /** Where the island is docked on its display. */
+  placement: () => call<{ dock: string; vertical: boolean } | undefined>("placement"),
+
   /** Displays the island can be pinned to: `key` is what `settings.screen` stores. */
   listMonitors: () => call<{ key: string; label: string }[]>("list_monitors"),
 
@@ -284,7 +292,8 @@ export type BridgeEvent =
   | { name: "cursor"; payload: { x: number; y: number } }
   | { name: "tray"; payload: string }
   | { name: "hook"; payload: Record<string, unknown> }
-  | { name: "screen-changed"; payload: null };
+  | { name: "screen-changed"; payload: null }
+  | { name: "placement"; payload: { dock: string; vertical: boolean } };
 
 export interface DragDropPayload {
   type: "enter" | "over" | "drop" | "leave";

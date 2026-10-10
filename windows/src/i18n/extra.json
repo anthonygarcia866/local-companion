@@ -2286,6 +2286,72 @@
    "pt-BR": "Grande",
    "ru": "Большой",
    "id": "Besar"
+  },
+  "Position": {
+   "zh-Hans": "位置",
+   "hi": "स्थिति",
+   "es": "Posición",
+   "ar": "الموضع",
+   "fr": "Position",
+   "bn": "অবস্থান",
+   "pt-BR": "Posição",
+   "ru": "Положение",
+   "id": "Posisi"
+  },
+  "Top centre": {
+   "zh-Hans": "顶部居中",
+   "hi": "ऊपर बीच में",
+   "es": "Arriba al centro",
+   "ar": "أعلى المنتصف",
+   "fr": "En haut au centre",
+   "bn": "উপরে মাঝখানে",
+   "pt-BR": "Topo ao centro",
+   "ru": "Сверху по центру",
+   "id": "Atas tengah"
+  },
+  "Top left": {
+   "zh-Hans": "左上角",
+   "hi": "ऊपर बाएँ",
+   "es": "Arriba a la izquierda",
+   "ar": "أعلى اليسار",
+   "fr": "En haut à gauche",
+   "bn": "উপরে বাঁয়ে",
+   "pt-BR": "Topo à esquerda",
+   "ru": "Сверху слева",
+   "id": "Kiri atas"
+  },
+  "Top right": {
+   "zh-Hans": "右上角",
+   "hi": "ऊपर दाएँ",
+   "es": "Arriba a la derecha",
+   "ar": "أعلى اليمين",
+   "fr": "En haut à droite",
+   "bn": "উপরে ডানে",
+   "pt-BR": "Topo à direita",
+   "ru": "Сверху справа",
+   "id": "Kanan atas"
+  },
+  "Left edge (upright)": {
+   "zh-Hans": "左边缘（竖直）",
+   "hi": "बायाँ किनारा (खड़ा)",
+   "es": "Borde izquierdo (vertical)",
+   "ar": "الحافة اليسرى (عمودي)",
+   "fr": "Bord gauche (vertical)",
+   "bn": "বাম প্রান্ত (খাড়া)",
+   "pt-BR": "Borda esquerda (vertical)",
+   "ru": "Левый край (вертикально)",
+   "id": "Tepi kiri (tegak)"
+  },
+  "Right edge (upright)": {
+   "zh-Hans": "右边缘（竖直）",
+   "hi": "दायाँ किनारा (खड़ा)",
+   "es": "Borde derecho (vertical)",
+   "ar": "الحافة اليمنى (عمودي)",
+   "fr": "Bord droit (vertical)",
+   "bn": "ডান প্রান্ত (খাড়া)",
+   "pt-BR": "Borda direita (vertical)",
+   "ru": "Правый край (вертикально)",
+   "id": "Tepi kanan (tegak)"
   }
  }
 }
