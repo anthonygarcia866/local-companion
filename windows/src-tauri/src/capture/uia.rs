@@ -1,0 +1,203 @@
+// The Windows side of the text-capture spike: UI Automation, read-only.
+//
+// One thread owns every UIA object. It subscribes to focus-changed events (the
+// handler only wakes the thread up, so no COM object crosses threads) and also
+// re-reads the focused field every POLL so the debug panel follows typing.
+// For each field: skip it entirely if IsPassword; otherwise try TextPattern2
+// (text + caret), then TextPattern (text + selection start as the caret),
+// then ValuePattern (text only).
+
+use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::time::Duration;
+
+use tauri::{AppHandle, Emitter};
+use windows::core::{implement, Ref, Result as WinResult, BOOL};
+use windows::Win32::Foundation::{CloseHandle, HWND};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+};
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation8, IUIAutomation, IUIAutomationElement, IUIAutomationFocusChangedEventHandler,
+    IUIAutomationFocusChangedEventHandler_Impl, IUIAutomationTextPattern, IUIAutomationTextPattern2,
+    IUIAutomationTextRange, IUIAutomationValuePattern, TextPatternRangeEndpoint_End,
+    TextPatternRangeEndpoint_Start, UIA_TextPattern2Id, UIA_TextPatternId, UIA_ValuePatternId,
+};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
+
+use super::{control_type_name, record_to, results_path, Capture, CaptureMeta};
+
+/// How often the focused field is re-read between focus events.
+const POLL: Duration = Duration::from_millis(400);
+/// The most text read from one field (a whole document can be huge).
+const MAX_CHARS: i32 = 20_000;
+/// The window label of the debug panel.
+pub const PANEL: &str = "capture-debug";
+
+/// Wakes the capture thread on every focus change.
+#[implement(IUIAutomationFocusChangedEventHandler)]
+struct FocusHandler(Sender<()>);
+
+impl IUIAutomationFocusChangedEventHandler_Impl for FocusHandler_Impl {
+    fn HandleFocusChangedEvent(&self, _sender: Ref<'_, IUIAutomationElement>) -> WinResult<()> {
+        let _ = self.0.send(());
+        Ok(())
+    }
+}
+
+/// Starts the capture thread. Dev sessions only (the caller checks).
+pub fn start(app: AppHandle) {
+    std::thread::Builder::new()
+        .name("glim-capture".into())
+        .spawn(move || {
+            if let Err(err) = run(&app) {
+                crate::log::line(format!("capture: stopped: {err}"));
+            }
+        })
+        .ok();
+}
+
+fn run(app: &AppHandle) -> WinResult<()> {
+    unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
+    let uia: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)? };
+    let (tx, rx) = channel();
+    let handler: IUIAutomationFocusChangedEventHandler = FocusHandler(tx).into();
+    unsafe { uia.AddFocusChangedEventHandler(None, &handler)? };
+    crate::log::line("capture: subscribed to UIA focus changes (dev session)");
+
+    let own_pid = std::process::id() as i32;
+    let results = results_path();
+    // The field being watched, and its last reading's metadata: recorded to
+    // the results log when focus leaves it, so its char count is the final one.
+    let mut current: Option<(IUIAutomationElement, CaptureMeta)> = None;
+
+    loop {
+        match rx.recv_timeout(POLL) {
+            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
+        let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
+        if pid == own_pid {
+            continue; // Glim's own windows (the panel, the island)
+        }
+        let capture = read(&element, pid);
+        let same = current
+            .as_ref()
+            .is_some_and(|(cur, _)| unsafe { uia.CompareElements(cur, &element) }.is_ok_and(|b| b.as_bool()));
+        if !same {
+            if let Some((_, meta)) = current.take() {
+                let _ = record_to(&results, &meta);
+            }
+        }
+        current = Some((element, capture.meta.clone()));
+        let _ = app.emit_to(PANEL, "capture-debug", &capture);
+    }
+    Ok(())
+}
+
+/// Everything the panel shows about the focused element.
+fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
+    let control = unsafe { element.CurrentControlType() }.map(|t| t.0).unwrap_or(0);
+    let mut meta = CaptureMeta {
+        app: process_name(pid),
+        control_type: control_type_name(control),
+        pattern: "none".into(),
+        ..Default::default()
+    };
+    let window_title = foreground_title();
+
+    if unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool()) {
+        // Ignored completely: no pattern is asked for, nothing is read.
+        meta.password = true;
+        meta.pattern = "skipped (password)".into();
+        return Capture { meta, window_title, text: None };
+    }
+
+    let (pattern, text, caret) = read_text(element);
+    meta.pattern = pattern.into();
+    meta.readable = text.is_some();
+    meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
+    meta.caret = caret;
+    Capture { meta, window_title, text }
+}
+
+/// (pattern that worked, text, caret) — TextPattern2, then TextPattern, then
+/// ValuePattern.
+fn read_text(element: &IUIAutomationElement) -> (&'static str, Option<String>, Option<usize>) {
+    unsafe {
+        if let Ok(p2) = element.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id) {
+            if let Ok(doc) = p2.DocumentRange() {
+                if let Ok(text) = range_text(&doc) {
+                    let mut active = BOOL::default();
+                    let caret = p2.GetCaretRange(&mut active).ok().and_then(|c| offset_of(&doc, &c));
+                    return ("TextPattern2", Some(text), caret);
+                }
+            }
+        }
+        if let Ok(p) = element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) {
+            if let Ok(doc) = p.DocumentRange() {
+                if let Ok(text) = range_text(&doc) {
+                    let caret = p
+                        .GetSelection()
+                        .ok()
+                        .filter(|s| s.Length().unwrap_or(0) > 0)
+                        .and_then(|s| s.GetElement(0).ok())
+                        .and_then(|sel| offset_of(&doc, &sel));
+                    return ("TextPattern", Some(text), caret);
+                }
+            }
+        }
+        if let Ok(v) = element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) {
+            if let Ok(value) = v.CurrentValue() {
+                return ("ValuePattern", Some(value.to_string()), None);
+            }
+        }
+    }
+    ("none", None, None)
+}
+
+fn range_text(range: &IUIAutomationTextRange) -> WinResult<String> {
+    Ok(unsafe { range.GetText(MAX_CHARS)? }.to_string())
+}
+
+/// Characters from the start of `doc` to the start of `at`.
+fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Option<usize> {
+    unsafe {
+        let before = doc.Clone().ok()?;
+        before
+            .MoveEndpointByRange(TextPatternRangeEndpoint_End, at, TextPatternRangeEndpoint_Start)
+            .ok()?;
+        Some(before.GetText(MAX_CHARS).ok()?.to_string().chars().count())
+    }
+}
+
+/// The executable's file name for a process id.
+fn process_name(pid: i32) -> String {
+    unsafe {
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32) else {
+            return format!("pid {pid}");
+        };
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = CloseHandle(h);
+        if !ok {
+            return format!("pid {pid}");
+        }
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string()
+    }
+}
+
+/// The foreground window's title (live panel only — never recorded).
+fn foreground_title() -> String {
+    unsafe {
+        let hwnd: HWND = GetForegroundWindow();
+        let mut buf = [0u16; 512];
+        let n = GetWindowTextW(hwnd, &mut buf);
+        String::from_utf16_lossy(&buf[..n.max(0) as usize])
+    }
+}
