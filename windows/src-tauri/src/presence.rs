@@ -230,9 +230,12 @@ mod tests {
         let island = include_str!("island.rs").replace("
 ", "
 ");
-        let code = island.split("#[cfg(test)]").next().unwrap();
-        assert!(!code.contains("ShowWindow") && !code.contains("show_no_activate"));
-        assert!(code.contains("let _ = win.show();") && code.contains("let _ = win.hide();"));
+        assert!(!island.contains("ShowWindow") && !island.contains("show_no_activate"));
+        let start = island.find("pub fn apply_geometry").unwrap();
+        let body = &island[start..start + island[start..].find("
+}
+").unwrap()];
+        assert!(body.contains("let _ = win.show();") && body.contains("let _ = win.hide();"));
         let platform = include_str!("platform/windows.rs");
         assert!(!platform.contains("fn show_no_activate"));
     }
