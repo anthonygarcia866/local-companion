@@ -49,6 +49,12 @@ A local-first Windows desktop companion.
   - **Tenants** are referred to by role and property/unit ("a tenant at 1408 Jefferson"), never by name. Coworkers and business contacts may be named.
   - Memory is plain, user-editable files the user can view, edit and delete.
   - The filter must be testable: a fixture set of fake sensitive data, and a test asserting none of it reaches the memory files.
+- **Outlook inbox learning:** Glim reads the user's classic Outlook mailbox locally through the Outlook COM object model (the local OST cache: no network, so the localhost-only rule holds; no Microsoft Graph or cloud API).
+  - Purpose: learn the user's workflow — who they work with, recurring topics and processes, how threads connect to their projects.
+  - All of it goes through the memory policy above: summaries only, the sensitive-data filter, tenants by role, not name.
+  - The initial import is user-triggered, with progress shown; after that, optional incremental updates.
+  - Outlook may show a programmatic-access security prompt; handle it at design time.
+  - New Outlook has no COM API: out of scope unless the user switches.
 
 ## Privacy model
 - **Phases 0–2: strictly local, no exceptions.** All outbound network access goes through a single choke-point module in Rust, which allows localhost only.
@@ -151,6 +157,7 @@ Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.m
 
 - **Code:** `windows/src-tauri/src/capture/` — a dedicated MTA thread owns every UI Automation object; it subscribes to focus-changed events (the handler only wakes the thread) and re-reads the focused field every 300 ms. Password fields are skipped before any pattern is asked for; then TextPattern2 (text + caret), TextPattern, ValuePattern. Read-only: nothing is written back, no keyboard hooks. Dev only (`GLIM_DEV=1`).
 - **Privacy:** the full field (capped at 20,000 characters) stays inside the capture thread. Only the window around the caret (current paragraph, ≤500 chars before, ≤200 after) and the field length go to the dev-only debug panel (`capture.html`), live, never stored. The results log (`%LOCALAPPDATA%\Glim\capture-results.jsonl`) is written from `CaptureMeta` (app, control type, pattern, readable, password, char count, caret position) — no field for text or window titles. Tests: the log and `Debug` output never contain them; no log/write call in the module mentions text, excerpt or title (mutation-tested).
+- **Owner's round 4 (2026-10-10), all pass:** Chrome page with no text box focused skipped (read-only content, 0 chars); Gmail compose, an AppFolio notes field, VS Code, Word and Outlook compose readable.
 - **Editable fields only:** before any text is read, `capture::is_editable` decides from ValuePattern.IsReadOnly, the text range's IsReadOnly attribute, the legacy read-only state and the control type; read-only content (Chrome exposes whole pages as read-only Documents — an AppFolio dashboard was captured in full before this) is skipped like a password field, panel "skipped (read-only content)". Self-tested with a WinForms window: read-only box and read-only document skipped, editable box read.
 - **Focus:** the island and every window Glim builds never take focus by appearing (test + runtime check). The hidden Settings window used to (fixed, see lessons).
 - **Ollama:** 0.40.2 installed via winget, listening on 127.0.0.1:11434 only; model `gemma3:4b` (3.4 GB; non-thinking, recent; `llama3.2:3b` 2.0 GB is the faster fallback). Glim's chat streams a real reply through `net::request`; netstat on Glim's whole process tree during the chat: one connection, `glim.exe` → 127.0.0.1:11434, nothing else. Latency vs. context: ~200 chars 2.3 s, ~1,000 chars 3.5 s, ~5,000 chars 10.4 s (details in the results doc).

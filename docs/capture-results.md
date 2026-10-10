@@ -28,11 +28,16 @@ Tested 2026-10-09/10 on the owner's machine (Windows 11, Ryzen AI 7 350, 16 GB).
 | Self-test window — read-only rich-text document | Document | skipped (read-only content) | not read | 0 | — | self-test after the fix |
 | Self-test window — editable text box | Edit | ValuePattern | yes | 39 | — | self-test after the fix |
 | **Not reached yet** | | | | | | |
-| Chrome — a page with no text box focused, after the fix | | | | | | owner to test (should skip) |
-| Chrome — Gmail compose | | | | | | owner to test |
-| AppFolio in Chrome — notes field | | | | | | owner to test |
-| VS Code — editor | | | | | | owner to test |
-| Word / Outlook compose, after the fix | | | | | | owner to re-test (should stay readable) |
+| **Round 4, after the read-only fix (2026-10-10)** | | | | | | |
+| AppFolio dashboard in Chrome, no text box focused (`chrome.exe`) | Document | skipped (read-only content) | not read | 0 | — | owner: pass. The log also shows Chrome's buttons, links and panes skipped the same way |
+| Gmail compose in Chrome (`chrome.exe`) | Edit | TextPattern | yes | — | yes | owner: pass. The log shows Chrome Edit fields read via TextPattern with a caret; it can't tell Gmail and AppFolio apart |
+| AppFolio notes field in Chrome (`chrome.exe`) | Edit | TextPattern | yes | — | yes | owner: pass (not saved) |
+| VS Code — editor | — | — | yes | — | — | owner-reported pass; no `Code.exe` row in this round's results log, so no pattern recorded |
+| Word (`WINWORD.EXE`) | Document | TextPattern2 | yes | 70 | yes | owner: pass after the fix |
+| Outlook classic compose (`OUTLOOK.EXE`) | Document | TextPattern2 (round 3) | yes | — | yes | owner-reported pass after the fix; no row in this round's log |
+| A WebView2 app (`msedgewebview2.exe`) | Document | skipped (read-only content) | not read | 0 | — | round 4: read before the fix (28–3,800 chars), skipped now |
+| Explorer (`explorer.exe`) | Pane | skipped (read-only content) | not read | 0 | — | round 4 |
+| Windows Terminal (`WindowsTerminal.exe`) | Text | TextPattern | yes | 5,301 | yes | round 4: still readable (its text isn't marked read-only) — the Phase 1 plan keeps terminals off by default |
 
 ## Writing layer: editable fields only
 
@@ -73,4 +78,4 @@ Ollama 0.40.2, `gemma3:4b` (3.4 GB), a grammar fix of one sentence with N charac
 5. **Only what the user is writing.** Grammar and rewrite must exclude the email signature block and quoted reply text. In Outlook the captured field included the signature, so Phase 1 needs to cut the field down to the user's own new text (signature delimiters, Outlook's signature/reply separators, `>`-quoted lines and "On … wrote:" headers) before choosing the context tier. Quoted text may still be *context* for a rewrite, never something Glim corrects.
 6. **Windows' own text suggestions.** Windows shows its own suggestion popup while typing (Settings → Time & language → Typing → "Show text suggestions when typing on the physical keyboard"). It competes with Glim's suggestion UI for the same moment and screen space. Phase 1 should detect when it's on and recommend turning it off during onboarding, and position Glim's suggestion so the two don't overlap if the user keeps both.
 7. **Skip by default:** password fields (never read), terminals (Windows Terminal exposed 5,301 characters of scrollback — commands and output can hold secrets) and Glim's own windows. Everything else follows the per-app on/off toggle from the Phase 1 vision.
-8. **Open before Phase 1 ships:** test the rows still marked "owner to test" above; decide how a suggestion is applied (TextPattern is read-only; ValuePattern.SetValue works only for simple fields; anything else needs a user-confirmed paste — no synthetic typing without the user's say-so).
+8. **Open before Phase 1 ships:** record VS Code's control type and pattern (round 4 passed, but no log row); decide how a suggestion is applied (TextPattern is read-only; ValuePattern.SetValue works only for simple fields; anything else needs a user-confirmed paste — no synthetic typing without the user's say-so).
