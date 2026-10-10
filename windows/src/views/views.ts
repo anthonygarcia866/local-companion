@@ -95,6 +95,9 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const tabDrop = h("button", { class: "tab", title: tl("Drop"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
+  // Folds the open island back to the pill (a waiting card is folded, never
+  // dropped). The island takes no focus, so neither does this.
+  const minBtn = h("button", { class: "min-btn", title: tl("Minimize"), onclick: () => actions.collapse() }, svg(ICONS.minus, 14));
   // Plan usage pill (off by default): before the gear, as on the Mac.
   const claudePill = buildPlanPill();
   const planPills = h("div", { class: "plan-pills" }, claudePill.el);
@@ -107,7 +110,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "div",
     { id: "header" },
     h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
-    h("div", { class: "header-actions" }, planPills, gearBtn),
+    h("div", { class: "header-actions" }, planPills, minBtn, gearBtn),
   );
 
   return {

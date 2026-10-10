@@ -21,3 +21,13 @@ test("an overview without the switcher hides the card and widens the session car
   assert.match(css, /\.overview\.solo > \.right \{\n  display: none;/);
   assert.match(css, /\.overview\.solo > \.left \{\n  flex: 1 1 auto;\n  width: auto;/);
 });
+
+test("the open island's top bar has a minimize button, next to the gear, that collapses it", () => {
+  const views = read("src/views/views.ts");
+  assert.match(views, /const minBtn = h\("button", \{ class: "min-btn", title: tl\("Minimize"\), onclick: \(\) => actions\.collapse\(\) \}/);
+  assert.match(views, /h\("div", \{ class: "header-actions" \}, planPills, minBtn, gearBtn\)/);
+  // collapse() goes through the state machine to the pill (never hidden).
+  const island = read("src/island/island.ts").replace(/\r\n/g, "\n");
+  const collapse = island.slice(island.indexOf("  collapse() {"), island.indexOf("\n  }\n", island.indexOf("  collapse() {")));
+  assert.match(collapse, /this\.fsm\.forcePetit\(\);/);
+});

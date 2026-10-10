@@ -2418,6 +2418,17 @@
    "pt-BR": "Oculto: traga-o de volta pelo ícone da bandeja ou com o atalho",
    "ru": "Скрыт: верните его значком в трее или сочетанием клавиш",
    "id": "Tersembunyi: munculkan lagi dari ikon baki atau dengan pintasan"
+  },
+  "Minimize": {
+   "zh-Hans": "最小化",
+   "hi": "छोटा करें",
+   "es": "Minimizar",
+   "ar": "تصغير",
+   "fr": "Réduire",
+   "bn": "ছোট করুন",
+   "pt-BR": "Minimizar",
+   "ru": "Свернуть",
+   "id": "Perkecil"
   }
  }
 }
