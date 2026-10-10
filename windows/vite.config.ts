@@ -24,6 +24,8 @@ export default defineConfig({
         island: resolve(__dirname, "index.html"),
         settings: resolve(__dirname, "settings.html"),
         character: resolve(__dirname, "character.html"),
+        // Dev-only text-capture debug panel (GLIM_DEV=1); see src/capture/.
+        capture: resolve(__dirname, "capture.html"),
       },
     },
   },

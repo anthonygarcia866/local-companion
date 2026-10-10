@@ -2,6 +2,7 @@
 
 mod agent_hooks;
 mod agents;
+mod capture;
 mod chat;
 mod config_file;
 mod desktop;
@@ -511,6 +512,10 @@ fn create_settings_window(app: &AppHandle) {
         .min_inner_size(460.0, 480.0)
         .resizable(true)
         .visible(false)
+        // Created hidden at launch, it still took the foreground without
+        // this (seen 2026-10-09: the app being typed in lost focus to an
+        // invisible window). It takes focus only when it is shown.
+        .focused(false)
         .center()
         .build()
     {
@@ -525,6 +530,38 @@ fn create_settings_window(app: &AppHandle) {
             });
         }
         Err(err) => log::line(format!("settings window failed: {err}")),
+    }
+}
+
+/// Dev only (GLIM_DEV=1): the text-capture spike's debug panel. Created before
+/// the island like the settings window (see create_settings_window), never
+/// focused and non-activating, so it can't take focus from the field being
+/// read. It shows captured text live and keeps none of it.
+#[cfg(windows)]
+fn create_capture_panel(app: &AppHandle) {
+    #[cfg(dev)]
+    let url = match app.config().build.dev_url.clone() {
+        Some(mut base) => {
+            base.set_path("/capture.html");
+            WebviewUrl::External(base)
+        }
+        None => WebviewUrl::App("capture.html".into()),
+    };
+    #[cfg(not(dev))]
+    let url = WebviewUrl::App("capture.html".into());
+    match WebviewWindowBuilder::new(app, capture::uia::PANEL, url)
+        .additional_browser_args(BROWSER_ARGS)
+        .title("Capture debug — Glim (dev)")
+        .inner_size(460.0, 560.0)
+        .position(40.0, 120.0)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .visible(true)
+        .build()
+    {
+        Ok(win) => platform::make_non_activating(&win),
+        Err(err) => log::line(format!("capture panel failed: {err}")),
     }
 }
 
@@ -549,11 +586,38 @@ fn open_settings_window(app: AppHandle) {
 /// checking each state without touching the mouse or keyboard, so it only works
 /// when the running Glim was started with `GLIM_DEV=1` in its environment.
 fn dev_mascot_state(argv: &[String]) -> Option<String> {
-    if std::env::var_os("GLIM_DEV").is_none_or(|v| v != "1") {
+    dev_arg(argv, "--mascot-state")
+}
+
+/// `glim.exe --dev-chat "<prompt>"`: sends the prompt through the island's own
+/// chat view (connecting Ollama first, as Settings → Connect does, if it isn't
+/// yet), so the real chat path — chat view → `chat_send` → `local_chat` →
+/// `net::request` — can be exercised without typing. Dev only, like
+/// `--mascot-state`.
+fn dev_chat_prompt(argv: &[String]) -> Option<String> {
+    dev_arg(argv, "--dev-chat")
+}
+
+/// The value after `flag`, only when the running Glim was started with
+/// `GLIM_DEV=1`.
+fn dev_arg(argv: &[String], flag: &str) -> Option<String> {
+    if !dev_session() {
         return None;
     }
-    let at = argv.iter().position(|a| a == "--mascot-state")?;
+    let at = argv.iter().position(|a| a == flag)?;
     argv.get(at + 1).cloned()
+}
+
+/// `glim.exe --open-settings`: opens the Settings window directly, as the tray
+/// menu's "Settings…" does, for when the island can't be reached (it can end
+/// up on another display; see PROJECT_STATUS.md, open issues). Dev only.
+fn dev_open_settings(argv: &[String]) -> bool {
+    dev_session() && argv.iter().any(|a| a == "--open-settings")
+}
+
+/// The running Glim was started with `GLIM_DEV=1`.
+fn dev_session() -> bool {
+    std::env::var_os("GLIM_DEV").is_some_and(|v| v == "1")
 }
 
 pub fn run() {
@@ -573,6 +637,14 @@ pub fn run() {
             // settings run where we can't listen for keys ourselves (Wayland).
             if let Some(state) = dev_mascot_state(&argv) {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
+                return;
+            }
+            if dev_open_settings(&argv) {
+                show_settings_window(app);
+                return;
+            }
+            if let Some(prompt) = dev_chat_prompt(&argv) {
+                let _ = app.emit_to(island::WINDOW_LABEL, "dev-chat", prompt);
                 return;
             }
             match shortcuts::from_args(&argv) {
@@ -658,6 +730,13 @@ pub fn run() {
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
+            // Dev only: the text-capture spike's live debug panel, and the
+            // capture thread that feeds it (src/capture/).
+            #[cfg(windows)]
+            if dev_session() {
+                create_capture_panel(&handle);
+                capture::uia::start(handle.clone());
+            }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
 
@@ -697,6 +776,44 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{diff_file, BROWSER_ARGS};
+
+    /// The island never takes focus by being shown: it is declared unfocused,
+    /// made WS_EX_NOACTIVATE before it is first shown, and only the chat view
+    /// (or the island's own shortcuts) asks for focus, through focus_window.
+    /// The capture debug panel is built unfocused and non-activating too.
+    #[test]
+    fn showing_the_island_or_the_capture_panel_never_takes_focus() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let island = conf["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["label"] == "island")
+            .expect("the island window");
+        assert_eq!(island["focus"], false);
+
+        // CI checks the sources out with CRLF (core.autocrlf): compare as LF.
+        let src = include_str!("lib.rs").replace("\r\n", "\n");
+        let desktop = include_str!("desktop.rs").replace("\r\n", "\n");
+        let setup = &src[src.find(".setup(move |app|").unwrap()..];
+        let non_activating = setup.find("platform::make_non_activating(&win);").expect("island made non-activating");
+        let shown = setup.find("let _ = win.show();").expect("island shown");
+        assert!(non_activating < shown, "WS_EX_NOACTIVATE must be set before the island is first shown");
+
+        let panel = &src[src.find("fn create_capture_panel").unwrap()..];
+        let panel = &panel[..panel.find("\n}\n").unwrap()];
+        assert!(panel.contains(".focused(false)") && panel.contains("platform::make_non_activating(&win)"));
+
+        // Every window Glim builds in code is built unfocused: a hidden one
+        // created at launch (Settings) used to take the foreground anyway.
+        for (file, code) in [("lib.rs", src.as_str()), ("desktop.rs", desktop.as_str())] {
+            let code = code.split("#[cfg(test)]").next().unwrap();
+            for (at, _) in code.match_indices("WebviewWindowBuilder::new(") {
+                let chain = &code[at..at + code[at..].find(".build()").expect("a builder chain")];
+                assert!(chain.contains(".focused(false)"), "{file}: a window is built without .focused(false)");
+            }
+        }
+    }
 
     #[test]
     fn every_window_asks_webview2_for_the_same_locked_down_arguments() {

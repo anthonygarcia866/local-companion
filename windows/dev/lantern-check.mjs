@@ -34,6 +34,9 @@ const STATES = ["idle", "listen", "think", "suggest", "record", "paused", "deleg
  * Chromium's blur under a running brightness filter (s-idle) isn't bit-stable
  * from frame to frame: renders of the very same page differ by 1 now and then. */
 const ROUNDING = 2;
+/** How many times a render that differs is re-rendered from fresh pages
+ * before the difference counts (see the fidelity loop). */
+const RERENDERS = 2;
 /** Instants (ms into every animation) at which both renders are compared. */
 const FREEZE_AT = [0, 450, 1100, 2000, 3300];
 /** The notch's compact sprite: 1.2 × the diameter 20 over the 99 drawn
@@ -168,8 +171,23 @@ async function main() {
         exact++;
         continue;
       }
-      const d = await diff(renders.design[key], renders.port[key]);
+      let d = await diff(renders.design[key], renders.port[key]);
       near.push(`${key}: ${d.pixels} of ${d.total} pixels differ, by at most ${d.max}/255`);
+      // The aura's SVG blur (feGaussianBlur) isn't bit-stable from render to
+      // render on GPU-less CI runners: whole ribbon edges come out up to
+      // ~32/255 apart on the very same markup. Re-render both pages from
+      // scratch, up to RERENDERS times; only a difference that persists fails.
+      for (let retry = 1; retry <= RERENDERS && (d.pixels < 0 || d.max > ROUNDING); retry++) {
+        const [state, compact, at] = key.split("/");
+        const again = {};
+        for (const [name, url] of [["design", designUrl], ["port", portUrl]]) {
+          await open(url);
+          const r = await setUp(state, compact === "true", Number(at), true);
+          again[name] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
+        }
+        d = again.design === again.port ? { pixels: 0, max: 0, total: d.total } : await diff(again.design, again.port);
+        near.push(`  re-rendered ${key} (${retry}/${RERENDERS}): ${d.pixels} pixels differ, by at most ${d.max}/255`);
+      }
       if (d.pixels < 0 || d.max > ROUNDING) {
         const tag = key.replaceAll("/", "-");
         writeFileSync(join(outDir, `mismatch-${tag}-design.png`), Buffer.from(renders.design[key], "base64"));

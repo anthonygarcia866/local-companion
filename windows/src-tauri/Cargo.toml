@@ -29,7 +29,13 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Same versions as wry, so nothing new is compiled.
 webview2-com = "0.39"
 wv2_core = { package = "windows-core", version = "0.62" }
+# `#[implement]` (COM event handlers, src/capture/uia.rs) expands to paths in
+# windows-core, so it is a direct dependency; same version windows 0.61 uses.
+windows-core = "0.61"
 windows = { version = "0.61", features = [
+  "Win32_System_Com",
+  "Win32_UI_Accessibility",
+  "Win32_System_Variant",
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Security_Authorization",

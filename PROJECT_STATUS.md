@@ -14,12 +14,28 @@ A local-first Windows desktop companion.
 - Island/pill UI that never steals focus.
 - Settings for tone, aggressiveness, and a per-app on/off toggle.
 
+### Phase 1.5 — voice dictation (local Aqua Voice replacement)
+- Push-to-talk hotkey only: the microphone is open only while the key is held.
+- Local speech-to-text with whisper.cpp; the model is picked by measured speed on the user's CPU (as gemma3:4b was).
+- Then a gemma3 cleanup pass: filler words, punctuation, and tone matched to the active app, using the writing layer's capture context.
+- The result is inserted at the caret through Phase 1's insertion path.
+- Audio is never stored.
+- Its own mascot state for "listening to dictation" — not `s-record`: red stays reserved for screen recording.
+
 ### Phase 2 — SOP recorder
 - User-initiated only.
 - Windows Graphics Capture + UIA events.
 - The user states the goal at record time.
 - A local LLM writes a real SOP from the recording.
 - Output is editable Markdown with screenshots, PDF export, and redaction.
+- **Two capture layers with different rules:**
+  - **Writing layer** (Phase 1): editable fields only, never page content (`capture::is_editable`; see `docs/capture-results.md`).
+  - **Observation layer:** sees screens, page content and actions, in four modes:
+    1. Explicit recording with a goal stated at the start.
+    2. "Shadow mode": a toggle that observes everything until the user stops it, with a clear, visible mascot indicator the whole time.
+    3. A rolling buffer that keeps only the last ~15–30 minutes in memory, continuously discarded, so the user can say "make an SOP from what I just did".
+    4. Per-app exclusions (banking, password managers) that are never observed in any mode.
+  - **To revisit at Phase 2 design:** shadow mode and the rolling buffer — CPU cost, the indicator, and how long the buffer keeps.
 
 ### Phase 3 — delegation layer (opt-in)
 - A local user model: Markdown, user-stated facts only, user-editable, bootstrappable from the user's notes.
@@ -27,6 +43,18 @@ A local-first Windows desktop companion.
 - Loop: formulate the task, run it, read the result, follow up, report back.
 - "It processes, I decide": sends, purchases, publishes and deletes wait for explicit approval. This is enforced through each CLI's tool allow/deny permissions, not prompt wording.
 - Each hop is verified against the artifact (diff/build/test), never the agent's own report.
+- **Memory policy:** memory stores learned summaries, never raw captured text.
+  - **Keep:** big-picture goals and projects, how the user works, team members and contacts, what is being discussed, and how topics connect. Sources can include everything Glim observes, including the user's email inbox.
+  - **Never store**, enforced by a hard filter before any memory write, even inside summaries: SSNs; bank, card and account numbers; dates of birth; phone numbers; personal street addresses; financial figures about individuals; passwords and credentials.
+  - **Tenants** are referred to by role and property/unit ("a tenant at 1408 Jefferson"), never by name. Coworkers and business contacts may be named.
+  - Memory is plain, user-editable files the user can view, edit and delete.
+  - The filter must be testable: a fixture set of fake sensitive data, and a test asserting none of it reaches the memory files.
+- **Outlook inbox learning:** Glim reads the user's classic Outlook mailbox locally through the Outlook COM object model (the local OST cache: no network, so the localhost-only rule holds; no Microsoft Graph or cloud API).
+  - Purpose: learn the user's workflow — who they work with, recurring topics and processes, how threads connect to their projects.
+  - All of it goes through the memory policy above: summaries only, the sensitive-data filter, tenants by role, not name.
+  - The initial import is user-triggered, with progress shown; after that, optional incremental updates.
+  - Outlook may show a programmatic-access security prompt; handle it at design time.
+  - New Outlook has no COM API: out of scope unless the user switches.
 
 ## Privacy model
 - **Phases 0–2: strictly local, no exceptions.** All outbound network access goes through a single choke-point module in Rust, which allows localhost only.
@@ -42,11 +70,13 @@ A local-first Windows desktop companion.
 - **Webview side:** CSP `connect-src ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*`, and WebView2 launched with background networking off and a resolver rule that fails every host name except `localhost` (`BROWSER_ARGS` in `lib.rs`, `additionalBrowserArgs` in `tauri.conf.json`; a test keeps them identical).
 
 ## Roadmap
-- **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *PR open (this branch).*
-- **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (see "Mascot"); the other places that still draw the placeholder are listed there.
-- **Phase 1** — writing assistant.
-- **Phase 2** — SOP recorder.
-- **Phase 3** — delegation layer.
+- **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *Merged 2026-10-09 (PR #2).*
+- **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (PR #5, see "Mascot"); the remaining placeholders moved to Phase 4. Also a text-capture spike (UI Automation) to decide how Phase 1 reads the focused field: see "Text-capture spike".
+- **Phase 1** — writing assistant. Capture plan and spike results: `docs/capture-results.md`.
+- **Phase 1.5** — voice dictation, a local Aqua Voice replacement (see Vision).
+- **Phase 2** — SOP recorder, with two capture layers under different rules (see Vision). The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
+- **Phase 3** — delegation layer, with a memory policy: learned summaries only, never raw captured text, behind a testable sensitive-data filter (see Vision).
+- **Phase 4** — Polish: sounds (synthesized in code via Web Audio, no audio files; suggestion sounds default off), more mascot animations/emotes, and replacing the remaining Coucou placeholders outside the notch (greeting, file-drop, recap image, per-session characters).
 - **Code signing before distribution** (e.g. Azure Trusted Signing). Users with Smart App Control on can't run unsigned builds, and a privacy product that asks users to disable a security feature is a non-starter.
 - **Rest of the Coucou names** (the relay, pipe and data folders were renamed 2026-10-09, see "Claude Code integration"): the other agents' plugin/config names (`~/.copilot/hooks/coucou.json`, OpenCode/Amp `coucou.js`/`coucou.ts`, the Hermes `coucou` plugin, Antigravity's `coucou` group, "generated by Coucou"), the `coucou_agent` / `coucou_diff_truncated` payload fields, and the Linux data/socket names (`~/.local/share/coucou`, `coucou.sock`; Linux is unbuilt). Each needs its own old-name handling like the relay's.
 - **Upstream docs** in `docs/upstream/` (`AGENTS.md`, `INTEGRATIONS.md`, `SPEC.md`, `UPSTREAM_CLAUDE.md`) describe the Mac app and are reference only. Write Glim's own docs when the agent integration is reworked.
@@ -55,11 +85,18 @@ A local-first Windows desktop companion.
 - Bundle identifier is `com.anthonygarcia.glim` (was `com.glim.app`, which made the bundler warn about the macOS `.app` extension).
 - `docs/brand/` artwork is all rights reserved; the code stays MIT (see `NOTICE.md`).
 
+## Open issues
+- **Dev switches stop working / island unreachable (seen 2026-10-09, not yet fixed).** Two separate observations, same session:
+  1. After a `--dev-chat` reply finished, the island folded to its hidden 300×8 strip at the top of the primary display, and further forwarded switches (`--dev-chat`, `--mascot-state think`, both known to work) had no visible effect: the island didn't reveal and no request reached Ollama. Glim stayed responsive. A restart fixed it. Cause unknown; the single-instance forwarding or the island's reveal path are the suspects.
+  2. Later the owner couldn't open the island at all. Glim was responsive, but its island window was at x −1272, y −58: top centre of DISPLAY1 (the 1536×960 screen left of the main one), although `screen` is `"primary"` and the primary display is DISPLAY3 at (0,0). At the 21:28 launch it had been on the primary display, so something moved it later; the `screen-changed` → `Bridge.reposition()` path picking the wrong monitor is the main suspect. Restarting put it back on the primary display.
+  - Workarounds: the tray icon's **Settings…** opens Settings without the island; in a dev session `glim.exe --open-settings` (GLIM_DEV=1) does the same from the command line.
+  - To do: reproduce (watch window position across display changes and after a chat), log the chosen monitor on every reposition, and make reveal-after-hidden robust.
+
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
 ## Current status
-Mascot (Glim the lantern) in the notch on branch `mascot-lantern` (PR open, not merged). Integration rename merged 2026-10-09 (PR #4, `a8c9549`).
+Mascot merged 2026-10-10 (PR #5, `c21debf`). Text-capture spike on branch `phase-0b-capture` (PR open, not merged): see "Text-capture spike".
 Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Integration rename (relay `glim-hook.exe`, pipe `\\.\pipe\glim-<SID>`, `Glim` data folders with migration) on branch `feat/rename-integration-ids` (PR open, not merged). Non-Windows trees removed 2026-10-09 (PR #3, `82b3fb3`): `NotchBuddy/` (macOS + iPhone app), `relay/` (iPhone relay Worker), `linux/` (Arch recipe for upstream Coucou), the macOS-only `build.yml`/`release.yml` workflows, `scripts/` and `tests/*.swift` (Swift tests and tools that compiled `NotchBuddy/` sources), and `docs/IPHONE.md`; also `linux.yml` (Glim is Windows-only, decided 2026-10-09). Upstream's Mac-app docs moved to `docs/upstream/` with a reference-only note. The string catalog moved to `windows/src/i18n/Localizable.xcstrings`; `scripts/gen-strings.mjs` and its test read it there.
 
 - **Upstream:** [Louis-CFM/coucou](https://github.com/Louis-CFM/coucou), forked at `5cb2a27` (2026-10-08). Remotes: `origin` = anthonygarcia866/local-companion, `upstream` = Louis-CFM/coucou. Credited in `NOTICE.md`.
@@ -106,14 +143,25 @@ Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of tr
 
   Not mapped: the emotes (love, surprised, proud, wink, yawn, happy, annoyed), the integration/plan body tint (`engine.bodyColor`), and the drop sequence's morph — the lantern ignores them.
 - **Still the placeholder** (not the notch, not in this PR): the desktop character window (`desktop/`), the per-session mini bots (`mochi/minibots.ts`), the greeting (`mochi/greeting.ts`), the drop sequence (`upload/canvas.ts`) and the recap image (`recap/share.ts`).
-- **Dev-only state switch:** start Glim with `GLIM_DEV=1` in its environment, then `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>` forwards to the running instance (single-instance plugin) and shows that state in the notch; `auto` follows the app again. Ignored without `GLIM_DEV=1`. No hotkey.
-- **Checks:** `npm run check:lantern` (`windows/dev/lantern-check.mjs`, headless Edge over the DevTools protocol, also in `windows-ci.yml`): 90 renders (9 states × full/compact × 5 frozen instants) compared with the design page pixel by pixel (≤ 2/255 rounding allowed, every exception printed; a visible change fails); `prefers-reduced-motion: reduce` emulated through the protocol stops every animation in every state; notch-size frames of the blinks and glances. Mutation-tested: a changed colour and a deleted reduced-motion rule both fail.
+- **Dev-only switches** (start Glim with `GLIM_DEV=1`; a second `glim.exe` forwards its arguments to the running instance; ignored without `GLIM_DEV=1`; no hotkeys): `--mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>` shows that lantern state (`auto` follows the app again); `--dev-chat "<prompt>"` connects Ollama as Settings → Connect does (if needed) and sends the prompt through the island's chat view (pass it as one quoted argument — `Start-Process -ArgumentList` with an array splits it into words); `--open-settings` opens the Settings window.
+- **Checks:** `npm run check:lantern` (`windows/dev/lantern-check.mjs`, headless Edge over the DevTools protocol, also in `windows-ci.yml`): 90 renders (9 states × full/compact × 5 frozen instants) compared with the design page pixel by pixel (≤ 2/255 rounding allowed, every exception printed; a visible change fails); `prefers-reduced-motion: reduce` emulated through the protocol stops every animation in every state; notch-size frames of the blinks and glances. Mutation-tested: a changed colour and a deleted reduced-motion rule both fail. A render that differs is re-rendered from fresh pages up to twice before it counts: on GPU-less CI runners the aura's SVG blur (`feGaussianBlur`) isn't bit-stable (seen 2026-10-10: 1,307 pixels up to 32/255 along the ribbon edges, same markup); a real change persists through the re-renders and still fails (checked).
 
 ### Mascot verification (2026-10-09)
 - In the running app, each state forced with `--mascot-state`, cropped to Glim's pill: `docs/verification/mascot/notch-<state>@4x.png` (all nine). Cap and handle ring stay visible on the black pill (the ring, `#6b4530` with no outline, is the dimmest part but reads). `s-error`'s sweat drop shows in the app (`app-error-sweat-lantern@8x.png`).
 - Compact listen glance (after the design's `glance-c`): measured in the running app from a burst of notch captures, the eyes' darkness-weighted centre moves −0.75 px then +0.76 px (~1.5 px swing) and blinks; `app-glance-{rest,left,right}-lantern@8x.png`. Before `glance-c` the swing was ~0.6 px and barely read.
 - Unforced, with a real `claude -p` session hooked to Glim: `s-think` in the notch mid-session (`auto-working@4x.png`), then the expanded "Session finished" card with the lantern in `s-done` (`auto-finished-expanded.png`).
 - Browser check: 90/90 renders byte-identical to the design; reduced motion stops every animation in all 18 state/size pairs; notch-size frames in `frame-*@8x.png`.
+
+## Text-capture spike (Phase 0b)
+Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.md`.
+
+- **Code:** `windows/src-tauri/src/capture/` — a dedicated MTA thread owns every UI Automation object; it subscribes to focus-changed events (the handler only wakes the thread) and re-reads the focused field every 300 ms. Password fields are skipped before any pattern is asked for; then TextPattern2 (text + caret), TextPattern, ValuePattern. Read-only: nothing is written back, no keyboard hooks. Dev only (`GLIM_DEV=1`).
+- **Privacy:** the full field (capped at 20,000 characters) stays inside the capture thread. Only the window around the caret (current paragraph, ≤500 chars before, ≤200 after) and the field length go to the dev-only debug panel (`capture.html`), live, never stored. The results log (`%LOCALAPPDATA%\Glim\capture-results.jsonl`) is written from `CaptureMeta` (app, control type, pattern, readable, password, char count, caret position) — no field for text or window titles. Tests: the log and `Debug` output never contain them; no log/write call in the module mentions text, excerpt or title (mutation-tested).
+- **Owner's round 4 (2026-10-10), all pass:** Chrome page with no text box focused skipped (read-only content, 0 chars); Gmail compose, an AppFolio notes field, VS Code, Word and Outlook compose readable.
+- **Editable fields only:** before any text is read, `capture::is_editable` decides from ValuePattern.IsReadOnly, the text range's IsReadOnly attribute, the legacy read-only state and the control type; read-only content (Chrome exposes whole pages as read-only Documents — an AppFolio dashboard was captured in full before this) is skipped like a password field, panel "skipped (read-only content)". Self-tested with a WinForms window: read-only box and read-only document skipped, editable box read.
+- **Focus:** the island and every window Glim builds never take focus by appearing (test + runtime check). The hidden Settings window used to (fixed, see lessons).
+- **Ollama:** 0.40.2 installed via winget, listening on 127.0.0.1:11434 only; model `gemma3:4b` (3.4 GB; non-thinking, recent; `llama3.2:3b` 2.0 GB is the faster fallback). Glim's chat streams a real reply through `net::request`; netstat on Glim's whole process tree during the chat: one connection, `glim.exe` → 127.0.0.1:11434, nothing else. Latency vs. context: ~200 chars 2.3 s, ~1,000 chars 3.5 s, ~5,000 chars 10.4 s (details in the results doc).
+- **Dev switches added:** `--dev-chat "<prompt>"`, `--open-settings` (see Mascot → dev switches).
 
 ## Removed in Phase 0a
 - **Network paths:** Anthropic Messages API (`api.anthropic.com`, with web search), OpenAI / Google AI / OpenRouter (`openai_compat.rs`), the "any OpenAI-compatible server" option that could point anywhere; GitHub, Stripe, Vercel, Notion, Resend, Cal.com and n8n pollers (`integrations.rs`, `github.rs`); the Codex plan pill, which spawned `codex app-server` (it asks OpenAI for the limits); the domain-directory display-name lookup (`GetUserNameExW`); "open in browser" for arbitrary URLs (now loopback only). No updater existed upstream; none was added.
@@ -127,7 +175,7 @@ Renamed from upstream's `coucou` names on 2026-10-09 (relay, pipe and data folde
   - `hooks.<Event>[]` gets one entry per event: `{"hooks":[{"type":"command","command":"\"C:/Users/<you>/AppData/Local/Glim/bin/glim-hook.exe\" <Event>","timeout":N}]}` for `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop` (timeout 10 s) and `PermissionRequest` (120 s).
   - **Which entries are Glim's:** commands naming `glim-hook` (`agents::MARKER`) or the old `coucou-hook` (`agents::LEGACY_MARKER`). Installing removes both and adds one fresh entry per event, so re-running it never duplicates and replaces old entries; uninstalling removes both and nothing else. Only `glim-hook` entries count as **installed**: an old entry's relay path went with the old folder, so Settings offers "Install hooks…" to replace it. The same rule applies to the status line and to the other agents' configs (`agents.rs`), and to the Claude Code pill's connected dot (`agent_hooks.rs`, which still counts the Mac app's `~/.claude/coucou/nb-hook`).
   - Optionally (separate switch, "Plan usage"): `statusLine.command` becomes `"…/glim-hook.exe" --statusline`. A status line the user already had is saved to `%LOCALAPPDATA%\Glim\bin\statusline-previous.json` and the relay keeps running it.
-  - On this machine `~/.claude/settings.json` has no Glim/Coucou entries (checked 2026-10-09). The rename's end-to-end test used a temporary `--settings` file instead (see below).
+  - On this machine the hooks were installed by the owner on 2026-10-09 (Settings → Install hooks…): the diff against the backup `~/.claude/settings.json.bak-20261009-213348` is exactly Glim's 12 entries added (one per event); the owner's own `PreToolUse` hook is untouched and still first, nothing else changed, and Glim's own dated backup is byte-identical. With Glim closed, `glim-hook.exe` exits 0 with no output in ~12 ms median (49 ms max, 10 runs × 12 events); through Git Bash, as Claude Code runs it, ~340 ms, nearly all of it bash's own start-up (`bash -c true` alone: ~345 ms).
 - **The relay:** `glim-hook.exe` (crate `glim-hook`, `windows/hook/`), staged by the app into `%LOCALAPPDATA%\Glim\bin\` at launch. Claude Code runs it per event with the hook JSON on stdin.
 - **Data folders:** `%APPDATA%\Glim` (preferences) and `%LOCALAPPDATA%\Glim` (relay, inbox, recap, `glim.log`). On every launch, before anything else, `platform::migrate_data_dirs` moves an older build's `%APPDATA%\Coucou` / `%LOCALAPPDATA%\Coucou` over: a whole-folder rename when the new folder doesn't exist, otherwise entry by entry (folders on both sides are merged), never overwriting; the old folder goes once empty. `coucou.log` becomes `glim.log`; the old `coucou-hook.exe` is deleted. What it did goes to `glim.log` ("data folder migration: …").
 - **What the relay sends:** the hook JSON minus `tool_response`, `tool_output` and `transcript_path`; every string cut to 2,000 chars (except `Edit`/`MultiEdit`/`Write` edit strings: 256 KB each, 512 KB per event, for the live diff); plus `cwd`, `term_program`, `wt_session`, `term_session_id`, `vscode_pid`, `session_pid` (from `CLAUDE_CODE_SSE_PORT`), `term_editor`, and `coucou_agent` (`claude-desktop` when `CLAUDE_CODE_ENTRYPOINT=claude-desktop`). The status line mode sends only `session_id` and `rate_limits`.
@@ -152,6 +200,8 @@ Committed as provided by the owner, untouched: `glim-mascot.html` (mascot spec, 
 - **`cargo test` writes to the real data folder (2026-10-09).** Some tests create `%LOCALAPPDATA%\<data folder>\inbox` under the real profile. Before the rename they touched `Coucou\inbox`, after it `Glim\inbox`, so on a dev machine the migration's "both folders exist" path is the normal case, not an edge case. The first version of the merge left same-named subfolders behind; it now merges them recursively. Fixed at the root in the same PR: under `cargo test`, `platform::data_base` points both data folders at a scratch folder per test thread, `tests_never_use_the_real_data_folders` asserts it, and `windows-ci.yml` fails if any `Glim`/`Coucou` data folder exists after the tests. Checked locally by hashing every file in the real folders before and after `cargo test` + `npm test`: identical. The test-created empty `inbox\` was removed.
 - **A crate rename breaks CI silently until it runs (2026-10-09).** `windows-ci.yml` runs `cargo build --release -p coucou-hook`; renaming the crate would have failed CI on the first push. Search `.github/` as well as the source for an identifier you rename.
 - **`gen-strings --check` reports "out of date" on a fresh Windows checkout (2026-10-09).** With `core.autocrlf=true`, Git checks `strings.json` out with CRLF and the generator writes LF, so the check fails although the content is identical (`git diff` is empty). Not caused by any change; CI doesn't run that check.
-- **A generator's output must not depend on line endings (2026-10-09).** The mascot port passed locally and failed on Windows CI: the owner's updated design file is LF in the working copy, CI checks it out as CRLF (`core.autocrlf`), and the port carried the `\r`s into the generated files. `port-lantern.mjs` now normalises its input; a test ports a CRLF copy and an LF copy and requires the same output.
+- **A new Tauri window needs a capability, or its listeners fail silently (2026-10-09).** The capture debug panel stayed on "Waiting for a focused field…" while the backend was reading Word fine (the results log had it). Tauri v2 only lets a window use the event API if a file in `src-tauri/capabilities/` lists it; `default.json` named island/settings/character, so `listen()` was refused with no visible error. Fix: `capabilities/capture-debug.json` (listen/unlisten and set-title, that window only). To tell "backend not reading" from "panel not hearing", the panel now mirrors metadata (never text) into its window title, and the capture thread logs focus-event/poll counts and app names every 30 s.
+- **Launching Glim stole keyboard focus (2026-10-09, fixed).** The hidden Settings window, created at launch without `.focused(false)`, took the foreground: the app being typed in lost focus to an invisible window. All window builders are now unfocused (test-enforced); verified by reading the foreground window before and after launch and after revealing the island.
+- **A generator's output must not depend on line endings (2026-10-09).** The mascot port passed locally and failed on Windows CI: the owner's updated design file is LF in the working copy, CI checks it out as CRLF (`core.autocrlf`), and the port carried the `\r`s into the generated files. `port-lantern.mjs` now normalises its input; a test ports a CRLF copy and an LF copy and requires the same output. Same trap for tests that scan source with `include_str!` (PR #6: a search for a newline-brace-newline failed only on CI): normalise to LF first.
 - **A screen-region crop can catch other windows (2026-10-09).** Cropping the island from a screen capture by finding its black pixels broke when the window behind the island was dark too: the "pill" ran the full capture width, so the crop could have held another app's pixels. Those captures were deleted unsaved. Fix: capture Glim's window with `PrintWindow(PW_RENDERFULLCONTENT)`, which renders only Glim's own pixels (transparent parts come out black), and size-check any crop before keeping it.
 - **Screenshots of a transparent window show what's behind it (2026-10-09).** The island's window is mostly transparent, so capturing its rectangle captured other apps. Crop to the drawn panel, not the window rect.
