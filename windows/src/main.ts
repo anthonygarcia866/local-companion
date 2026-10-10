@@ -7,6 +7,7 @@ import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
+import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
@@ -23,6 +24,8 @@ async function main() {
   if (!root) return;
 
   const island = new Island(root);
+  const presence = new PresenceView();
+  root.append(presence.el);
 
   const boot = await Bridge.boot();
   if (boot) {
@@ -76,6 +79,12 @@ async function main() {
   });
   const placed = await Bridge.placement();
   if (placed && isDock(placed.dock)) island.setDock(placed.dock);
+  // Pill, ember, hidden or the recording indicator (presence.rs decides).
+  await onEvent<{ kind: string }>("presence", ({ kind }) => {
+    if (isPresenceKind(kind)) presence.apply(kind);
+  });
+  const shown = await Bridge.presenceInfo();
+  if (shown && isPresenceKind(shown.kind)) presence.apply(shown.kind);
   // Dev sessions only: `glim.exe --mascot-state <state|auto>` (see lib.rs).
   await onEvent<string>("mascot-force", (s) => island.forceLanternState(isLanternState(s) ? s : null));
   // Dev sessions only: `glim.exe --dev-chat "<prompt>"` (see lib.rs). Connects

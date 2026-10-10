@@ -33,6 +33,9 @@ export const RESERVED_LANTERN_STATES = {
   delegate: "phase3-delegation",
 } as const;
 export type ReservedLanternState = keyof typeof RESERVED_LANTERN_STATES;
+/** s-record, for the recording indicator (island/presence.ts), which shows it
+ *  through `showReserved` with the "screen-recording" owner. */
+export const RECORDING_STATE = "record" satisfies ReservedLanternState;
 /** Every state an app state may map to. */
 export type AppLanternState = Exclude<LanternState, ReservedLanternState>;
 

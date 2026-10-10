@@ -143,6 +143,9 @@ test("every island state maps to one of the design's states", () => {
 const SHOWS_RESERVED = {
   // The dev-only `--mascot-state` switch (GLIM_DEV=1) previews any state.
   "src/island/island.ts": ["dev-preview"],
+  // The recording indicator (visibility modes): what stays on screen in every
+  // mode, Hidden and fullscreen included, while the screen is being recorded.
+  "src/island/presence.ts": ["screen-recording"],
 };
 
 function sources(dir = "src", out = []) {

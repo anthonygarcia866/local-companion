@@ -110,6 +110,9 @@ export interface Settings {
   /** The dock on each display, by display key. Rust owns it (dragging the
    *  pill, Settings' picker): whatever the page sends back is ignored. */
   docks?: Record<string, string>;
+  /** "normal" (the pill), "ember" or "hidden" (island/presence.ts). Rust owns
+   *  it, like `docks`: set it through Bridge.setVisibility. */
+  visibility?: "normal" | "ember" | "hidden";
   autostart: boolean;
   hooksInstalled: boolean;
   /** Show the Claude plan pill (5 h and weekly limits) in the island's header. */

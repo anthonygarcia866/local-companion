@@ -18,11 +18,13 @@ const MAC_IDS = [
   "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
+/** Glim's own actions, after the Mac ones. */
+const GLIM_IDS = ["cycleVisibility"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
 test("every Mac action has a default, in the Mac's order, with its Mac id", () => {
-  assert.deepEqual(SHORTCUTS.map((d) => d.id), MAC_IDS);
+  assert.deepEqual(SHORTCUTS.map((d) => d.id), [...MAC_IDS, ...GLIM_IDS]);
   for (const d of SHORTCUTS) assert.ok(SHORTCUT_TEXT[d.id], `${d.id} has no label`);
 });
 
@@ -73,7 +75,7 @@ test("only the island toggle is off by default; the four not in this version are
     assert.equal(d.ported, !reserved.includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility",
   ]);
 });
 

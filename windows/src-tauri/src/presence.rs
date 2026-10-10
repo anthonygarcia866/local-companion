@@ -64,6 +64,11 @@ pub enum Presence {
 }
 
 impl Presence {
+    /// The small window: the ember or the recording indicator.
+    pub fn is_dot(self) -> bool {
+        matches!(self, Presence::Ember | Presence::Indicator)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Presence::Pill => "pill",

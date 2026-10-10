@@ -2284,3 +2284,53 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   unicode-bidi: plaintext;
   text-align: start;
 }
+
+/* ── Presence (island/presence.ts) ──────────────────────────────────────── */
+/* Ember and the recording indicator: the window is ember-sized (28 px), and
+   only #ember is drawn in it. Hidden: the window itself is hidden. */
+
+#ember {
+  display: none;
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+html[data-presence="ember"] #ember,
+html[data-presence="indicator"] #ember {
+  display: flex;
+}
+
+html[data-presence="ember"] :is(#island, #wake-strip),
+html[data-presence="indicator"] :is(#island, #wake-strip),
+html[data-presence="hidden"] :is(#island, #wake-strip) {
+  display: none;
+}
+
+.ember-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #fff3c4 0%, #ffb347 55%, #e7781b 100%);
+  box-shadow: 0 0 6px 2px rgba(255, 179, 71, 0.75), 0 0 12px 4px rgba(255, 138, 31, 0.35);
+  animation: ember-breathe 3.2s ease-in-out infinite;
+}
+
+#ember:hover .ember-dot,
+#ember:focus-visible .ember-dot {
+  transform: scale(1.2);
+}
+
+@keyframes ember-breathe {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ember-dot { animation: none; }
+}

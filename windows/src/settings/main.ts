@@ -537,6 +537,9 @@ function declaredChanged() {
 
 // ── General section ───────────────────────────────────────────────────────────
 
+/** Keeps Settings' visibility picker in step with the hotkey and the ember. */
+let visibilityListener: (() => void) | null = null;
+
 function generalSection(): HTMLElement {
   const autoClose = h("input", {
     type: "number", min: "5", max: "120", step: "1",
@@ -603,6 +606,18 @@ function generalSection(): HTMLElement {
   });
   position.addEventListener("change", () => void Bridge.setDock(position.value));
 
+  // Pill, ember or hidden. Rust owns it (the hotkey changes it too), so the
+  // picker follows "settings-changed" instead of saving it with the rest.
+  const visibility = h("select", {}) as HTMLSelectElement;
+  visibility.append(
+    h("option", { value: "normal", text: t("Pill") }),
+    h("option", { value: "ember", text: t("Ember (a small glowing dot)") }),
+    h("option", { value: "hidden", text: t("Hidden") }),
+  );
+  visibility.value = settings.visibility ?? "normal";
+  visibilityListener = () => (visibility.value = settings.visibility ?? "normal");
+  visibility.addEventListener("change", () => void Bridge.setVisibility(visibility.value));
+
   return h(
     "section",
     {},
@@ -623,6 +638,11 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" },
       h("label", { text: t("Position") }),
       position,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Show Glim as") }),
+      visibility,
+      h("span", { class: "hint", text: t("Hidden: bring it back from the tray icon or with the shortcut") }),
     ),
     h("div", { class: "row" },
       h("label", { text: t("Launch at startup") }),
@@ -944,6 +964,7 @@ async function main() {
     const before = `${settings.chatProvider}|${settings.ollamaUrl}|${settings.lmstudioUrl}`;
     settings = { ...settings, ...s };
     shortcutsListener?.settingsChanged();
+    visibilityListener?.();
     for (const redraw of declaredViews) redraw();
     const after = `${settings.chatProvider}|${settings.ollamaUrl}|${settings.lmstudioUrl}`;
     if (before !== after) localRedraw?.();

@@ -2352,6 +2352,72 @@
    "pt-BR": "Borda direita (vertical)",
    "ru": "Правый край (вертикально)",
    "id": "Tepi kanan (tegak)"
+  },
+  "Show Glim as pill, ember or hidden": {
+   "zh-Hans": "以胶囊、余烬或隐藏方式显示 Glim",
+   "hi": "Glim को पिल, अंगारा या छिपा हुआ दिखाएँ",
+   "es": "Mostrar Glim como píldora, brasa u oculto",
+   "ar": "إظهار Glim ككبسولة أو جمرة أو مخفيًا",
+   "fr": "Afficher Glim en pastille, braise ou masqué",
+   "bn": "Glim-কে পিল, অঙ্গার বা লুকানো হিসেবে দেখান",
+   "pt-BR": "Mostrar o Glim como pílula, brasa ou oculto",
+   "ru": "Показывать Glim капсулой, угольком или скрыть",
+   "id": "Tampilkan Glim sebagai pil, bara, atau tersembunyi"
+  },
+  "Pill": {
+   "zh-Hans": "胶囊",
+   "hi": "पिल",
+   "es": "Píldora",
+   "ar": "كبسولة",
+   "fr": "Pastille",
+   "bn": "পিল",
+   "pt-BR": "Pílula",
+   "ru": "Капсула",
+   "id": "Pil"
+  },
+  "Ember (a small glowing dot)": {
+   "zh-Hans": "余烬(一个发光的小点)",
+   "hi": "अंगारा (एक छोटा चमकता बिंदु)",
+   "es": "Brasa (un pequeño punto brillante)",
+   "ar": "جمرة (نقطة صغيرة متوهجة)",
+   "fr": "Braise (un petit point lumineux)",
+   "bn": "অঙ্গার (একটি ছোট উজ্জ্বল বিন্দু)",
+   "pt-BR": "Brasa (um pequeno ponto brilhante)",
+   "ru": "Уголёк (маленькая светящаяся точка)",
+   "id": "Bara (titik kecil yang menyala)"
+  },
+  "Hidden": {
+   "zh-Hans": "隐藏",
+   "hi": "छिपा हुआ",
+   "es": "Oculto",
+   "ar": "مخفي",
+   "fr": "Masqué",
+   "bn": "লুকানো",
+   "pt-BR": "Oculto",
+   "ru": "Скрыт",
+   "id": "Tersembunyi"
+  },
+  "Show Glim as": {
+   "zh-Hans": "Glim 显示为",
+   "hi": "Glim को ऐसे दिखाएँ",
+   "es": "Mostrar Glim como",
+   "ar": "إظهار Glim كـ",
+   "fr": "Afficher Glim en",
+   "bn": "Glim দেখান",
+   "pt-BR": "Mostrar o Glim como",
+   "ru": "Показывать Glim как",
+   "id": "Tampilkan Glim sebagai"
+  },
+  "Hidden: bring it back from the tray icon or with the shortcut": {
+   "zh-Hans": "隐藏后:可通过托盘图标或快捷键恢复",
+   "hi": "छिपा होने पर: ट्रे आइकन या शॉर्टकट से वापस लाएँ",
+   "es": "Oculto: recupéralo desde el icono de la bandeja o con el atajo",
+   "ar": "مخفي: أعده من أيقونة علبة النظام أو بالاختصار",
+   "fr": "Masqué : faites-le revenir depuis l'icône de la barre d'état ou avec le raccourci",
+   "bn": "লুকানো: ট্রে আইকন বা শর্টকাট দিয়ে ফিরিয়ে আনুন",
+   "pt-BR": "Oculto: traga-o de volta pelo ícone da bandeja ou com o atalho",
+   "ru": "Скрыт: верните его значком в трее или сочетанием клавиш",
+   "id": "Tersembunyi: munculkan lagi dari ikon baki atau dengan pintasan"
   }
  }
 }

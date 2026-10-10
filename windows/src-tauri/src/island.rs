@@ -650,7 +650,10 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                     && y >= 0.0
                     && y <= size.1;
 
-                let accept = on_island || dragging;
+                // The ember (and the recording indicator) fills its small
+                // window, whatever rect the page last sent: all of it is the dot.
+                let dot = crate::presence::current(&app).is_dot();
+                let accept = on_island || dragging || dot;
                 if gate.ignoring.load(Ordering::Relaxed) == accept {
                     gate.ignoring.store(!accept, Ordering::Relaxed);
                     let _ = win.set_ignore_cursor_events(!accept);

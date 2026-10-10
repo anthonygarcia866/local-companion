@@ -60,6 +60,11 @@ export const Bridge = {
   setDock: (dock: string) => call<void>("set_dock", { dock }),
   /** Where the island is docked on its display. */
   placement: () => call<{ dock: string; vertical: boolean } | undefined>("placement"),
+  /** Normal (the pill), ember or hidden: Settings' picker and the ember's click. */
+  setVisibility: (visibility: string) => call<void>("set_visibility", { visibility }),
+  /** What is on screen: pill, ember, hidden or the recording indicator. */
+  presenceInfo: () =>
+    call<{ kind: string; visibility: "normal" | "ember" | "hidden"; recording: boolean } | undefined>("presence_info"),
 
   /** Displays the island can be pinned to: `key` is what `settings.screen` stores. */
   listMonitors: () => call<{ key: string; label: string }[]>("list_monitors"),

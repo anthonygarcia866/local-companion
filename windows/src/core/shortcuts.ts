@@ -29,6 +29,7 @@ export const SHORTCUT_TEXT = {
   muteToggle: N_("Mute or unmute Glim"),
   desktopToggle: N_("Send Glim to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
+  cycleVisibility: N_("Show Glim as pill, ember or hidden"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -53,7 +54,9 @@ export type ShortcutId =
   | "prevPill"
   | "muteToggle"
   | "desktopToggle"
-  | "wardrobeToggle";
+  | "wardrobeToggle"
+  // Glim's own, after the Mac ones.
+  | "cycleVisibility";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -79,6 +82,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("muteToggle", "Ctrl+Alt+S", true, false),
   def("desktopToggle", "Ctrl+Alt+D", true, false),
   def("wardrobeToggle", "Ctrl+Alt+G", true, false),
+  // Glim's own: Normal → Ember → Hidden. Rust runs it (it has to reach a hidden window).
+  def("cycleVisibility", "Ctrl+Alt+H", true, true),
 ];
 
 export interface Binding {
