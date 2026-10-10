@@ -227,14 +227,10 @@ mod tests {
     /// visibility on every later flag change. Both ways go through tao.
     #[test]
     fn the_island_is_shown_and_hidden_through_tao_only() {
-        let island = include_str!("island.rs").replace("
-", "
-");
+        let island = include_str!("island.rs").replace("\r\n", "\n");
         assert!(!island.contains("ShowWindow") && !island.contains("show_no_activate"));
         let start = island.find("pub fn apply_geometry").unwrap();
-        let body = &island[start..start + island[start..].find("
-}
-").unwrap()];
+        let body = &island[start..start + island[start..].find("\n}\n").unwrap()];
         assert!(body.contains("let _ = win.show();") && body.contains("let _ = win.hide();"));
         let platform = include_str!("platform/windows.rs");
         assert!(!platform.contains("fn show_no_activate"));
