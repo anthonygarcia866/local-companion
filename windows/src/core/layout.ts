@@ -61,6 +61,34 @@ export const COMPACT_W = 288; // NOTCH_W + 104
 export const EXPANDED_W = 640;
 
 export const ROUNDED_CORNER = 14; // hidden / compact
+
+/** The notch pill's size setting. */
+export type PillSize = "small" | "medium" | "large";
+export const PILL_SIZES: readonly PillSize[] = ["small", "medium", "large"];
+
+/** The collapsed pill for a size: its box, and where the lantern sits in it.
+ *  The lantern stands 1.2 × `diameter` tall (island.ts), its base at
+ *  `botCy + diameter / 2`: 24 px (small, compact drawing), 36 px (medium,
+ *  still compact) and 48 px (large: the full drawing with face, brows and
+ *  hands, since the lantern's own box is 60 px ≥ COMPACT_BELOW_PX). */
+export interface PillGeometry {
+  w: number;
+  h: number;
+  botCx: number;
+  botCy: number;
+  diameter: number;
+}
+
+export function pillGeometry(size: PillSize | string): PillGeometry {
+  switch (size) {
+    case "small":
+      return { w: 288, h: 32, botCx: 40, botCy: 16, diameter: 20 };
+    case "medium":
+      return { w: 320, h: 44, botCx: 46, botCy: 25, diameter: 30 };
+    default:
+      return { w: 352, h: 56, botCx: 52, botCy: 32, diameter: 40 };
+  }
+}
 export const EXPANDED_CORNER = 22;
 
 /** Invisible hover strip that wakes the island when hidden. */
@@ -109,6 +137,7 @@ export function islandSize(
   mode: IslandMode,
   view: IslandViewName,
   chatCount = 0,
+  pill: PillGeometry = pillGeometry("small"),
 ): { w: number; h: number } {
   switch (mode) {
     case "hidden":
@@ -116,7 +145,7 @@ export function islandSize(
       // slides into the top edge of the screen instead of sitting there as a bar.
       return { w: NOTCH_W, h: 0 };
     case "compact":
-      return { w: COMPACT_W, h: NOTCH_H };
+      return { w: pill.w, h: pill.h };
     case "expanded": {
       const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
       return { w: EXPANDED_W, h };
@@ -137,12 +166,13 @@ export function botPosition(
   view: IslandViewName,
   islandH: number,
   uploadProgress = 0,
+  pill: PillGeometry = pillGeometry("small"),
 ): BotPlacement {
   switch (mode) {
     case "hidden":
       return { cx: 46, cy: 16, diameter: 6, opacity: 0 };
     case "compact":
-      return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
+      return { cx: pill.botCx, cy: pill.botCy, diameter: pill.diameter, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
       if (view === "uploading") {

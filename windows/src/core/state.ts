@@ -1,6 +1,6 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
-import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
+import type { BotEmoteName, BotStateName, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
   DEFAULT_MAIN_PILL, HOST_OS, availablePills, orderPills, pillDefinition, sanitizeDeclared,
@@ -102,8 +102,11 @@ export interface Settings {
   activeIntegrations: string[];
   /** The always-on workspace pill: VS Code, Cursor, Codex or Antigravity. */
   mainPill: string;
-  /** "primary", "cursor", or `at:<x>,<y>` for one display (logical origin). */
+  /** "primary", "active" (the foreground window's display), "cursor", or
+   *  `at:<x>,<y>` for one display (logical origin). */
   screen: string;
+  /** The notch pill's size (see core/layout.ts pillGeometry). */
+  pillSize: PillSize;
   autostart: boolean;
   hooksInstalled: boolean;
   /** Show the Claude plan pill (5 h and weekly limits) in the island's header. */
@@ -143,6 +146,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeIntegrations: [],
   mainPill: DEFAULT_MAIN_PILL,
   screen: "primary",
+  pillSize: "large",
   autostart: false,
   hooksInstalled: false,
   showPlanInNotch: false,

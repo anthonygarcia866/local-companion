@@ -552,6 +552,7 @@ function generalSection(): HTMLElement {
   const screen = h("select", {}) as HTMLSelectElement;
   screen.append(
     h("option", { value: "primary", text: t("Main display") }),
+    h("option", { value: "active", text: t("Display of the active window") }),
     h("option", { value: "cursor", text: t("Display under the cursor") }),
   );
   screen.value = settings.screen;
@@ -575,6 +576,18 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  const pillSize = h("select", {}) as HTMLSelectElement;
+  pillSize.append(
+    h("option", { value: "small", text: t("Small") }),
+    h("option", { value: "medium", text: t("Medium") }),
+    h("option", { value: "large", text: t("Large") }),
+  );
+  pillSize.value = settings.pillSize;
+  pillSize.addEventListener("change", () => {
+    settings.pillSize = pillSize.value as typeof settings.pillSize;
+    void save();
+  });
+
   return h(
     "section",
     {},
@@ -587,6 +600,10 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" },
       h("label", { text: t("Island lives on") }),
       screen,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Pill size") }),
+      pillSize,
     ),
     h("div", { class: "row" },
       h("label", { text: t("Launch at startup") }),

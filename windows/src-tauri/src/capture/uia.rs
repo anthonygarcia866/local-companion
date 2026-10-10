@@ -41,6 +41,9 @@ use super::{
 /// that keeps capture working if focus events are late or missing, and what
 /// follows typing within a field.
 const POLL: Duration = Duration::from_millis(300);
+/// How often Glim's own process tree is looked up again (webview processes
+/// can be restarted).
+const OWN_TREE_EVERY: Duration = Duration::from_secs(2);
 /// How often the counters go to the log (counts and app names only).
 const REPORT_EVERY: Duration = Duration::from_secs(30);
 /// The window label of the debug panel.
@@ -77,7 +80,10 @@ fn run(app: &AppHandle) -> WinResult<()> {
     unsafe { uia.AddFocusChangedEventHandler(None, &handler)? };
     crate::log::line("capture: subscribed to UIA focus changes (dev session)");
 
-    let own_pid = std::process::id() as i32;
+    // Glim's own process tree (glim.exe and its msedgewebview2.exe children),
+    // refreshed every OWN_TREE_EVERY: nothing in it is ever read.
+    let mut own = own_tree();
+    let mut own_at = std::time::Instant::now();
     let results = results_path();
     // The field being watched, and its last reading's metadata: recorded to
     // the results log when focus leaves it, so its char count is the final one.
@@ -113,8 +119,15 @@ fn run(app: &AppHandle) -> WinResult<()> {
         }
         let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
         let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
-        if pid == own_pid {
-            continue; // Glim's own windows (the panel, the island)
+        if own_at.elapsed() >= OWN_TREE_EVERY {
+            own = own_tree();
+            own_at = std::time::Instant::now();
+        }
+        // Glim's own windows (the island, the panel, Settings, its webviews):
+        // skipped by the element's process and by the foreground window's,
+        // before anything about the element is read.
+        if own.contains(&(pid as u32)) || own.contains(&foreground_pid()) {
+            continue;
         }
         let mut capture = read(&element, pid);
         capture.via = via.into();
@@ -255,6 +268,37 @@ fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Optio
             .ok()?;
         Some(before.GetText(MAX_FIELD_CHARS).ok()?.to_string().chars().count())
     }
+}
+
+/// Glim's own process tree, from a Toolhelp snapshot of every process.
+fn own_tree() -> std::collections::HashSet<u32> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    let mut pairs = Vec::new();
+    unsafe {
+        if let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            if Process32FirstW(snap, &mut e).is_ok() {
+                loop {
+                    pairs.push((e.th32ProcessID, e.th32ParentProcessID));
+                    if Process32NextW(snap, &mut e).is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = CloseHandle(snap);
+        }
+    }
+    super::process_tree(std::process::id(), &pairs)
+}
+
+/// The process owning the foreground window.
+fn foreground_pid() -> u32 {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
+    pid
 }
 
 /// The executable's file name for a process id.

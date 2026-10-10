@@ -114,6 +114,25 @@ pub fn is_editable(s: &EditSignals) -> bool {
     s.edit_control
 }
 
+/// Glim's own process tree: `root` and every process descended from it, from a
+/// snapshot of (pid, parent pid) pairs. Glim's webviews run as separate
+/// msedgewebview2.exe children of glim.exe, so skipping only Glim's own pid
+/// let the capture layer evaluate Glim's own windows (seen 2026-10-10).
+pub fn process_tree(root: u32, pairs: &[(u32, u32)]) -> std::collections::HashSet<u32> {
+    let mut tree = std::collections::HashSet::from([root]);
+    loop {
+        let before = tree.len();
+        for &(pid, parent) in pairs {
+            if pid != parent && tree.contains(&parent) {
+                tree.insert(pid);
+            }
+        }
+        if tree.len() == before {
+            return tree;
+        }
+    }
+}
+
 /// The `pattern` recorded for a field that was skipped as read-only.
 pub const SKIPPED_READ_ONLY: &str = "skipped (read-only content)";
 
@@ -316,6 +335,26 @@ mod tests {
         let editable = read.find("is_editable(").expect("editability check");
         let text = read.find("read_text(").expect("text read");
         assert!(password < text && editable < text && password < editable);
+    }
+
+    #[test]
+    fn glims_own_process_tree_includes_its_webview_children() {
+        // glim 100 → msedgewebview2 200 → 201, 202 (renderers); 300 is another
+        // app's webview; 400 claims to be its own parent (pid reuse) and 500 is
+        // unrelated.
+        let pairs = [(200, 100), (201, 200), (202, 200), (300, 999), (400, 400), (500, 1)];
+        let tree = process_tree(100, &pairs);
+        assert_eq!(tree, std::collections::HashSet::from([100, 200, 201, 202]));
+    }
+
+    #[test]
+    fn glims_own_windows_are_skipped_before_anything_is_read() {
+        // In uia.rs run(): the own-tree check comes before read().
+        let src = include_str!("uia.rs").replace("\r\n", "\n");
+        let run = &src[src.find("fn run(").unwrap()..];
+        let skip = run.find("own.contains(").expect("own-process check");
+        let read = run.find("read(&element").expect("read call");
+        assert!(skip < read);
     }
 
     #[test]
