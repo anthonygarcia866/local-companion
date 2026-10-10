@@ -20,3 +20,6 @@ _prive/
 .env
 .env.*
 !.env.example
+
+# Session handoff notes (local only, see ~/.claude/CLAUDE.md)
+HANDOFF.md
