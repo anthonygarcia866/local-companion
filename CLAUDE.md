@@ -11,6 +11,7 @@
 - The choke point is `windows/src-tauri/src/net/mod.rs` (`net::request`, allowlist `net::ALLOWED_HOSTS`). Nothing else may use `reqwest` or open a socket — a test enforces it. Every webview window must be created with `BROWSER_ARGS` (`lib.rs`), which also switches off WebView2's own background traffic; check the whole process tree (`glim.exe` + its `msedgewebview2.exe` children), not just `glim.exe`, when verifying.
 - Privacy: screenshots during testing are cropped to the app's own window before saving. Never save full-screen captures. The island's window is mostly transparent: crop to the drawn panel, not the window rectangle, or other apps show through.
 - Never send mouse clicks, scrolls, or keystrokes to the real desktop unless the owner has confirmed in chat that they're away from the keyboard. Before any UI automation, take one screenshot; if any window other than Glim is in front, stop and ask. Prefer non-invasive testing (unit tests, local fake servers, WebDriver/tauri-driver against the app) over driving the real mouse.
+- The mascot is ported from `docs/brand/glim-mascot.html`, never redrawn: change the design file and run `node scripts/port-lantern.mjs` (in `windows/`); don't edit `src/mascot/lantern.css` or `lantern-svg.ts` by hand.
 - If a plan step turns out wrong, amend the plan doc with a warning note — don't silently fix code around it.
 - The Coucou name, the Mochi character, and the sounds are © Louis Raillé, not MIT (see `LICENSE-ASSETS.md`, `NOTICE.md`) — never ship them. The app is Glim.
 

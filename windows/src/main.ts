@@ -1,9 +1,11 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
+import "./mascot/lantern.css";
 import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
+import { isLanternState } from "./mascot/lantern";
 import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
@@ -67,6 +69,8 @@ async function main() {
   });
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
+  // Dev sessions only: `glim.exe --mascot-state <state|auto>` (see lib.rs).
+  await onEvent<string>("mascot-force", (s) => island.forceLanternState(isLanternState(s) ? s : null));
 
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {

@@ -543,6 +543,19 @@ fn open_settings_window(app: AppHandle) {
     show_settings_window(&app);
 }
 
+/// `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|auto>`,
+/// forwarded to the running Glim by the single-instance plugin: shows the
+/// lantern in that state (`auto` follows the app again). A dev tool for
+/// checking each state without touching the mouse or keyboard, so it only works
+/// when the running Glim was started with `GLIM_DEV=1` in its environment.
+fn dev_mascot_state(argv: &[String]) -> Option<String> {
+    if std::env::var_os("GLIM_DEV").is_none_or(|v| v != "1") {
+        return None;
+    }
+    let at = argv.iter().position(|a| a == "--mascot-state")?;
+    argv.get(at + 1).cloned()
+}
+
 pub fn run() {
     // Before anything reads or creates the data folders (settings, log, relay).
     let migrated = platform::migrate_data_dirs();
@@ -558,6 +571,10 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
+            if let Some(state) = dev_mascot_state(&argv) {
+                let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
+                return;
+            }
             match shortcuts::from_args(&argv) {
                 Some(action) => shortcuts::dispatch(app, action),
                 None => {

@@ -57,6 +57,11 @@ jobs:
       - name: Island tests
         run: npm test
 
+      # The mascot in a real Chromium (headless Edge): pixels against the
+      # approved design, and prefers-reduced-motion emulated.
+      - name: Lantern check
+        run: npm run check:lantern
+
       # The app bundles target/release/glim-hook.exe as a resource, and its
       # build script refuses to run until that file exists. One command per
       # step: PowerShell carries on after a failed command in the same step.

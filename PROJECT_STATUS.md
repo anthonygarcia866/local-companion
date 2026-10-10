@@ -43,7 +43,7 @@ A local-first Windows desktop companion.
 
 ## Roadmap
 - **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *PR open (this branch).*
-- **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb.
+- **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (see "Mascot"); the other places that still draw the placeholder are listed there.
 - **Phase 1** — writing assistant.
 - **Phase 2** — SOP recorder.
 - **Phase 3** — delegation layer.
@@ -59,6 +59,7 @@ A local-first Windows desktop companion.
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
 ## Current status
+Mascot (Glim the lantern) in the notch on branch `mascot-lantern` (PR open, not merged). Integration rename merged 2026-10-09 (PR #4, `a8c9549`).
 Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Integration rename (relay `glim-hook.exe`, pipe `\\.\pipe\glim-<SID>`, `Glim` data folders with migration) on branch `feat/rename-integration-ids` (PR open, not merged). Non-Windows trees removed 2026-10-09 (PR #3, `82b3fb3`): `NotchBuddy/` (macOS + iPhone app), `relay/` (iPhone relay Worker), `linux/` (Arch recipe for upstream Coucou), the macOS-only `build.yml`/`release.yml` workflows, `scripts/` and `tests/*.swift` (Swift tests and tools that compiled `NotchBuddy/` sources), and `docs/IPHONE.md`; also `linux.yml` (Glim is Windows-only, decided 2026-10-09). Upstream's Mac-app docs moved to `docs/upstream/` with a reference-only note. The string catalog moved to `windows/src/i18n/Localizable.xcstrings`; `scripts/gen-strings.mjs` and its test read it there.
 
 - **Upstream:** [Louis-CFM/coucou](https://github.com/Louis-CFM/coucou), forked at `5cb2a27` (2026-10-08). Remotes: `origin` = anthonygarcia866/local-companion, `upstream` = Louis-CFM/coucou. Credited in `NOTICE.md`.
@@ -78,6 +79,37 @@ Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Integration rename (relay `glim-h
   - *After* (the shipped build), 4 min 20 s, 51 polls, with normal use (island opened, chat to a local server, Settings opened and scrolled, a blocked connect attempted): **0 endpoints, local or remote**. A 75 s net-log with the same WebView2 switches contained no host name other than `tauri.localhost` / `ipc.localhost`. Polling every 2 s can miss a connection that opens and closes in between; the before-run shows it does catch the runtime's traffic.
 - **Blocked request in the running app:** Settings → Local models → LM Studio → `https://example.com:1234` → Connect: "Blocked: Glim only connects to this computer (127.0.0.1 or localhost), not example.com:1234." (`docs/verification/phase-0a/settings-blocked-external.png`). Also covered by `net::tests::a_request_to_an_external_host_is_refused_before_anything_is_sent`.
 - **Ollama:** not installed on this machine (nothing on `:11434` or `:1234`). The local chat path was exercised instead against `tests/fake_local_llm.py` (an OpenAI-compatible stand-in) on `127.0.0.1:60771`: the island streamed its answer (`island-chat-local.png`). Real Ollama is still untested.
+
+## Mascot — Glim the lantern
+Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of truth: `docs/brand/glim-mascot.html` (approved); ported, not redrawn.
+
+- **Where it lives:**
+  - `windows/scripts/port-lantern.mjs` generates `windows/src/mascot/lantern.css` and `windows/src/mascot/lantern-svg.ts` from the design file. Never edit those two by hand; `tests/lantern.test.mjs` fails if they drift from the design.
+  - `windows/src/mascot/lantern.ts` is the component (`new Lantern({ detail, state })`): state = one class `s-<state>` on the `<svg>`; `compact` below 48 px of rendered height; detail `"notch"` drops the `aura` and `twinkles` groups, `"full"` keeps them (large contexts: settings, onboarding, about); gradient/filter/clipPath ids get a per-instance suffix; the design's `prefers-reduced-motion` rule is kept.
+  - What the port changes, and only this: page-level CSS dropped; selectors the design left unscoped are scoped to `.lantern` (same relative order and specificity inside the lantern); keyframes prefixed `lantern-` (the app already had a global `@keyframes pulse`).
+  - Wired in `windows/src/island/island.ts` (`drawBot`): the lantern replaces the placeholder orb, drawn 1.2× the old orb's diameter tall with its base on the orb's bottom edge (24 px in the 26 px notch pill → compact; 53–79 px in the expanded cards → full detail minus aura/twinkles). The engine (`mochi/engine.ts`) still runs for its timers but no longer draws in the island.
+- **State mapping** (`lanternStateFor`, island state → lantern):
+
+  | Island state | Lantern |
+  |---|---|
+  | `idle` (notch) | `s-idle` |
+  | `idle` (island open) | `s-listen` |
+  | `working`, `thinking`, `searching` | `s-think` |
+  | `approval`, `question` (waiting for your answer) | `s-suggest` |
+  | `finished` | `s-delegate` (happy eyes, hands up) |
+  | `error` | `s-record` (the design's only red/alert look) |
+  | `ratelimit`, `sleeping` | `s-paused` |
+  | `dizzy` (shake gag) | `s-think` |
+
+  Not mapped: the emotes (love, surprised, proud, wink, yawn, happy, annoyed), the integration/plan body tint (`engine.bodyColor`), and the drop sequence's morph — the lantern ignores them. `s-record` and `s-delegate` keep their design names for their Phase 1/3 meanings; `error` and `finished` borrow them until those phases exist.
+- **Still the placeholder** (not the notch, not in this PR): the desktop character window (`desktop/`), the per-session mini bots (`mochi/minibots.ts`), the greeting (`mochi/greeting.ts`), the drop sequence (`upload/canvas.ts`) and the recap image (`recap/share.ts`).
+- **Dev-only state switch:** start Glim with `GLIM_DEV=1` in its environment, then `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|auto>` forwards to the running instance (single-instance plugin) and shows that state in the notch; `auto` follows the app again. Ignored without `GLIM_DEV=1`. No hotkey.
+- **Checks:** `npm run check:lantern` (`windows/dev/lantern-check.mjs`, headless Edge over the DevTools protocol, also in `windows-ci.yml`): 70 renders (7 states × full/compact × 5 frozen instants) compared with the design page pixel by pixel (≤ 2/255 rounding allowed, every exception printed; a visible change fails); `prefers-reduced-motion: reduce` emulated through the protocol stops every animation in every state; notch-size frames of the blinks and glances. Mutation-tested: a changed colour and a deleted reduced-motion rule both fail.
+
+### Mascot verification (2026-10-09)
+- In the running app, each state forced with `--mascot-state`, cropped to Glim's pill: `docs/verification/mascot/notch-<state>@4x.png`. All seven distinct; cap and handle ring stay visible on the black pill (the ring, `#6b4530` with no outline, is the dimmest part but reads).
+- Unforced, with a real `claude -p` session hooked to Glim: `s-think` in the notch mid-session (`auto-working@4x.png`), then the expanded "Session finished" card with the full-detail lantern in `s-delegate` (`auto-finished-expanded.png`).
+- Notch-size frames (24×30 px drawn) from the browser check: blinks read clearly (`frame-listen-blink@8x.png`, `frame-record-blink@8x.png`); the listen glance moves the eyes ~0.6 px at this size and is barely perceptible (`frame-listen-glance-*@8x.png`); the think "ponder" shift (~1.2 px) reads.
 
 ## Removed in Phase 0a
 - **Network paths:** Anthropic Messages API (`api.anthropic.com`, with web search), OpenAI / Google AI / OpenRouter (`openai_compat.rs`), the "any OpenAI-compatible server" option that could point anywhere; GitHub, Stripe, Vercel, Notion, Resend, Cal.com and n8n pollers (`integrations.rs`, `github.rs`); the Codex plan pill, which spawned `codex app-server` (it asks OpenAI for the limits); the domain-directory display-name lookup (`GetUserNameExW`); "open in browser" for arbitrary URLs (now loopback only). No updater existed upstream; none was added.

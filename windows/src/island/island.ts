@@ -23,11 +23,16 @@ import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
+import {
+  LANTERN_DRAWN_BOTTOM,
+  LANTERN_DRAWN_TOP,
+  LANTERN_HEIGHT_PER_DIAMETER,
+  Lantern,
+  lanternStateFor,
+  type LanternState,
+} from "../mascot/lantern";
 
-const BOT_OVERHANG = 40;
 const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
-/** Extra canvas on each side of Mochi, for the witch hat's brim and the Santa hat's tip. */
-const BOT_SIDE = 24;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 
@@ -49,7 +54,10 @@ export class Island {
   private clipEl!: HTMLElement;
   private contentEl!: HTMLElement;
   private viewsEl!: HTMLElement;
-  private botCanvas!: HTMLCanvasElement;
+  /** Glim in the notch: the design's lantern, without its large-context aura. */
+  private lantern = new Lantern({ detail: "notch" });
+  /** A state forced from the command line in a dev session (`--mascot-state`). */
+  private forcedLantern: LanternState | null = null;
   private botGlow!: HTMLElement;
   private greetingCanvas!: HTMLCanvasElement;
   private miniGrid!: HTMLElement;
@@ -74,7 +82,6 @@ export class Island {
   private running = false;
   private lastFrame = 0;
   private dirty = true;
-  private canvasPx = 0;
 
   // Rust starts the window at full size so the launch greeting has room.
   private collapsed = false;
@@ -207,7 +214,7 @@ export class Island {
 
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
-    this.botCanvas = h("canvas", { id: "bot-canvas" });
+    this.lantern.el.id = "bot-lantern";
     this.greetingCanvas = h("canvas", { id: "greeting-canvas" });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
@@ -242,7 +249,7 @@ export class Island {
       { id: "island" },
       this.clipEl,
       this.botGlow,
-      this.botCanvas,
+      this.lantern.el,
       this.miniGrid,
       this.countdown,
     );
@@ -379,6 +386,17 @@ export class Island {
 
   reveal() {
     this.fsm.reveal();
+  }
+
+  /**
+   * Dev sessions only (Rust forwards `--mascot-state` only when Glim was started
+   * with GLIM_DEV=1): show the lantern in `state`, or follow the app again for
+   * null, and reveal the island so the notch shows it.
+   */
+  forceLanternState(state: LanternState | null) {
+    this.forcedLantern = state;
+    this.reveal();
+    this.ensureRunning();
   }
 
   /** An alert stopped waiting for an answer: let the island auto-close again. */
@@ -892,7 +910,7 @@ export class Island {
     // desktop, he isn't here at all.
     const away = State.mochiOnDesktop;
     const visible = p.opacity > 0 && !greetingActive && !this.uploadActive && !away;
-    this.botCanvas.style.opacity = visible ? "1" : "0";
+    this.lantern.el.style.opacity = visible ? "1" : "0";
 
     if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive && !away) {
       const d = p.diameter;
@@ -910,32 +928,14 @@ export class Island {
   }
 
   private drawBot(dt: number) {
-    const size = this.botSize.value;
-    const w = Math.max(1, Math.round(size));
-    const hCss = w + BOT_OVERHANG;
-    const wCss = w + BOT_SIDE * 2;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (this.canvasPx !== w) {
-      this.canvasPx = w;
-      this.botCanvas.width = Math.round(wCss * dpr);
-      this.botCanvas.height = Math.round(hCss * dpr);
-      this.botCanvas.style.width = `${wCss}px`;
-      this.botCanvas.style.height = `${hCss}px`;
-    }
-    this.botCanvas.style.left = `${this.botCx.value - wCss / 2}px`;
-    this.botCanvas.style.top = `${this.botCy.value - BOT_OVERHANG / 2 - hCss / 2}px`;
-
-    const ctx = this.botCanvas.getContext("2d");
-    if (!ctx) return;
-
     const focus = State.focusTask;
-    // While a plan card is open Mochi wears the plan's colour, like its pill.
+    // The engine still runs: its timers (dizzy, emotes, the drop's morph, the
+    // busy flag) drive the island. What's drawn is the lantern.
     this.engine.bodyColor = planCardOpen()
       ? hexToRGB(openPlanColor())
       : focus?.isIntegration
         ? hexToRGB(focus.color)
         : null;
-    this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();
     if (this.engine.morph > 0.3) {
@@ -948,9 +948,21 @@ export class Island {
       }
     }
     this.engine.update(dt);
-    ctx.setTransform(dpr, 0, 0, dpr, BOT_SIDE * dpr, 0);
-    ctx.clearRect(-BOT_SIDE, 0, wCss, hCss);
-    this.engine.draw(ctx, w, hCss);
+
+    // The lantern (top of the handle to bottom of the base) stands 1.2× the
+    // orb's diameter, its base where the orb's bottom was: in the notch that is
+    // 24 px from y = 2 to the pill's bottom edge at 26.
+    const diameter = Math.max(1, this.botSize.value * 0.6);
+    const unit = (diameter * LANTERN_HEIGHT_PER_DIAMETER) / (LANTERN_DRAWN_BOTTOM - LANTERN_DRAWN_TOP);
+    const wPx = 100 * unit;
+    const hPx = 124 * unit;
+    const el = this.lantern.el;
+    el.style.width = `${wPx}px`;
+    el.style.height = `${hPx}px`;
+    el.style.left = `${this.botCx.value - 50 * unit}px`;
+    el.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+    this.lantern.setHeight(hPx);
+    this.lantern.state = this.forcedLantern ?? lanternStateFor(this.engine.state, State.mode === "expanded");
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */
