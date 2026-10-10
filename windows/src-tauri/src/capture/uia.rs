@@ -29,8 +29,12 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowText
 
 use super::{control_type_name, record_to, results_path, Capture, CaptureMeta};
 
-/// How often the focused field is re-read between focus events.
-const POLL: Duration = Duration::from_millis(400);
+/// How often the focused field is re-read between focus events: the fallback
+/// that keeps capture working if focus events are late or missing, and what
+/// follows typing within a field.
+const POLL: Duration = Duration::from_millis(300);
+/// How often the counters go to the log (counts and app names only).
+const REPORT_EVERY: Duration = Duration::from_secs(30);
 /// The most text read from one field (a whole document can be huge).
 const MAX_CHARS: i32 = 20_000;
 /// The window label of the debug panel.
@@ -72,18 +76,42 @@ fn run(app: &AppHandle) -> WinResult<()> {
     // The field being watched, and its last reading's metadata: recorded to
     // the results log when focus leaves it, so its char count is the final one.
     let mut current: Option<(IUIAutomationElement, CaptureMeta)> = None;
+    // Diagnostics for the log: how many focus events and polls arrived, how
+    // many readings went to the panel and by which path, and which apps were
+    // seen. Never any text or title.
+    let (mut events, mut polls, mut by_event, mut by_poll) = (0u32, 0u32, 0u32, 0u32);
+    let mut apps: Vec<String> = Vec::new();
+    let mut report_at = std::time::Instant::now() + REPORT_EVERY;
 
     loop {
-        match rx.recv_timeout(POLL) {
-            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+        let via = match rx.recv_timeout(POLL) {
+            Ok(()) => {
+                events += 1;
+                "event"
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                polls += 1;
+                "poll"
+            }
             Err(RecvTimeoutError::Disconnected) => break,
+        };
+        if std::time::Instant::now() >= report_at {
+            crate::log::line(format!(
+                "capture: last {}s: {events} focus events, {polls} polls; panel updates {by_event} by event, {by_poll} by poll; apps: {}",
+                REPORT_EVERY.as_secs(),
+                if apps.is_empty() { "none".to_string() } else { apps.join(", ") }
+            ));
+            (events, polls, by_event, by_poll) = (0, 0, 0, 0);
+            apps.clear();
+            report_at = std::time::Instant::now() + REPORT_EVERY;
         }
         let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
         let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
         if pid == own_pid {
             continue; // Glim's own windows (the panel, the island)
         }
-        let capture = read(&element, pid);
+        let mut capture = read(&element, pid);
+        capture.via = via.into();
         let same = current
             .as_ref()
             .is_some_and(|(cur, _)| unsafe { uia.CompareElements(cur, &element) }.is_ok_and(|b| b.as_bool()));
@@ -92,8 +120,13 @@ fn run(app: &AppHandle) -> WinResult<()> {
                 let _ = record_to(&results, &meta);
             }
         }
+        if !same && !apps.contains(&capture.meta.app) {
+            apps.push(capture.meta.app.clone());
+        }
         current = Some((element, capture.meta.clone()));
-        let _ = app.emit_to(PANEL, "capture-debug", &capture);
+        if app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
+            if via == "event" { by_event += 1 } else { by_poll += 1 }
+        }
     }
     Ok(())
 }
@@ -113,7 +146,7 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
         // Ignored completely: no pattern is asked for, nothing is read.
         meta.password = true;
         meta.pattern = "skipped (password)".into();
-        return Capture { meta, window_title, text: None };
+        return Capture { meta, window_title, text: None, via: String::new() };
     }
 
     let (pattern, text, caret) = read_text(element);
@@ -121,7 +154,7 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
     meta.readable = text.is_some();
     meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
     meta.caret = caret;
-    Capture { meta, window_title, text }
+    Capture { meta, window_title, text, via: String::new() }
 }
 
 /// (pattern that worked, text, caret) — TextPattern2, then TextPattern, then

@@ -4,6 +4,7 @@
 // stores it (no localStorage, no files, no console logging).
 
 import { onEvent } from "../core/bridge";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface CaptureMeta {
   app: string;
@@ -19,6 +20,7 @@ interface Capture {
   meta: CaptureMeta;
   windowTitle: string;
   text: string | null;
+  via: string;
 }
 
 const root = document.getElementById("capture-root")!;
@@ -36,6 +38,8 @@ function row(label: string, value: string, strong = false): HTMLElement {
   return el;
 }
 
+let lastTitle = "";
+
 function render(c: Capture) {
   const m = c.meta;
   const box = document.createElement("div");
@@ -49,6 +53,7 @@ function render(c: Capture) {
     row("readable", verdict, true),
     row("chars", String(m.charCount)),
     row("caret", m.caret == null ? "—" : String(m.caret)),
+    row("via", c.via),
   );
   const text = document.createElement("pre");
   text.style.cssText =
@@ -56,6 +61,13 @@ function render(c: Capture) {
   text.textContent = m.password ? "(not read)" : c.text ?? "(nothing readable)";
   box.append(text);
   root.replaceChildren(box);
+  // The window title carries the metadata only (never the text), so the
+  // panel can be checked from outside without capturing its pixels.
+  const title = `Capture debug — ${m.app} | ${m.controlType} | ${m.pattern} | readable=${m.readable} | chars=${m.charCount} | via=${c.via}`;
+  if (title !== lastTitle) {
+    lastTitle = title;
+    void getCurrentWindow().setTitle(title);
+  }
 }
 
 void onEvent<Capture>("capture-debug", render);

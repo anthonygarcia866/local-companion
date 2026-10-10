@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture-debug",
+  "description": "The dev-only text-capture debug panel (GLIM_DEV=1) may only listen for the live capture events and set its own title (metadata only, so it can be checked without capturing its pixels). Without a capability its listener is refused silently and the panel never updates (seen 2026-10-09).",
+  "windows": ["capture-debug"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "core:window:allow-set-title"]
+}

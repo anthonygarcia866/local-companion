@@ -49,6 +49,9 @@ pub struct Capture {
     /// The field's text. Live panel only; None for password fields and when
     /// nothing could be read.
     pub text: Option<String>,
+    /// What delivered this reading: "event" (a UIA focus-changed event) or
+    /// "poll" (the periodic re-read).
+    pub via: String,
 }
 
 impl std::fmt::Debug for Capture {
@@ -59,6 +62,7 @@ impl std::fmt::Debug for Capture {
             .field("meta", &self.meta)
             .field("window_title", &"<not shown>")
             .field("text", &self.text.as_ref().map(|_| "<not shown>"))
+            .field("via", &self.via)
             .finish()
     }
 }
@@ -127,6 +131,7 @@ mod tests {
             },
             window_title: TITLE.into(),
             text: Some(SECRET.into()),
+            via: "event".into(),
         }
     }
 
