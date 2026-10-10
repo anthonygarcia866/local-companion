@@ -12,6 +12,7 @@ interface CaptureMeta {
   pattern: string;
   readable: boolean;
   password: boolean;
+  readOnly: boolean;
   charCount: number;
   caret: number | null;
 }
@@ -52,7 +53,13 @@ function render(c: Capture) {
   const m = c.meta;
   const box = document.createElement("div");
   box.style.cssText = "padding:12px 14px";
-  const verdict = m.password ? "skipped (password field)" : m.readable ? "yes" : "no";
+  const verdict = m.password
+    ? "skipped (password field)"
+    : m.readOnly
+      ? "skipped (read-only content)"
+      : m.readable
+        ? "yes"
+        : "no";
   box.append(
     row("process", m.app, true),
     row("window", c.windowTitle),
@@ -70,7 +77,7 @@ function render(c: Capture) {
   text.style.cssText =
     "margin:10px 0 0;padding:8px;background:#16181d;border-radius:6px;white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,Consolas,monospace";
   const e = c.excerpt;
-  if (m.password) text.textContent = "(not read)";
+  if (m.password || m.readOnly) text.textContent = "(not read)";
   else if (!e) text.textContent = "(nothing readable)";
   else {
     const before = e.start > 0 ? "… " : "";

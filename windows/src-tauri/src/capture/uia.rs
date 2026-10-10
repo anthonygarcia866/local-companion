@@ -3,9 +3,10 @@
 // One thread owns every UIA object. It subscribes to focus-changed events (the
 // handler only wakes the thread up, so no COM object crosses threads) and also
 // re-reads the focused field every POLL so the debug panel follows typing.
-// For each field: skip it entirely if IsPassword; otherwise try TextPattern2
-// (text + caret), then TextPattern (text + selection start as the caret),
-// then ValuePattern (text only).
+// For each field: skip it entirely if IsPassword, then skip it entirely if it
+// isn't editable (read-only page content, e.g. a whole web page in Chrome);
+// only then try TextPattern2 (text + caret), then TextPattern (text +
+// selection start as the caret), then ValuePattern (text only).
 
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -22,12 +23,19 @@ use windows::Win32::System::Threading::{
 use windows::Win32::UI::Accessibility::{
     CUIAutomation8, IUIAutomation, IUIAutomationElement, IUIAutomationFocusChangedEventHandler,
     IUIAutomationFocusChangedEventHandler_Impl, IUIAutomationTextPattern, IUIAutomationTextPattern2,
-    IUIAutomationTextRange, IUIAutomationValuePattern, TextPatternRangeEndpoint_End,
-    TextPatternRangeEndpoint_Start, UIA_TextPattern2Id, UIA_TextPatternId, UIA_ValuePatternId,
+    IUIAutomationLegacyIAccessiblePattern, IUIAutomationTextRange, IUIAutomationValuePattern,
+    TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, UIA_EditControlTypeId,
+    UIA_IsReadOnlyAttributeId, UIA_LegacyIAccessiblePatternId, UIA_TextPattern2Id, UIA_TextPatternId,
+    UIA_ValuePatternId,
 };
+use windows::Win32::System::Variant::{VARIANT, VT_BOOL};
+use windows::Win32::UI::WindowsAndMessaging::STATE_SYSTEM_READONLY;
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
-use super::{caret_window, control_type_name, record_to, results_path, Capture, CaptureMeta, MAX_FIELD_CHARS};
+use super::{
+    caret_window, control_type_name, is_editable, record_to, results_path, Capture, CaptureMeta, EditSignals,
+    MAX_FIELD_CHARS, SKIPPED_READ_ONLY,
+};
 
 /// How often the focused field is re-read between focus events: the fallback
 /// that keeps capture working if focus events are late or missing, and what
@@ -147,6 +155,14 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
         return Capture { meta, window_title, excerpt: None, via: String::new() };
     }
 
+    if !is_editable(&edit_signals(element, control)) {
+        // Read-only content (a web page, a document view): the writing layer
+        // never reads it. Like a password field, nothing is read.
+        meta.read_only = true;
+        meta.pattern = SKIPPED_READ_ONLY.into();
+        return Capture { meta, window_title, excerpt: None, via: String::new() };
+    }
+
     let (pattern, text, caret) = read_text(element);
     meta.pattern = pattern.into();
     meta.readable = text.is_some();
@@ -156,6 +172,39 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
     // window around the caret goes to the panel.
     let excerpt = text.as_deref().map(|t| caret_window(t, caret));
     Capture { meta, window_title, excerpt, via: String::new() }
+}
+
+/// Whether the element can be typed in, from its patterns and states only:
+/// ValuePattern.IsReadOnly, the IsReadOnly attribute of its text (an attribute
+/// query, no text is read), the legacy read-only state, and its control type.
+fn edit_signals(element: &IUIAutomationElement, control: i32) -> EditSignals {
+    unsafe {
+        let value_read_only = element
+            .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+            .and_then(|v| v.CurrentIsReadOnly())
+            .ok()
+            .map(|b| b.as_bool());
+        let text_read_only = element
+            .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+            .and_then(|p| p.DocumentRange())
+            .and_then(|r| r.GetAttributeValue(UIA_IsReadOnlyAttributeId))
+            .ok()
+            .and_then(|v| variant_bool(&v));
+        let legacy_read_only = element
+            .GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId)
+            .and_then(|l| l.CurrentState())
+            .is_ok_and(|state| state & STATE_SYSTEM_READONLY != 0);
+        EditSignals { value_read_only, text_read_only, legacy_read_only, edit_control: control == UIA_EditControlTypeId.0 }
+    }
+}
+
+/// A VARIANT's boolean, or None for anything else (UIA returns a special
+/// "mixed" object when the range's text is partly read-only).
+fn variant_bool(v: &VARIANT) -> Option<bool> {
+    unsafe {
+        let inner = &v.Anonymous.Anonymous;
+        (inner.vt == VT_BOOL).then(|| inner.Anonymous.boolVal.as_bool())
+    }
 }
 
 /// (pattern that worked, text, caret) — TextPattern2, then TextPattern, then

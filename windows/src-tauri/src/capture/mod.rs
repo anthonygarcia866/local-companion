@@ -34,6 +34,8 @@ pub struct CaptureMeta {
     pub pattern: String,
     pub readable: bool,
     pub password: bool,
+    /// Skipped because it isn't editable (read-only page content).
+    pub read_only: bool,
     pub char_count: usize,
     /// Caret position in characters from the start, when the pattern gives it.
     pub caret: Option<usize>,
@@ -76,6 +78,44 @@ impl std::fmt::Debug for Capture {
             .finish()
     }
 }
+
+/// What UI Automation says about whether a field can be typed in, gathered
+/// before any text is read. The writing layer reads only editable fields:
+/// Chrome, for one, exposes a whole web page as a focusable read-only
+/// Document (seen 2026-10-10: an AppFolio dashboard, 6,316 characters of page
+/// content captured with no text box focused).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EditSignals {
+    /// ValuePattern.IsReadOnly, when the element has a ValuePattern.
+    pub value_read_only: Option<bool>,
+    /// The IsReadOnly text attribute of the whole document range, when the
+    /// element has a TextPattern and the attribute is not mixed.
+    pub text_read_only: Option<bool>,
+    /// The legacy (MSAA/IA2) state has STATE_SYSTEM_READONLY.
+    pub legacy_read_only: bool,
+    /// The control type is Edit.
+    pub edit_control: bool,
+}
+
+/// Whether the writing layer may read this field: the most specific signal
+/// decides — ValuePattern, then the text's own IsReadOnly attribute, then the
+/// legacy read-only state — and an element with none of them counts as
+/// editable only if it is an Edit control. Anything unclear is skipped.
+pub fn is_editable(s: &EditSignals) -> bool {
+    if let Some(read_only) = s.value_read_only {
+        return !read_only;
+    }
+    if let Some(read_only) = s.text_read_only {
+        return !read_only;
+    }
+    if s.legacy_read_only {
+        return false;
+    }
+    s.edit_control
+}
+
+/// The `pattern` recorded for a field that was skipped as read-only.
+pub const SKIPPED_READ_ONLY: &str = "skipped (read-only content)";
 
 /// The most text read from one field: a safety limit (a whole document can
 /// be huge). Read into memory only, never stored.
@@ -158,6 +198,7 @@ mod tests {
                 pattern: "TextPattern2".into(),
                 readable: true,
                 password: false,
+                read_only: false,
                 char_count: SECRET.chars().count(),
                 caret: Some(4),
             },
@@ -232,6 +273,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn signals(value: Option<bool>, text: Option<bool>, legacy: bool, edit: bool) -> EditSignals {
+        EditSignals { value_read_only: value, text_read_only: text, legacy_read_only: legacy, edit_control: edit }
+    }
+
+    #[test]
+    fn read_only_page_content_is_not_editable() {
+        // A web page in Chrome: a Document whose text is read-only, with the
+        // legacy read-only state; with or without a read-only ValuePattern.
+        assert!(!is_editable(&signals(None, Some(true), true, false)));
+        assert!(!is_editable(&signals(Some(true), Some(true), true, false)));
+        // A Document nothing says anything about: skipped, not guessed.
+        assert!(!is_editable(&signals(None, None, false, false)));
+        // A read-only Edit (a log view, a disabled box).
+        assert!(!is_editable(&signals(Some(true), None, false, true)));
+        assert!(!is_editable(&signals(None, None, true, true)));
+    }
+
+    #[test]
+    fn editable_fields_are_editable() {
+        // Notepad / Word / Outlook compose: a Document with editable text.
+        assert!(is_editable(&signals(None, Some(false), false, false)));
+        // Gmail compose (contenteditable) inside a read-only page state.
+        assert!(is_editable(&signals(None, Some(false), true, false)));
+        // An ordinary text box, with or without a ValuePattern.
+        assert!(is_editable(&signals(Some(false), None, false, true)));
+        assert!(is_editable(&signals(None, None, false, true)));
+        // ValuePattern wins over the text attribute when they disagree.
+        assert!(is_editable(&signals(Some(false), Some(true), false, true)));
+    }
+
+    #[test]
+    fn editability_is_decided_before_any_text_is_read() {
+        // In uia.rs read(): the password and read-only checks both come before
+        // read_text, the only function that asks for text.
+        let src = include_str!("uia.rs").replace("\r\n", "\n");
+        let read = &src[src.find("fn read(").unwrap()..];
+        let read = &read[..read.find("\n}\n").unwrap()];
+        let password = read.find("CurrentIsPassword").expect("password check");
+        let editable = read.find("is_editable(").expect("editability check");
+        let text = read.find("read_text(").expect("text read");
+        assert!(password < text && editable < text && password < editable);
     }
 
     #[test]

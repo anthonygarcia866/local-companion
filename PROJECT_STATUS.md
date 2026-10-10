@@ -14,12 +14,28 @@ A local-first Windows desktop companion.
 - Island/pill UI that never steals focus.
 - Settings for tone, aggressiveness, and a per-app on/off toggle.
 
+### Phase 1.5 — voice dictation (local Aqua Voice replacement)
+- Push-to-talk hotkey only: the microphone is open only while the key is held.
+- Local speech-to-text with whisper.cpp; the model is picked by measured speed on the user's CPU (as gemma3:4b was).
+- Then a gemma3 cleanup pass: filler words, punctuation, and tone matched to the active app, using the writing layer's capture context.
+- The result is inserted at the caret through Phase 1's insertion path.
+- Audio is never stored.
+- Its own mascot state for "listening to dictation" — not `s-record`: red stays reserved for screen recording.
+
 ### Phase 2 — SOP recorder
 - User-initiated only.
 - Windows Graphics Capture + UIA events.
 - The user states the goal at record time.
 - A local LLM writes a real SOP from the recording.
 - Output is editable Markdown with screenshots, PDF export, and redaction.
+- **Two capture layers with different rules:**
+  - **Writing layer** (Phase 1): editable fields only, never page content (`capture::is_editable`; see `docs/capture-results.md`).
+  - **Observation layer:** sees screens, page content and actions, in four modes:
+    1. Explicit recording with a goal stated at the start.
+    2. "Shadow mode": a toggle that observes everything until the user stops it, with a clear, visible mascot indicator the whole time.
+    3. A rolling buffer that keeps only the last ~15–30 minutes in memory, continuously discarded, so the user can say "make an SOP from what I just did".
+    4. Per-app exclusions (banking, password managers) that are never observed in any mode.
+  - **To revisit at Phase 2 design:** shadow mode and the rolling buffer — CPU cost, the indicator, and how long the buffer keeps.
 
 ### Phase 3 — delegation layer (opt-in)
 - A local user model: Markdown, user-stated facts only, user-editable, bootstrappable from the user's notes.
@@ -27,6 +43,12 @@ A local-first Windows desktop companion.
 - Loop: formulate the task, run it, read the result, follow up, report back.
 - "It processes, I decide": sends, purchases, publishes and deletes wait for explicit approval. This is enforced through each CLI's tool allow/deny permissions, not prompt wording.
 - Each hop is verified against the artifact (diff/build/test), never the agent's own report.
+- **Memory policy:** memory stores learned summaries, never raw captured text.
+  - **Keep:** big-picture goals and projects, how the user works, team members and contacts, what is being discussed, and how topics connect. Sources can include everything Glim observes, including the user's email inbox.
+  - **Never store**, enforced by a hard filter before any memory write, even inside summaries: SSNs; bank, card and account numbers; dates of birth; phone numbers; personal street addresses; financial figures about individuals; passwords and credentials.
+  - **Tenants** are referred to by role and property/unit ("a tenant at 1408 Jefferson"), never by name. Coworkers and business contacts may be named.
+  - Memory is plain, user-editable files the user can view, edit and delete.
+  - The filter must be testable: a fixture set of fake sensitive data, and a test asserting none of it reaches the memory files.
 
 ## Privacy model
 - **Phases 0–2: strictly local, no exceptions.** All outbound network access goes through a single choke-point module in Rust, which allows localhost only.
@@ -44,9 +66,10 @@ A local-first Windows desktop companion.
 ## Roadmap
 - **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *Merged 2026-10-09 (PR #2).*
 - **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (PR #5, see "Mascot"); the remaining placeholders moved to Phase 4. Also a text-capture spike (UI Automation) to decide how Phase 1 reads the focused field: see "Text-capture spike".
-- **Phase 1** — writing assistant.
-- **Phase 2** — SOP recorder. The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
-- **Phase 3** — delegation layer.
+- **Phase 1** — writing assistant. Capture plan and spike results: `docs/capture-results.md`.
+- **Phase 1.5** — voice dictation, a local Aqua Voice replacement (see Vision).
+- **Phase 2** — SOP recorder, with two capture layers under different rules (see Vision). The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
+- **Phase 3** — delegation layer, with a memory policy: learned summaries only, never raw captured text, behind a testable sensitive-data filter (see Vision).
 - **Phase 4** — Polish: sounds (synthesized in code via Web Audio, no audio files; suggestion sounds default off), more mascot animations/emotes, and replacing the remaining Coucou placeholders outside the notch (greeting, file-drop, recap image, per-session characters).
 - **Code signing before distribution** (e.g. Azure Trusted Signing). Users with Smart App Control on can't run unsigned builds, and a privacy product that asks users to disable a security feature is a non-starter.
 - **Rest of the Coucou names** (the relay, pipe and data folders were renamed 2026-10-09, see "Claude Code integration"): the other agents' plugin/config names (`~/.copilot/hooks/coucou.json`, OpenCode/Amp `coucou.js`/`coucou.ts`, the Hermes `coucou` plugin, Antigravity's `coucou` group, "generated by Coucou"), the `coucou_agent` / `coucou_diff_truncated` payload fields, and the Linux data/socket names (`~/.local/share/coucou`, `coucou.sock`; Linux is unbuilt). Each needs its own old-name handling like the relay's.
@@ -128,6 +151,7 @@ Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.m
 
 - **Code:** `windows/src-tauri/src/capture/` — a dedicated MTA thread owns every UI Automation object; it subscribes to focus-changed events (the handler only wakes the thread) and re-reads the focused field every 300 ms. Password fields are skipped before any pattern is asked for; then TextPattern2 (text + caret), TextPattern, ValuePattern. Read-only: nothing is written back, no keyboard hooks. Dev only (`GLIM_DEV=1`).
 - **Privacy:** the full field (capped at 20,000 characters) stays inside the capture thread. Only the window around the caret (current paragraph, ≤500 chars before, ≤200 after) and the field length go to the dev-only debug panel (`capture.html`), live, never stored. The results log (`%LOCALAPPDATA%\Glim\capture-results.jsonl`) is written from `CaptureMeta` (app, control type, pattern, readable, password, char count, caret position) — no field for text or window titles. Tests: the log and `Debug` output never contain them; no log/write call in the module mentions text, excerpt or title (mutation-tested).
+- **Editable fields only:** before any text is read, `capture::is_editable` decides from ValuePattern.IsReadOnly, the text range's IsReadOnly attribute, the legacy read-only state and the control type; read-only content (Chrome exposes whole pages as read-only Documents — an AppFolio dashboard was captured in full before this) is skipped like a password field, panel "skipped (read-only content)". Self-tested with a WinForms window: read-only box and read-only document skipped, editable box read.
 - **Focus:** the island and every window Glim builds never take focus by appearing (test + runtime check). The hidden Settings window used to (fixed, see lessons).
 - **Ollama:** 0.40.2 installed via winget, listening on 127.0.0.1:11434 only; model `gemma3:4b` (3.4 GB; non-thinking, recent; `llama3.2:3b` 2.0 GB is the faster fallback). Glim's chat streams a real reply through `net::request`; netstat on Glim's whole process tree during the chat: one connection, `glim.exe` → 127.0.0.1:11434, nothing else. Latency vs. context: ~200 chars 2.3 s, ~1,000 chars 3.5 s, ~5,000 chars 10.4 s (details in the results doc).
 - **Dev switches added:** `--dev-chat "<prompt>"`, `--open-settings` (see Mascot → dev switches).
