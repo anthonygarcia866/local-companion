@@ -2231,6 +2231,61 @@
    "pt-BR": "Bloqueado: o Glim só se conecta a este computador (127.0.0.1 ou localhost), não a {url}.",
    "ru": "Заблокировано: Glim подключается только к этому компьютеру (127.0.0.1 или localhost), а не к {url}.",
    "id": "Diblokir: Glim hanya terhubung ke komputer ini (127.0.0.1 atau localhost), bukan ke {url}."
+  },
+  "Display of the active window": {
+   "zh-Hans": "活动窗口所在的显示器",
+   "hi": "सक्रिय विंडो वाला डिस्प्ले",
+   "es": "Pantalla de la ventana activa",
+   "ar": "شاشة النافذة النشطة",
+   "fr": "Écran de la fenêtre active",
+   "bn": "সক্রিয় উইন্ডোর ডিসপ্লে",
+   "pt-BR": "Tela da janela ativa",
+   "ru": "Экран активного окна",
+   "id": "Layar jendela aktif"
+  },
+  "Pill size": {
+   "zh-Hans": "胶囊大小",
+   "hi": "पिल का आकार",
+   "es": "Tamaño de la píldora",
+   "ar": "حجم الكبسولة",
+   "fr": "Taille de la pastille",
+   "bn": "পিলের আকার",
+   "pt-BR": "Tamanho da pílula",
+   "ru": "Размер капсулы",
+   "id": "Ukuran pil"
+  },
+  "Small": {
+   "zh-Hans": "小",
+   "hi": "छोटा",
+   "es": "Pequeño",
+   "ar": "صغير",
+   "fr": "Petit",
+   "bn": "ছোট",
+   "pt-BR": "Pequeno",
+   "ru": "Маленький",
+   "id": "Kecil"
+  },
+  "Medium": {
+   "zh-Hans": "中",
+   "hi": "मध्यम",
+   "es": "Mediano",
+   "ar": "متوسط",
+   "fr": "Moyen",
+   "bn": "মাঝারি",
+   "pt-BR": "Médio",
+   "ru": "Средний",
+   "id": "Sedang"
+  },
+  "Large": {
+   "zh-Hans": "大",
+   "hi": "बड़ा",
+   "es": "Grande",
+   "ar": "كبير",
+   "fr": "Grand",
+   "bn": "বড়",
+   "pt-BR": "Grande",
+   "ru": "Большой",
+   "id": "Besar"
   }
  }
 }

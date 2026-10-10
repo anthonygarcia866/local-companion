@@ -355,6 +355,7 @@ mod tests {
   "activeIntegrations": ["agent_codex"],
   "mainPill": "agent_cursor",
   "screen": "cursor",
+  "pillSize": "small",
   "autostart": true,
   "hooksInstalled": true,
   "showPlanInNotch": true,
