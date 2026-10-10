@@ -122,9 +122,12 @@ async function main() {
       // the <svg> can't change a pixel.
       await evaluate(`(()=>{const s=document.createElement('style');s.textContent='body{background:#0c111c !important}.controls{display:none}#glim{position:fixed;left:120px;top:100px}';document.head.append(s);})()`);
     };
-    const setUp = (state, compact, at) =>
+    // `settle`: wait out the state change's transitions (longest .35s) before
+    // freezing, so a slow machine can't start one after it was finished.
+    const setUp = (state, compact, at, settle = false) =>
       evaluate(`(async()=>{setState('s-${state}');const el=document.getElementById('glim');el.classList.toggle('compact',${compact});
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        if(${settle})await new Promise(r=>setTimeout(r,600));
         for(const a of document.getAnimations()){if(a.constructor.name==='CSSTransition'){a.finish();}else{a.pause();a.currentTime=${at};}}
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         const b=el.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height,animations:document.getAnimations().length};})()`);
@@ -136,11 +139,12 @@ async function main() {
     const portUrl = portPage(work);
     const renders = { design: {}, port: {} };
     for (const [name, url] of [["design", designUrl], ["port", portUrl]]) {
-      await open(url);
       for (const state of STATES) {
         for (const compact of [false, true]) {
+          // A fresh page for each state and size: the same history on both pages.
+          await open(url);
           for (const at of FREEZE_AT) {
-            const r = await setUp(state, compact, at);
+            const r = await setUp(state, compact, at, at === FREEZE_AT[0]);
             // The glow and the aura reach past the viewBox: capture around it.
             renders[name][`${state}/${compact}/${at}`] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
           }
@@ -167,10 +171,9 @@ async function main() {
       const d = await diff(renders.design[key], renders.port[key]);
       near.push(`${key}: ${d.pixels} of ${d.total} pixels differ, by at most ${d.max}/255`);
       if (d.pixels < 0 || d.max > ROUNDING) {
-        if (!failures.length) {
-          writeFileSync(join(outDir, "mismatch-design.png"), Buffer.from(renders.design[key], "base64"));
-          writeFileSync(join(outDir, "mismatch-port.png"), Buffer.from(renders.port[key], "base64"));
-        }
+        const tag = key.replaceAll("/", "-");
+        writeFileSync(join(outDir, `mismatch-${tag}-design.png`), Buffer.from(renders.design[key], "base64"));
+        writeFileSync(join(outDir, `mismatch-${tag}-port.png`), Buffer.from(renders.port[key], "base64"));
         failures.push(`pixels differ: ${key}`);
       }
     }
@@ -207,7 +210,7 @@ async function main() {
       ["think-blink", "think", 1600], ["suggest-blink", "suggest", 2040], ["record-blink", "record", 5850],
     ];
     for (const [name, state, at] of frames) {
-      const r = await setUp(state, true, at);
+      const r = await setUp(state, true, at, true);
       const clip = { x: r.x - 4, y: r.y - 4, width: r.width + 8, height: r.height + 8 };
       writeFileSync(join(outDir, `notch-${name}.png`), Buffer.from(await shot(clip), "base64"));
       await send("Emulation.setDeviceMetricsOverride", { width: 600, height: 700, deviceScaleFactor: 8, mobile: false });

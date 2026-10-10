@@ -60,7 +60,15 @@ jobs:
       # The mascot in a real Chromium (headless Edge): pixels against the
       # approved design, and prefers-reduced-motion emulated.
       - name: Lantern check
-        run: npm run check:lantern
+        run: npm run check:lantern -- "$env:RUNNER_TEMP\lantern-check"
+
+      - name: Keep the lantern check's images when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lantern-check
+          path: ${{ runner.temp }}/lantern-check
+          retention-days: 7
 
       # The app bundles target/release/glim-hook.exe as a resource, and its
       # build script refuses to run until that file exists. One command per
