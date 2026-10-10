@@ -133,6 +133,61 @@ pub fn process_tree(root: u32, pairs: &[(u32, u32)]) -> std::collections::HashSe
     }
 }
 
+/// The executables that may be part of Glim's own tree: anything else
+/// claiming a Glim process as its parent (the parent pid is set by whoever
+/// creates a process, and pids are reused) is not taken for Glim.
+pub const OWN_IMAGES: [&str; 2] = ["glim.exe", "msedgewebview2.exe"];
+
+/// How often Glim's own process tree is looked up again on a timer (webview
+/// processes can be restarted); an unknown pid is checked at once regardless.
+pub const OWN_TREE_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Decides, before anything about a focused element is read, whether it is
+/// Glim's own. Fails closed: if the process snapshot can't be taken, or there
+/// is no foreground window to judge by, the element counts as Glim's.
+#[derive(Default)]
+pub struct OwnGuard {
+    own: std::collections::HashSet<u32>,
+    /// Pids confirmed not Glim's against a snapshot taken after they appeared;
+    /// forgotten at every timed refresh (pids are reused).
+    foreign: std::collections::HashSet<u32>,
+    at: Option<std::time::Instant>,
+}
+
+impl OwnGuard {
+    /// `snapshot` returns Glim's process tree, or `None` if it couldn't be read.
+    pub fn is_own(
+        &mut self,
+        pid: u32,
+        foreground: u32,
+        now: std::time::Instant,
+        mut snapshot: impl FnMut() -> Option<std::collections::HashSet<u32>>,
+    ) -> bool {
+        if self.at.is_none_or(|at| now.duration_since(at) >= OWN_TREE_EVERY) {
+            let Some(tree) = snapshot() else { return true };
+            self.own = tree;
+            self.foreign.clear();
+            self.at = Some(now);
+        }
+        if foreground == 0 || self.own.contains(&pid) || self.own.contains(&foreground) {
+            return true;
+        }
+        if self.foreign.contains(&pid) && self.foreign.contains(&foreground) {
+            return false;
+        }
+        // A pid not seen since the last snapshot may be a webview Glim started
+        // since: look again before reading anything from it.
+        let Some(tree) = snapshot() else { return true };
+        self.own = tree;
+        if self.own.contains(&pid) || self.own.contains(&foreground) {
+            return true;
+        }
+        self.foreign.insert(pid);
+        self.foreign.insert(foreground);
+        false
+    }
+}
+
 /// The `pattern` recorded for a field that was skipped as read-only.
 pub const SKIPPED_READ_ONLY: &str = "skipped (read-only content)";
 
@@ -348,11 +403,42 @@ mod tests {
     }
 
     #[test]
+    fn a_webview_glim_starts_between_snapshots_is_never_read() {
+        let t0 = std::time::Instant::now();
+        let mut g = OwnGuard::default();
+        let mut tree = std::collections::HashSet::from([100u32, 200]);
+        assert!(!g.is_own(500, 500, t0, || Some(tree.clone())));
+        // Glim opens Settings: webview 201 appears, well inside OWN_TREE_EVERY.
+        tree.insert(201);
+        let soon = t0 + std::time::Duration::from_millis(300);
+        assert!(g.is_own(201, 500, soon, || Some(tree.clone())));
+        // Known foreign pids don't take a snapshot each poll.
+        let mut taken = 0;
+        assert!(!g.is_own(500, 500, soon, || {
+            taken += 1;
+            Some(tree.clone())
+        }));
+        assert_eq!(taken, 0);
+    }
+
+    #[test]
+    fn no_snapshot_or_no_foreground_window_means_nothing_is_read() {
+        let t0 = std::time::Instant::now();
+        assert!(OwnGuard::default().is_own(500, 500, t0, || None));
+        let mut g = OwnGuard::default();
+        let tree = std::collections::HashSet::from([100u32]);
+        assert!(!g.is_own(500, 500, t0, || Some(tree.clone())));
+        // The unknown-pid recheck fails: closed, not open.
+        assert!(g.is_own(600, 500, t0, || None));
+        assert!(g.is_own(500, 0, t0, || Some(tree.clone())));
+    }
+
+    #[test]
     fn glims_own_windows_are_skipped_before_anything_is_read() {
         // In uia.rs run(): the own-tree check comes before read().
         let src = include_str!("uia.rs").replace("\r\n", "\n");
         let run = &src[src.find("fn run(").unwrap()..];
-        let skip = run.find("own.contains(").expect("own-process check");
+        let skip = run.find("guard.is_own(").expect("own-process check");
         let read = run.find("read(&element").expect("read call");
         assert!(skip < read);
     }
