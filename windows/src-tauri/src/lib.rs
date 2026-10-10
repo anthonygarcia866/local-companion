@@ -792,7 +792,9 @@ mod tests {
             .expect("the island window");
         assert_eq!(island["focus"], false);
 
-        let src = include_str!("lib.rs");
+        // CI checks the sources out with CRLF (core.autocrlf): compare as LF.
+        let src = include_str!("lib.rs").replace("\r\n", "\n");
+        let desktop = include_str!("desktop.rs").replace("\r\n", "\n");
         let setup = &src[src.find(".setup(move |app|").unwrap()..];
         let non_activating = setup.find("platform::make_non_activating(&win);").expect("island made non-activating");
         let shown = setup.find("let _ = win.show();").expect("island shown");
@@ -804,7 +806,7 @@ mod tests {
 
         // Every window Glim builds in code is built unfocused: a hidden one
         // created at launch (Settings) used to take the foreground anyway.
-        for (file, code) in [("lib.rs", src), ("desktop.rs", include_str!("desktop.rs"))] {
+        for (file, code) in [("lib.rs", src.as_str()), ("desktop.rs", desktop.as_str())] {
             let code = code.split("#[cfg(test)]").next().unwrap();
             for (at, _) in code.match_indices("WebviewWindowBuilder::new(") {
                 let chain = &code[at..at + code[at..].find(".build()").expect("a builder chain")];
