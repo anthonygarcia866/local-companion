@@ -19,7 +19,7 @@ const MAC_IDS = [
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
 /** Glim's own actions, after the Mac ones. */
-const GLIM_IDS = ["cycleVisibility"];
+const GLIM_IDS = ["cycleVisibility", "rewrite"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
@@ -69,7 +69,7 @@ test("the defaults are the same on both sides of the bridge", () => {
 // testEnabledByDefault
 test("only the island toggle is off by default; the four not in this version are reserved", () => {
   // Mute and the wardrobe went with upstream's sounds and outfits.
-  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle"];
+  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle", "rewrite"];
   for (const d of SHORTCUTS) {
     assert.equal(d.enabledByDefault, d.id !== "toggleIsland", d.id);
     assert.equal(d.ported, !reserved.includes(d.id), d.id);

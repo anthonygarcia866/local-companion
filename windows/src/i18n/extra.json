@@ -2462,6 +2462,28 @@
    "pt-BR": "Posição de encaixe",
    "ru": "Положение",
    "id": "Posisi dok"
+  },
+  "Rewrite the selected text": {
+   "zh-Hans": "改写选中的文字",
+   "hi": "चुने गए टेक्स्ट को दोबारा लिखें",
+   "es": "Reescribir el texto seleccionado",
+   "ar": "إعادة صياغة النص المحدد",
+   "fr": "Réécrire le texte sélectionné",
+   "bn": "নির্বাচিত লেখা নতুন করে লিখুন",
+   "pt-BR": "Reescrever o texto selecionado",
+   "ru": "Переписать выделенный текст",
+   "id": "Tulis ulang teks yang dipilih"
+  },
+  "Coming in Phase 1": {
+   "zh-Hans": "将在第 1 阶段推出",
+   "hi": "चरण 1 में आएगा",
+   "es": "Llega en la fase 1",
+   "ar": "قادم في المرحلة 1",
+   "fr": "Arrive en phase 1",
+   "bn": "পর্যায় ১-এ আসছে",
+   "pt-BR": "Chega na fase 1",
+   "ru": "Появится в этапе 1",
+   "id": "Hadir di fase 1"
   }
  }
 }

@@ -30,6 +30,7 @@ export const SHORTCUT_TEXT = {
   desktopToggle: N_("Send Glim to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
   cycleVisibility: N_("Show Glim as pill, ember or hidden"),
+  rewrite: N_("Rewrite the selected text"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -56,7 +57,8 @@ export type ShortcutId =
   | "desktopToggle"
   | "wardrobeToggle"
   // Glim's own, after the Mac ones.
-  | "cycleVisibility";
+  | "cycleVisibility"
+  | "rewrite";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -68,6 +70,9 @@ export interface ShortcutDef {
 
 const def = (id: ShortcutId, defaultKeys: string, enabledByDefault: boolean, ported: boolean): ShortcutDef =>
   ({ id, defaultKeys, enabledByDefault, ported });
+
+/** Not working yet, but listed in Settings so its key can be picked now. */
+export const PLANNED_SHORTCUTS: ReadonlySet<ShortcutId> = new Set(["rewrite"]);
 
 /** Same order and defaults as ACTIONS in src-tauri/src/shortcuts.rs. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
@@ -83,7 +88,9 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("desktopToggle", "Ctrl+Alt+D", true, false),
   def("wardrobeToggle", "Ctrl+Alt+G", true, false),
   // Glim's own: Normal → Ember → Hidden. Rust runs it (it has to reach a hidden window).
-  def("cycleVisibility", "Ctrl+Alt+H", true, true),
+  def("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
+  // Phase 1: shown and rebindable in Settings, not registered yet.
+  def("rewrite", "Ctrl+Alt+Shift+R", true, false),
 ];
 
 export interface Binding {

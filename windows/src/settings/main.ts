@@ -7,7 +7,7 @@ import "./settings.css";
 import { Bridge, onEvent, type HookPreview, type HookStatus, type ShortcutsReport } from "../core/bridge";
 import { providerDef, urlExposure, type ProviderId } from "../core/providers";
 import {
-  ISLAND_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
+  ISLAND_SHORTCUTS, PLANNED_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
   recordPress, type Binding,
 } from "../core/shortcuts";
 import { DEFAULT_SETTINGS, type Settings } from "../core/state";
@@ -690,6 +690,7 @@ const SHORTCUTS_UI = {
     t("{keys} types “{char}” on your keyboard, so it can't be a shortcut. Pick another key.", { keys, char: ch }),
   get needsModifier() { return t("Hold Ctrl, Alt or the Windows key with it."); },
   get unsupportedKey() { return t("That key can't be used in a shortcut."); },
+  get planned() { return t("Coming in Phase 1"); },
   get wayland() {
     return t("Your Wayland desktop doesn't let apps listen for keys outside their own windows. Add the shortcuts in your system's keyboard settings instead, with these commands:");
   },
@@ -781,7 +782,8 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
     clear(list);
     const dups = duplicates(activeKeys(settings.shortcuts));
     for (const d of SHORTCUTS) {
-      if (!d.ported) continue;
+      const planned = PLANNED_SHORTCUTS.has(d.id);
+      if (!d.ported && !planned) continue;
       const binding = effective(d, settings.shortcuts);
       const keycap = h("button", {
         class: "keycap",
@@ -790,7 +792,9 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
       keycap.disabled = !binding.enabled;
       keycap.addEventListener("click", () => record(d.id, binding, keycap));
       const sw = toggle(binding.enabled, (on) => store(d.id, { keys: binding.keys, enabled: on }));
-      const tag = binding.enabled ? tagFor(d.id, dups) : null;
+      const tag = planned
+        ? h("span", { class: "tag", text: SHORTCUTS_UI.planned })
+        : binding.enabled ? tagFor(d.id, dups) : null;
       list.append(h("div", { class: binding.enabled ? "row shortcut" : "row shortcut off" },
         sw,
         h("span", { class: "shortcut-name", text: t(SHORTCUT_TEXT[d.id]) }),

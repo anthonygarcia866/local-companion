@@ -67,9 +67,15 @@ pub const ACTIONS: &[ActionDef] = &[
     // The wardrobe (upstream's outfits for Mochi) was removed with the character.
     action("wardrobeToggle", "Ctrl+Alt+G", true, false),
     // Glim's own: Normal → Ember → Hidden (presence.rs). Handled here in Rust,
-    // since it has to reach a hidden window. H is AltGr-free on the layouts
-    // checked above; note Word and OneNote use Ctrl+Alt+H for highlight.
-    action("cycleVisibility", "Ctrl+Alt+H", true, true),
+    // since it has to reach a hidden window. Not Ctrl+Alt+H: Word and OneNote
+    // highlight with it. Ctrl+Alt+Shift+Space is unassigned in Word (and so in
+    // Outlook's editor) and was free system-wide when checked (2026-10-10).
+    action("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
+    // Phase 1's rewrite of the selected text: reserved, shown and rebindable in
+    // Settings, registered once Phase 1 lands. Not Ctrl+Alt+G, the planned key:
+    // Word's "next Editor suggestion", and held by another app on the owner's
+    // machine. See PROJECT_STATUS.md (hotkeys).
+    action("rewrite", "Ctrl+Alt+Shift+R", true, false),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -397,7 +403,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 1] = ["cycleVisibility"];
+    const GLIM_IDS: [&str; 2] = ["cycleVisibility", "rewrite"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None
@@ -442,7 +448,7 @@ mod tests {
     fn the_actions_not_ported_yet_are_reserved_not_registered() {
         let plan = plan(&Bindings::new(), never);
         for (def, outcome) in plan {
-            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle");
+            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle" | "rewrite");
             assert_eq!(def.ported, !reserved);
             match outcome {
                 Ok(_) => assert!(def.ported && def.enabled_by_default, "{}", def.id),
