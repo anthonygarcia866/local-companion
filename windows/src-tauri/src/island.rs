@@ -389,8 +389,13 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
         crate::presence::Presence::Pill if collapsed => Shape::Strip,
         crate::presence::Presence::Pill => Shape::Panel,
     };
+    // Through tao, both ways (`hide` above, `show` here): tao re-applies its
+    // own idea of visibility on every later flag change (click-through,
+    // always-on-top), so a window shown behind its back is hidden again. The
+    // island is WS_EX_NOACTIVATE (make_non_activating), so showing it never
+    // takes focus.
     if !win.is_visible().unwrap_or(true) {
-        platform::show_no_activate(&win);
+        let _ = win.show();
     }
     let (rx, ry, lw, lh) = window_rect(dock, shape, ms.width as f64 / scale, ms.height as f64 / scale);
     let pw = (lw * scale).round().max(1.0) as u32;

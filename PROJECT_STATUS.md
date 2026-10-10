@@ -92,6 +92,8 @@ A local-first Windows desktop companion.
   - Workarounds: the tray icon's **Settings…** opens Settings without the island; in a dev session `glim.exe --open-settings` (GLIM_DEV=1) does the same from the command line.
   - To do: reproduce (watch window position across display changes and after a chat), log the chosen monitor on every reposition, and make reveal-after-hidden robust.
 
+- **Capture reads payment details (raised by the owner 2026-10-10, not yet fixed).** The capture layer skips password fields, but a card number, CVC or bank details typed into a normal web form is an ordinary editable field: in a dev session it shows in the capture panel like any other text (nothing is stored, but Phase 1 would send it to the local model). Must be closed before capture runs outside dev sessions. Plan (separate PR, before Phase 1): skip the field before any text leaves the capture thread when (1) its UIA name, AutomationId or HelpText, or the label around it, reads like payment data (card number, CVV/CVC, expiry, IBAN, routing/account number, SSN); (2) Chrome/Edge expose an `autocomplete`-style hint (`cc-*`) through the accessibility tree; (3) the text contains a Luhn-valid 13–19 digit run or an IBAN pattern (checked inside the capture thread and the reading dropped); plus (4) a user-editable list of apps and sites Glim never reads (banking, checkout pages), and a one-key pause. Same tests as passwords: a fixture of fake card data and a test asserting none of it leaves the capture thread. The memory policy's hard filter stays as the second line.
+
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
@@ -151,6 +153,32 @@ Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of tr
 - Compact listen glance (after the design's `glance-c`): measured in the running app from a burst of notch captures, the eyes' darkness-weighted centre moves −0.75 px then +0.76 px (~1.5 px swing) and blinks; `app-glance-{rest,left,right}-lantern@8x.png`. Before `glance-c` the swing was ~0.6 px and barely read.
 - Unforced, with a real `claude -p` session hooked to Glim: `s-think` in the notch mid-session (`auto-working@4x.png`), then the expanded "Session finished" card with the lantern in `s-done` (`auto-finished-expanded.png`).
 - Browser check: 90/90 renders byte-identical to the design; reduced motion stops every animation in all 18 state/size pairs; notch-size frames in `frame-*@8x.png`.
+
+## Glim presence (branch `glim-presence`)
+How Glim sits on screen. Nine items, one commit each (a few split in two); PR open, not merged.
+
+1. **Pill size:** Settings → General → Pill size, small / medium / large (default large); `core/layout.ts` `pillGeometry`.
+2. **Attention pop:** a short bounce on each lantern state change, except idle ↔ listen (the island opening and closing); `s-record` gets its own stronger, repeating cue (`pop-record`). Additive `pop` / `pop-record` / `ignite` classes in the design file, ported by `port-lantern.mjs`. Reduced motion: glow change only.
+3. **Startup ignite:** the launch shows the compact pill with the lantern dark (`s-paused`), the flame lights over 800 ms, then it settles in `s-idle`. App states asked for meanwhile wait; recording never does. Replaces upstream's greeting. Every leftover placeholder character (minis, file drop, recap image, desktop window) is now the lantern.
+4. **Palette:** upstream's purple/indigo accents replaced with Glim's amber (`#FFB347`).
+5. **Monitor:** a once-a-second display watch, running even while the island is hidden, re-places the island when its target display changes or Windows moves the window (the wrong-monitor open issue). New display option "Display of the active window". Every display and placement is logged.
+6. **Verify:** see "Presence verification" below.
+7. **Visibility modes** (`src-tauri/src/presence.rs`, `src/island/presence.ts`): **Normal** (the pill), **Ember** (a 28 px glowing dot at the dock's edge; click it for the pill), **Hidden** (the window is hidden; back via the tray icon's Open or the hotkey). Global hotkey **Ctrl+Alt+H** cycles Normal → Ember → Hidden; it is handled in Rust, so it reaches a hidden window. AltGr-free on the six checked European layouts and not used by another Glim default; Word and OneNote use it for highlight inside their own windows, which a global hotkey overrides — rebindable in Settings → Shortcuts. Settings → General → "Show Glim as" picks the mode. A **fullscreen app in front** on the island's display (Windows' D3D-fullscreen or presentation-mode state, or a foreground window covering the whole display; a maximised window does not count) hides Glim in every mode, and it comes back when the app leaves.
+   - **Recording rule:** while the screen is being recorded (Phase 2), something stays on screen in every mode, Hidden and fullscreen included: the recording indicator (the lantern in `s-record`, in the ember's place). `presence::presence()` is the rule (`recording_is_never_hidden` test); the page shows the indicator only through `showReserved(RECORDING_STATE, "screen-recording")` (`tests/presence.test.mjs`, `SHOWS_RESERVED` in `tests/lantern.test.mjs`). Nothing sets recording yet: `presence::set_recording` is for the Phase 2 recorder.
+   - Rust owns `settings.visibility`, like `docks`: a webview's save never overwrites it.
+8. **Docking** (`placement.rs`): top-center (default), top-left, top-right, left edge, right edge (upright). Drag the closed pill: the window follows the cursor without being activated; on release it snaps to the nearest dock of the display under the cursor and is remembered for that display (`settings.docks`). Upright docks: the pill stands along the edge and the island opens sideways, away from it. Settings → General → Position.
+9. **Self-capture skip:** the capture layer skips Glim's whole process tree (`glim.exe` and its `msedgewebview2.exe` children) before any read. It fails closed: an unknown pid is rechecked at once, a failed process snapshot skips the reading, and only `glim.exe` / `msedgewebview2.exe` can join the tree.
+
+- **Dev switches added** (GLIM_DEV=1, forwarded by a second `glim.exe`): `--dock <top-center|top-left|top-right|left-vertical|right-vertical>`, `--visibility <normal|ember|hidden>`, `--fullscreen <on|off|auto>` (pretends a fullscreen app is or isn't in front; `auto` = detect again).
+
+### Presence verification (2026-10-10, `glim.exe` built 13:13, 5,789,184 bytes)
+Driven only by dev switches (no mouse or keyboard); PrintWindow of Glim's own island window (transparent parts and the black pill both come out black, so the lantern is what shows). Captures in `docs/verification/presence/`.
+- **Docks** on a 1920×1080 display: top-left window at (0,0), top-right (1200,0), top-center (600,0), all 720×320; left/right upright at (0,340) / (1200,340), 720×400, the lantern at the top of the upright pill.
+- **Ember:** a 28×28 window at the dock's edge: (946,0) for top-center, (1892,526) for the right edge; a soft amber dot (`vis-ember@8x.png`).
+- **Hidden:** the window is hidden; Normal brings the pill back. **Fullscreen** (`--fullscreen on`): hidden in Normal and in Ember; `off` brings the ember back.
+- **Focus:** after every step the foreground window belonged to another app (Chrome / Windows Terminal), never Glim; the foreground at the end was the one at the start.
+- **Bug found and fixed in this run:** Hidden → Normal left the window hidden. Glim hid it through tao (`win.hide()`) but showed it with a raw `ShowWindow`, and tao re-applies its cached visibility on every later window-flag change (tao 0.37.1 `window_state.rs`, `apply_diff`), so the next click-through toggle hid it again. Now shown through tao too (`win.show()`; the island is WS_EX_NOACTIVATE, so it doesn't take focus — checked above).
+- **Not verified live:** the recording indicator (nothing records yet; covered by the Rust rule test and `tests/presence.test.mjs`), the real fullscreen detection against a real fullscreen app (only the dev override was driven), the Ctrl+Alt+H hotkey and a click on the ember (both need real input).
 
 ## Text-capture spike (Phase 0b)
 Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.md`.

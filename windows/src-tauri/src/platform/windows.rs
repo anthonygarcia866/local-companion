@@ -359,15 +359,6 @@ pub fn foreground_center() -> Option<(f64, f64)> {
     }
 }
 
-/// Shows the window without activating it (the island never takes focus).
-pub fn show_no_activate(win: &WebviewWindow) {
-    use ::windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
-    let Some(hwnd) = hwnd_of(win) else { return };
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    }
-}
-
 /// A fullscreen app is in front on the display `(x, y, w, h)` (physical):
 /// Windows says so (a Direct3D fullscreen app, presentation mode), or the
 /// foreground window — not Glim's, not the desktop — covers the whole display.
