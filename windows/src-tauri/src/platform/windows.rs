@@ -46,18 +46,36 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// %APPDATA%\Glim — preferences.
 pub fn config_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join(DATA_DIR_NAME)
+    data_base("APPDATA").unwrap_or_else(|| PathBuf::from(".")).join(DATA_DIR_NAME)
 }
 
 /// %LOCALAPPDATA%\Glim — where glim-hook.exe, the inbox, the recap and the log live.
 pub fn local_dir() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join(DATA_DIR_NAME)
+    data_base("LOCALAPPDATA").unwrap_or_else(|| PathBuf::from(".")).join(DATA_DIR_NAME)
+}
+
+/// The folder `%APPDATA%` or `%LOCALAPPDATA%` (`var`) names. Under `cargo
+/// test` it is a scratch folder of the test's own instead, so no test can
+/// create or change the real Glim folders; `tests_never_use_the_real_data_folders`
+/// checks it, and CI checks the real folders are still absent afterwards.
+fn data_base(var: &str) -> Option<PathBuf> {
+    #[cfg(test)]
+    return Some(test_data_root().join(var));
+    #[cfg(not(test))]
+    std::env::var_os(var).map(PathBuf::from)
+}
+
+/// The scratch stand-in for the user's profile folders, one per test thread
+/// (libtest runs each test on a thread of its own).
+#[cfg(test)]
+pub fn test_data_root() -> PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    thread_local! {
+        static ROOT: PathBuf = std::env::temp_dir()
+            .join(format!("glim-test-data-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    }
+    ROOT.with(Clone::clone)
 }
 
 /// The data folders' name, under %APPDATA% and %LOCALAPPDATA%.
@@ -84,7 +102,7 @@ const LEGACY_HOOK_EXE: &str = "coucou-hook.exe";
 pub fn migrate_data_dirs() -> Vec<String> {
     let mut notes = Vec::new();
     for var in ["APPDATA", "LOCALAPPDATA"] {
-        let Some(base) = std::env::var_os(var).map(PathBuf::from) else { continue };
+        let Some(base) = data_base(var) else { continue };
         migrate_dir(&base.join(LEGACY_DATA_DIR_NAME), &base.join(DATA_DIR_NAME), &mut notes);
     }
     let local = local_dir();
@@ -662,6 +680,31 @@ mod migration_tests {
         assert!(new.join("glim-or-not.log").is_file(), "{notes:?}");
         assert!(!old.exists(), "{notes:?}");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn tests_never_use_the_real_data_folders() {
+        use super::{config_dir, local_dir, test_data_root};
+        for (dir, var) in [(config_dir(), "APPDATA"), (local_dir(), "LOCALAPPDATA")] {
+            assert!(dir.starts_with(test_data_root()), "{} is not a test folder", dir.display());
+            if let Some(real) = std::env::var_os(var).map(PathBuf::from) {
+                assert!(!dir.starts_with(real.join("Glim")), "{} is the real data folder", dir.display());
+            }
+        }
+    }
+
+    #[test]
+    fn migration_only_ever_looks_in_the_test_folders() {
+        // Runs the real entry point: with an old folder in this test's stand-in
+        // profile it must move that one, and nothing outside it.
+        let root = super::test_data_root();
+        let old = root.join("LOCALAPPDATA").join("Coucou");
+        std::fs::create_dir_all(old.join("inbox")).unwrap();
+        std::fs::write(old.join("coucou.log"), "history").unwrap();
+        let notes = super::migrate_data_dirs();
+        assert!(notes.iter().all(|n| n.contains(&*root.to_string_lossy())), "{notes:?}");
+        assert_eq!(std::fs::read_to_string(super::local_dir().join("glim.log")).unwrap(), "history");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

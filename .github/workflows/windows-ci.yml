@@ -65,3 +65,13 @@ jobs:
 
       - name: Rust tests
         run: cargo test --workspace --locked
+
+      # Tests must never create or change the user's data folders: Rust tests
+      # get a scratch folder each (platform::data_base), the island tests touch
+      # no files. A fresh runner has neither folder, so any here came from a test.
+      - name: Tests left the real data folders alone
+        shell: pwsh
+        run: |
+          $touched = @("$env:APPDATA\Glim", "$env:LOCALAPPDATA\Glim", "$env:APPDATA\Coucou", "$env:LOCALAPPDATA\Coucou") | Where-Object { Test-Path $_ }
+          if ($touched) { Get-ChildItem $touched -Recurse -Force | Select-Object FullName; throw "tests created or changed: $($touched -join ', ')" }
+          "no data folder was touched"
