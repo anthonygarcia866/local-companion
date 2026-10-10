@@ -526,4 +526,3 @@ class UploadSequence {
 }
 
 export const UploadSeq = new UploadSequence();
-
