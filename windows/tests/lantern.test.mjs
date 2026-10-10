@@ -187,3 +187,66 @@ test("only the allowed owners call showReserved", () => {
     }
   }
 });
+
+// ── The Lantern class: startup ignite ────────────────────────────────────────
+
+/** Just enough of an <svg> for the Lantern class: its class attribute. */
+function fakeDocument() {
+  globalThis.document = {
+    createElementNS: () => {
+      const attrs = new Map();
+      return {
+        innerHTML: "",
+        setAttribute: (k, v) => attrs.set(k, String(v)),
+        getAttribute: (k) => attrs.get(k) ?? null,
+        getBoundingClientRect: () => ({ height: 48 }),
+      };
+    },
+  };
+}
+
+test("launch: dark, the flame lights, then the latest app state", async (t) => {
+  fakeDocument();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { Lantern, IGNITE_DARK_MS, IGNITE_MS } = await import("../src/mascot/lantern.ts");
+  const l = new Lantern({ detail: "notch", state: "paused", heightPx: 48 });
+  const cls = () => l.el.getAttribute("class");
+  l.ignite();
+  assert.equal(cls(), "lantern s-paused");
+  l.show("think"); // an agent starts during the ignite: it waits
+  assert.equal(cls(), "lantern s-paused");
+  t.mock.timers.tick(IGNITE_DARK_MS);
+  assert.equal(cls(), "lantern s-idle ignite");
+  t.mock.timers.tick(IGNITE_MS);
+  assert.ok(!l.isIgniting);
+  assert.match(cls(), /^lantern s-think pop$/);
+});
+
+test("recording never waits for the ignite", async (t) => {
+  fakeDocument();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { Lantern, IGNITE_DARK_MS, IGNITE_MS } = await import("../src/mascot/lantern.ts");
+  const l = new Lantern({ detail: "notch", state: "paused", heightPx: 48 });
+  l.ignite();
+  l.showReserved("record", "screen-recording");
+  assert.equal(l.el.getAttribute("class"), "lantern s-record pop-record");
+  t.mock.timers.tick(IGNITE_DARK_MS + IGNITE_MS);
+  assert.equal(l.el.getAttribute("class"), "lantern s-record pop-record");
+});
+
+test("the file drop: listening, thinking while it loads, done at the check", async () => {
+  fakeDocument();
+  const { uploadLanternState } = await import("../src/mascot/lantern.ts");
+  assert.equal(uploadLanternState({ check: 0, barAlpha: 0, progress: 0 }), "listen");
+  assert.equal(uploadLanternState({ check: 0, barAlpha: 1, progress: 0.4 }), "think");
+  assert.equal(uploadLanternState({ check: 0.2, barAlpha: 1, progress: 1 }), "done");
+});
+
+test("no upstream character art is drawn anywhere", () => {
+  // The engine keeps the animation state; nothing may paint it again.
+  const engine = read("src/mochi/engine.ts");
+  assert.ok(!/^\s+draw\(/m.test(engine));
+  for (const gone of ["src/mochi/greeting.ts", "src/mochi/minibots.ts"]) {
+    assert.throws(() => read(gone), gone);
+  }
+});

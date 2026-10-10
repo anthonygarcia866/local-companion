@@ -86,8 +86,7 @@ body {
   border-radius: inherit;
 }
 
-#bot-lantern,
-#greeting-canvas {
+#bot-lantern {
   position: absolute;
   pointer-events: none;
 }
@@ -111,6 +110,11 @@ body {
 #upload-canvas {
   position: absolute;
   inset: 0;
+}
+
+#upload-lantern {
+  position: absolute;
+  pointer-events: none;
 }
 
 #upload-overlay {
@@ -175,19 +179,18 @@ body {
   transition: opacity 0.25s ease-in-out;
 }
 
-/* A mini Mochi: the slot is the body, the canvas is larger and overflows it so
-   hands, badges and particles are not cut off. */
+/* A per-session mini lantern (src/mascot/minis.ts): the slot is the body; the
+   lantern stands taller and overflows it, as in the notch. */
 .mini {
   position: relative;
   display: inline-block;
   flex: 0 0 auto;
 }
 
-.mini canvas {
+.mini svg {
   position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   pointer-events: none;
 }
 

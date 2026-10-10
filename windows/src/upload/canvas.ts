@@ -1,18 +1,18 @@
 // The upload canvas — port of UploadCanvasView.swift.
 //
 // While the sequence engine is active this canvas draws the whole island body:
-// card, dashed drop frame, drop text, progress bar, the choose card, the
-// character and the file being sucked in. The island's own character is hidden
-// for the duration, exactly as on macOS, because this canvas draws its own.
-//
-// PLACEHOLDER LOOK (Phase 0a): upstream draws Mochi here, morphing into a
-// mailbox with eyes and a mouth (© Louis Raillé, not MIT). This draws the same
-// neutral orb as mochi/engine.ts, following the same motion, until the Glim
-// mascot lands.
+// card, dashed drop frame, drop text, progress bar, the choose card and the
+// file being sucked in. Glim's lantern rides on top as its own <svg>, following
+// the sequence's motion; the island's own lantern is hidden for the duration.
+// (Upstream drew its character morphing into a mailbox here; that art is not
+// MIT and is not used.)
 
 import { State } from "../core/state";
 import { SCRIPT_FONTS } from "../core/fonts";
 import { N_, isRtl, t } from "../i18n/i18n";
+import {
+  LANTERN_DRAWN_BOTTOM, LANTERN_DRAWN_TOP, LANTERN_HEIGHT_PER_DIAMETER, Lantern, uploadLanternState,
+} from "../mascot/lantern";
 import {
   USC, eIn, eInOut, eOut, lerp, progressAt,
   type UploadFrame,
@@ -105,6 +105,7 @@ export class UploadCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D | null;
   private overlay: HTMLElement;
+  private lantern = new Lantern({ detail: "notch", state: "listen" });
   private sizedFor = 0;
 
   constructor(actions: UploadCanvasActions) {
@@ -129,7 +130,8 @@ export class UploadCanvas {
 
     this.el = document.createElement("div");
     this.el.id = "upload-layer";
-    this.el.append(this.canvas, this.overlay);
+    this.lantern.el.id = "upload-lantern";
+    this.el.append(this.canvas, this.lantern.el, this.overlay);
 
     this.ctx = this.canvas.getContext("2d");
   }
@@ -150,6 +152,7 @@ export class UploadCanvas {
     ctx.clearRect(0, 0, USC.W, USC.ISL_H);
 
     this.drawScene(ctx, f, wallTime);
+    this.placeLantern(f);
 
     // The buttons only exist once the choose card has faded in.
     this.overlay.style.display = f.chooseAlpha > 0.5 ? "block" : "none";
@@ -199,7 +202,6 @@ export class UploadCanvas {
     if (f.barAlpha > 0 || f.barReveal > 0) this.drawProgressBar(ctx, f);
     if (f.chooseAlpha > 0) this.drawChoose(ctx, f);
 
-    this.drawCharacter(ctx, f);
     if (f.fileVisible) this.drawFile(ctx, f);
   }
 
@@ -342,22 +344,21 @@ export class UploadCanvas {
     ctx.restore();
   }
 
-  // ── The character (placeholder) ───────────────────────────────────────────
+  // ── The lantern ───────────────────────────────────────────────────────────
 
-  private drawCharacter(ctx: CanvasRenderingContext2D, f: UploadFrame) {
-    const r = f.d / 2 / 1.04;
-    ctx.save();
-    ctx.translate(f.x, f.y + f.hop);
-    ctx.rotate(f.tilt);
-    ctx.scale(f.sx, f.sy);
-    const g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
-    g.addColorStop(0, "#F6F6F8");
-    g.addColorStop(1, "#BFC1C7");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  /** Puts the lantern where the sequence's character is: centre (x, y + hop),
+   *  diameter d, squash sx/sy and tilt, standing 1.2× d as in the notch. */
+  private placeLantern(f: UploadFrame) {
+    const unit = (f.d * LANTERN_HEIGHT_PER_DIAMETER) / (LANTERN_DRAWN_BOTTOM - LANTERN_DRAWN_TOP);
+    const el = this.lantern.el;
+    el.style.width = `${100 * unit}px`;
+    el.style.height = `${124 * unit}px`;
+    el.style.left = `${f.x - 50 * unit}px`;
+    el.style.top = `${f.y + f.hop + f.d / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+    el.style.transformOrigin = `50% ${(LANTERN_DRAWN_BOTTOM / 124) * 100}%`;
+    el.style.transform = `rotate(${f.tilt}rad) scale(${f.sx}, ${f.sy})`;
+    this.lantern.setHeight(124 * unit);
+    this.lantern.show(uploadLanternState(f));
   }
 
   // ── The file, and the suction ─────────────────────────────────────────────

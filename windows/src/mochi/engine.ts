@@ -1,12 +1,10 @@
 // The character's engine — states, tweens, easings and particles, ported from
 // upstream Coucou's BotEngine.swift (MIT code).
 //
-// PLACEHOLDER LOOK (Phase 0a): upstream's Mochi character design is © Louis
-// Raillé and not MIT, so its drawing (face, eyes, mouth, hands, outfits) was
-// removed. `draw()` paints a neutral orb in the state's colour, with the state
-// badge. The real Glim mascot (docs/brand/glim-mascot.html) replaces it in the
-// next PR. The animation state below (eyes, mouth, emotes) still runs so the
-// callers keep working; nothing draws it for now.
+// It draws nothing: upstream's Mochi character design is © Louis Raillé and
+// not MIT, and what Glim shows is the lantern (src/mascot), which follows this
+// engine's state. The animation state below (eyes, mouth, emotes) still runs
+// so the callers keep working.
 
 import { Ease, lerp, type EaseFn } from "../core/anim";
 import type { BotEmoteName, BotStateName } from "../core/layout";
@@ -111,25 +109,9 @@ export function hexToRGB(hex: string): RGB {
   return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
 }
 
-const rgba = (c: RGB, a = 1) =>
-  `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
-
 const mix3 = (a: RGB, b: RGB, t: number): RGB => [
   lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t),
 ];
-
-function roundRectPath(x: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, R: number) {
-  const r = Math.max(0, Math.min(R, W / 2, H / 2));
-  x.beginPath();
-  x.moveTo(X + r, Y);
-  x.arcTo(X + W, Y, X + W, Y + H, r);
-  x.arcTo(X + W, Y + H, X, Y + H, r);
-  x.arcTo(X, Y + H, X, Y, r);
-  x.arcTo(X, Y, X + W, Y, r);
-  x.closePath();
-}
-
-const FONT = `system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
 
 // ── Engine ────────────────────────────────────────────────────────────────────
 
@@ -597,106 +579,5 @@ export class BotEngine {
       default:
         this.miniNextBehavior = n + 3.0 + Math.random() * 2.0;
     }
-  }
-
-  // ── Draw (placeholder) ──────────────────────────────────────────────────────
-
-  /**
-   * Draws the placeholder into a canvas of `W`×`H` CSS pixels (the caller has
-   * already applied the DPR transform): a soft orb in the state's colour that
-   * squashes, bounces and tilts with the animation, plus the state badge.
-   * Deliberately faceless and generic — see the note at the top of the file.
-   */
-  draw(x: CanvasRenderingContext2D, W: number, H: number) {
-    const R = W * 0.3;
-    const cx = W / 2 + this.ox * R;
-    const cy = H / 2 + this.particleOverhang / 2 + this.oy * R + R * 0.06;
-    const r = R * 0.95 * (1 - this.morph * 0.6);
-
-    x.save();
-    x.translate(cx, cy);
-    if (this.tilt !== 0) x.rotate(this.tilt);
-    x.scale(this.sx, this.sy);
-
-    // Solid colour for the minis and pills; the main one blends from a neutral
-    // grey toward the state colour by the state's tint.
-    const base: RGB = this.bodyColor ?? mix3(C.idle, this.col, this.tint);
-    const g = x.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
-    g.addColorStop(0, rgba(mix3(base, [1, 1, 1], 0.45)));
-    g.addColorStop(1, rgba(mix3(base, [0, 0, 0], 0.18)));
-    x.fillStyle = g;
-    x.beginPath();
-    x.arc(0, 0, r, 0, Math.PI * 2);
-    x.fill();
-    x.restore();
-
-    if (this.badge && this.badgeS > 0.01) this.drawBadge(x, this.badge, R, cx, cy);
-  }
-
-  private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, cx: number, cy: number) {
-    const bs = this.badgeS * (this.isMini ? 1.25 : 1);
-    const bx = cx - R * 0.72 * this.sx;
-    const by = cy - R * 0.72 * this.sy;
-    const t = now();
-
-    x.save();
-    x.translate(bx, by);
-    x.scale(bs, bs);
-    const col = rgba(badge.color);
-
-    if (badge.kind === "dots") {
-      if (this.isMini) {
-        const phase = (t * 2.4) % 1;
-        const dotR = R * 0.22 * (1 + 0.25 * Math.sin(phase * Math.PI * 2));
-        x.fillStyle = "#000";
-        x.beginPath();
-        x.arc(0, 0, R * 0.2, 0, Math.PI * 2);
-        x.fill();
-        x.fillStyle = col;
-        x.beginPath();
-        x.arc(0, 0, dotR, 0, Math.PI * 2);
-        x.fill();
-      } else {
-        const pw = R * 0.72;
-        const ph = R * 0.36;
-        roundRectPath(x, -pw / 2, -ph / 2, pw, ph, ph / 2);
-        x.fillStyle = col;
-        x.fill();
-        for (let i = 0; i < 3; i++) {
-          const phase = (((t * 2.4 - i * 0.22) % 1) + 1) % 1;
-          const dotR = R * 0.055 * (1 + 0.4 * Math.max(0, Math.sin(phase * Math.PI * 2)));
-          x.fillStyle = "#fff";
-          x.beginPath();
-          x.arc((i - 1) * R * 0.18, 0, dotR, 0, Math.PI * 2);
-          x.fill();
-        }
-      }
-    } else if (badge.kind === "bang" || badge.kind === "question") {
-      x.fillStyle = "#000";
-      x.beginPath();
-      x.arc(0, 0, R * 0.3, 0, Math.PI * 2);
-      x.fill();
-      x.fillStyle = col;
-      x.beginPath();
-      x.arc(0, 0, R * 0.23, 0, Math.PI * 2);
-      x.fill();
-      if (!this.isMini) {
-        x.fillStyle = "#fff";
-        x.font = `900 ${R * 0.32}px ${FONT}`;
-        x.textAlign = "center";
-        x.textBaseline = "middle";
-        x.fillText(badge.kind === "bang" ? "!" : "?", 0, R * 0.02);
-      }
-    } else {
-      x.fillStyle = "#000";
-      x.beginPath();
-      x.arc(0, 0, R * 0.2, 0, Math.PI * 2);
-      x.fill();
-      x.fillStyle = col;
-      x.beginPath();
-      x.arc(0, 0, R * 0.135, 0, Math.PI * 2);
-      x.fill();
-    }
-    x.restore();
   }
 }

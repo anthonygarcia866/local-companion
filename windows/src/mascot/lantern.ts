@@ -139,6 +139,14 @@ export function shouldPop(prev: LanternState, next: LanternState): boolean {
   return !(calm.has(prev) && calm.has(next));
 }
 
+/** The lantern's state through a file drop (src/upload): listening for the
+ *  file, thinking while it loads, done at the check mark. */
+export function uploadLanternState(f: { check: number; barAlpha: number; progress: number }): AppLanternState {
+  if (f.check > 0) return "done";
+  if (f.barAlpha > 0 && f.progress > 0) return "think";
+  return "listen";
+}
+
 let instances = 0;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -153,6 +161,9 @@ export class Lantern {
   private popTimer = 0;
   /** While igniting, app states wait: the startup sequence plays out first. */
   private igniting = false;
+  /** The latest app state asked for while igniting: shown once it's over. */
+  private pending: AppLanternState | null = null;
+  private igniteTimers: number[] = [];
 
   constructor(opts: { detail: LanternDetail; state?: AppLanternState; heightPx?: number }) {
     this.uid = `g${++instances}`;
@@ -170,8 +181,16 @@ export class Lantern {
 
   /** Shows an app state. Reserved states can't be passed here. */
   show(next: AppLanternState) {
-    if (this.igniting) return;
+    if (this.igniting) {
+      this.pending = next;
+      return;
+    }
     this.set(next);
+  }
+
+  /** Whether the startup ignite is still playing. */
+  get isIgniting(): boolean {
+    return this.igniting;
   }
 
   /**
@@ -181,26 +200,38 @@ export class Lantern {
    */
   showReserved<S extends ReservedLanternState>(state: S, owner: (typeof RESERVED_LANTERN_STATES)[S] | "dev-preview") {
     void owner;
+    // A reserved state is a feature speaking (recording above all): it never
+    // waits for the startup sequence.
+    this.stopIgnite();
     this.set(state);
   }
 
   /** The startup sequence: dark (s-paused), then the flame lights and the
    *  lantern settles into s-idle. App states resume afterwards. */
   ignite() {
+    this.stopIgnite();
     this.igniting = true;
     this.stateName = "paused";
     this.extra.clear();
     this.apply();
-    window.setTimeout(() => {
+    this.igniteTimers.push(window.setTimeout(() => {
       this.stateName = "idle";
       this.extra.add("ignite");
       this.apply();
-      window.setTimeout(() => {
-        this.extra.delete("ignite");
-        this.igniting = false;
-        this.apply();
-      }, IGNITE_MS);
-    }, IGNITE_DARK_MS);
+      this.igniteTimers.push(window.setTimeout(() => {
+        this.stopIgnite();
+        if (this.pending) this.set(this.pending);
+        this.pending = null;
+      }, IGNITE_MS));
+    }, IGNITE_DARK_MS));
+  }
+
+  private stopIgnite() {
+    for (const id of this.igniteTimers) window.clearTimeout(id);
+    this.igniteTimers = [];
+    this.igniting = false;
+    this.extra.delete("ignite");
+    this.apply();
   }
 
   private set(next: LanternState) {

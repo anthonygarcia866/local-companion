@@ -7,7 +7,7 @@ import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
 import { State, type AgentTask } from "../core/state";
 import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
-import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
+import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { pillCard } from "./pill-card";
@@ -293,7 +293,7 @@ function buildOverview(actions: ViewActions): ViewHost {
         pillIds = pillKey;
         clear(pills);
         for (const t of others) pills.append(buildPill(t, actions));
-        pruneMiniBots();
+        pruneMiniLanterns();
       }
     },
   };
@@ -315,11 +315,11 @@ export function hasSessionTicker(task: AgentTask): boolean {
 
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
   const label = task.id === "integration_claude" ? "VS Code" : task.name;
-  const canvas = createMiniBot(task, 24);
+  const mini = createMiniLantern(task, 24);
   const pill = h(
     "div",
     { class: "pill", onclick: () => actions.setFocus(task.id) },
-    canvas,
+    mini,
     h("span", { class: "lbl", text: label }),
   );
   pill.style.borderColor = `${task.color}24`;

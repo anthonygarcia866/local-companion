@@ -1,4 +1,4 @@
-// Entry point: boot the bridge, wire the island, start the greeting.
+// Entry point: boot the bridge, wire the island, light the lantern.
 
 import "./style.css";
 import "./mascot/lantern.css";
@@ -112,7 +112,7 @@ async function main() {
   void refreshConfigured();
   registerShortcutHandlers(island, () => setPaused(false));
 
-  // Monday recap: app start (greeting over), an agent starting work, waking up.
+  // Monday recap: app start (ignite over), an agent starting work, waking up.
   const checkRecap = () => void Recap.check(island);
   island.onGreetingDone = checkRecap;
   island.onWake = checkRecap;

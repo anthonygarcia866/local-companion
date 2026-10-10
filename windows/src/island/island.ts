@@ -12,8 +12,7 @@ import {
 } from "../core/layout";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
-import { Greeting } from "../mochi/greeting";
-import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
+import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
@@ -27,6 +26,8 @@ import {
   LANTERN_DRAWN_BOTTOM,
   LANTERN_DRAWN_TOP,
   LANTERN_HEIGHT_PER_DIAMETER,
+  IGNITE_DARK_MS,
+  IGNITE_MS,
   Lantern,
   isReservedLanternState,
   lanternStateFor,
@@ -56,11 +57,11 @@ export class Island {
   private contentEl!: HTMLElement;
   private viewsEl!: HTMLElement;
   /** Glim in the notch: the design's lantern, without its large-context aura. */
-  private lantern = new Lantern({ detail: "notch" });
+  // Dark until launch() lights it: the first frame never shows a lit lantern.
+  private lantern = new Lantern({ detail: "notch", state: "paused" });
   /** A state forced from the command line in a dev session (`--mascot-state`). */
   private forcedLantern: LanternState | null = null;
   private botGlow!: HTMLElement;
-  private greetingCanvas!: HTMLCanvasElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
@@ -77,14 +78,12 @@ export class Island {
   private botSize = new Spring(10);
 
   private engine = new BotEngine();
-  private greeting = new Greeting();
-  private greetingShown = false;
+  private igniteTimer: number | null = null;
 
   private running = false;
   private lastFrame = 0;
   private dirty = true;
 
-  // Rust starts the window at full size so the launch greeting has room.
   private collapsed = false;
   private collapseTimer: number | null = null;
   private wasInIsland = false;
@@ -101,7 +100,7 @@ export class Island {
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
 
-  /** The launch greeting ended, or the island came out of hidden — two of the
+  /** The launch ignite ended, or the island came out of hidden — two of the
    *  moments the Monday recap may open (see src/recap/recap.ts). */
   onGreetingDone: (() => void) | null = null;
   onWake: (() => void) | null = null;
@@ -123,10 +122,6 @@ export class Island {
     this.wireFsm();
     this.wireInput();
     this.engine.onDizzy = () => this.handleDizzy();
-    this.greeting.onComplete = () => {
-      this.fsm.greetComplete();
-      this.onGreetingDone?.();
-    };
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -216,7 +211,6 @@ export class Island {
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
     this.lantern.el.id = "bot-lantern";
-    this.greetingCanvas = h("canvas", { id: "greeting-canvas" });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
 
@@ -241,7 +235,6 @@ export class Island {
     this.clipEl = h(
       "div",
       { id: "island-clip" },
-      this.greetingCanvas,
       this.uploadCanvas.el,
       this.contentEl,
     );
@@ -255,12 +248,6 @@ export class Island {
       this.countdown,
     );
 
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.greetingCanvas.width = Math.round(EXPANDED_W * dpr);
-    this.greetingCanvas.height = Math.round(150 * dpr);
-    this.greetingCanvas.style.width = `${EXPANDED_W}px`;
-    this.greetingCanvas.style.height = "150px";
-
     this.root.append(this.wakeStrip, this.islandEl);
     this.applyGeometry();
   }
@@ -270,14 +257,13 @@ export class Island {
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
     this.fsm.onTransition = (from, to) => {
-      // The greeting is over, however it ended: back to his desktop spot.
+      // The launch is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
       switch (to) {
         case "hidden":
           this.setMode("hidden");
           break;
         case "petit":
-          if (from === "coucou") this.greeting.interrupt();
           this.setMode("compact");
           if (from === "coucou") State.view = State.defaultView();
           if (!this.wasInIsland) this.fsm.mouseLeft();
@@ -290,8 +276,17 @@ export class Island {
           void refreshHookPills();
           break;
         case "coucou":
-          this.expand("greeting");
-          this.greeting.start();
+          // The launch: the compact pill with the lantern dark, then its flame
+          // lights (Lantern.ignite) and it settles into s-idle. This replaced
+          // upstream's greeting animation, which drew a placeholder character.
+          this.setMode("compact");
+          this.lantern.ignite();
+          if (this.igniteTimer != null) window.clearTimeout(this.igniteTimer);
+          this.igniteTimer = window.setTimeout(() => {
+            this.igniteTimer = null;
+            this.fsm.greetComplete();
+            this.onGreetingDone?.();
+          }, IGNITE_DARK_MS + IGNITE_MS);
           break;
       }
       State.notify();
@@ -584,7 +579,6 @@ export class Island {
     // the state-driven DOM sync.
     this.miniGrid.style.left = `${w - 40 - 14.5}px`;
     this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
-    this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
     const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
@@ -742,7 +736,6 @@ export class Island {
       y >= rect.y - HIT_MARGIN && y <= rect.y + rect.h + HIT_MARGIN;
 
     if (inIsland && !this.wasInIsland) {
-      if (this.fsm.state === "coucou") this.greeting.hover();
       this.fsm.mouseEntered();
     }
     if (!inIsland && this.wasInIsland) {
@@ -766,10 +759,10 @@ export class Island {
     this.ensureRunning();
   }
 
-  /** The greeting and the drop sequence draw a Mochi of their own: not that one. */
+  /** The drop sequence draws a character of its own: not that one. */
   private canDragOut(): boolean {
     if (State.mode === "hidden" || !this.desktop.canPickUp()) return false;
-    return !(State.mode === "expanded" && (State.view === "greeting" || this.uploadActive));
+    return !(State.mode === "expanded" && this.uploadActive);
   }
 
   private isBotHit(x: number, y: number): boolean {
@@ -854,26 +847,15 @@ export class Island {
     this.botCy.step(dt);
     this.botSize.step(dt);
 
-    const greetingActive = State.mode === "expanded" && State.view === "greeting";
-    if (greetingActive) {
-      const gctx = this.greetingCanvas.getContext("2d");
-      if (gctx) {
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
-        gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        this.greeting.draw(gctx);
-      }
-    } else {
-      // Kept running even while the drop canvas is up, so the island's own Mochi
-      // is already in the right place the moment the canvas fades out.
-      this.drawBot(dt);
-    }
+    // Kept running even while the drop canvas is up, so the island's own
+    // lantern is already in the right place the moment the canvas fades out.
+    this.drawBot(dt);
 
     const uploadActive = this.uploadActive;
     if (uploadActive) this.uploadCanvas.draw(UploadSeq.frame(), nowMs / 1000);
     this.uploadCanvas.el.classList.toggle("on", uploadActive);
     this.viewsEl.classList.toggle("hidden-by-upload", uploadActive);
 
-    tickMiniBots(dt);
     // A ticker scroll that loses its frames freezes mid-way, rows overlapping.
     const viewAnimating = this.views.get(State.view)?.tick?.(nowMs) === true;
     if (UploadSeq.isActive) this.stepSequence();
@@ -891,7 +873,7 @@ export class Island {
       ? settling
       : settling ||
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
-        greetingActive || this.engine.busy || UploadSeq.isActive || viewAnimating;
+        this.engine.busy || UploadSeq.isActive || viewAnimating;
 
     if (busy) {
       requestAnimationFrame(this.frame);
@@ -906,14 +888,13 @@ export class Island {
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
 
-    const greetingActive = State.mode === "expanded" && State.view === "greeting";
     // The drop canvas draws its own Mochi; two of them would overlap. Out on the
     // desktop, he isn't here at all.
     const away = State.mochiOnDesktop;
-    const visible = p.opacity > 0 && !greetingActive && !this.uploadActive && !away;
+    const visible = p.opacity > 0 && !this.uploadActive && !away;
     this.lantern.el.style.opacity = visible ? "1" : "0";
 
-    if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive && !away) {
+    if (State.mode === "expanded" && State.view !== "uploading" && !this.uploadActive && !away) {
       const d = p.diameter;
       const color = botGlowColor(State.effectiveState);
       this.botGlow.style.display = "block";
@@ -998,19 +979,12 @@ export class Island {
 
   private syncDom() {
     const expanded = State.mode === "expanded";
-    const greetingActive = expanded && State.view === "greeting";
-
-    const live = expanded && !greetingActive;
+    const live = expanded;
     this.contentEl.style.opacity = live ? "1" : "0";
     // While the drop sequence owns the body its buttons are painted on the canvas
     // underneath, so only the header may keep taking clicks up here.
     this.contentEl.style.pointerEvents = live && !this.uploadActive ? "auto" : "none";
     this.header.el.style.pointerEvents = live ? "auto" : "none";
-    this.greetingCanvas.style.display = greetingActive ? "block" : "none";
-
-    // Leaving the greeting, however it ends, lets its sound fade out.
-    if (this.greetingShown && !greetingActive) this.greeting.leave();
-    this.greetingShown = greetingActive;
 
     this.header.sync();
     for (const [name, view] of this.views) {
@@ -1042,13 +1016,13 @@ export class Island {
         this.miniGrid.dataset.key = key;
         this.miniGrid.replaceChildren();
         for (const t of others) {
-          this.miniGrid.append(createMiniBot(t, 13));
+          this.miniGrid.append(createMiniLantern(t, 13));
         }
-        pruneMiniBots();
+        pruneMiniLanterns();
       }
     }
 
-    syncMiniBotStates(State.tasks);
+    syncMiniLanterns(State.tasks);
     this.engine.setState(State.effectiveState);
   }
 
