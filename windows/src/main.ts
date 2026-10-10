@@ -71,6 +71,30 @@ async function main() {
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
   // Dev sessions only: `glim.exe --mascot-state <state|auto>` (see lib.rs).
   await onEvent<string>("mascot-force", (s) => island.forceLanternState(isLanternState(s) ? s : null));
+  // Dev sessions only: `glim.exe --dev-chat "<prompt>"` (see lib.rs). Connects
+  // Ollama exactly as Settings → Connect does when it isn't yet, then sends the
+  // prompt through the chat view's own input and Send button (DOM events inside
+  // this webview — nothing reaches the desktop).
+  await onEvent<string>("dev-chat", async (prompt) => {
+    const settings = State.settings;
+    if (!settings.ollamaUrl) {
+      const server = await Bridge.localConnect("ollama", "");
+      if (!server.models.length) return;
+      settings.ollamaUrl = server.url;
+      if (!server.models.includes(settings.chatModels.ollama ?? "")) {
+        settings.chatModels = { ...settings.chatModels, ollama: server.models[0] };
+      }
+      settings.chatProvider = "ollama";
+      await Bridge.saveSettings(settings);
+    }
+    island.alert("prompt");
+    await new Promise((r) => setTimeout(r, 600));
+    const input = document.querySelector<HTMLInputElement>(".chat-bar input");
+    const send = document.querySelector<HTMLButtonElement>(".chat-bar .send-btn");
+    if (!input || !send) return;
+    input.value = prompt;
+    send.click();
+  });
 
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {

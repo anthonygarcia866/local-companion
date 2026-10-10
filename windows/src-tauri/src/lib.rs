@@ -549,11 +549,38 @@ fn open_settings_window(app: AppHandle) {
 /// checking each state without touching the mouse or keyboard, so it only works
 /// when the running Glim was started with `GLIM_DEV=1` in its environment.
 fn dev_mascot_state(argv: &[String]) -> Option<String> {
-    if std::env::var_os("GLIM_DEV").is_none_or(|v| v != "1") {
+    dev_arg(argv, "--mascot-state")
+}
+
+/// `glim.exe --dev-chat "<prompt>"`: sends the prompt through the island's own
+/// chat view (connecting Ollama first, as Settings → Connect does, if it isn't
+/// yet), so the real chat path — chat view → `chat_send` → `local_chat` →
+/// `net::request` — can be exercised without typing. Dev only, like
+/// `--mascot-state`.
+fn dev_chat_prompt(argv: &[String]) -> Option<String> {
+    dev_arg(argv, "--dev-chat")
+}
+
+/// The value after `flag`, only when the running Glim was started with
+/// `GLIM_DEV=1`.
+fn dev_arg(argv: &[String], flag: &str) -> Option<String> {
+    if !dev_session() {
         return None;
     }
-    let at = argv.iter().position(|a| a == "--mascot-state")?;
+    let at = argv.iter().position(|a| a == flag)?;
     argv.get(at + 1).cloned()
+}
+
+/// `glim.exe --open-settings`: opens the Settings window directly, as the tray
+/// menu's "Settings…" does, for when the island can't be reached (it can end
+/// up on another display; see PROJECT_STATUS.md, open issues). Dev only.
+fn dev_open_settings(argv: &[String]) -> bool {
+    dev_session() && argv.iter().any(|a| a == "--open-settings")
+}
+
+/// The running Glim was started with `GLIM_DEV=1`.
+fn dev_session() -> bool {
+    std::env::var_os("GLIM_DEV").is_some_and(|v| v == "1")
 }
 
 pub fn run() {
@@ -573,6 +600,14 @@ pub fn run() {
             // settings run where we can't listen for keys ourselves (Wayland).
             if let Some(state) = dev_mascot_state(&argv) {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
+                return;
+            }
+            if dev_open_settings(&argv) {
+                show_settings_window(app);
+                return;
+            }
+            if let Some(prompt) = dev_chat_prompt(&argv) {
+                let _ = app.emit_to(island::WINDOW_LABEL, "dev-chat", prompt);
                 return;
             }
             match shortcuts::from_args(&argv) {

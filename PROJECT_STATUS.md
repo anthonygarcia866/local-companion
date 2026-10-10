@@ -56,6 +56,13 @@ A local-first Windows desktop companion.
 - Bundle identifier is `com.anthonygarcia.glim` (was `com.glim.app`, which made the bundler warn about the macOS `.app` extension).
 - `docs/brand/` artwork is all rights reserved; the code stays MIT (see `NOTICE.md`).
 
+## Open issues
+- **Dev switches stop working / island unreachable (seen 2026-10-09, not yet fixed).** Two separate observations, same session:
+  1. After a `--dev-chat` reply finished, the island folded to its hidden 300×8 strip at the top of the primary display, and further forwarded switches (`--dev-chat`, `--mascot-state think`, both known to work) had no visible effect: the island didn't reveal and no request reached Ollama. Glim stayed responsive. A restart fixed it. Cause unknown; the single-instance forwarding or the island's reveal path are the suspects.
+  2. Later the owner couldn't open the island at all. Glim was responsive, but its island window was at x −1272, y −58: top centre of DISPLAY1 (the 1536×960 screen left of the main one), although `screen` is `"primary"` and the primary display is DISPLAY3 at (0,0). At the 21:28 launch it had been on the primary display, so something moved it later; the `screen-changed` → `Bridge.reposition()` path picking the wrong monitor is the main suspect. Restarting put it back on the primary display.
+  - Workarounds: the tray icon's **Settings…** opens Settings without the island; in a dev session `glim.exe --open-settings` (GLIM_DEV=1) does the same from the command line.
+  - To do: reproduce (watch window position across display changes and after a chat), log the chosen monitor on every reposition, and make reveal-after-hidden robust.
+
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
@@ -107,7 +114,7 @@ Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of tr
 
   Not mapped: the emotes (love, surprised, proud, wink, yawn, happy, annoyed), the integration/plan body tint (`engine.bodyColor`), and the drop sequence's morph — the lantern ignores them.
 - **Still the placeholder** (not the notch, not in this PR): the desktop character window (`desktop/`), the per-session mini bots (`mochi/minibots.ts`), the greeting (`mochi/greeting.ts`), the drop sequence (`upload/canvas.ts`) and the recap image (`recap/share.ts`).
-- **Dev-only state switch:** start Glim with `GLIM_DEV=1` in its environment, then `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>` forwards to the running instance (single-instance plugin) and shows that state in the notch; `auto` follows the app again. Ignored without `GLIM_DEV=1`. No hotkey.
+- **Dev-only switches** (start Glim with `GLIM_DEV=1`; a second `glim.exe` forwards its arguments to the running instance; ignored without `GLIM_DEV=1`; no hotkeys): `--mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>` shows that lantern state (`auto` follows the app again); `--dev-chat "<prompt>"` connects Ollama as Settings → Connect does (if needed) and sends the prompt through the island's chat view (pass it as one quoted argument — `Start-Process -ArgumentList` with an array splits it into words); `--open-settings` opens the Settings window.
 - **Checks:** `npm run check:lantern` (`windows/dev/lantern-check.mjs`, headless Edge over the DevTools protocol, also in `windows-ci.yml`): 90 renders (9 states × full/compact × 5 frozen instants) compared with the design page pixel by pixel (≤ 2/255 rounding allowed, every exception printed; a visible change fails); `prefers-reduced-motion: reduce` emulated through the protocol stops every animation in every state; notch-size frames of the blinks and glances. Mutation-tested: a changed colour and a deleted reduced-motion rule both fail.
 
 ### Mascot verification (2026-10-09)
