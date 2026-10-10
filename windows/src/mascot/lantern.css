@@ -74,4 +74,22 @@
 .lantern .m2{animation-delay:1.6s}
 .lantern .m3{animation-delay:3.2s}
 @keyframes lantern-float{0%{opacity:0;transform:translateY(6px)}30%{opacity:.9}100%{opacity:0;transform:translateY(-14px)}}
+.lantern .drop{opacity:0;transform-box:fill-box;transform-origin:50% 0}
+.lantern.s-error .tone{filter:saturate(.55) brightness(.8)}
+.lantern.s-error .glow{opacity:.3}
+.lantern.s-error .flame-g{animation:lantern-shiver 2.2s ease-in-out infinite}
+@keyframes lantern-shiver{0%,100%{transform:scale(1,.86)}50%{transform:scale(.97,.82)}}
+.lantern.s-error .eye{transform:scale(.85,.8)}
+.lantern.s-error .brows{opacity:1}
+.lantern.s-error .brow-l{transform:translateY(-1.2px) rotate(-14deg)}
+.lantern.s-error .brow-r{transform:translateY(-1.2px) rotate(14deg)}
+.lantern.s-error .drop{animation:lantern-sweat 2.6s ease-in infinite}
+@keyframes lantern-sweat{0%{opacity:0;transform:translateY(-2px)}20%{opacity:1}75%{opacity:1;transform:translateY(5px)}100%{opacity:0;transform:translateY(7px)}}
+.lantern.s-done .glow{opacity:1}
+.lantern.s-done .eye,.lantern.s-done .hl{opacity:0}
+.lantern.s-done .happy{opacity:1}
+.lantern.s-done .flame-g{animation:lantern-hop 1.3s ease-in-out infinite}
+@keyframes lantern-hop{0%,100%{transform:translateY(0) scale(1)}35%{transform:translateY(-3px) scale(1.03,.97)}60%{transform:translateY(0) scale(.98,1.03)}}
+.lantern.compact.s-listen .eyes{animation-name:lantern-glance-c}
+@keyframes lantern-glance-c{0%,40%{transform:translateX(0) scaleY(1)}48%{transform:translateX(-2.6px) scaleY(1)}68%{transform:translateX(2.4px) scaleY(1)}86%{transform:translateX(0) scaleY(1)}90%{transform:translateX(0) scaleY(.1)}94%,100%{transform:translateX(0) scaleY(1)}}
 @media (prefers-reduced-motion: reduce){.lantern *{animation:none !important}}

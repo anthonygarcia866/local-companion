@@ -14,8 +14,10 @@
 //   `.compact …`, `.aura`, `.tw`, `.mote`, …) are scoped to `.lantern`, so they
 //   can't reach the rest of the app; each rule keeps its relative order, and
 //   every state/compact rule rises by the same specificity, so the cascade
-//   inside the lantern is unchanged. Keyframes get a `lantern-` prefix because
-//   the app already has a global `@keyframes pulse`.
+//   inside the lantern is unchanged. Keyframes get a `lantern-` prefix (unless
+//   the design already gave them one) because the app already has a global
+//   `@keyframes pulse`; references through `animation` and `animation-name`
+//   follow.
 // - SVG: the markup inside <svg> is kept verbatim except that every id
 //   (`lg-glow`, `lg-paper`, …) and every `url(#…)` pointing at one gets a
 //   `{ID}` suffix, which src/mascot/lantern.ts replaces per instance so two
@@ -68,14 +70,17 @@ export function portCss(html) {
   const end = style.indexOf("\n", media);
   const css = style.slice(first, end < 0 ? undefined : end);
 
+  // Keyframes the design already prefixed (`lantern-hop`) keep their name.
   const names = [...css.matchAll(/@keyframes ([a-z-]+)/g)].map((m) => m[1]);
+  const prefixed = (name) => (name.startsWith("lantern-") ? name : `lantern-${name}`);
+  // Both the shorthand and `animation-name:` (`.compact.s-listen .eyes`) name them.
   const rename = (text) =>
-    text.replace(/(animation:\s*)([a-z-]+)/g, (m, pre, name) => (names.includes(name) ? `${pre}lantern-${name}` : m));
+    text.replace(/(animation(?:-name)?:\s*)([a-z-]+)/g, (m, pre, name) => (names.includes(name) ? `${pre}${prefixed(name)}` : m));
 
   const out = [];
   for (const block of blocks(css)) {
     if (block.startsWith("@keyframes ")) {
-      out.push(block.replace(/^@keyframes ([a-z-]+)/, "@keyframes lantern-$1"));
+      out.push(block.replace(/^@keyframes ([a-z-]+)/, (m, name) => `@keyframes ${prefixed(name)}`));
     } else if (block.startsWith("@media")) {
       out.push(rename(block)); // `.lantern *{animation:none !important}`: already scoped
     } else {

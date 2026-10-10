@@ -3,7 +3,7 @@
 // scripts/port-lantern.mjs (lantern-svg.ts, lantern.css); this module only
 // instantiates them. Its look is the design's: don't restyle it here.
 //
-// - State is one class on the <svg>: s-idle … s-delegate. CSS transitions and
+// - State is one class on the <svg>: s-idle … s-error. CSS transitions and
 //   animations do all the motion; changing state is swapping that class.
 // - "compact" is added below COMPACT_BELOW_PX of rendered height (fewer
 //   details, bigger eyes), as the design specifies.
@@ -15,8 +15,30 @@
 import { LANTERN_IDS, LANTERN_MARKUP, LANTERN_VIEWBOX } from "./lantern-svg";
 import type { BotStateName } from "../core/layout";
 
-export const LANTERN_STATES = ["idle", "listen", "think", "suggest", "record", "paused", "delegate"] as const;
+export const LANTERN_STATES = [
+  "idle", "listen", "think", "suggest", "record", "paused", "delegate", "done", "error",
+] as const;
 export type LanternState = (typeof LANTERN_STATES)[number];
+
+/**
+ * States the design reserves, and the one feature allowed to show each
+ * (docs/brand/glim-mascot.html, CLAUDE.md): red s-record is screen recording
+ * only; s-delegate is Phase 3 data leaving the machine only. Neither feature
+ * exists yet, so no app state maps to them. They can only be shown through
+ * `Lantern.showReserved`, which names its owner; tests/lantern.test.mjs checks
+ * who calls it.
+ */
+export const RESERVED_LANTERN_STATES = {
+  record: "screen-recording",
+  delegate: "phase3-delegation",
+} as const;
+export type ReservedLanternState = keyof typeof RESERVED_LANTERN_STATES;
+/** Every state an app state may map to. */
+export type AppLanternState = Exclude<LanternState, ReservedLanternState>;
+
+export function isReservedLanternState(s: LanternState): s is ReservedLanternState {
+  return s in RESERVED_LANTERN_STATES;
+}
 
 export type LanternDetail = "full" | "notch";
 
@@ -63,15 +85,24 @@ export function lanternClass(state: LanternState, heightPx: number): string {
  * - idle → s-idle in the notch, s-listen when the island is open
  * - working, thinking, searching → s-think (an agent is busy)
  * - approval, question → s-suggest (waiting for your answer)
- * - finished → s-delegate (happy eyes, both hands up: done)
- * - error → s-record (the red hue and pulsing ring are the design's only alert)
- * - ratelimit, sleeping → s-paused (lantern dimmed, flame out)
+ * - finished → s-done (happy eyes, a hop)
+ * - error → s-error (dim, droopy, worried brows, a sweat drop; never red)
+ * - ratelimit → s-paused: the agent hit its usage limit and can't work until it
+ *   resets — "not working right now", dimmed with the flame out
+ * - sleeping → s-idle: nothing is blocked, Glim is just resting (only the
+ *   desktop character ever sets it, after a stretch with no agent activity);
+ *   s-idle's dozing eyes and slow breathing are that
  * - dizzy (the shake gag) → s-think (the swaying flame)
+ *
+ * Never s-record or s-delegate: those belong to features, not app states
+ * (RESERVED_LANTERN_STATES), and the return type excludes them.
  */
-export function lanternStateFor(state: BotStateName, open: boolean): LanternState {
+export function lanternStateFor(state: BotStateName, open: boolean): AppLanternState {
   switch (state) {
     case "idle":
       return open ? "listen" : "idle";
+    case "sleeping":
+      return "idle";
     case "working":
     case "thinking":
     case "searching":
@@ -81,11 +112,10 @@ export function lanternStateFor(state: BotStateName, open: boolean): LanternStat
     case "question":
       return "suggest";
     case "finished":
-      return "delegate";
+      return "done";
     case "error":
-      return "record";
+      return "error";
     case "ratelimit":
-    case "sleeping":
       return "paused";
   }
 }
@@ -100,7 +130,7 @@ export class Lantern {
   private stateName: LanternState;
   private heightPx = 0;
 
-  constructor(opts: { detail: LanternDetail; state?: LanternState; heightPx?: number }) {
+  constructor(opts: { detail: LanternDetail; state?: AppLanternState; heightPx?: number }) {
     this.uid = `g${++instances}`;
     this.stateName = opts.state ?? "idle";
     this.el = document.createElementNS(SVG_NS, "svg");
@@ -114,7 +144,22 @@ export class Lantern {
     return this.stateName;
   }
 
-  set state(next: LanternState) {
+  /** Shows an app state. Reserved states can't be passed here. */
+  show(next: AppLanternState) {
+    this.set(next);
+  }
+
+  /**
+   * Shows a reserved state, for its owner only: `record` for screen recording,
+   * `delegate` for Phase 3 delegation, either for the dev preview switch
+   * (`--mascot-state`). tests/lantern.test.mjs fails on any other caller.
+   */
+  showReserved<S extends ReservedLanternState>(state: S, owner: (typeof RESERVED_LANTERN_STATES)[S] | "dev-preview") {
+    void owner;
+    this.set(state);
+  }
+
+  private set(next: LanternState) {
     if (next === this.stateName) return;
     this.stateName = next;
     this.apply();

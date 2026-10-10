@@ -543,7 +543,7 @@ fn open_settings_window(app: AppHandle) {
     show_settings_window(&app);
 }
 
-/// `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|auto>`,
+/// `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>`,
 /// forwarded to the running Glim by the single-instance plugin: shows the
 /// lantern in that state (`auto` follows the app again). A dev tool for
 /// checking each state without touching the mouse or keyboard, so it only works

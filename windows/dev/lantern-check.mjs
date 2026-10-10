@@ -29,7 +29,7 @@ import { portSvg } from "../scripts/port-lantern.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const DESIGN = resolve(here, "../../docs/brand/glim-mascot.html");
 const CSS = resolve(here, "../src/mascot/lantern.css");
-const STATES = ["idle", "listen", "think", "suggest", "record", "paused", "delegate"];
+const STATES = ["idle", "listen", "think", "suggest", "record", "paused", "delegate", "done", "error"];
 /** Largest per-channel difference (of 255) still counted as the same pixel.
  * Chromium's blur under a running brightness filter (s-idle) isn't bit-stable
  * from frame to frame: renders of the very same page differ by 1 now and then. */
@@ -208,6 +208,7 @@ async function main() {
       ["listen-rest", "listen", 0], ["listen-glance-left", "listen", 2400], ["listen-glance-right", "listen", 3400],
       ["listen-blink", "listen", 4500], ["idle-doze", "idle", 1800], ["think-ponder", "think", 1440],
       ["think-blink", "think", 1600], ["suggest-blink", "suggest", 2040], ["record-blink", "record", 5850],
+      ["done-rest", "done", 0], ["done-hop", "done", 455], ["error-rest", "error", 0], ["error-sweat", "error", 1950],
     ];
     for (const [name, state, at] of frames) {
       const r = await setUp(state, true, at, true);

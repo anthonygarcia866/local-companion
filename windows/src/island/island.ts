@@ -28,6 +28,7 @@ import {
   LANTERN_DRAWN_TOP,
   LANTERN_HEIGHT_PER_DIAMETER,
   Lantern,
+  isReservedLanternState,
   lanternStateFor,
   type LanternState,
 } from "../mascot/lantern";
@@ -962,7 +963,9 @@ export class Island {
     el.style.left = `${this.botCx.value - 50 * unit}px`;
     el.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
     this.lantern.setHeight(hPx);
-    this.lantern.state = this.forcedLantern ?? lanternStateFor(this.engine.state, State.mode === "expanded");
+    const forced = this.forcedLantern;
+    if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
+    else this.lantern.show(forced ?? lanternStateFor(this.engine.state, State.mode === "expanded"));
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */
