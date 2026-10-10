@@ -608,6 +608,9 @@ fn create_capture_panel(app: &AppHandle) {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
+        // tao keeps WS_EX_NOACTIVATE only through its own FOCUSABLE flag; set
+        // behind its back it is wiped on the next restyle (as the island's was).
+        .focusable(false)
         .visible(true)
         .build()
     {
