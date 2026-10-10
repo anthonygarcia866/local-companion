@@ -120,6 +120,25 @@ export function lanternStateFor(state: BotStateName, open: boolean): AppLanternS
   }
 }
 
+/** How long the attention pop lasts (the design's `.pop`: 400 ms). */
+export const POP_MS = 450;
+/** The startup ignite: dark for IGNITE_DARK_MS, then the flame lights over
+ *  the design's 800 ms `.ignite`. */
+export const IGNITE_DARK_MS = 300;
+export const IGNITE_MS = 850;
+
+/**
+ * Whether a state change gets the attention pop. Every change does except
+ * idle ↔ listen (the island opening and closing: far too frequent), and
+ * s-record has its own stronger, repeating cue (`pop-record`) instead.
+ */
+export function shouldPop(prev: LanternState, next: LanternState): boolean {
+  if (prev === next) return false;
+  if (next === "record") return false;
+  const calm = new Set<LanternState>(["idle", "listen"]);
+  return !(calm.has(prev) && calm.has(next));
+}
+
 let instances = 0;
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -129,6 +148,11 @@ export class Lantern {
   readonly uid: string;
   private stateName: LanternState;
   private heightPx = 0;
+  /** Classes on top of the state: "pop", "pop-record", "ignite". */
+  private extra = new Set<string>();
+  private popTimer = 0;
+  /** While igniting, app states wait: the startup sequence plays out first. */
+  private igniting = false;
 
   constructor(opts: { detail: LanternDetail; state?: AppLanternState; heightPx?: number }) {
     this.uid = `g${++instances}`;
@@ -146,6 +170,7 @@ export class Lantern {
 
   /** Shows an app state. Reserved states can't be passed here. */
   show(next: AppLanternState) {
+    if (this.igniting) return;
     this.set(next);
   }
 
@@ -159,10 +184,47 @@ export class Lantern {
     this.set(state);
   }
 
+  /** The startup sequence: dark (s-paused), then the flame lights and the
+   *  lantern settles into s-idle. App states resume afterwards. */
+  ignite() {
+    this.igniting = true;
+    this.stateName = "paused";
+    this.extra.clear();
+    this.apply();
+    window.setTimeout(() => {
+      this.stateName = "idle";
+      this.extra.add("ignite");
+      this.apply();
+      window.setTimeout(() => {
+        this.extra.delete("ignite");
+        this.igniting = false;
+        this.apply();
+      }, IGNITE_MS);
+    }, IGNITE_DARK_MS);
+  }
+
   private set(next: LanternState) {
     if (next === this.stateName) return;
+    const prev = this.stateName;
     this.stateName = next;
+    if (next === "record") this.extra.add("pop-record");
+    else this.extra.delete("pop-record");
+    if (shouldPop(prev, next)) this.pop();
     this.apply();
+  }
+
+  /** The attention pop: a brief bounce and glow flare, then it settles. */
+  private pop() {
+    window.clearTimeout(this.popTimer);
+    // Restart the animation even if a pop is still running.
+    this.extra.delete("pop");
+    this.apply();
+    void this.el.getBoundingClientRect();
+    this.extra.add("pop");
+    this.popTimer = window.setTimeout(() => {
+      this.extra.delete("pop");
+      this.apply();
+    }, POP_MS);
   }
 
   /** The <svg>'s rendered height in CSS pixels; picks compact or not. */
@@ -172,7 +234,8 @@ export class Lantern {
   }
 
   private apply() {
-    const cls = lanternClass(this.stateName, this.heightPx);
+    const extra = [...this.extra].join(" ");
+    const cls = lanternClass(this.stateName, this.heightPx) + (extra ? ` ${extra}` : "");
     if (this.el.getAttribute("class") !== cls) this.el.setAttribute("class", cls);
   }
 }

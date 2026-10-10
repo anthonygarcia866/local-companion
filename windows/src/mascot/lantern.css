@@ -92,4 +92,17 @@
 @keyframes lantern-hop{0%,100%{transform:translateY(0) scale(1)}35%{transform:translateY(-3px) scale(1.03,.97)}60%{transform:translateY(0) scale(.98,1.03)}}
 .lantern.compact.s-listen .eyes{animation-name:lantern-glance-c}
 @keyframes lantern-glance-c{0%,40%{transform:translateX(0) scaleY(1)}48%{transform:translateX(-2.6px) scaleY(1)}68%{transform:translateX(2.4px) scaleY(1)}86%{transform:translateX(0) scaleY(1)}90%{transform:translateX(0) scaleY(.1)}94%,100%{transform:translateX(0) scaleY(1)}}
+.lantern.pop{transform-origin:50% 55%;animation:lantern-pop .4s cubic-bezier(.3,1.4,.5,1)}
+@keyframes lantern-pop{0%{transform:scale(1)}40%{transform:scale(1.15)}100%{transform:scale(1)}}
+.lantern.pop .glow{animation:lantern-pop-flare .4s ease-out}
+@keyframes lantern-pop-flare{0%{opacity:.6}35%{opacity:1}100%{opacity:.8}}
+.lantern.pop-record{transform-origin:50% 55%;animation:lantern-pop-record 1.2s ease-in-out infinite}
+@keyframes lantern-pop-record{0%,100%{transform:scale(1)}15%{transform:scale(1.2)}30%{transform:scale(1)}45%{transform:scale(1.12)}60%{transform:scale(1)}}
+.lantern.ignite .flame-g{animation:lantern-ignite .8s ease-out}
+@keyframes lantern-ignite{0%{opacity:0;transform:scale(.2)}55%{opacity:1;transform:scale(1.12)}100%{opacity:1;transform:scale(1)}}
+.lantern.ignite .glow{animation:lantern-ignite-glow .8s ease-out}
+@keyframes lantern-ignite-glow{0%{opacity:0}100%{opacity:.4}}
+.lantern.ignite .tone{animation:lantern-ignite-tone .8s ease-out}
+@keyframes lantern-ignite-tone{0%{filter:grayscale(1) brightness(.55)}100%{filter:brightness(.85)}}
+@media (prefers-reduced-motion: reduce){.lantern.pop,.lantern.pop-record{animation:none}.lantern.pop .glow,.lantern.pop-record .glow{opacity:1}}
 @media (prefers-reduced-motion: reduce){.lantern *{animation:none !important}}

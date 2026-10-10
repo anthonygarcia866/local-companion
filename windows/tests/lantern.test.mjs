@@ -17,6 +17,7 @@ import {
   lanternIds,
   lanternMarkup,
   lanternStateFor,
+  shouldPop,
 } from "../src/mascot/lantern.ts";
 
 const WINDOWS = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,6 +59,31 @@ test("the CSS has a rule for each of the nine states, compact, and reduced motio
     if (!rule || rule.startsWith("@")) continue;
     for (const sel of rule.slice(0, rule.indexOf("{")).split(",")) assert.ok(sel.startsWith(".lantern"), sel);
   }
+});
+
+test("the pop, the recording cue and the ignite are separate classes, still under reduced motion", () => {
+  const css = read("src/mascot/lantern.css");
+  for (const cls of ["pop", "pop-record", "ignite"]) assert.match(css, new RegExp(`\\.lantern\\.${cls}[{ ]`), cls);
+  // About 1.15x over about 400 ms, as asked.
+  assert.match(css, /\.lantern\.pop\{[^}]*animation:lantern-pop \.4s/);
+  assert.match(css, /@keyframes lantern-pop\{[^\n]*scale\(1\.15\)/);
+  // Reduced motion: no bounce, the glow alone changes.
+  assert.ok(css.includes("@media (prefers-reduced-motion: reduce){.lantern.pop,.lantern.pop-record{animation:none}"));
+  // The approved state rules don't mention them: the classes only add.
+  for (const rule of css.split("\n")) {
+    if (/\.s-[a-z]+/.test(rule)) assert.ok(!/\.(pop|ignite)\b/.test(rule), rule);
+  }
+});
+
+test("every state change pops except idle and listen, and recording has its own cue", () => {
+  assert.equal(shouldPop("idle", "listen"), false);
+  assert.equal(shouldPop("listen", "idle"), false);
+  assert.equal(shouldPop("idle", "idle"), false);
+  for (const [a, b] of [["idle", "think"], ["listen", "suggest"], ["think", "done"], ["think", "error"], ["done", "idle"], ["paused", "idle"]]) {
+    assert.equal(shouldPop(a, b), true, `${a} -> ${b}`);
+  }
+  // s-record repeats its stronger cue instead of a one-off pop.
+  assert.equal(shouldPop("idle", "record"), false);
 });
 
 test("ids are unique per instance and every reference follows", () => {
