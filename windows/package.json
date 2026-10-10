@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "predev": "cargo build --release -p glim-hook",
     "prebuild": "cargo build --release -p glim-hook",
-    "pack": "tauri build && node scripts/pack.mjs"
+    "pack": "tauri build && node scripts/pack.mjs",
+    "check:lantern": "node dev/lantern-check.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

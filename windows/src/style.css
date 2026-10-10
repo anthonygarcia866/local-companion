@@ -87,7 +87,7 @@ body {
   border-radius: inherit;
 }
 
-#bot-canvas,
+#bot-lantern,
 #greeting-canvas {
   position: absolute;
   pointer-events: none;

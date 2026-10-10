@@ -1,9 +1,12 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Glim mascot (approved)</title>
 <!--
-Glim mascot - approved design, reference implementation.
-- One SVG; state = one class on the <svg>: s-idle, s-listen, s-think, s-suggest, s-record, s-paused, s-delegate
-- Add class "compact" for sizes under 48px (hides ribs, embers, face details, hands, brows; enlarges eyes).
+Glim mascot - approved design, reference implementation. Source of truth.
+- One SVG; state = one class on the <svg>: s-idle, s-listen, s-think, s-suggest, s-record, s-paused, s-delegate, s-done, s-error
+- RED IS RESERVED FOR s-record (screen recording). No other app state may map to s-record.
+- s-delegate is reserved for Phase 3 (data leaving the machine after approval). Do not use it for "finished"; use s-done.
+- s-error = dim, droopy, worried brows, sweat drop. Never red.
+- Add class "compact" for sizes under 48px (hides ribs, embers, face details, hands, brows; enlarges eyes; wider listen glance).
 - The "aura" and "twinkles" groups (ribbons + sparkles) are for large/icon contexts only; remove them in the notch sprite.
 - Respects prefers-reduced-motion.
 -->
@@ -84,6 +87,24 @@ button{font:inherit;padding:8px 14px;border-radius:999px;border:1px solid #9a6a4
 .mote{transform-box:fill-box;animation:float 5s ease-in-out infinite}
 .m2{animation-delay:1.6s}.m3{animation-delay:3.2s}
 @keyframes float{0%{opacity:0;transform:translateY(6px)}30%{opacity:.9}100%{opacity:0;transform:translateY(-14px)}}
+.lantern .drop{opacity:0;transform-box:fill-box;transform-origin:50% 0}
+.s-error .tone{filter:saturate(.55) brightness(.8)}
+.s-error .glow{opacity:.3}
+.s-error .flame-g{animation:lantern-shiver 2.2s ease-in-out infinite}
+@keyframes lantern-shiver{0%,100%{transform:scale(1,.86)}50%{transform:scale(.97,.82)}}
+.s-error .eye{transform:scale(.85,.8)}
+.s-error .brows{opacity:1}
+.s-error .brow-l{transform:translateY(-1.2px) rotate(-14deg)}
+.s-error .brow-r{transform:translateY(-1.2px) rotate(14deg)}
+.s-error .drop{animation:lantern-sweat 2.6s ease-in infinite}
+@keyframes lantern-sweat{0%{opacity:0;transform:translateY(-2px)}20%{opacity:1}75%{opacity:1;transform:translateY(5px)}100%{opacity:0;transform:translateY(7px)}}
+.s-done .glow{opacity:1}
+.s-done .eye,.s-done .hl{opacity:0}
+.s-done .happy{opacity:1}
+.s-done .flame-g{animation:lantern-hop 1.3s ease-in-out infinite}
+@keyframes lantern-hop{0%,100%{transform:translateY(0) scale(1)}35%{transform:translateY(-3px) scale(1.03,.97)}60%{transform:translateY(0) scale(.98,1.03)}}
+.compact.s-listen .eyes{animation-name:glance-c}
+@keyframes glance-c{0%,40%{transform:translateX(0) scaleY(1)}48%{transform:translateX(-2.6px) scaleY(1)}68%{transform:translateX(2.4px) scaleY(1)}86%{transform:translateX(0) scaleY(1)}90%{transform:translateX(0) scaleY(.1)}94%,100%{transform:translateX(0) scaleY(1)}}
 @media (prefers-reduced-motion: reduce){.lantern *{animation:none !important}}
 
 </style></head><body>
@@ -132,10 +153,10 @@ button{font:inherit;padding:8px 14px;border-radius:999px;border:1px solid #9a6a4
 <rect x="32" y="95" width="36" height="10" rx="4" fill="#4c2f20" stroke="#9a6a48" stroke-width="1"></rect>
 </g>
 <path class="spark" d="M62 34 L63.5 38.5 L68 40 L63.5 41.5 L62 46 L60.5 41.5 L56 40 L60.5 38.5Z" fill="#fff4c2"></path>
-<path class="lift" d="M50 15 L51.3 18.7 L55 20 L51.3 21.3 L50 25 L48.7 21.3 L45 20 L48.7 18.7Z" fill="#fff4c2"></path>
+<path class="lift" d="M50 15 L51.3 18.7 L55 20 L51.3 21.3 L50 25 L48.7 21.3 L45 20 L48.7 18.7Z" fill="#fff4c2"></path><path class="drop" d="M64 56 C64 56 60.6 60.4 60.6 62.6 C60.6 64.5 62.1 66 64 66 C65.9 66 67.4 64.5 67.4 62.6 C67.4 60.4 64 56 64 56Z" fill="#cfe9ff" stroke="#7fb4e0" stroke-width="0.6"></path>
 </svg>
-<div class="controls"><button onclick="setState('s-idle')">idle</button><button onclick="setState('s-listen')">listen</button><button onclick="setState('s-think')">think</button><button onclick="setState('s-suggest')">suggest</button><button onclick="setState('s-record')">record</button><button onclick="setState('s-paused')">paused</button><button onclick="setState('s-delegate')">delegate</button><button onclick="document.getElementById('glim').classList.toggle('compact')">toggle compact</button></div>
+<div class="controls"><button onclick="setState('s-idle')">idle</button><button onclick="setState('s-listen')">listen</button><button onclick="setState('s-think')">think</button><button onclick="setState('s-suggest')">suggest</button><button onclick="setState('s-record')">record</button><button onclick="setState('s-paused')">paused</button><button onclick="setState('s-delegate')">delegate</button><button onclick="setState('s-done')">done</button><button onclick="setState('s-error')">error</button><button onclick="document.getElementById('glim').classList.toggle('compact')">toggle compact</button></div>
 <script>
-function setState(s){const el=document.getElementById('glim');el.classList.remove('s-idle','s-listen','s-think','s-suggest','s-record','s-paused','s-delegate');el.classList.add(s);}
+function setState(s){const el=document.getElementById('glim');el.classList.remove('s-idle','s-listen','s-think','s-suggest','s-record','s-paused','s-delegate','s-done','s-error');el.classList.add(s);}
 </script>
 </body></html>
