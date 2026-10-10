@@ -70,7 +70,7 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 export function buildRecap(actions: ViewActions): ViewHost {
   const card = h("div", { class: "card wash recap-card" });
-  card.style.setProperty("--wash", washRGBA("indigo"));
+  card.style.setProperty("--wash", washRGBA("ember"));
   const el = h("div", { class: "view" }, card);
 
   let built = -1;

@@ -15,7 +15,8 @@ const MONO = `"Cascadia Mono", "Consolas", "DejaVu Sans Mono", ui-monospace, mon
 
 const INK = "#F1F2F4";
 const DIM = "#8E939C";
-const INDIGO_TEXT = "#818CF8";
+/** Glim's amber (was upstream's indigo). */
+const EMBER_TEXT = "#FFB347";
 
 /** Strings drawn into the image, in the current language (src/i18n). */
 const T = {
@@ -151,12 +152,12 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
   const W = SHARE_W;
   const cx = W / 2;
 
-  // Background: near-black with an indigo glow low in the frame.
+  // Background: near-black with a warm amber glow low in the frame.
   x.fillStyle = "#0B0C0E";
   x.fillRect(0, 0, W, SHARE_H);
   const glow = x.createRadialGradient(cx, SHARE_H * 0.75, 0, cx, SHARE_H * 0.75, 900);
-  glow.addColorStop(0, "rgba(99,102,241,0.30)");
-  glow.addColorStop(0.65, "rgba(99,102,241,0)");
+  glow.addColorStop(0, "rgba(255,179,71,0.22)");
+  glow.addColorStop(0.65, "rgba(255,179,71,0)");
   x.fillStyle = glow;
   x.fillRect(0, 0, W, SHARE_H);
 
@@ -199,7 +200,7 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
   x.fillText(T.title, cx, y);
   y += 36 + 14;
 
-  x.fillStyle = INDIGO_TEXT;
+  x.fillStyle = EMBER_TEXT;
   font(x, 400, 24);
   x.fillText(weekRangeLabel(s), cx, y);
   y += 29 + 80;

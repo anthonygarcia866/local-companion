@@ -199,10 +199,12 @@ export function botGlowColor(s: BotStateName): string {
   switch (s) {
     case "working":
       return "#3B9EFF";
+    // Thinking and searching glow in Glim's own amber (they were purple and
+    // indigo, upstream's palette).
     case "thinking":
-      return "#A78BFA";
+      return "#FFB347";
     case "searching":
-      return "#6366F1";
+      return "#FFB347";
     case "approval":
       return "#F5A524";
     case "error":
@@ -257,7 +259,7 @@ export function colorForProject(name: string): string {
 }
 
 // Card wash colours (CardBackground.washColor)
-export type Wash = "red" | "green" | "pink" | "amber" | "cyan" | "indigo" | "soft" | null;
+export type Wash = "red" | "green" | "pink" | "amber" | "cyan" | "ember" | "soft" | null;
 
 export function washRGBA(wash: Wash): string {
   switch (wash) {
@@ -271,8 +273,9 @@ export function washRGBA(wash: Wash): string {
       return "rgba(245,165,36,0.42)";
     case "cyan":
       return "rgba(34,211,238,0.38)";
-    case "indigo":
-      return "rgba(99,102,241,0.5)";
+    // Glim's warm amber (#FFB347) at low opacity; was upstream's indigo.
+    case "ember":
+      return "rgba(255,179,71,0.22)";
     case "soft":
       return "rgba(255,255,255,0.08)";
     default:

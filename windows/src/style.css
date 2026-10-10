@@ -29,7 +29,6 @@
   --green-2: #34d399;
   --amber: #f5a524;
   --cyan: #22d3ee;
-  --indigo: #6366f1;
   --pink: #f472b6;
 }
 
@@ -963,7 +962,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b5b, #f7b32b, #2dd4a7, #38bdf8, #a78bfa);
+  background: linear-gradient(135deg, #ff6b5b, #f7b32b, #2dd4a7, #38bdf8, #ffb347);
 }
 
 .chat-log {
@@ -2159,7 +2158,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ── Weekly recap ───────────────────────────────────────────────────────── */
-/* WeeklyRecapCardView: text from x = 116, indigo wash, chips of 17 px values. */
+/* WeeklyRecapCardView: text from x = 116, amber wash, chips of 17 px values. */
 
 .recap-stack {
   padding: 4px 16px 4px 116px;
@@ -2174,7 +2173,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .recap-title {
   font: 600 11px var(--font);
-  color: #818cf8;
+  color: #ffb347;
 }
 
 .recap-range {
@@ -2260,7 +2259,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .recap-link {
-  color: #818cf8;
+  color: #ffb347;
   padding: 0;
 }
 

@@ -13,6 +13,7 @@ import { Bridge, onEvent, type ChatContext, type ModelInfo } from "../core/bridg
 import {
   activeModel, pickModel, providerDef, visibleProviders, withModel, type ProviderDef,
 } from "../core/providers";
+import { washRGBA } from "../core/layout";
 import { State, type ChatMessage } from "../core/state";
 import type { ViewHost } from "./views";
 import { N_, t, tl } from "../i18n/i18n";
@@ -214,7 +215,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   body.append(chipRow, log, picker.el, modelRow, bar);
 
   const el = h("div", { class: "view" }, h("div", { class: "card wash chat-card" }, body));
-  (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
+  // The glow behind the chat input: Glim's amber at low opacity (was indigo).
+  (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", washRGBA("ember"));
 
   let sending = false;
   let renderedCount = -1;
