@@ -2344,3 +2344,57 @@ html[data-presence="hidden"] :is(#island, #wake-strip) {
 @media (prefers-reduced-motion: reduce) {
   .ember-dot { animation: none; }
 }
+
+/* ── The lantern's right-click menu (island/menu.ts) ────────────────────── */
+
+#lantern-menu {
+  position: fixed;
+  width: 196px;
+  padding: 5px;
+  border-radius: 10px;
+  background: #141414;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+}
+
+#lantern-menu[hidden],
+html:not([data-presence="pill"]) #lantern-menu {
+  display: none;
+}
+
+#lantern-menu .menu-item {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+#lantern-menu .menu-item:hover {
+  background: rgba(255, 179, 71, 0.16);
+}
+
+#lantern-menu .menu-item.on::after {
+  content: "✓";
+  float: inline-end;
+  color: #ffb347;
+}
+
+#lantern-menu .menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#lantern-menu .menu-head {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  color: var(--dim-2);
+}

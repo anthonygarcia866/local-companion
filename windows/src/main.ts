@@ -82,7 +82,9 @@ async function main() {
   if (placed && isDock(placed.dock)) island.setDock(placed.dock);
   // Pill, ember, hidden or the recording indicator (presence.rs decides).
   await onEvent<{ kind: string }>("presence", ({ kind }) => {
-    if (isPresenceKind(kind)) presence.apply(kind);
+    if (!isPresenceKind(kind)) return;
+    if (kind !== "pill") island.closeMenu();
+    presence.apply(kind);
   });
   const shown = await Bridge.presenceInfo();
   if (shown && isPresenceKind(shown.kind)) presence.apply(shown.kind);

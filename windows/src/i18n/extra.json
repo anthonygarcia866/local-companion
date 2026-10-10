@@ -2429,6 +2429,39 @@
    "pt-BR": "Minimizar",
    "ru": "Свернуть",
    "id": "Perkecil"
+  },
+  "Hide": {
+   "zh-Hans": "隐藏",
+   "hi": "छिपाएँ",
+   "es": "Ocultar",
+   "ar": "إخفاء",
+   "fr": "Masquer",
+   "bn": "লুকান",
+   "pt-BR": "Ocultar",
+   "ru": "Скрыть",
+   "id": "Sembunyikan"
+  },
+  "Ember": {
+   "zh-Hans": "余烬",
+   "hi": "अंगारा",
+   "es": "Brasa",
+   "ar": "جمرة",
+   "fr": "Braise",
+   "bn": "অঙ্গার",
+   "pt-BR": "Brasa",
+   "ru": "Уголёк",
+   "id": "Bara"
+  },
+  "Dock position": {
+   "zh-Hans": "停靠位置",
+   "hi": "डॉक स्थिति",
+   "es": "Posición de anclaje",
+   "ar": "موضع الإرساء",
+   "fr": "Position d'ancrage",
+   "bn": "ডকের অবস্থান",
+   "pt-BR": "Posição de encaixe",
+   "ru": "Положение",
+   "id": "Posisi dok"
   }
  }
 }

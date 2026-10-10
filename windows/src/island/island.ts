@@ -22,6 +22,7 @@ import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
+import { LanternMenu } from "./menu";
 import {
   LANTERN_DRAWN_BOTTOM,
   LANTERN_DRAWN_TOP,
@@ -89,6 +90,14 @@ export class Island {
   private wasInIsland = false;
   /** Last shape handed to Rust for the click-through test. */
   private pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+  /** The right-click menu's rect while it is open: it takes the mouse too. */
+  private menuRect: { x: number; y: number; w: number; h: number } | null = null;
+  private menu = new LanternMenu({
+    setMenuRect: (r) => {
+      this.menuRect = r;
+      this.applyGeometry();
+    },
+  });
 
   // Bot hover → love (IslandWindowController.botHoverIn)
   private botHovering = false;
@@ -252,7 +261,7 @@ export class Island {
       this.countdown,
     );
 
-    this.root.append(this.wakeStrip, this.islandEl);
+    this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
     this.applyGeometry();
   }
 
@@ -389,6 +398,11 @@ export class Island {
 
   reveal() {
     this.fsm.reveal();
+  }
+
+  /** The right-click menu, closed (Glim went to the ember or hid). */
+  closeMenu() {
+    this.menu.close();
   }
 
   /**
@@ -594,9 +608,19 @@ export class Island {
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.placeWakeStrip();
 
-    const rect = { x: frame.x, y: frame.y, w, h: hh };
+    let rect = { x: frame.x, y: frame.y, w, h: hh };
+    const m = this.menuRect;
+    if (m) {
+      const x0 = Math.min(rect.x, m.x);
+      const y0 = Math.min(rect.y, m.y);
+      rect = {
+        x: x0, y: y0,
+        w: Math.max(rect.x + rect.w, m.x + m.w) - x0,
+        h: Math.max(rect.y + rect.h, m.y + m.h) - y0,
+      };
+    }
     const p = this.pushedRect;
-    if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
+    if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.y - rect.y) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
       void Bridge.setIslandRect(rect.x, rect.y, rect.w, rect.h);
     }
@@ -669,7 +693,8 @@ export class Island {
         // The closed pill: a press may become a drag to another dock; a
         // release before that opens the island (see mouseup below).
         if (e.button === 0) this.dockPress = { x: e.clientX, y: e.clientY };
-        else this.fsm.click();
+        // A right press is the menu's (contextmenu below), not an open.
+        else if (e.button !== 2) this.fsm.click();
         return;
       }
       // A press on Mochi may become a drag out to the desktop.
@@ -682,10 +707,14 @@ export class Island {
       }
     });
 
-    // No browser menu over the character. Everywhere else (the chat field) the
+    // Right-click the lantern (anywhere on the closed pill, or the lantern in
+    // the open island): Glim's menu. Everywhere else (the chat field) the
     // webview keeps its own menu.
     this.islandEl.addEventListener("contextmenu", (e) => {
-      if (this.isBotHit(e.clientX, e.clientY)) e.preventDefault();
+      if (State.mode === "expanded" && !this.isBotHit(e.clientX, e.clientY)) return;
+      e.preventDefault();
+      this.dockPress = null;
+      this.menu.show(e.clientX, e.clientY, State.dock);
     });
 
     // Dragging Mochi out of the island puts him on the desktop.
@@ -776,6 +805,10 @@ export class Island {
     if (this.pointerInside === false) {
       x = -10_000;
       y = -10_000;
+    }
+    if (this.menu.isOpen) {
+      const r = this.islandRect();
+      this.menu.onCursor(x, y, x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
     }
     State.mouse = { x, y };
     const rect = this.islandRect();
