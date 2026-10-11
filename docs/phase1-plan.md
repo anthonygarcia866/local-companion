@@ -1,6 +1,6 @@
 # Phase 1 — writing assistant: plan
 
-Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a merged 2026-10-11 (PR #9). **§7 (1b, applying fixes) is a new design waiting for the owner's review**; no 1b code until then. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
+Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a merged 2026-10-11 (PR #9). **§7 (1b, applying fixes) approved by the owner 2026-10-11** with the answers in §7.9; 1b-apply is being built on `phase-1b-apply`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
 
 If a step here turns out wrong while building, this file gets a warning note next to that step; the code is not quietly worked around it.
 
@@ -148,7 +148,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
 
 ## 7. Write-back (1b)
 
-Status: **design, waiting for the owner's review (2026-10-11).** No 1b code until it is approved. This section replaces the four-line sketch that was here. 1b types into the owner's real apps, so it is written to **fail closed**: at each step it either proves the text is what was checked or does nothing.
+Status: **approved by the owner 2026-10-11** (answers in §7.9); built as **1b-apply** on `phase-1b-apply`, the bubble (§7a) follows as its own PR. This section replaces the four-line sketch that was here. 1b types into the owner's real apps, so it is written to **fail closed**: at each step it either proves the text is what was checked or does nothing.
 
 ### 7.1 The rules (all of them, every apply)
 
@@ -157,7 +157,7 @@ Status: **design, waiting for the owner's review (2026-10-11).** No 1b code unti
 3. **Only into the field it came from**, and only while that field still has focus. Glim never moves focus or brings a window forward to apply a fix.
 4. **Only if the text is unchanged.** The field is read again and the checked paragraph must still be there, word for word, before anything is selected; the selection is read back before anything is typed; the result is read back after.
 5. **Every PR #8 rule runs again at apply time** on the field as it is now, not as it was when it was checked (§7.5).
-6. **Native undo only.** Glim types the replacement over a selection with `SendInput`, the same as the user typing it, so the app's own Ctrl+Z undoes it. Never `ValuePattern.SetValue` (bypasses undo; many apps replace the whole field), never the clipboard (unless 7.7's fallback is chosen), never a scripted Ctrl+Z.
+6. **Native undo only.** Glim types the replacement over a selection with `SendInput`, the same as the user typing it, so the app's own Ctrl+Z undoes it. Never `ValuePattern.SetValue` (bypasses undo; many apps replace the whole field), never the clipboard (except the Copy button of §7.7, which the user clicks), never a scripted Ctrl+Z.
 7. **When unsure, refuse and recheck.** Every refusal leaves the field untouched, says so in one line in the island, and runs the check again at once so the list matches the field.
 
 ### 7.2 What Glim keeps between the check and the click
@@ -168,7 +168,18 @@ Today (1a) the paragraph is dropped right after the check (§9). 1b needs it to 
 - the field's identity: process id, top-level window handle, and the UIA element (or its RuntimeId);
 - the suggestions with their replacements, under a **check id** that changes on every new check.
 
-It is dropped when the suggestions are replaced or cleared, when Glim pauses, and on quit. Never logged, never written to disk; the same source-scan and sentinel tests as 1a cover it. **This is a change to §9's "dropped after one check" and is called out in the PR.**
+**When it is dropped** (owner, 2026-10-11; each one has a test):
+- the suggestions are **dismissed** (a Dismiss button on the list; new in 1b-apply), replaced by a new check, or cleared;
+- the user **moves to different text**: focus goes to another field or app, the caret moves to another paragraph, or the paragraph is edited. The list may stay on screen (1a's rule), but its fix buttons say "Click in the field first" until the field is checked again;
+- **Glim is paused** (the tray's Pause; the island tells Rust, which also stops checking while paused);
+- **10 minutes** after it was kept, at most (the field is then checked again if the user is still in it);
+- on quit.
+
+**The sensitive-data check runs before it is kept:** the paragraph goes through the card / SSN / IBAN / 12+ digit scan again (on top of the reading's own scan); if it hits, nothing is kept and no suggestions are shown.
+
+Only fields where fixes can be typed keep anything: in view-only apps and Copy-only fields (§7.7) nothing is kept.
+
+Never logged, never written to disk; the same source-scan and sentinel tests as 1a cover it. **This is a change to §9's "dropped after one check" and is called out in the PR.**
 
 The island's click carries the check id. A click on a list that is no longer current (a newer check arrived in between) is refused: "The text changed; rechecked."
 
@@ -181,9 +192,11 @@ All of this runs on the capture thread (it owns every UIA object), triggered by 
 3. **Find the paragraph by its content, not its offsets.** From the caret range (TextPattern2 `GetCaretRange`, else the selection), widen to a window around it (the paragraph unit where the app supports it, else ±2,000 characters, capped like today's `MAX_FIELD_CHARS`), and `FindText` the checked paragraph, case-sensitive. It must match **exactly once**. Zero → the text changed: refuse. Two or more (the same paragraph pasted twice) → pick the one whose position matches the stored offset; if none does, refuse.
    - Why not offsets: our offsets count Rust characters of `GetText`'s string; UIA's "character" unit is provider-defined (Word counts hidden field codes, Chrome counts embedded objects, emoji are two UTF-16 units). Offsets are only a tie-breaker.
    - Edits elsewhere in the field (an earlier paragraph, the subject) don't block a fix; any edit inside the paragraph does.
+   - > ⚠️ **Amended while building (2026-10-11):** `FindText` is not used. Word's search is limited to short strings (a paragraph can be 700 characters), and the text has to be read back anyway. Instead: the caret's range is widened to its paragraph (`ExpandToEnclosingUnit(Paragraph)`), its text is read, and the checked paragraph is located in that text in Rust (exactly once; else the whole document's text is searched the same way, with the stored offset as the tie-breaker). The ranges are then built from there and **read back** as in step 4, so a unit mismatch still refuses.
 4. **Narrow to the problem.** Inside the found paragraph range, move the start and end by the problem's position, then **read the range back**: `GetText` must equal the problem word exactly, and the characters just before and after must match the stored context. Any difference (a unit mismatch in that app included) → refuse. A miscounted range can never be typed over, because it is read back first.
 5. **Select it** with `IUIAutomationTextRange::Select()`, then read the app's selection back (`GetSelection`): exactly one range, text equal to the problem word. Apps whose `Select()` doesn't move the real selection fail here and are refused (and logged by app name, so they go on the "unsupported" list).
-6. **Last checks, immediately before typing:** focus and foreground unchanged; no modifier key held (Ctrl, Alt, Shift, Win via `GetAsyncKeyState`: a held Ctrl would turn typed letters into shortcuts); no mouse button held; no IME composition open in the window (`ImmGetContext` / composition string empty). If a key is held, wait up to 500 ms for release, else refuse.
+6. **Last checks, immediately before typing:** focus and foreground unchanged; no modifier key held (Ctrl, Alt, Shift, Win via `GetAsyncKeyState`: a held Ctrl would turn typed letters into shortcuts); no mouse button held. If a key is held, wait up to 500 ms for release, else refuse.
+   - > ⚠️ **Amended while building (2026-10-11):** the IME check is not possible from another process: `ImmGetContext` returns nothing for another app's window. An open IME composition (Japanese, Chinese input) is not detected; the read-back in step 8 catches a fix that the IME swallowed. The owner uses en-US only.
 7. **Type the replacement** in **one** `SendInput` call (`KEYEVENTF_UNICODE` down/up per UTF-16 unit). One call means Windows doesn't interleave the user's own keys with ours. A removal (Harper's "remove" suggestion) is a single Backspace over the verified selection.
    - The replacement must be printable text only: no newline, tab, or control characters. In chat apps Enter **sends the message**, so a replacement containing one is dropped at check time and never offered.
 8. **Read back the result.** Re-read the paragraph: it must equal the stored paragraph with exactly that one span replaced. Then put the caret back where the user had it (a degenerate range `Select()`, shifted by the length change if it was after the fix), so they keep typing where they were. Then recheck at once (no 600 ms wait): the remaining suggestions' positions moved.
@@ -227,27 +240,33 @@ Every refusal is silent in the target app (nothing typed, nothing selected — s
 
 - Each suggestion row gets its replacements as buttons (up to three). Clicking one applies it; the row shows "Fixing…" for the few milliseconds it takes, then the list refreshes from the recheck.
 - **While the source field isn't focused** (the user is in another app; suggestions persist there since 1a), the buttons are disabled with "Click in the field first". Glim never switches apps for them.
-- **Apps not yet verified for fixes** (anything not in the 1b test matrix: chat apps at first) show suggestions read-only, as in 1a.
+- **Apps not yet verified for fixes** show suggestions read-only, as in 1a (owner, 2026-10-11). Fixes are on in the 1b test matrix only: **Notepad, Word, Outlook classic, Chrome (Gmail)**. View-only until each is tested: Edge, new Outlook (`olk.exe`), and the chat apps (Slack, Teams, Discord, WhatsApp, Claude, ChatGPT, Grok). The list is in PROJECT_STATUS.
+- **Dismiss** on the list clears the suggestions (and the kept paragraph) until the text changes.
 - Refusals: "The text changed; rechecked." / "That field is paused." / "Glim can't type into apps running as administrator." Every new string gets its 9 translations.
 
 ### 7.7 Fields without TextPattern
 
-Some fields give only ValuePattern (plain inputs in some apps). The old plan offered copy-to-clipboard there. Proposal for 1b: **no fix button at all** for those fields (suggestions read-only). Copying overwrites the user's clipboard, and Windows' clipboard history keeps the word; it's a weak feature for that cost. **(Owner decision, §7.9.)**
+Some fields give only ValuePattern (plain inputs in some apps): Glim can't select or type there safely. **Decided (owner, 2026-10-11): view-only, with a Copy button.** The suggestions show as usual; each replacement is a **Copy** button that puts that word on the clipboard **only when the user clicks it** (never automatically). Nothing is typed, and no paragraph is kept for these fields. The copied word goes into Windows' clipboard history like any copy.
 
 ### 7.8 Tests and verification for 1b
 
 - **Unit tests** (pure Rust, a fake field behind a trait, no UIA): paragraph found once / zero / twice; an edit inside the paragraph refuses; an edit elsewhere doesn't; unit mismatch caught by the read-back; a stale check id refuses; a replacement with a newline or digits that look like a card is never offered; modifier held → wait then refuse; paused → refuse; the island can only send ids (a message with text is rejected); kept paragraph never in logs (source scan + sentinel).
-- **Self-test in Notepad** (fresh file per run, as in 1a): apply "recieved" → "received", read back, Ctrl+Z restores it. **This sends real keystrokes**, so per CLAUDE.md it runs **only after the owner confirms in chat they're away from the keyboard**, with the screenshot check first. Otherwise the owner runs the same steps by hand.
+- **Read-only self-test in Notepad** (no keys typed): the list shows fix buttons for a Notepad field; with focus elsewhere they say "Click in the field first"; Dismiss clears the list.
+- **Typed self-test, Notepad only** (fresh file per run, as in 1a): apply "recieved" → "received", read back, Ctrl+Z restores it. **This sends real keystrokes**, so per CLAUDE.md it runs **only after the owner confirms in chat they're away from the keyboard**, with the screenshot check first.
 - **Owner test matrix:** Word, Outlook classic (body + subject), Gmail in Chrome, Notepad; each: apply, undo with one Ctrl+Z, apply after editing the paragraph (must refuse), apply from another app (button disabled), a password field and a paused site (no suggestions, no apply).
 - **Network:** unchanged (no new network code); re-checked with netstat over the process tree, as in 1a.
 
-### 7.9 Decisions for the owner
+### 7.9 Decisions (owner, 2026-10-11)
 
-1. **Split 1b in two?** Proposal: **1b-1 = apply fixes** (this section) and **1b-2 = the floating bubble** (7a). The bubble is a separate window with its own placement and DPI problems; keeping it out makes the risky part (typing into apps) smaller to review.
-2. **No Glim undo button**, only the app's Ctrl+Z and a one-line note (§7.4). OK?
-3. **ValuePattern-only fields:** no fix button (proposed) vs copy to clipboard (old plan) (§7.7).
-4. **Chat apps:** suggestions only, fixes off until each app is tested (proposed), or test Slack/Teams in 1b too?
-5. **Restoring the caret** after a fix to where the user was typing (proposed), or leave it after the replacement as a hand edit would?
+The design was approved as written, with these answers:
+
+1. **Split:** 1b-apply first (this section), then the floating bubble (§7a) as its own PR.
+2. **No undo button in Glim.** The app's own Ctrl+Z is the undo.
+3. **ValuePattern-only fields:** suggestions view-only. Never copy automatically; a **Copy** button the user clicks is fine (§7.7).
+4. **Chat apps:** view-only until each one is tested; the list is kept in PROJECT_STATUS (§7.6).
+5. **The caret goes back** to where the user was typing (§7.3 step 8).
+6. **Privacy (added by the owner):** the kept paragraph is dropped when the suggestions are dismissed, when the user moves to different text, when Glim is paused, and after 10 minutes at most; the sensitive-data check runs before it is kept; a test for each (§7.2).
+7. **Testing:** unit tests and read-only checks first. The typed self-test runs in **Notepad only**, only after the owner says in chat that they're away from the keyboard. The owner tests Outlook, Word and Gmail by hand.
 
 ## 7a. The floating bubble at the field (1b, owner 2026-10-10)
 
