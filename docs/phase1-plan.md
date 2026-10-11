@@ -7,10 +7,10 @@ If a step here turns out wrong while building, this file gets a warning note nex
 ## 1. What the user sees
 
 1. They type in a supported app (Outlook, Word, Gmail in Chrome, Notepad, a chat app).
-2. About **1 s after they stop typing**, Glim checks the paragraph the caret is in. Only the text they are writing counts: the email signature and quoted reply text are left out.
+2. About **0.6 s after they stop typing** (owner, 2026-10-10: 1 s felt slow), Glim checks the paragraph the caret is in. Only the text they are writing counts: the email signature and quoted reply text are left out.
 3. **Issues found:** the lantern goes to **`s-suggest`** with the attention pop, and the pill shows the **count** ("3").
    **No issues:** the lantern goes back to **`s-listen`** (island open) or `s-idle` (in the notch), and the count disappears.
-4. **Clicking the lantern** opens the island on a **suggestion list**. Each entry shows the problem text, a short explanation and the replacement options.
+4. **Clicking the lantern** (or the ember) opens the island on a **suggestion list**, nearest the caret first, three at a time with Previous / Next. Each entry shows the problem text, a short explanation and the replacement options.
 5. **1b:** clicking a replacement applies it in the app, with native undo.
 6. **1c:** **Ctrl+Alt+Shift+R** sends the paragraph (or the selection) to the local model (`gemma3:4b`) with a tone: clearer, friendlier, more formal or shorter. The lantern shows **`s-think`** while it generates.
 
@@ -20,8 +20,8 @@ Glim never takes focus at any point (the island, panel and pill are non-activati
 
 | PR | Scope | Done when |
 |---|---|---|
-| **1a — instant checker** | Capture runs in normal sessions for apps that are on. ~1 s debounce. Paragraph extraction without the signature or quote. Harper. Lantern `s-suggest` + count. A **read-only** suggestion list in the island. Per-app defaults hardcoded. | Notepad self-test passes; <50 ms per check measured; tests below pass; the owner tries it in Outlook, Word and Gmail. |
-| **1b — apply fixes** | Clicking a replacement writes it back (design in §7). | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. |
+| **1a — instant checker** | Capture runs in normal sessions for apps that are on. 600 ms debounce. Paragraph extraction without the signature or quote. Harper. Lantern `s-suggest` + count. A **read-only** suggestion list in the island. Per-app defaults hardcoded. | Notepad self-test passes; <50 ms per check measured; tests below pass; the owner tries it in Outlook, Word and Gmail. |
+| **1b — apply fixes** | Clicking a replacement writes it back (design in §7). The floating bubble at the field (§7a). | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. The bubble follows the field and never takes focus. |
 | **1c — AI rewrite** | Ctrl+Alt+Shift+R and the four tones; `s-think`; the result is shown in the island, with apply going through 1b's path. | Rewrite in ≤ ~4.5 s for a typical paragraph on this machine; model calls only through `net::request`. |
 | **1d — settings** | Per-app on/off, default tone, strictness (which Harper rule groups run), editing the pause list (from PR #8), the pause hotkey **Ctrl+Alt+Shift+P**, a one-time "Check writing in [app]?" prompt for apps on neither list (§5), and an optional underline overlay. | Settings are kept in `settings.json`; the overlay never takes focus or clicks. |
 
@@ -85,7 +85,8 @@ Today the capture thread runs only with `GLIM_DEV=1` and re-reads the focused fi
 - **Every PR #8 rule applies first, unchanged:** paused apps, password fields, payment and ID labels, paused sites, read-only content, and the card, SSN, IBAN and 12+ digit checks. A reading they drop is never checked by Harper and never counted.
 - **Debounce:**
   - The thread keeps reading every 300 ms, but in-thread it compares only a hash of the field and the caret position.
-  - A check runs once the field has been unchanged for **1 s**.
+  - A check runs once the field has been unchanged for **600 ms** (was 1 s; owner, 2026-10-10). Readings come every 300 ms, so a check lands 600-900 ms after typing stops.
+  - While the user keeps typing nothing is sent: the shown suggestions stay as they are until the pause (no flicker; `typing_continuously_sends_nothing_until_the_pause`).
   - It runs again only when the text changes.
   - Moving to another field clears the suggestions.
 - **The paragraph:**
@@ -118,6 +119,8 @@ Hardcoded in 1a, editable in 1d. Matched by executable name, any case:
 
 In browsers, PR #8's paused sites still apply on top of "on".
 
+**Chat apps get relaxed rules** (owner, 2026-10-10; `writing::apps::CHAT`, `checker::Rules::Chat`): Slack, Teams, Discord, WhatsApp, Claude, ChatGPT and Grok skip every Capitalization-kind lint (sentence starts, lowercase "i", the all-caps "canonical spelling" of "u", "btw", "omg") and any finding on a common chat word (`CHAT_WORDS`: lol, idk, tmrw, ok, tho, i'm …). Real misspellings are still found. Outlook, Word, browsers and Notepad keep the full rules.
+
 **Apps on neither list are off** (owner, 2026-10-10). From 1d on, the first time the user types in one, the island asks once: "Check writing in [app]?" with **Yes** / **Not now** / **Never**. Yes and Never are kept per app in settings; Not now asks again next session. In 1a they simply stay off.
 
 **Payment and ID data:** PR 1a's first commit narrows PR #8's 12-digit rule. Digits split by spaces or dashes count only when grouped like a card being typed (4-4-4, 4-4-4-4, Amex 4-6-x), so unit lists such as "Units 101 102 103 104" in AppFolio notes are read. An unbroken run of 12+ digits is still dropped.
@@ -128,11 +131,14 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - Agent states always win: approval, question, working, error and rate-limit go first.
   - The writing checker shows `s-suggest` only while no agent state is active.
   - The **count on the pill** tells the two apart: a number means writing suggestions, no number means an agent is waiting.
-- > **Warning (found in 1a, 2026-10-10):** this section assumes the pill is on screen. In **Ember** and **Hidden** the count and `s-suggest` aren't drawn, so the checker shows nothing at all, and the owner runs Ember. What Ember should show is open (PROJECT_STATUS.md, Open issues).
+- **Ember** (decided by the owner, 2026-10-10, after 1a showed nothing in Ember): with suggestions waiting, the ember **brightens** (no bounce) and shows a small **count** at its top right ("9+" past nine; its label reads "Glim: N writing suggestions").
+  - **Clicking it opens the island straight on the list.** This is a *peek*: Rust shows the pill without saving a mode (`presence::set_peek`), and when the island closes the ember comes back.
+  - Without suggestions the click is unchanged (back to Normal). **Hidden** still shows nothing.
 - **The attention pop** plays when the count goes from 0 to more than 0, not on every recount.
 - **Island:** a new "Suggestions" view, shown when the lantern is clicked while there are suggestions (otherwise the island opens as today).
   - Each row shows the problem text in context, the message and up to three replacements.
-  - Read-only in 1a: no buttons that act, and no keyboard hooks.
+  - **Nearest the caret first**, three rows a page, with **Previous / Next** buttons and "1–3 of 12" (owner, 2026-10-10). Buttons, not scrolling: the island's window never takes focus, so the mouse wheel can't be relied on (the first 1a build cut the list off with no way to see the rest).
+  - Read-only in 1a: the only buttons turn pages, and there are no keyboard hooks.
   - Every new string needs its 9 translations.
 - **Reserved:** `s-record` and `s-delegate` are never used.
 
@@ -142,6 +148,17 @@ In browsers, PR #8's paused sites still apply on top of "on".
 - **Select** the range via TextPattern (`Select()` on the range), then **replace** it by typing the replacement with `SendInput`, so the app's own undo works. **Never `ValuePattern.SetValue`**: it bypasses undo, and in many apps it replaces the whole field.
 - The replacement is typed only in response to the user's click on that suggestion, and only into the field it came from. If focus moved, nothing is typed.
 - If the app gives no TextPattern for the field (ValuePattern-only), 1b offers copy-to-clipboard instead of typing.
+
+## 7a. The floating bubble at the field (1b, owner 2026-10-10)
+
+A Grammarly-style marker where the user is typing, so suggestions don't need a trip to the top of the screen:
+
+- **A small amber count bubble anchored to the edge of the focused text field** (bottom right, inside the field's bounds), placed from the field's and the caret's bounding rectangles (UIA `BoundingRectangle`, TextPattern `GetBoundingRectangles` on the caret range). It shows the count only, no text.
+- **Clicking it opens the suggestions in a popover right there**, next to the bubble (the same rows as the island's list, with paging). In 1b, clicking a fix applies it in place through §7's path.
+- **Never steals focus:** a separate, non-activating (`WS_EX_NOACTIVATE`), topmost, tool window; the popover too. The text field keeps focus and the caret throughout.
+- **Hidden** in password fields, read-only content and everything PR #8 skips (it only exists when the checker has suggestions, which those fields never produce), when the field loses focus, and while there are no suggestions.
+- **Follows the field** as it moves or scrolls (re-placed on each reading, every 300 ms, and on UIA bounding-rectangle changes), and hides when the field is off screen or covered by a fullscreen app.
+- To check in 1b: per-monitor DPI, fields inside browser pages (bounds in screen pixels), multi-line fields where the caret's rectangle is the better anchor, and that the bubble never covers the text being typed.
 
 ## 8. Settings (1d) and Windows' own suggestions
 
