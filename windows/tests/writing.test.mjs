@@ -205,10 +205,23 @@ test("the lantern opens the suggestions over an agent's card; a waiting approval
   State.view = "overview";
 });
 
-test("the open island's lantern click and the ember both follow lanternView", () => {
+test("the lantern is a button: mouse, Invoke and keys all go through activateLantern", () => {
   const island = read("src/island/island.ts");
+  // Lantern draws its SVG aria-hidden: the island's must be found by screen
+  // readers and UI Automation (round 3: the self-test couldn't find it).
+  assert.match(island, /this\.lantern\.el\.removeAttribute\("aria-hidden"\);/);
   assert.match(island, /this\.lantern\.el\.setAttribute\("role", "button"\);/);
-  assert.match(island, /this\.lantern\.el\.addEventListener\("click", \(\) => \{\n\s+if \(State\.mode !== "expanded" \|\| this\.uploadActive\) return;\n\s+const view = State\.lanternView\(\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
+  assert.match(island, /this\.lantern\.el\.setAttribute\("aria-label", "Glim"\);/);
+  assert.match(island, /this\.lantern\.el\.setAttribute\("tabindex", "0"\);/);
+  assert.match(island, /this\.lantern\.el\.addEventListener\("click", \(\) => this\.activateLantern\(\)\);/);
+  assert.match(island, /if \(e\.key !== "Enter" && e\.key !== " "\) return;\n\s+e\.preventDefault\(\);\n\s+this\.activateLantern\(\);/);
+  // #bot-lantern is pointer-events: none, so the mouse is hit-tested on mouseup.
+  assert.match(read("src/style.css"), /#bot-lantern \{\n  position: absolute;\n  pointer-events: none;/);
+  assert.match(island, /if \(e\.button === 0 && this\.botPress && State\.mode === "expanded" && this\.isBotHit\(e\.clientX, e\.clientY\)\) \{\n\s+this\.activateLantern\(\);/);
+  // Closed pill: open (on defaultView). Open island: lanternView.
+  assert.match(island, /activateLantern\(\) \{\n\s+if \(this\.uploadActive\) return;\n\s+if \(State\.mode !== "expanded"\) \{\n\s+this\.fsm\.click\(\);\n\s+return;\n\s+\}\n\s+const view = State\.lanternView\(\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
+  // Hidden from readers only while it's invisible.
+  assert.match(island, /const hidden = visible \? "false" : "true";/);
   assert.match(read("src/core/state.ts"), /return this\.lanternView\(\) \?\? \(this\.tasks\.length === 0 \? "empty" : "overview"\);/);
 });
 

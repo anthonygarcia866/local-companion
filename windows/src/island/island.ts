@@ -228,16 +228,21 @@ export class Island {
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
     this.lantern.el.id = "bot-lantern";
-    // A button for screen readers and UI Automation: Invoke clicks it.
+    // A button for screen readers, UI Automation and the keyboard. Lantern
+    // draws every SVG aria-hidden (it's decoration elsewhere): not this one,
+    // or readers never find it. applyGeometry hides it again while it's
+    // invisible. The mouse can't reach this listener (pointer-events: none);
+    // a mouse click is hit-tested in wireInput. Invoke, Enter and Space land
+    // here, and all of them go through activateLantern.
+    this.lantern.el.removeAttribute("aria-hidden");
     this.lantern.el.setAttribute("role", "button");
     this.lantern.el.setAttribute("aria-label", "Glim");
-    // In the open island the lantern goes to what the badge points at (a
-    // waiting card, then the writing suggestions); see State.lanternView.
-    // The closed pill opens on the same through defaultView.
-    this.lantern.el.addEventListener("click", () => {
-      if (State.mode !== "expanded" || this.uploadActive) return;
-      const view = State.lanternView();
-      if (view && view !== State.view) this.setView(view);
+    this.lantern.el.setAttribute("tabindex", "0");
+    this.lantern.el.addEventListener("click", () => this.activateLantern());
+    this.lantern.el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.activateLantern();
     });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
@@ -377,6 +382,22 @@ export class Island {
     else this.animateGeometry(false);
     State.lastActivity = performance.now();
     State.notify();
+  }
+
+  /**
+   * A click (or Invoke, Enter, Space) on the lantern. The closed pill opens,
+   * on defaultView. In the open island the lantern goes to what the badge
+   * points at (a waiting card, then the writing suggestions); see
+   * State.lanternView.
+   */
+  activateLantern() {
+    if (this.uploadActive) return;
+    if (State.mode !== "expanded") {
+      this.fsm.click();
+      return;
+    }
+    const view = State.lanternView();
+    if (view && view !== State.view) this.setView(view);
   }
 
   setView(view: IslandViewName) {
@@ -774,6 +795,10 @@ export class Island {
         this.dockPress = null;
         this.fsm.click();
       }
+      // A press on the lantern that didn't become a drag is a click on it.
+      if (e.button === 0 && this.botPress && State.mode === "expanded" && this.isBotHit(e.clientX, e.clientY)) {
+        this.activateLantern();
+      }
       this.botPress = null;
       if (this.desktop.carrying) this.desktop.carryEnd(e.clientX, e.clientY);
     });
@@ -1001,6 +1026,11 @@ export class Island {
     const away = State.mochiOnDesktop;
     const visible = p.opacity > 0 && !this.uploadActive && !away;
     this.lantern.el.style.opacity = visible ? "1" : "0";
+    const hidden = visible ? "false" : "true";
+    if (this.lantern.el.getAttribute("aria-hidden") !== hidden) {
+      this.lantern.el.setAttribute("aria-hidden", hidden);
+      this.lantern.el.tabIndex = visible ? 0 : -1;
+    }
 
     if (State.mode === "expanded" && State.view !== "uploading" && !this.uploadActive && !away) {
       const d = p.diameter;
