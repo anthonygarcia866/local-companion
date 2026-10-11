@@ -29,6 +29,8 @@ $ErrorActionPreference = "Stop"
 $Exe = (Resolve-Path $Exe).Path
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
+# Ignite frames are named by their timing: clear the last run's.
+Get-ChildItem $Out -Filter "ignite-*ms.png" -ErrorAction SilentlyContinue | Remove-Item
 $log = Join-Path $Out "verify-log.txt"
 Set-Content -Path $log -Value "" -Encoding utf8
 function Note([string]$s) { $line = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $s; Write-Host $line; Add-Content -Path $log -Value $line -Encoding utf8 }

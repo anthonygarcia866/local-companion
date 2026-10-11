@@ -1,43 +1,44 @@
 ﻿
-15:41:24.013 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (5794816 bytes, built 10/10/2026 15:38:19)
-15:41:24.026 foreground at start: pid 333388
-15:41:29.561 shot size-small: window 720x320 at 600,0; lantern rows 25
-15:41:29.691 check size-small: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:41:34.851 shot size-medium: window 720x320 at 600,0; lantern rows 36
-15:41:34.973 check size-medium: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:41:37.568 shot ignite-0000ms: window 720x320 at 600,0; lantern rows 30
-15:41:37.776 shot ignite-0260ms: window 720x320 at 600,0; lantern rows 49
-15:41:37.983 shot ignite-0479ms: window 720x320 at 600,0; lantern rows 49
-15:41:38.186 shot ignite-0680ms: window 720x320 at 600,0; lantern rows 49
-15:41:38.382 shot ignite-0882ms: window 720x320 at 600,0; lantern rows 49
-15:41:38.614 shot ignite-1083ms: window 720x320 at 600,0; lantern rows 49
-15:41:38.819 shot ignite-1317ms: window 720x320 at 600,0; lantern rows 49
-15:41:39.032 shot ignite-1520ms: window 720x320 at 600,0; lantern rows 49
-15:41:40.775 shot size-large: window 720x320 at 600,0; lantern rows 49
-15:41:40.873 check size-large: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:41:43.129 shot pop-before: window 720x320 at 600,0; lantern rows 49
-15:41:45.792 shot pop-after: window 720x320 at 600,0; lantern rows 49
-15:41:45.796 pop: lantern height at rest 49px, peak 54px, after 49px (x3 captures)
-15:41:49.494 shot dock-top-left: window 720x320 at 0,0; lantern rows 49
-15:41:49.614 check dock-top-left: visible=True noactivate=True clickthrough=True rect=720x320@0,0 cursor-over-window=False foreground-is-glim=False
-15:41:52.140 shot dock-top-right: window 720x320 at 1200,0; lantern rows 49
-15:41:52.266 check dock-top-right: visible=True noactivate=True clickthrough=True rect=720x320@1200,0 cursor-over-window=False foreground-is-glim=False
-15:41:54.799 shot dock-left-vertical: window 720x400 at 0,340; lantern rows 49
-15:41:54.908 check dock-left-vertical: visible=True noactivate=True clickthrough=True rect=720x400@0,340 cursor-over-window=False foreground-is-glim=False
-15:41:57.401 shot dock-right-vertical: window 720x400 at 1200,340; lantern rows 49
-15:41:57.519 check dock-right-vertical: visible=True noactivate=True clickthrough=True rect=720x400@1200,340 cursor-over-window=True foreground-is-glim=False
-15:42:00.012 shot dock-top-center: window 720x320 at 600,0; lantern rows 49
-15:42:00.162 check dock-top-center: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:42:02.331 shot vis-ember: window 28x28 at 946,0; lantern rows 16
-15:42:02.459 check vis-ember: visible=True noactivate=True clickthrough=False rect=28x28@946,0 cursor-over-window=False foreground-is-glim=False
-15:42:04.660 check vis-hidden: visible=False noactivate=True clickthrough=False rect=28x28@946,0 cursor-over-window=False foreground-is-glim=False
-15:42:07.163 shot vis-normal: window 720x320 at 600,0; lantern rows 49
-15:42:07.298 check vis-normal: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:42:09.498 check fullscreen-on: visible=False noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:42:12.003 check fullscreen-off: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
-15:42:27.586 shot palette-after-chat: window 720x320 at 600,0; lantern rows 230
-15:42:28.032 check chat (focus on purpose): visible=True noactivate=False clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=True
-15:42:30.412 after chat -> ember: noactivate=True
-15:42:32.581 after chat -> normal: noactivate=True (foreground stays where the chat left it)
-15:42:33.561 restored settings.json and started Glim normally
-15:42:33.573 ALL CHECKS PASSED
+17:07:16.497 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (5796352 bytes, built 10/10/2026 17:06:57)
+17:07:16.510 foreground at start: pid 359096
+17:07:22.676 shot size-small: window 720x320 at 600,0; lantern rows 25
+17:07:22.831 check size-small: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:07:28.322 shot size-medium: window 720x320 at 600,0; lantern rows 36
+17:07:28.436 check size-medium: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:07:30.555 shot ignite-0000ms: window 720x320 at 600,0; lantern rows 31
+17:07:30.770 shot ignite-0291ms: window 720x320 at 600,0; lantern rows 30
+17:07:31.019 shot ignite-0509ms: window 720x320 at 600,0; lantern rows 49
+17:07:31.211 shot ignite-0744ms: window 720x320 at 600,0; lantern rows 49
+17:07:31.426 shot ignite-0946ms: window 720x320 at 600,0; lantern rows 49
+17:07:31.626 shot ignite-1149ms: window 720x320 at 600,0; lantern rows 49
+17:07:31.828 shot ignite-1353ms: window 720x320 at 600,0; lantern rows 49
+17:07:32.026 shot ignite-1556ms: window 720x320 at 600,0; lantern rows 49
+17:07:33.761 shot size-large: window 720x320 at 600,0; lantern rows 49
+17:07:33.860 check size-large: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:07:33.888 hotkeys at startup: 2026-10-10 17:07:30 shortcuts: registered openChat=Ctrl+Alt+Shift+C, goToAlert=Ctrl+Alt+A, jumpToTerminal=Ctrl+Alt+T, nextPill=Ctrl+Alt+Right, prevPill=Ctrl+Alt+Left, cycleVisibility=Ctrl+Alt+Shift+Space; not registered: none
+17:07:36.088 shot pop-before: window 720x320 at 600,0; lantern rows 49
+17:07:38.643 shot pop-after: window 720x320 at 600,0; lantern rows 49
+17:07:38.648 pop: lantern height at rest 49px, peak 55px, after 49px (x3 captures)
+17:07:42.336 shot dock-top-left: window 720x320 at 0,0; lantern rows 49
+17:07:42.438 check dock-top-left: visible=True noactivate=True clickthrough=True rect=720x320@0,0 cursor-over-window=False foreground-is-glim=False
+17:07:44.962 shot dock-top-right: window 720x320 at 1200,0; lantern rows 49
+17:07:45.174 check dock-top-right: visible=True noactivate=True clickthrough=True rect=720x320@1200,0 cursor-over-window=False foreground-is-glim=False
+17:07:47.719 shot dock-left-vertical: window 720x400 at 0,340; lantern rows 49
+17:07:47.846 check dock-left-vertical: visible=True noactivate=True clickthrough=True rect=720x400@0,340 cursor-over-window=False foreground-is-glim=False
+17:07:50.428 shot dock-right-vertical: window 720x400 at 1200,340; lantern rows 49
+17:07:50.547 check dock-right-vertical: visible=True noactivate=True clickthrough=True rect=720x400@1200,340 cursor-over-window=False foreground-is-glim=False
+17:07:53.097 shot dock-top-center: window 720x320 at 600,0; lantern rows 49
+17:07:53.224 check dock-top-center: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:07:55.392 shot vis-ember: window 28x28 at 946,0; lantern rows 16
+17:07:55.521 check vis-ember: visible=True noactivate=True clickthrough=False rect=28x28@946,0 cursor-over-window=False foreground-is-glim=False
+17:07:57.768 check vis-hidden: visible=False noactivate=True clickthrough=False rect=28x28@946,0 cursor-over-window=False foreground-is-glim=False
+17:08:00.254 shot vis-normal: window 720x320 at 600,0; lantern rows 49
+17:08:00.375 check vis-normal: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:08:02.568 check fullscreen-on: visible=False noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:08:05.098 check fullscreen-off: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False
+17:08:21.134 shot palette-after-chat: window 720x320 at 600,0; lantern rows 230
+17:08:21.782 check chat (focus on purpose): visible=True noactivate=False clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=True
+17:08:24.968 after chat -> ember: noactivate=True
+17:08:28.022 after chat -> normal: noactivate=True (foreground stays where the chat left it)
+17:08:29.255 restored settings.json and started Glim normally
+17:08:29.333 ALL CHECKS PASSED
