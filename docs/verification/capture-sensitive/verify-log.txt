@@ -1,0 +1,17 @@
+﻿
+19:13:52.922 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (5820416 bytes, built 10/10/2026 19:13:35)
+19:13:58.368 dev Glim pid 346444, capture panel up
+19:14:00.773 ordinary notes (phone, address, invoice): Capture debug — msedge.exe | Edit | TextPattern | readable=true | chars=90 | showing=0-90 | via=poll
+19:14:01.894 textarea holding a test card: Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:02.995 textarea holding a card being typed (12 digits): Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:04.069 textarea holding an SSN: Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:05.150 textarea holding an IBAN: Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:06.208 field labelled 'Card number': Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:07.278 field with id cc-exp: Capture debug — msedge.exe | Edit | skipped (sensitive) | readable=false | chars=0 | showing=none | via=poll
+19:14:08.349 notes in a /checkout/ frame: Capture debug — msedge.exe | Edit | skipped (paused app or site) | readable=false | chars=0 | showing=none | via=poll
+19:14:09.516 ordinary notes again (back to readable): Capture debug — msedge.exe | Edit | TextPattern | readable=true | chars=90 | showing=0-90 | via=poll
+19:14:11.251 notes on a /checkout/ page: Capture debug — msedge.exe | Edit | skipped (paused app or site) | readable=false | chars=0 | showing=none | via=poll
+19:14:13.063 text box in a paused app (KeePass.exe): Capture debug — KeePass.exe | Edit | skipped (paused app or site) | readable=false | chars=0 | showing=none | via=poll
+19:14:18.392 stopped the dev Glim and started Glim normally
+19:14:18.428 results log: 16 new lines, 7 skipped (sensitive), 5 skipped (paused)
+19:14:18.468 ALL CHECKS PASSED

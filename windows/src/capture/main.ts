@@ -13,6 +13,11 @@ interface CaptureMeta {
   readable: boolean;
   password: boolean;
   readOnly: boolean;
+  /** Payment or ID data (by its labels, or a card number, SSN or IBAN in the
+   *  text): nothing about the field reached this page. */
+  sensitive: boolean;
+  /** The app or site is on the pause list. */
+  paused: boolean;
   charCount: number;
   caret: number | null;
 }
@@ -55,7 +60,11 @@ function render(c: Capture) {
   box.style.cssText = "padding:12px 14px";
   const verdict = m.password
     ? "skipped (password field)"
-    : m.readOnly
+    : m.sensitive
+      ? "skipped (payment or ID data)"
+      : m.paused
+        ? "skipped (paused app or site)"
+        : m.readOnly
       ? "skipped (read-only content)"
       : m.readable
         ? "yes"
@@ -77,7 +86,7 @@ function render(c: Capture) {
   text.style.cssText =
     "margin:10px 0 0;padding:8px;background:#16181d;border-radius:6px;white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,Consolas,monospace";
   const e = c.excerpt;
-  if (m.password || m.readOnly) text.textContent = "(not read)";
+  if (m.password || m.readOnly || m.sensitive || m.paused) text.textContent = "(not read)";
   else if (!e) text.textContent = "(nothing readable)";
   else {
     const before = e.start > 0 ? "… " : "";
