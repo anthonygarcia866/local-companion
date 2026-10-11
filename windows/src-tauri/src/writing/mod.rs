@@ -53,6 +53,18 @@ impl std::fmt::Debug for Suggestion {
     }
 }
 
+/// Glim's Pause (the tray), as Rust knows it: the island tells it
+/// (`writing_set_paused`). While paused nothing is read, checked, kept or typed.
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_paused(on: bool) {
+    PAUSED.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn paused() -> bool {
+    PAUSED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// What clicking a replacement does (1b, docs/phase1-plan.md §7).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -850,6 +862,20 @@ mod tests {
         assert_eq!(fix_mode("msedge.exe", "TextPattern2"), FixMode::View);
         assert_eq!(fix_mode("slack.exe", "ValuePattern"), FixMode::View, "chat apps: view-only, no Copy");
         assert_eq!(fix_mode("Notepad.exe", "none"), FixMode::View);
+    }
+
+    /// The island can only say which fix was clicked, never what to type
+    /// (§7.1 rule 2): the commands take numbers and nothing else.
+    #[test]
+    fn the_islands_commands_carry_ids_only() {
+        let lib = include_str!("../lib.rs").replace("\r\n", "\n");
+        for cmd in ["fn writing_fix(", "fn writing_copy("] {
+            let at = lib.find(cmd).unwrap_or_else(|| panic!("{cmd}"));
+            let sig = &lib[at..at + lib[at..].find('{').unwrap()];
+            assert_eq!(sig.trim_end(), format!("{cmd}check_id: u64, index: usize, choice: usize)"), "{sig}");
+        }
+        assert!(lib.contains("fn writing_dismiss() {"));
+        assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
     }
 
     #[test]

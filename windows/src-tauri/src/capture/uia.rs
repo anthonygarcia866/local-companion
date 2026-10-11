@@ -12,6 +12,7 @@
 // before it leaves this thread (super::finish_reading).
 
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
@@ -50,13 +51,42 @@ const REPORT_EVERY: Duration = Duration::from_secs(30);
 /// The window label of the debug panel.
 pub const PANEL: &str = "capture-debug";
 
+/// What wakes the capture thread.
+enum Msg {
+    /// A focus change.
+    Focus,
+    /// Something the island asked for.
+    Request(Request),
+}
+
+/// What the island can ask the capture thread for (1b). Ids only: the words
+/// to type or copy are the checker's own, kept in this thread.
+pub enum Request {
+    /// Type replacement `choice` of row `index` of list `check_id`.
+    Fix { check_id: u64, index: usize, choice: usize },
+    /// Copy it to the clipboard (fields Glim can't type in).
+    Copy { check_id: u64, index: usize, choice: usize },
+    /// Dismiss the list.
+    Dismiss,
+    /// Just look again now (Pause changed).
+    Wake,
+}
+
+/// The capture thread's queue, for the island's requests.
+static REQUESTS: OnceLock<Sender<Msg>> = OnceLock::new();
+
+/// Hands a request to the capture thread. False if it isn't running.
+pub fn request(r: Request) -> bool {
+    REQUESTS.get().is_some_and(|tx| tx.send(Msg::Request(r)).is_ok())
+}
+
 /// Wakes the capture thread on every focus change.
 #[implement(IUIAutomationFocusChangedEventHandler)]
-struct FocusHandler(Sender<()>);
+struct FocusHandler(Sender<Msg>);
 
 impl IUIAutomationFocusChangedEventHandler_Impl for FocusHandler_Impl {
     fn HandleFocusChangedEvent(&self, _sender: Ref<'_, IUIAutomationElement>) -> WinResult<()> {
-        let _ = self.0.send(());
+        let _ = self.0.send(Msg::Focus);
         Ok(())
     }
 }
@@ -79,6 +109,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     let uia: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)? };
     let (tx, rx) = channel();
+    let _ = REQUESTS.set(tx.clone());
     let handler: IUIAutomationFocusChangedEventHandler = FocusHandler(tx).into();
     unsafe { uia.AddFocusChangedEventHandler(None, &handler)? };
     crate::log::line(if dev {
@@ -99,6 +130,17 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // the results log (dev sessions only) when focus leaves it, so its char
     // count is the final one.
     let mut current: Option<(IUIAutomationElement, CaptureMeta)> = None;
+    // The field whose paragraph the checker keeps for a fix (1b): its element,
+    // its process, and the list's check id.
+    let mut fix_field: Option<(IUIAutomationElement, u32)> = None;
+    let send_list = |s: &crate::writing::Suggestions| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
+    };
+    let send_result = |outcome: crate::writing::Outcome, app_name: String| {
+        crate::log::line(format!("writing: fix {} ({app_name})", outcome.code()));
+        let r = crate::writing::FixResult { outcome, app: app_name };
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::RESULT_EVENT, &r);
+    };
     // Diagnostics for the log: how many focus events and polls arrived, how
     // many readings went to the panel and by which path, and which apps were
     // seen. Never any text or title.
@@ -108,9 +150,47 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
 
     loop {
         let via = match rx.recv_timeout(POLL) {
-            Ok(()) => {
+            Ok(Msg::Focus) => {
                 events += 1;
                 "event"
+            }
+            Ok(Msg::Request(r)) => {
+                use crate::writing::Outcome;
+                match r {
+                    Request::Fix { check_id, index, choice } => {
+                        let outcome = match writer.job(check_id, index, choice) {
+                            Err(o) => o,
+                            Ok(_) if crate::writing::paused() => Outcome::Paused,
+                            Ok(job) if !crate::writing::offerable(&job.replacement) => Outcome::Blocked,
+                            Ok(job) => match &fix_field {
+                                Some((element, pid)) => {
+                                    let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                    crate::writing::apply::run(&mut field, &job)
+                                }
+                                None => Outcome::Away,
+                            },
+                        };
+                        let name = writer.app();
+                        // Whatever happened, the field is checked again at once.
+                        writer.after_fix();
+                        fix_field = None;
+                        send_result(outcome, name);
+                    }
+                    Request::Copy { check_id, index, choice } => {
+                        let outcome = match writer.copy_text(check_id, index, choice) {
+                            Ok(t) if super::fix::copy_to_clipboard(&t) => Outcome::Copied,
+                            Ok(_) => Outcome::ClipboardBusy,
+                            Err(o) => o,
+                        };
+                        send_result(outcome, writer.app());
+                    }
+                    Request::Dismiss => {
+                        writer.dismiss(send_list);
+                        fix_field = None;
+                    }
+                    Request::Wake => {}
+                }
+                "request"
             }
             Err(RecvTimeoutError::Timeout) => {
                 polls += 1;
@@ -130,6 +210,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             (events, polls, by_event, by_poll) = (0, 0, 0, 0);
             apps.clear();
             report_at = std::time::Instant::now() + REPORT_EVERY;
+        }
+        // Paused: nothing is read at all, and the checker drops what it kept.
+        if crate::writing::paused() {
+            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true };
+            writer.observe_in(&r, std::time::Instant::now(), send_list);
+            fix_field = None;
+            continue;
         }
         let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
         let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
@@ -158,10 +245,20 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         // The checker only ever sees apps that have it on.
         let checked = reading.text.as_deref().filter(|_| crate::writing::apps::enabled(&capture.meta.app));
-        let rules = crate::writing::apps::rules(&capture.meta.app);
-        writer.observe(same, checked, capture.meta.caret, rules, std::time::Instant::now(), |s| {
-            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
-        });
+        let name = crate::writing::apps::display_name(&capture.meta.app);
+        let r = crate::writing::Observed {
+            same,
+            text: checked,
+            caret: capture.meta.caret,
+            rules: crate::writing::apps::rules(&capture.meta.app),
+            mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern),
+            app: &name,
+            paused: false,
+        };
+        writer.observe_in(&r, std::time::Instant::now(), send_list);
+        // A kept paragraph always belongs to the field just read (moving
+        // anywhere else drops it).
+        fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }
@@ -221,7 +318,7 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
 }
 
 /// The field's labels from UI Automation, never its text.
-fn field_labels(element: &IUIAutomationElement) -> FieldLabels {
+pub(super) fn field_labels(element: &IUIAutomationElement) -> FieldLabels {
     unsafe {
         let s = |r: WinResult<windows::core::BSTR>| r.map(|b| b.to_string()).unwrap_or_default();
         FieldLabels {
@@ -241,7 +338,7 @@ fn field_labels(element: &IUIAutomationElement) -> FieldLabels {
 /// The URLs of the pages and frames a browser field sits in: browsers give
 /// each Document (the page, and each frame) its URL as its Value. Read only to
 /// match against the pause list; never sent anywhere.
-fn page_urls(uia: &IUIAutomation, element: &IUIAutomationElement) -> Vec<String> {
+pub(super) fn page_urls(uia: &IUIAutomation, element: &IUIAutomationElement) -> Vec<String> {
     let mut urls = Vec::new();
     let Ok(walker) = (unsafe { uia.ControlViewWalker() }) else { return urls };
     let mut cur = element.clone();
@@ -267,7 +364,7 @@ fn page_urls(uia: &IUIAutomation, element: &IUIAutomationElement) -> Vec<String>
 /// Whether the element can be typed in, from its patterns and states only:
 /// ValuePattern.IsReadOnly, the IsReadOnly attribute of its text (an attribute
 /// query, no text is read), the legacy read-only state, and its control type.
-fn edit_signals(element: &IUIAutomationElement, control: i32) -> EditSignals {
+pub(super) fn edit_signals(element: &IUIAutomationElement, control: i32) -> EditSignals {
     unsafe {
         let value_read_only = element
             .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
@@ -345,7 +442,7 @@ fn range_text(range: &IUIAutomationTextRange) -> WinResult<String> {
 }
 
 /// Characters from the start of `doc` to the start of `at`.
-fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Option<usize> {
+pub(super) fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Option<usize> {
     unsafe {
         let before = doc.Clone().ok()?;
         before
@@ -389,7 +486,7 @@ fn own_tree() -> Option<std::collections::HashSet<u32>> {
 }
 
 /// The process owning the foreground window.
-fn foreground_pid() -> u32 {
+pub(super) fn foreground_pid() -> u32 {
     use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
@@ -397,7 +494,7 @@ fn foreground_pid() -> u32 {
 }
 
 /// The executable's file name for a process id.
-fn process_name(pid: i32) -> String {
+pub(super) fn process_name(pid: i32) -> String {
     unsafe {
         let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32) else {
             return format!("pid {pid}");

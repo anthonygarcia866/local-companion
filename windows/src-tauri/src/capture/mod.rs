@@ -18,6 +18,8 @@
 // one line per field visited: app, control type, pattern, readable, char
 // count. docs/capture-results.md is written from it.
 
+#[cfg(windows)]
+pub mod fix;
 pub mod sensitive;
 #[cfg(windows)]
 pub mod uia;
