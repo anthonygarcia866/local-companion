@@ -128,6 +128,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - Agent states always win: approval, question, working, error and rate-limit go first.
   - The writing checker shows `s-suggest` only while no agent state is active.
   - The **count on the pill** tells the two apart: a number means writing suggestions, no number means an agent is waiting.
+- > **Warning (found in 1a, 2026-10-10):** this section assumes the pill is on screen. In **Ember** and **Hidden** the count and `s-suggest` aren't drawn, so the checker shows nothing at all, and the owner runs Ember. What Ember should show is open (PROJECT_STATUS.md, Open issues).
 - **The attention pop** plays when the count goes from 0 to more than 0, not on every recount.
 - **Island:** a new "Suggestions" view, shown when the lantern is clicked while there are suggestions (otherwise the island opens as today).
   - Each row shows the problem text in context, the message and up to three replacements.

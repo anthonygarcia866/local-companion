@@ -72,7 +72,7 @@ A local-first Windows desktop companion.
 ## Roadmap
 - **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *Merged 2026-10-09 (PR #2).*
 - **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (PR #5, see "Mascot"); the remaining placeholders moved to Phase 4. Also a text-capture spike (UI Automation) to decide how Phase 1 reads the focused field: see "Text-capture spike".
-- **Phase 1** — writing assistant. Capture plan and spike results: `docs/capture-results.md`.
+- **Phase 1** — writing assistant. Plan: `docs/phase1-plan.md`; capture plan and spike results: `docs/capture-results.md`. **1a** (instant checker, read-only list) on branch `phase-1a-checker`, PR open: see "Writing checker (Phase 1a)".
 - **Phase 1.5** — voice dictation, a local Aqua Voice replacement (see Vision).
 - **Phase 2** — SOP recorder, with two capture layers under different rules (see Vision). The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
 - **Phase 3** — delegation layer, with a memory policy: learned summaries only, never raw captured text, behind a testable sensitive-data filter (see Vision).
@@ -101,6 +101,8 @@ A local-first Windows desktop companion.
   - **Labels are matched in English only.**
   - **No one-key pause yet**, and the pause list is built in: both belong to Phase 1d's settings.
   - A dropped reading shows as "skipped (sensitive)", the same as a field skipped by its labels (kept as is, owner 2026-10-10). Neither the panel nor the results log can tell which, but they do show that a field was skipped.
+
+- **The writing checker shows nothing in Ember or Hidden (found 2026-10-10, 1a).** The count and `s-suggest` are drawn on the pill only; the ember dot doesn't change. The plan (section 6) assumed the pill. Owner to decide what Ember should show.
 
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
@@ -214,6 +216,15 @@ Glim's own hotkeys follow one pattern, **Ctrl+Alt+Shift + a key**: Space = show/
 
 How it was checked: Word's own key table (`Application.FindKey`, a hidden read-only Word instance, closed after); "held by another app" by registering and at once releasing each combination (`RegisterHotKey`), which fails when any running program already holds it. Windows itself assigns none of these. Chrome's and Outlook's main-window shortcut lists have no Ctrl+Alt+Shift+Space or Ctrl+Alt+Shift+R. VS Code is not installed on this machine, so its keybindings could not be read; neither combination is among its documented Windows defaults. Which running app holds Ctrl+Alt+Space and Ctrl+Alt+G is unknown (Windows doesn't say); candidates running at the time: Claude desktop, ChatGPT, Grok Bot, Aqua Voice, AMD Radeon Software, Logi Options+, Teams, Superhuman. Only en-US is installed, so AltGr isn't a factor here (Glim still checks installed layouts at run time).
 
+## Writing checker (Phase 1a, branch `phase-1a-checker`)
+- **What it does:** in the apps it is on for (`src-tauri/src/writing/apps.rs`: Outlook classic + new, Word, Chrome, Edge, Notepad, chat apps), the capture thread now runs in normal sessions too. About 1 s after typing stops, it checks the paragraph around the caret, without the signature or quoted reply, with Harper (`harper-core` 2.11.0, en-US, Apache-2.0, no network crates). The island gets the suggestions (`writing-suggestions` event); the text never leaves the capture thread otherwise and is never logged (tests enforce both sides).
+- **Island:** a count on the pill at the lantern's top right (`role="status"`, read out as "N writing suggestions"), `s-suggest` unless an agent state is showing (agent wins), a pencil tab, and a read-only "Suggestions" view (problem in context, Harper's message, replacements; up to 3 rows plus "+N more"). Opening the island shows it after a waiting approval. Applying fixes is 1b.
+- **Not shown in Ember or Hidden:** see Open issues.
+- **Performance** (release build, this machine): setup ~0.54 s once, on the first supported field, and it includes a warm-up check. Without the warm-up, the user's first check took 25 ms (61-70 ms live). Now: first check 3 ms, later ones 0.2-1 ms for 46-155 chars; live log `writing: 2 checks, median 5.13 ms`. `cargo test --release -p glim timing_probe -- --ignored --nocapture` prints the numbers.
+- **Verification (2026-10-10, `glim.exe` built 20:58, 11,776,512 bytes, sha256 `27bc2404a5573969…`):** `scripts/verify-writing-notepad.ps1`, no mouse or keyboard: count 2 for "We recieved the payment and will deposit it tomorow.", gone for a clean sentence in a second tab, numbers-only log line, no test text in `glim.log`; PASS 3 times (`docs/verification/writing-notepad/`). Network: Glim's 9 processes (glim.exe + WebView2) had 0 TCP and 0 UDP endpoints. Tests: `npm test` 336, `cargo test --workspace` 238 + 30 (1 ignored), `tsc` clean; clippy is clean on every file the branch touches (8 older `-D warnings` lints remain in `agents.rs`, `config_file.rs`, `island.rs`, `net/mod.rs`, `recap.rs`).
+- **Size:** `glim.exe` 5.8 MB → 11.8 MB (Harper's dictionary).
+- **Still owed:** the owner's hands-on try in Outlook, Word and Gmail.
+
 ## Text-capture spike (Phase 0b)
 Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.md`.
 
@@ -261,6 +272,8 @@ Renamed from upstream's `coucou` names on 2026-10-09 (relay, pipe and data folde
 Committed as provided by the owner, untouched: `glim-mascot.html` (mascot spec, "Glim mascot (approved)"), `app-icon.svg` (1024×1024 app icon, dark tile with the lantern), `app-icon-small.svg` (transparent-background lantern for small sizes). `app-icon.png` (1024×1024) and `app-icon-small.png` (256×256) were added 2026-10-09 and are the icon sources: `npm run icons` runs the Tauri CLI on `app-icon.png` for the large sizes, and on `app-icon-small.png` for `32x32.png` and the 16/24/32 px layers of `icon.ico`. The SVGs are kept as reference.
 
 ## Lessons learned
+- **Win11 Notepad keeps unsaved edits per file path across launches:** a test that edits a file in Notepad poisons every later run on that path. Never edit; use fresh file names.
+- **Chromium leaves role-less divs out of the accessibility tree:** an element a screen reader or UI Automation must find needs a role or label.
 - **Smart App Control blocks the Rust toolchain (2026-10-08).** Windows Smart App Control in enforce mode blocks the unsigned `rustc_driver` DLL (`0xC0E90002`). Tauri then panics with an unhelpful `Option::unwrap()` error that points nowhere near the cause. Fix: turn SAC off on the dev machine. This is why code signing is on the roadmap.
 - **`gh` defaults a fork's PRs to upstream (2026-10-08).** In a fork, `gh pr create` and similar commands target the parent repo (Louis-CFM/coucou) unless told otherwise. Fix: `gh repo set-default anthonygarcia866/local-companion` (done on this machine); CLAUDE.md forbids any gh activity on upstream.
 - **The webview runtime phones home even when the app doesn't (2026-10-09).** A choke point in Rust and a strict CSP still left WebView2 contacting Microsoft (experiment config, component updater, NEL reports, WPAD). Only watching the whole process tree showed it; `glim.exe` alone looked clean. Fix: Chromium switches plus a resolver rule on the WebView2 command line, verified with netstat and a net-log. Any new window must use `BROWSER_ARGS`.
