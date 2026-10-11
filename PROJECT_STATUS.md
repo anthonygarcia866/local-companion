@@ -236,7 +236,13 @@ How it was checked: Word's own key table (`Application.FindKey`, a hidden read-o
   - in Ember, a twelve-mistake paragraph → label "Glim: 12 writing suggestions"; a UI Automation Invoke on the ember opened the list on "1–3 of 12" with the saved mode unchanged; Next → "4–6 of 12"; Minimize → back to the ember;
   - a text box compiled as `slack.exe`: one suggestion ("recieved"), with u / tmrw / lol / idk / i / btw / ok / ty let through;
   - checks: median 3.5-12.5 ms, max 17.7 ms for 154 characters.
-- **Still owed:** the owner's retest: many suggestions, the ember, a real chat app.
+- **Accessibility (round 3):** the island's views that aren't showing are only transparent, so they are `aria-hidden` and screen readers see only the one that shows. The lantern is a real button ("Glim", Tab-reachable, Enter / Space / UI Automation Invoke, focus ring) and is hidden from readers only while it is invisible. Before this, the island's lantern kept the `aria-hidden` that every drawn lantern gets, so readers and UI Automation never found it, even with `role="button"`. Also, `#bot-lantern` is `pointer-events: none`, so a real mouse click in the open island never reached its click handler (fixed: a hit-test on mouseup). All of these go through `Island.activateLantern()`.
+- **Round 3 verification (2026-10-10, `glim.exe` built 23:22, 11,787,264 bytes, sha256 `2379372b448dc48e…`):** `verify-writing-notepad.ps1` PASS twice (23:24, 23:27), no mouse or keyboard:
+  - count 2; a Claude Code Stop sent through the real relay (`glim-hook.exe Stop`) opens the finished card with the count still on the pill; the lantern is in the UI Automation tree as Button "Glim", and invoking it opens "2 writing suggestions" with the card gone; Home still shows the agent's last words;
+  - clean sentence → count gone; Ember 12 → "1–3 of 12" → Next "4–6 of 12" → back to the ember; `slack.exe` 1 suggestion;
+  - pager buttons 33×29 px on screen, and the row fits inside the 300 px panel (`docs/verification/writing-notepad/suggestions-page1.png`, Glim's window only; `-Shot` takes it);
+  - tests: `npm test` 344, `tsc` clean; Rust is unchanged since 6572edc (`cargo test` 246 + 1 ignored there). The network check was not repeated this round.
+- **Still owed:** the owner's retest: the lantern with a real mouse in the open island (the self-test can only invoke it), many suggestions, the ember, a real chat app.
 
 ## Text-capture spike (Phase 0b)
 Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.md`.
