@@ -158,7 +158,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         // The checker only ever sees apps that have it on.
         let checked = reading.text.as_deref().filter(|_| crate::writing::apps::enabled(&capture.meta.app));
-        writer.observe(same, checked, capture.meta.caret, std::time::Instant::now(), |s| {
+        let rules = crate::writing::apps::rules(&capture.meta.app);
+        writer.observe(same, checked, capture.meta.caret, rules, std::time::Instant::now(), |s| {
             let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
         });
         current = Some((element, capture.meta.clone()));

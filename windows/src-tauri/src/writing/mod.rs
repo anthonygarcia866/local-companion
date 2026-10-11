@@ -18,11 +18,14 @@ pub mod text;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
+pub use checker::Rules;
 use checker::{Checker, Finding};
 use text::{paragraph_to_check, Paragraph};
 
-/// How long the text must stay unchanged before it is checked.
-pub const DEBOUNCE: Duration = Duration::from_millis(1000);
+/// How long the text must stay unchanged before it is checked (the owner:
+/// 1 s felt slow, 2026-10-10). Readings come every 300 ms, so a check runs
+/// 600-900 ms after typing stops.
+pub const DEBOUNCE: Duration = Duration::from_millis(600);
 /// Characters of context shown around a problem in the island.
 pub const CONTEXT_CHARS: usize = 24;
 /// The event the island listens to.
@@ -127,6 +130,7 @@ impl Session {
         same: bool,
         text: Option<&str>,
         caret: Option<usize>,
+        rules: Rules,
         now: Instant,
         mut emit: impl FnMut(&Suggestions),
     ) {
@@ -140,19 +144,25 @@ impl Session {
             return;
         };
         if self.debounce.feed(key_of(&paragraph), now) == Step::Check {
-            let found = self.check(&paragraph);
+            let found = self.check(&paragraph, caret, rules);
             self.show(found, &mut emit);
         }
     }
 
-    fn check(&mut self, p: &Paragraph) -> Suggestions {
+    /// The paragraph's suggestions, nearest the caret first (ties: earlier in
+    /// the text), so the first page is about what the user just wrote.
+    fn check(&mut self, p: &Paragraph, caret: Option<usize>, rules: Rules) -> Suggestions {
         let checker = self.checker.get_or_insert_with(Checker::new);
         let t = Instant::now();
-        let findings = checker.check(&p.text);
+        let findings = checker.check(&p.text, rules);
         self.times.push(t.elapsed().as_micros());
         self.lengths.push(p.text.chars().count());
         let chars: Vec<char> = p.text.chars().collect();
-        Suggestions { items: findings.iter().map(|f| suggestion(&chars, p.start, f)).collect() }
+        let mut items: Vec<Suggestion> = findings.iter().map(|f| suggestion(&chars, p.start, f)).collect();
+        if let Some(caret) = caret {
+            items.sort_by_key(|s| (distance(caret, s.start, s.end), s.start));
+        }
+        Suggestions { items }
     }
 
     fn show(&mut self, s: Suggestions, emit: &mut impl FnMut(&Suggestions)) {
@@ -184,6 +194,15 @@ impl Session {
     }
 }
 
+/// How far the caret is from a problem, in characters: 0 inside it.
+fn distance(caret: usize, start: usize, end: usize) -> usize {
+    if caret < start {
+        start - caret
+    } else {
+        caret.saturating_sub(end)
+    }
+}
+
 fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
     let s: String = chars[f.start..f.end].iter().collect();
     let before: String = chars[f.start.saturating_sub(CONTEXT_CHARS)..f.start].iter().collect();
@@ -210,7 +229,7 @@ mod tests {
         let t0 = Instant::now();
         let mut emitted = Vec::new();
         for &(same, text, caret, ms) in steps {
-            session.observe(same, text, caret, t0 + Duration::from_millis(ms), |s| emitted.push(s.items.len()));
+            session.observe(same, text, caret, Rules::Full, t0 + Duration::from_millis(ms), |s| emitted.push(s.items.len()));
         }
         emitted
     }
@@ -225,21 +244,66 @@ mod tests {
     }
 
     #[test]
-    fn one_check_a_second_after_the_text_stops_changing_and_none_after() {
+    fn one_check_600_ms_after_the_text_stops_changing_and_none_after() {
+        assert_eq!(DEBOUNCE, Duration::from_millis(600));
         let mut d = Debouncer::default();
         let t0 = Instant::now();
         let at = |ms| t0 + Duration::from_millis(ms);
         assert_eq!(d.feed(7, at(0)), Step::Wait);
         assert_eq!(d.feed(7, at(300)), Step::Wait);
-        assert_eq!(d.feed(7, at(900)), Step::Wait);
-        assert_eq!(d.feed(7, at(1000)), Step::Check);
+        assert_eq!(d.feed(7, at(599)), Step::Wait);
+        assert_eq!(d.feed(7, at(600)), Step::Check);
         // Unchanged polls after the check: nothing more.
-        for ms in [1300, 1600, 5000] {
+        for ms in [900, 1200, 5000] {
             assert_eq!(d.feed(7, at(ms)), Step::Wait);
         }
         // A change starts the wait again.
         assert_eq!(d.feed(8, at(5300)), Step::Wait);
-        assert_eq!(d.feed(8, at(6300)), Step::Check);
+        assert_eq!(d.feed(8, at(5900)), Step::Check);
+    }
+
+    /// No flicker: while the user types, the shown suggestions stay as they
+    /// are (nothing is sent), and one update comes after the pause.
+    #[test]
+    fn typing_continuously_sends_nothing_until_the_pause() {
+        let mut s = Session::default();
+        let mut field = String::from("We recieved the payment.");
+        let mut steps: Vec<(String, u64)> = vec![(field.clone(), 0), (field.clone(), 300), (field.clone(), 600)];
+        // Then a word every 300 ms (one reading each) for about 5 s.
+        let mut ms = 600;
+        for word in " and will deposit it tomorow and send the reciept to the owner by Friday".split_inclusive(' ') {
+            field.push_str(word);
+            ms += 300;
+            steps.push((field.clone(), ms));
+        }
+        let typing_ends = ms;
+        steps.push((field.clone(), ms + 300));
+        steps.push((field.clone(), ms + 600));
+        let t0 = Instant::now();
+        let mut sent: Vec<(u64, usize)> = Vec::new();
+        for (text, at) in &steps {
+            let caret = Some(text.chars().count());
+            s.observe(true, Some(text), caret, Rules::Full, t0 + Duration::from_millis(*at), |x| sent.push((*at, x.items.len())));
+        }
+        // One update before typing (recieved), none during, one after.
+        assert_eq!(sent.len(), 2, "{sent:?}");
+        assert_eq!(sent[0], (600, 1));
+        assert!(sent[1].0 > typing_ends && sent[1].1 >= 3, "{sent:?}");
+    }
+
+    #[test]
+    fn suggestions_come_nearest_the_caret_first() {
+        let field = "Teh lease is recieved. We will deposit it tomorow and send the reciept.";
+        let caret = field.find("send").unwrap();
+        let mut s = Session::default();
+        let mut got = Suggestions::default();
+        let t0 = Instant::now();
+        for ms in [0, 600] {
+            s.observe(true, Some(field), Some(caret), Rules::Full, t0 + Duration::from_millis(ms), |x| got = x.clone());
+        }
+        let order: Vec<&str> = got.items.iter().map(|i| i.problem.as_str()).collect();
+        assert_eq!(order, ["tomorow", "reciept", "recieved", "Teh"]);
+        assert_eq!((distance(5, 3, 8), distance(2, 3, 8), distance(10, 3, 8)), (0, 1, 2));
     }
 
     #[test]
@@ -275,7 +339,7 @@ mod tests {
         let mut got = Suggestions::default();
         let t0 = Instant::now();
         for ms in [0, 1000] {
-            s.observe(true, Some(FIELD), Some(12), t0 + Duration::from_millis(ms), |x| got = x.clone());
+            s.observe(true, Some(FIELD), Some(12), Rules::Full, t0 + Duration::from_millis(ms), |x| got = x.clone());
         }
         let item = &got.items[0];
         let chars: Vec<char> = FIELD.chars().collect();

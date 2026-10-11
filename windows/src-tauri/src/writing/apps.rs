@@ -19,6 +19,21 @@ pub const OFF: [&str; 9] = [
     "conhost.exe", "OpenConsole.exe",
 ];
 
+/// Chat apps (a subset of ON): relaxed rules, see checker::Rules::Chat.
+pub const CHAT: [&str; 9] = [
+    "slack.exe", "ms-teams.exe", "Teams.exe", "Discord.exe", "WhatsApp.exe", "WhatsApp.Root.exe", "claude.exe",
+    "ChatGPT.exe", "Grok Bot.exe",
+];
+
+/// The rules for this app: relaxed in chat apps, full everywhere else.
+pub fn rules(exe: &str) -> super::Rules {
+    if CHAT.iter().any(|a| a.eq_ignore_ascii_case(exe)) {
+        super::Rules::Chat
+    } else {
+        super::Rules::Full
+    }
+}
+
 /// Whether the checker works in this app. Apps on neither list are off.
 pub fn enabled(exe: &str) -> bool {
     ON.iter().any(|a| a.eq_ignore_ascii_case(exe))
@@ -27,6 +42,19 @@ pub fn enabled(exe: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::writing::Rules;
+
+    #[test]
+    fn chat_apps_get_relaxed_rules_and_the_rest_full() {
+        for exe in CHAT {
+            assert!(enabled(exe), "{exe} is on");
+            assert_eq!(rules(exe), Rules::Chat, "{exe}");
+        }
+        assert_eq!(rules("SLACK.exe"), Rules::Chat);
+        for exe in ["OUTLOOK.EXE", "olk.exe", "WINWORD.EXE", "chrome.exe", "msedge.exe", "Notepad.exe"] {
+            assert_eq!(rules(exe), Rules::Full, "{exe}");
+        }
+    }
 
     #[test]
     fn email_documents_browsers_notepad_and_chat_are_on() {

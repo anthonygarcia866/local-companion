@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use harper_core::linting::{LintGroup, Suggestion as Edit};
+use harper_core::linting::{LintGroup, LintKind, Suggestion as Edit};
 use harper_core::spell::FstDictionary;
 use harper_core::{Dialect, Document};
 
@@ -37,6 +37,33 @@ pub const DISABLED_RULES: [&str; 2] = ["ExpandMemoryShorthands", "NeedToNoun"];
 /// preference, not an error. They share this message.
 const INITIALISM_MESSAGE: &str = "Try expanding this initialism";
 
+/// Which rules apply: chat apps get a relaxed set (the owner, 2026-10-10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rules {
+    /// Email, documents, browsers, Notepad: everything.
+    Full,
+    /// Chat apps: no capitalization lints (sentence starts, "i", the
+    /// all-caps "canonical spelling" of "u", "btw" ...) and no findings on
+    /// common chat words. Real misspellings are still found.
+    Chat,
+}
+
+/// Chat words never flagged in chat apps, whatever the rule (spelling,
+/// "ok" -> "okay", "tho" -> "though", the canonical-spelling lints).
+pub const CHAT_WORDS: &[&str] = &[
+    "u", "ur", "r", "ya", "yall", "y'all", "tmrw", "tmr", "tbh", "lol", "lmao", "lmfao", "rofl", "idk", "idc",
+    "brb", "btw", "thx", "thnx", "ty", "tysm", "np", "pls", "plz", "sry", "rn", "omg", "lmk", "imo", "imho",
+    "dm", "asap", "fyi", "gonna", "wanna", "gotta", "kinda", "sorta", "tho", "ok", "k", "kk", "ikr", "nvm",
+    "smh", "fr", "ngl", "irl", "bc", "cuz", "b4", "ppl", "msg", "tbd", "eta", "wfh", "ooo", "hbu", "wyd",
+    "ttyl", "gn", "gm", "haha", "hahaha", "jk", "afaik", "bday", "convo", "pic", "pics", "yep", "yup", "nope",
+    "hmu", "ofc", "i'm", "i'll", "i've", "i'd", "im", "ive",
+];
+
+fn chat_word(problem: &str) -> bool {
+    let w = problem.trim().to_lowercase().replace('\u{2019}', "'");
+    CHAT_WORDS.contains(&w.as_str())
+}
+
 /// Checked once at setup to warm Harper's caches; never shown.
 const WARM_UP: &str = "Hi Sarah, I wanted to folow up on the the lease. Their going to send the payment tomorrow, and we will deposit it on Monday.";
 
@@ -55,11 +82,11 @@ impl Checker {
             group.config.set_rule_enabled(rule, false);
         }
         let mut checker = Checker { group };
-        checker.check(WARM_UP);
+        checker.check(WARM_UP, Rules::Full);
         checker
     }
 
-    pub fn check(&mut self, paragraph: &str) -> Vec<Finding> {
+    pub fn check(&mut self, paragraph: &str, rules: Rules) -> Vec<Finding> {
         let chars: Vec<char> = paragraph.chars().collect();
         let doc = Document::new_plain_english_curated(paragraph);
         // Lints on the same span become one finding: the most important
@@ -75,6 +102,9 @@ impl Checker {
                     continue;
                 }
                 let problem: String = chars[start..end].iter().collect();
+                if rules == Rules::Chat && (lint.lint_kind == LintKind::Capitalization || chat_word(&problem)) {
+                    continue;
+                }
                 let replacements: Vec<String> = lint
                     .suggestions
                     .iter()
@@ -169,7 +199,43 @@ mod tests {
     }
 
     fn check(text: &str) -> Vec<Finding> {
-        CHECKER.with(|c| c.borrow_mut().check(text))
+        CHECKER.with(|c| c.borrow_mut().check(text, Rules::Full))
+    }
+
+    fn chat_problems(text: &str) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        CHECKER.with(|c| c.borrow_mut().check(text, Rules::Chat)).iter().map(|f| chars[f.start..f.end].iter().collect()).collect()
+    }
+
+    /// Lines that drew capitalization, canonical-spelling and slang findings
+    /// with the full rules (Harper 2.11.0, probed 2026-10-10).
+    const CHAT: [&str; 6] = [
+        "u coming tmrw? lol idk, brb. i think so",
+        "thx btw, gonna be late. ur the best omg lmk",
+        "ok np, ty! wanna grab lunch? i'm free rn",
+        "hey can u send me the lease pls, i need it asap. sry idk where it went",
+        "yeah sounds good, ill be there in 5. kinda busy tho",
+        "imo its fine. dm me",
+    ];
+
+    #[test]
+    fn chat_apps_skip_capitalization_and_chat_words() {
+        for line in CHAT {
+            assert!(!problems(line).is_empty(), "the full rules flag {line:?}");
+            assert_eq!(chat_problems(line), Vec::<String>::new(), "{line:?}");
+        }
+    }
+
+    #[test]
+    fn chat_apps_still_get_real_mistakes() {
+        let found = chat_problems("hey i recieved the lease, will send it tomorow. the the owner wants it");
+        for p in ["recieved", "tomorow", "the the"] {
+            assert!(found.iter().any(|f| f == p), "{p} in {found:?}");
+        }
+        // "u" is let through in chat apps only.
+        assert!(problems("can u send it").iter().any(|f| f == "u"));
+        assert!(chat_word("I\u{2019}m") && chat_word(" LOL "));
+        assert!(CHAT_WORDS.iter().all(|w| !w.chars().any(|c| c.is_uppercase())));
     }
 
     #[test]
@@ -182,7 +248,7 @@ mod tests {
         for round in 0..3 {
             for x in texts {
                 let t = std::time::Instant::now();
-                c.check(x);
+                c.check(x, Rules::Full);
                 println!("round {round} {} chars {:?}", x.len(), t.elapsed());
             }
         }
