@@ -28,7 +28,7 @@ function island(start) {
     mock.timers.tick(1000);
     if (start === "home") fsm.click();
   }
-  const model = new PresenceModel({ showPill: () => fsm.reveal() });
+  const model = new PresenceModel({ showPill: () => fsm.reveal(), openSuggestions: () => {} });
   return { fsm, model };
 }
 
@@ -92,5 +92,6 @@ test("the ember's click is wired to restore", () => {
   const src = readFileSync(new URL("../src/island/presence.ts", import.meta.url), "utf8");
   assert.match(src, /this\.el\.addEventListener\("click", \(\) => \{\s+if \(gesture\.click\(\)\) this\.model\.restore\(\);/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-  assert.match(main, /new PresenceView\(\{ showPill: \(\) => \{ if \(!State\.paused\) island\.reveal\(\); \} \}\)/);
+  assert.match(main, /new PresenceView\(\{\s+showPill: \(\) => \{ if \(!State\.paused\) island\.reveal\(\); \},\s+(?:\/\/[^\n]*\s+)?openSuggestions: \(\) => island\.setView\("suggestions"\),\s+\}\)/);
+  assert.match(main, /island\.onClosed = \(\) => presence\.model\.islandClosed\(\);/);
 });

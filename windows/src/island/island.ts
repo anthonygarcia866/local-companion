@@ -322,10 +322,14 @@ export class Island {
 
   // ── Mode / view ─────────────────────────────────────────────────────────────
 
+  /** The open island closed (to the pill or further). */
+  onClosed: (() => void) | null = null;
+
   private setMode(mode: IslandMode) {
     const prev = State.mode;
     if (mode === prev) return;
     State.mode = mode;
+    if (prev === "expanded") this.onClosed?.();
     if (prev === "expanded") {
       // A folded card is still waiting: it keeps the island pinned.
       if (!State.pendingApproval) State.isPinned = false;

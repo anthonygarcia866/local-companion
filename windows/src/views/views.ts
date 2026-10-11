@@ -624,8 +624,20 @@ function buildNote(): ViewHost {
 
 // ── Writing suggestions (Phase 1a: read-only) ─────────────────────────────────
 
-/** Suggestions shown at once; the rest are counted. */
+/** Suggestions shown at once; Previous / Next page through the rest. */
 export const SUGGESTIONS_SHOWN = 3;
+
+/**
+ * Which suggestions a page shows: `page` clamped to the pages there are,
+ * and `from`-`to` (1-based, for "1–3 of 12"). Paging is by buttons only: the
+ * island's window never takes focus, so the mouse wheel can't be relied on.
+ */
+export function suggestionPage(total: number, page: number): { page: number; pages: number; from: number; to: number } {
+  const pages = Math.max(1, Math.ceil(total / SUGGESTIONS_SHOWN));
+  const p = Math.min(Math.max(0, page), pages - 1);
+  const from = total === 0 ? 0 : p * SUGGESTIONS_SHOWN + 1;
+  return { page: p, pages, from, to: Math.min(total, (p + 1) * SUGGESTIONS_SHOWN) };
+}
 
 /**
  * The instant checker's suggestions for the focused field: the problem in a
@@ -634,25 +646,42 @@ export const SUGGESTIONS_SHOWN = 3;
  * nothing is logged.
  */
 export function buildSuggestions(): ViewHost {
+  // The page being shown, and the list it belongs to: a new list (a new
+  // check) starts again at the first page, nearest the caret.
+  let page = 0;
+  let pageOf: WritingSuggestion[] | null = null;
   const title = h("div", { class: "title one-line" });
   const list = h("div", { class: "suggestion-list" });
-  const more = h("div", { class: "suggestion-more" });
+  const range = h("span", { class: "suggestion-range" });
+  // The pager only turns pages: nothing here acts on the app.
+  const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 11, { stroke: 2.2 }));
+  const next = h("button", { class: "suggestion-page", title: tl("Next suggestions"), "aria-label": tl("Next suggestions"), onclick: () => turn(1) }, svg(ICONS.chevronRight, 11, { stroke: 2.2 }));
+  const pager = h("div", { class: "suggestion-pager" }, prev, range, next);
   const note = h("div", { class: "suggestion-more", text: tl("Fixes can be applied in a later version.") });
-  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, more, note)));
-  return {
-    el,
-    sync() {
-      const items = State.writing;
-      title.textContent = items.length > 0
-        ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
-        : t("Nothing to fix here.");
-      clear(list);
-      for (const s of items.slice(0, SUGGESTIONS_SHOWN)) list.append(suggestionRow(s));
-      const rest = items.length - SUGGESTIONS_SHOWN;
-      more.textContent = rest > 0 ? t("+{count} more", { count: rest }) : "";
-      more.style.display = rest > 0 ? "" : "none";
-    },
+  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, pager, note)));
+  const sync = () => {
+    const items = State.writing;
+    if (items !== pageOf) {
+      pageOf = items;
+      page = 0;
+    }
+    const at = suggestionPage(items.length, page);
+    page = at.page;
+    title.textContent = items.length > 0
+      ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
+      : t("Nothing to fix here.");
+    clear(list);
+    for (const s of items.slice(at.from - 1, at.to)) list.append(suggestionRow(s));
+    pager.style.display = at.pages > 1 ? "" : "none";
+    range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
+    (prev as HTMLButtonElement).disabled = at.page === 0;
+    (next as HTMLButtonElement).disabled = at.page === at.pages - 1;
   };
+  const turn = (by: number) => {
+    page += by;
+    sync();
+  };
+  return { el, sync };
 }
 
 function suggestionRow(s: WritingSuggestion): HTMLElement {

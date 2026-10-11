@@ -192,6 +192,13 @@ fn set_dock(app: AppHandle, dock: String) {
     }
 }
 
+/// The ember's click with writing suggestions waiting, and the island
+/// closing after it: the pill without changing the saved mode.
+#[tauri::command]
+fn set_peek(app: AppHandle, on: bool) {
+    presence::set_peek(&app, on);
+}
+
 /// Settings' visibility picker and the ember's click (back to "normal").
 #[tauri::command]
 fn set_visibility(app: AppHandle, visibility: String) {
@@ -768,6 +775,7 @@ pub fn run() {
             reposition,
             dock_drag_start,
             set_visibility,
+            set_peek,
             presence_info,
             set_dock,
             placement,

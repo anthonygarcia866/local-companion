@@ -2560,17 +2560,6 @@
    "ru": "Здесь нечего исправлять.",
    "id": "Tidak ada yang perlu diperbaiki di sini."
   },
-  "+{count} more": {
-   "zh-Hans": "另有 {count} 条",
-   "hi": "+{count} और",
-   "es": "+{count} más",
-   "ar": "+{count} أخرى",
-   "fr": "+{count} de plus",
-   "bn": "আরও +{count}",
-   "pt-BR": "+{count} a mais",
-   "ru": "ещё +{count}",
-   "id": "+{count} lagi"
-  },
   "Remove it": {
    "zh-Hans": "删除",
    "hi": "हटाएँ",
@@ -2592,6 +2581,39 @@
    "pt-BR": "Aplicar as correções chegará em uma versão futura.",
    "ru": "Применять исправления можно будет в следующей версии.",
    "id": "Menerapkan perbaikan akan hadir di versi berikutnya."
+  },
+  "Previous suggestions": {
+   "zh-Hans": "上一组建议",
+   "hi": "पिछले सुझाव",
+   "es": "Sugerencias anteriores",
+   "ar": "الاقتراحات السابقة",
+   "fr": "Suggestions précédentes",
+   "bn": "আগের পরামর্শ",
+   "pt-BR": "Sugestões anteriores",
+   "ru": "Предыдущие подсказки",
+   "id": "Saran sebelumnya"
+  },
+  "Next suggestions": {
+   "zh-Hans": "下一组建议",
+   "hi": "अगले सुझाव",
+   "es": "Sugerencias siguientes",
+   "ar": "الاقتراحات التالية",
+   "fr": "Suggestions suivantes",
+   "bn": "পরের পরামর্শ",
+   "pt-BR": "Próximas sugestões",
+   "ru": "Следующие подсказки",
+   "id": "Saran berikutnya"
+  },
+  "{from}–{to} of {total}": {
+   "zh-Hans": "第 {from}–{to} 条，共 {total} 条",
+   "hi": "{total} में से {from}–{to}",
+   "es": "{from}–{to} de {total}",
+   "ar": "{from}–{to} من {total}",
+   "fr": "{from}–{to} sur {total}",
+   "bn": "{total}টির মধ্যে {from}–{to}",
+   "pt-BR": "{from}–{to} de {total}",
+   "ru": "{from}–{to} из {total}",
+   "id": "{from}–{to} dari {total}"
   }
  }
 }
