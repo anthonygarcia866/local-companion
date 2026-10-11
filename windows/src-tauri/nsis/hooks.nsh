@@ -16,6 +16,11 @@
   RMDir /r "$LOCALAPPDATA\Glim\bin"
   RMDir /r "$LOCALAPPDATA\Glim\inbox"
   Delete "$LOCALAPPDATA\Glim\glim.log"
+  ; Launch at startup (autostart.rs): an entry left behind would start a
+  ; program that is gone. An update that runs this is fine: the new Glim
+  ; writes the entry again at its first launch if the setting is on.
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Glim"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Glim"
   ; Left by a build from before the rename that never ran the migration.
   RMDir /r "$LOCALAPPDATA\Coucou\bin"
   RMDir /r "$LOCALAPPDATA\Coucou\inbox"

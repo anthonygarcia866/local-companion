@@ -1,6 +1,7 @@
 // Glim for Windows — app wiring and the commands the island calls.
 
 mod agent_hooks;
+mod autostart;
 mod agents;
 mod capture;
 mod chat;
@@ -33,7 +34,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 
 use chat::{Chat, ChatContext, ChatReply, ModelInfo};
 use files::DroppedFile;
@@ -97,11 +97,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         log::line(format!("could not save settings: {err}"));
     }
     if autostart_changed {
-        let manager = app.autolaunch();
-        let result = if settings.autostart { manager.enable() } else { manager.disable() };
-        if let Err(err) = result {
-            eprintln!("[glim] autostart: {err}");
-        }
+        autostart::sync(settings.autostart, true);
     }
     if screen_changed {
         let collapsed = shared.gate.collapsed.load(Ordering::Relaxed);
@@ -749,8 +745,7 @@ pub fn run() {
                     let _ = app.emit_to(island::WINDOW_LABEL, "tray", "open".to_string());
                 }
             }
-        }))
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None));
+        }));
     // Where no global shortcut can work, the plugin isn't even started.
     if platform::global_shortcuts_blocked().is_none() {
         builder = builder.plugin(shortcuts::plugin());
@@ -829,6 +824,9 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            // Launch at startup follows the setting at every launch, not only
+            // when it changes (the entry may be missing, or point at an old copy).
+            autostart::sync(loaded.autostart, false);
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
