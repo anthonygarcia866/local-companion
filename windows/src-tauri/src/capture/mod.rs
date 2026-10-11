@@ -7,13 +7,18 @@
 //   has no field that could hold them, and `Capture`'s Debug output leaves
 //   them out, so even a stray `{:?}` can't leak them. Tests check all of it.
 // - Password fields (UIA IsPassword) are skipped before any pattern is asked
-//   for: nothing is read from them at all.
+//   for: nothing is read from them at all. So are payment and ID fields, and
+//   every field in a paused app or on a paused site (see sensitive.rs).
+// - A reading that turns out to hold a card number, an SSN or an IBAN is
+//   dropped in the capture thread (`finish_reading`): its text, length and
+//   caret go nowhere.
 // - Nothing is written back to any app, and there is no keyboard hook.
 //
 // The results log (`capture-results.jsonl` in the local data folder) records
 // one line per field visited: app, control type, pattern, readable, char
 // count. docs/capture-results.md is written from it.
 
+pub mod sensitive;
 #[cfg(windows)]
 pub mod uia;
 
@@ -36,6 +41,11 @@ pub struct CaptureMeta {
     pub password: bool,
     /// Skipped because it isn't editable (read-only page content).
     pub read_only: bool,
+    /// Skipped as payment or ID data: by the field's labels, or because the
+    /// reading held a card number, an SSN or an IBAN (the two look the same).
+    pub sensitive: bool,
+    /// Skipped because the app or the site is on the pause list.
+    pub paused: bool,
     pub char_count: usize,
     /// Caret position in characters from the start, when the pattern gives it.
     pub caret: Option<usize>,
@@ -190,6 +200,43 @@ impl OwnGuard {
 
 /// The `pattern` recorded for a field that was skipped as read-only.
 pub const SKIPPED_READ_ONLY: &str = "skipped (read-only content)";
+/// The `pattern` for a field or reading withheld as payment or ID data.
+pub const SKIPPED_SENSITIVE: &str = "skipped (sensitive)";
+/// The `pattern` for a field in a paused app or on a paused site.
+pub const SKIPPED_PAUSED: &str = "skipped (paused app or site)";
+
+/// A field nothing is read from because of what it is or where it is: no
+/// text, no length, no caret and no window title (a bank page's title can
+/// name the account).
+pub fn withheld(app: String, control_type: String, paused: bool) -> Capture {
+    let meta = CaptureMeta {
+        app,
+        control_type,
+        pattern: (if paused { SKIPPED_PAUSED } else { SKIPPED_SENSITIVE }).into(),
+        sensitive: !paused,
+        paused,
+        ..Default::default()
+    };
+    Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }
+}
+
+/// Turns a field's text into the reading that leaves the capture thread.
+/// Text holding a card number, an SSN or an IBAN is dropped here, before
+/// anything else sees it: the reading becomes `withheld`, the same as a
+/// payment field skipped by its labels.
+pub fn finish_reading(meta: CaptureMeta, window_title: String, text: Option<String>, caret: Option<usize>) -> Capture {
+    if text.as_deref().is_some_and(sensitive::contains_sensitive_number) {
+        return withheld(meta.app, meta.control_type, false);
+    }
+    let mut meta = meta;
+    meta.readable = text.is_some();
+    meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
+    meta.caret = caret;
+    // The full text stays here and is dropped when this returns; only the
+    // window around the caret goes to the panel.
+    let excerpt = text.as_deref().map(|t| caret_window(t, caret));
+    Capture { meta, window_title, excerpt, via: String::new() }
+}
 
 /// The most text read from one field: a safety limit (a whole document can
 /// be huge). Read into memory only, never stored.
@@ -273,6 +320,8 @@ mod tests {
                 readable: true,
                 password: false,
                 read_only: false,
+                sensitive: false,
+                paused: false,
                 char_count: SECRET.chars().count(),
                 caret: Some(4),
             },
@@ -439,8 +488,90 @@ mod tests {
         let src = include_str!("uia.rs").replace("\r\n", "\n");
         let run = &src[src.find("fn run(").unwrap()..];
         let skip = run.find("guard.is_own(").expect("own-process check");
-        let read = run.find("read(&element").expect("read call");
+        let read = run.find("read(&uia, &element").expect("read call");
         assert!(skip < read);
+    }
+
+    /// Everything a reading can leave the capture thread as: the panel event's
+    /// JSON, its Debug form, and the results log line.
+    fn everything_sent(c: &Capture) -> String {
+        format!("{} {:?} {}", serde_json::to_string(c).unwrap(), c, results_line(&c.meta, 0))
+    }
+
+    fn digits(s: &str) -> String {
+        s.chars().filter(|c| c.is_ascii_digit()).collect()
+    }
+
+    fn chrome_meta() -> CaptureMeta {
+        CaptureMeta { app: "chrome.exe".into(), control_type: "Edit".into(), pattern: "TextPattern".into(), ..Default::default() }
+    }
+
+    #[test]
+    fn fake_cards_and_ssns_never_leave_capture() {
+        // Published test cards and never-issued SSNs (see sensitive.rs).
+        let numbers = [
+            "4111 1111 1111 1111", "4111-1111-1111-1111", "5555555555554444", "3782 822463 10005",
+            "6011 1111 1111 1117", "123-45-6789", "078 05 1120", "DE89 3704 0044 0532 0130 00",
+        ];
+        for n in numbers {
+            let text = format!("Hi Sam,\nmy card is {n} and the rest is fine.\nThanks");
+            let caret = Some(text.find(n).unwrap() + 3);
+            let c = finish_reading(chrome_meta(), "Checkout - Example Bank".into(), Some(text), caret);
+            let sent = everything_sent(&c);
+            assert!(!sent.contains(n), "{n} left capture: {sent}");
+            // Not the digits in any formatting, nor any 4-digit piece of them.
+            assert!(!digits(&sent).contains(&digits(n)), "{n} digits left capture: {sent}");
+            for piece in n.split([' ', '-']).filter(|p| p.len() >= 4) {
+                assert!(!sent.contains(piece), "part {piece} of {n} left capture: {sent}");
+            }
+            assert!(!sent.contains("Sam") && !sent.contains("Example Bank"), "{sent}");
+            assert_eq!(c.excerpt, None);
+            assert_eq!((c.meta.char_count, c.meta.caret, c.meta.readable), (0, None, false));
+            assert!(c.meta.sensitive && c.meta.pattern == SKIPPED_SENSITIVE && c.window_title.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_dropped_reading_looks_like_a_skipped_payment_field() {
+        let dropped = finish_reading(chrome_meta(), "t".into(), Some("4111111111111111".into()), Some(3));
+        let by_label = withheld("chrome.exe".into(), "Edit".into(), false);
+        assert_eq!(everything_sent(&dropped), everything_sent(&by_label));
+    }
+
+    #[test]
+    fn ordinary_text_with_numbers_still_gets_through() {
+        let text = "Call (555) 123-4567 about unit 4B, 221 Baker St, CA 94043. Invoice #2026-0042 total $1,234.56.";
+        let c = finish_reading(chrome_meta(), "Inbox".into(), Some(text.into()), Some(10));
+        assert_eq!(c.excerpt.as_ref().expect("excerpt").text, text);
+        assert!(c.meta.readable && !c.meta.sensitive && c.meta.char_count == text.chars().count());
+        assert_eq!(c.window_title, "Inbox");
+    }
+
+    #[test]
+    fn a_paused_or_payment_field_sends_nothing_about_the_field() {
+        for c in [withheld("1Password.exe".into(), "Edit".into(), true), withheld("chrome.exe".into(), "Edit".into(), false)] {
+            assert_eq!((c.meta.readable, c.meta.char_count, c.meta.caret), (false, 0, None));
+            assert!(c.excerpt.is_none() && c.window_title.is_empty());
+        }
+        assert_eq!(withheld("a".into(), "Edit".into(), true).meta.pattern, SKIPPED_PAUSED);
+    }
+
+    #[test]
+    fn payment_checks_come_before_any_text_is_read() {
+        // In uia.rs read(): the pause list, the field's labels and the paused
+        // sites are checked, and the window title looked up, before
+        // read_text; its text goes straight to finish_reading.
+        let src = include_str!("uia.rs").replace("\r\n", "\n");
+        let read = &src[src.find("fn read(").unwrap()..];
+        let read = &read[..read.find("\n}\n").unwrap()];
+        let text = read.find("read_text(").expect("text read");
+        for check in ["pauses_app(", "is_sensitive_field(", "pauses_url("] {
+            assert!(read.find(check).expect(check) < text, "{check} after read_text");
+        }
+        let title = read.find("foreground_title()").expect("title");
+        assert!(read.find("pauses_url(").unwrap() < title && title < text);
+        let finish = read.find("finish_reading(").expect("finish_reading");
+        assert!(text < finish && !read[text..].contains("caret_window("));
     }
 
     #[test]

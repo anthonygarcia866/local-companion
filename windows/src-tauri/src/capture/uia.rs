@@ -3,10 +3,13 @@
 // One thread owns every UIA object. It subscribes to focus-changed events (the
 // handler only wakes the thread up, so no COM object crosses threads) and also
 // re-reads the focused field every POLL so the debug panel follows typing.
-// For each field: skip it entirely if IsPassword, then skip it entirely if it
-// isn't editable (read-only page content, e.g. a whole web page in Chrome);
-// only then try TextPattern2 (text + caret), then TextPattern (text +
-// selection start as the caret), then ValuePattern (text only).
+// For each field: skip it entirely if its app is paused, if IsPassword, if
+// its labels read like payment or ID data, or if it sits on a paused site;
+// then skip it if it isn't editable (read-only page content, e.g. a whole web
+// page in Chrome); only then try TextPattern2 (text + caret), then
+// TextPattern (text + selection start as the caret), then ValuePattern (text
+// only). A reading holding a card number, an SSN or an IBAN is dropped
+// before it leaves this thread (super::finish_reading).
 
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -26,15 +29,16 @@ use windows::Win32::UI::Accessibility::{
     IUIAutomationLegacyIAccessiblePattern, IUIAutomationTextRange, IUIAutomationValuePattern,
     TextPatternRangeEndpoint_End, TextPatternRangeEndpoint_Start, UIA_EditControlTypeId,
     UIA_IsReadOnlyAttributeId, UIA_LegacyIAccessiblePatternId, UIA_TextPattern2Id, UIA_TextPatternId,
-    UIA_ValuePatternId,
+    UIA_ValuePatternId, UIA_DocumentControlTypeId, UIA_FullDescriptionPropertyId,
 };
-use windows::Win32::System::Variant::{VARIANT, VT_BOOL};
+use windows::Win32::System::Variant::{VARIANT, VT_BOOL, VT_BSTR};
 use windows::Win32::UI::WindowsAndMessaging::STATE_SYSTEM_READONLY;
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
 
+use super::sensitive::{is_browser, is_sensitive_field, FieldLabels, PauseList};
 use super::{
-    caret_window, control_type_name, is_editable, record_to, results_path, Capture, CaptureMeta, EditSignals,
-    MAX_FIELD_CHARS, SKIPPED_READ_ONLY,
+    control_type_name, finish_reading, is_editable, record_to, results_path, withheld, Capture, CaptureMeta,
+    EditSignals, MAX_FIELD_CHARS, SKIPPED_READ_ONLY,
 };
 
 /// How often the focused field is re-read between focus events: the fallback
@@ -80,6 +84,8 @@ fn run(app: &AppHandle) -> WinResult<()> {
     // Glim's own process tree (glim.exe and its msedgewebview2.exe children):
     // nothing in it is ever read (super::OwnGuard).
     let mut guard = super::OwnGuard::default();
+    // Apps and sites never captured in (built in until Phase 1d's settings).
+    let pause = PauseList::default();
     let results = results_path();
     // The field being watched, and its last reading's metadata: recorded to
     // the results log when focus leaves it, so its char count is the final one.
@@ -121,7 +127,7 @@ fn run(app: &AppHandle) -> WinResult<()> {
         if guard.is_own(pid as u32, foreground_pid(), std::time::Instant::now(), own_tree) {
             continue;
         }
-        let mut capture = read(&element, pid);
+        let mut capture = read(&uia, &element, pid, &pause);
         capture.via = via.into();
         let same = current
             .as_ref()
@@ -143,22 +149,32 @@ fn run(app: &AppHandle) -> WinResult<()> {
 }
 
 /// Everything the panel shows about the focused element.
-fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
+fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &PauseList) -> Capture {
     let control = unsafe { element.CurrentControlType() }.map(|t| t.0).unwrap_or(0);
-    let mut meta = CaptureMeta {
-        app: process_name(pid),
-        control_type: control_type_name(control),
-        pattern: "none".into(),
-        ..Default::default()
-    };
-    let window_title = foreground_title();
+    let app = process_name(pid);
+    if pause.pauses_app(&app) {
+        // A paused app (a password manager): nothing about the field is read.
+        return withheld(app, control_type_name(control), true);
+    }
+    let mut meta = CaptureMeta { app, control_type: control_type_name(control), pattern: "none".into(), ..Default::default() };
 
     if unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool()) {
         // Ignored completely: no pattern is asked for, nothing is read.
         meta.password = true;
         meta.pattern = "skipped (password)".into();
-        return Capture { meta, window_title, excerpt: None, via: String::new() };
+        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() };
     }
+
+    if is_sensitive_field(&field_labels(element)) {
+        // A payment or ID field, by its labels: nothing is read.
+        return withheld(meta.app, meta.control_type, false);
+    }
+    if is_browser(&meta.app) && page_urls(uia, element).iter().any(|url| pause.pauses_url(url)) {
+        // A field on a paused site, or in a frame from one (a card form from
+        // a payment provider inside a shop's page).
+        return withheld(meta.app, meta.control_type, true);
+    }
+    let window_title = foreground_title();
 
     if !is_editable(&edit_signals(element, control)) {
         // Read-only content (a web page, a document view): the writing layer
@@ -170,13 +186,53 @@ fn read(element: &IUIAutomationElement, pid: i32) -> Capture {
 
     let (pattern, text, caret) = read_text(element);
     meta.pattern = pattern.into();
-    meta.readable = text.is_some();
-    meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
-    meta.caret = caret;
-    // The full text stays here and is dropped when this returns; only the
-    // window around the caret goes to the panel.
-    let excerpt = text.as_deref().map(|t| caret_window(t, caret));
-    Capture { meta, window_title, excerpt, via: String::new() }
+    // Card numbers, SSNs and IBANs in the text are caught here, before the
+    // reading goes anywhere.
+    finish_reading(meta, window_title, text, caret)
+}
+
+/// The field's labels from UI Automation, never its text.
+fn field_labels(element: &IUIAutomationElement) -> FieldLabels {
+    unsafe {
+        let s = |r: WinResult<windows::core::BSTR>| r.map(|b| b.to_string()).unwrap_or_default();
+        FieldLabels {
+            name: s(element.CurrentName()),
+            labeled_by: element.CurrentLabeledBy().map(|l| s(l.CurrentName())).unwrap_or_default(),
+            help_text: s(element.CurrentHelpText()),
+            description: element
+                .GetCurrentPropertyValue(UIA_FullDescriptionPropertyId)
+                .ok()
+                .and_then(|v| variant_string(&v))
+                .unwrap_or_default(),
+            automation_id: s(element.CurrentAutomationId()),
+        }
+    }
+}
+
+/// The URLs of the pages and frames a browser field sits in: browsers give
+/// each Document (the page, and each frame) its URL as its Value. Read only to
+/// match against the pause list; never sent anywhere.
+fn page_urls(uia: &IUIAutomation, element: &IUIAutomationElement) -> Vec<String> {
+    let mut urls = Vec::new();
+    let Ok(walker) = (unsafe { uia.ControlViewWalker() }) else { return urls };
+    let mut cur = element.clone();
+    for _ in 0..64 {
+        unsafe {
+            if cur.CurrentControlType().is_ok_and(|t| t == UIA_DocumentControlTypeId) {
+                if let Ok(value) = cur
+                    .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                    .and_then(|v| v.CurrentValue())
+                {
+                    urls.push(value.to_string());
+                }
+            }
+            match walker.GetParentElement(&cur) {
+                Ok(parent) => cur = parent,
+                Err(_) => break,
+            }
+        }
+    }
+    urls
 }
 
 /// Whether the element can be typed in, from its patterns and states only:
@@ -209,6 +265,14 @@ fn variant_bool(v: &VARIANT) -> Option<bool> {
     unsafe {
         let inner = &v.Anonymous.Anonymous;
         (inner.vt == VT_BOOL).then(|| inner.Anonymous.boolVal.as_bool())
+    }
+}
+
+/// A VARIANT's string, or None for anything else.
+fn variant_string(v: &VARIANT) -> Option<String> {
+    unsafe {
+        let inner = &v.Anonymous.Anonymous;
+        (inner.vt == VT_BSTR).then(|| inner.Anonymous.bstrVal.to_string())
     }
 }
 
