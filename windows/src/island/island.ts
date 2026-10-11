@@ -18,6 +18,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
+import { tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -32,6 +33,7 @@ import {
   Lantern,
   isReservedLanternState,
   lanternStateFor,
+  withWritingSuggestions,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -65,6 +67,8 @@ export class Island {
   private botGlow!: HTMLElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
+  /** The writing suggestions' count on the pill. */
+  private writingBadge!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -224,8 +228,25 @@ export class Island {
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
     this.lantern.el.id = "bot-lantern";
+    // A button for screen readers, UI Automation and the keyboard. Lantern
+    // draws every SVG aria-hidden (it's decoration elsewhere): not this one,
+    // or readers never find it. applyGeometry hides it again while it's
+    // invisible. The mouse can't reach this listener (pointer-events: none);
+    // a mouse click is hit-tested in wireInput. Invoke, Enter and Space land
+    // here, and all of them go through activateLantern.
+    this.lantern.el.removeAttribute("aria-hidden");
+    this.lantern.el.setAttribute("role", "button");
+    this.lantern.el.setAttribute("aria-label", "Glim");
+    this.lantern.el.setAttribute("tabindex", "0");
+    this.lantern.el.addEventListener("click", () => this.activateLantern());
+    this.lantern.el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.activateLantern();
+    });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
+    this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -259,6 +280,7 @@ export class Island {
       this.lantern.el,
       this.miniGrid,
       this.countdown,
+      this.writingBadge,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -316,10 +338,14 @@ export class Island {
 
   // ── Mode / view ─────────────────────────────────────────────────────────────
 
+  /** The open island closed (to the pill or further). */
+  onClosed: (() => void) | null = null;
+
   private setMode(mode: IslandMode) {
     const prev = State.mode;
     if (mode === prev) return;
     State.mode = mode;
+    if (prev === "expanded") this.onClosed?.();
     if (prev === "expanded") {
       // A folded card is still waiting: it keeps the island pinned.
       if (!State.pendingApproval) State.isPinned = false;
@@ -356,6 +382,22 @@ export class Island {
     else this.animateGeometry(false);
     State.lastActivity = performance.now();
     State.notify();
+  }
+
+  /**
+   * A click (or Invoke, Enter, Space) on the lantern. The closed pill opens,
+   * on defaultView. In the open island the lantern goes to what the badge
+   * points at (a waiting card, then the writing suggestions); see
+   * State.lanternView.
+   */
+  activateLantern() {
+    if (this.uploadActive) return;
+    if (State.mode !== "expanded") {
+      this.fsm.click();
+      return;
+    }
+    const view = State.lanternView();
+    if (view && view !== State.view) this.setView(view);
   }
 
   setView(view: IslandViewName) {
@@ -753,6 +795,10 @@ export class Island {
         this.dockPress = null;
         this.fsm.click();
       }
+      // A press on the lantern that didn't become a drag is a click on it.
+      if (e.button === 0 && this.botPress && State.mode === "expanded" && this.isBotHit(e.clientX, e.clientY)) {
+        this.activateLantern();
+      }
       this.botPress = null;
       if (this.desktop.carrying) this.desktop.carryEnd(e.clientX, e.clientY);
     });
@@ -980,6 +1026,11 @@ export class Island {
     const away = State.mochiOnDesktop;
     const visible = p.opacity > 0 && !this.uploadActive && !away;
     this.lantern.el.style.opacity = visible ? "1" : "0";
+    const hidden = visible ? "false" : "true";
+    if (this.lantern.el.getAttribute("aria-hidden") !== hidden) {
+      this.lantern.el.setAttribute("aria-hidden", hidden);
+      this.lantern.el.tabIndex = visible ? 0 : -1;
+    }
 
     if (State.mode === "expanded" && State.view !== "uploading" && !this.uploadActive && !away) {
       const d = p.diameter;
@@ -1033,7 +1084,22 @@ export class Island {
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
-    else this.lantern.show(forced ?? lanternStateFor(this.engine.state, State.mode === "expanded"));
+    else {
+      const writing = State.writing.length;
+      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // The count of writing suggestions, at the lantern's top right; none
+      // while the island is hidden.
+      const badge = this.writingBadge;
+      const shown = writing > 0 && State.mode !== "hidden" && !State.mochiOnDesktop;
+      badge.style.display = shown ? "" : "none";
+      if (shown) {
+        badge.textContent = writing > 99 ? "99+" : String(writing);
+        // Read out as "3 writing suggestions" (and found by UI Automation).
+        badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
+        badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+    }
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */
@@ -1077,6 +1143,9 @@ export class Island {
     for (const [name, view] of this.views) {
       const on = name === State.view;
       view.el.classList.toggle("on", on);
+      // A view that isn't on is only transparent: keep screen readers (and
+      // UI Automation) to the one that shows.
+      view.el.setAttribute("aria-hidden", on ? "false" : "true");
       if (on) view.sync();
     }
 

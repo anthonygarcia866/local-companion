@@ -19,6 +19,9 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
+# The instant writing checker (src/writing/): local, no network crates in
+# its tree (checked 2026-10-10). Pinned; no thesaurus.
+harper-core = { version = "=2.11.0", default-features = false }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt"] }
 # Only src/net/ may use it (the network choke point; a test enforces this).

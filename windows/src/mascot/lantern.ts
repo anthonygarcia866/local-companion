@@ -123,6 +123,18 @@ export function lanternStateFor(state: BotStateName, open: boolean): AppLanternS
   }
 }
 
+/**
+ * The lantern with the writing checker's suggestions taken into account:
+ * s-suggest while there are any, unless an agent state is showing. Agent
+ * states (an approval or a question waiting, work going on, an error, a
+ * rate limit) always win; the count on the pill tells writing suggestions
+ * apart from an agent waiting (docs/phase1-plan.md §6).
+ */
+export function withWritingSuggestions(state: AppLanternState, count: number): AppLanternState {
+  if (count <= 0) return state;
+  return state === "idle" || state === "listen" || state === "done" ? "suggest" : state;
+}
+
 /** How long the attention pop lasts (the design's `.pop`: 400 ms). */
 export const POP_MS = 450;
 /** The startup ignite: dark for IGNITE_DARK_MS, then the flame lights over

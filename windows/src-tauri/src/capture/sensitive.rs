@@ -112,23 +112,50 @@ fn words_of(label: &str) -> Vec<String> {
 /// Whether text contains a card number (13–19 digits passing the Luhn check,
 /// optionally in groups split by single spaces or dashes), a number written
 /// like an SSN (3-2-4 digits, split by spaces or dashes), a valid IBAN, or
-/// any other run of LONG_RUN or more digits; international phone numbers
-/// excepted (see `is_phone`).
+/// LONG_RUN or more digits that may be a card being typed (unbroken, or
+/// grouped like a card); international phone numbers excepted (see
+/// `is_phone`).
 pub fn contains_sensitive_number(text: &str) -> bool {
     digit_runs(text)
         .iter()
-        .any(|run| !is_phone(run) && (has_card(&run.groups) || has_ssn(&run.groups) || run_len(run) >= LONG_RUN))
+        .any(|run| !is_phone(run) && (has_card(&run.groups) || has_ssn(&run.groups) || card_being_typed(&run.groups)))
         || has_iban(text)
 }
 
-/// Readings with a run of this many digits are dropped even when the run is
-/// no valid card: a card being typed passes through 12–15 digit states that
-/// fail Luhn. The owner's choice (2026-10-10), accepting that long order,
-/// tracking and account-style numbers drop the reading too.
+/// Readings with this many digits of what may be a card being typed are
+/// dropped even when it is no valid card: a typed card passes through 12–15
+/// digit states that fail Luhn. Owner's choice (2026-10-10), refined the same
+/// day: grouped digits count only when grouped like a card (`typed_card_shaped`),
+/// so unit lists ("Units 101 102 103 104") and order numbers (3-7-7) stay
+/// readable; an unbroken run of 12+ digits always counts.
 pub const LONG_RUN: usize = 12;
 
 /// The longest international phone number (E.164).
 const MAX_PHONE_DIGITS: usize = 15;
+
+/// Consecutive groups holding LONG_RUN+ digits, grouped like a card being
+/// typed. Tried from every group, so a card after other numbers in the same
+/// run ("unit 12 4111 1111 1111") is still found.
+fn card_being_typed(groups: &[String]) -> bool {
+    (0..groups.len()).any(|start| {
+        (start..groups.len()).any(|end| {
+            let candidate = &groups[start..=end];
+            candidate.iter().map(|g| g.len()).sum::<usize>() >= LONG_RUN && typed_card_shaped(candidate)
+        })
+    })
+}
+
+/// One unbroken number, fours with a shorter last group (4-4-4, 4-4-4-4,
+/// 4-4-4-1 …), or the Amex layout being typed (4-6-1 … 4-6-5).
+fn typed_card_shaped(groups: &[String]) -> bool {
+    let lens: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+    match lens.as_slice() {
+        [_] => true,
+        [4, 6, last] => (1..=5).contains(last),
+        [init @ .., last] => init.iter().all(|&l| l == 4) && (1..=4).contains(last),
+        [] => false,
+    }
+}
 
 fn run_len(run: &DigitRun) -> usize {
     run.groups.iter().map(|g| g.len()).sum()
@@ -444,36 +471,56 @@ mod tests {
         }
     }
 
+    /// Every prefix of `card`, with the number of digits in it.
+    fn typing(card: &str) -> Vec<(String, usize)> {
+        (1..=card.len()).map(|n| (card[..n].to_string(), card[..n].chars().filter(|c| c.is_ascii_digit()).count())).collect()
+    }
+
     #[test]
     fn a_card_being_typed_is_dropped_from_12_digits() {
-        // Each state a typed card passes through, though most fail Luhn.
-        let card = "4111 1111 1111 1111";
-        for len in 1..=card.len() {
-            let typed = &card[..len];
-            let digits = typed.chars().filter(|c| c.is_ascii_digit()).count();
-            assert_eq!(contains_sensitive_number(&format!("my card is {typed}")), digits >= LONG_RUN, "{typed}");
+        // Every state a typed card passes through (most fail Luhn), written
+        // with spaces, with dashes and with nothing.
+        for card in [
+            "4111 1111 1111 1111", "4111-1111-1111-1111", "4111111111111111",
+            "5555 5555 5555 4444", "3782 822463 10005", "3782-822463-10005", "378282246310005",
+        ] {
+            for (typed, digits) in typing(card) {
+                assert_eq!(contains_sensitive_number(&format!("my card is {typed}")), digits >= LONG_RUN, "{typed}");
+            }
         }
-        for typed in ["411111111111", "4111-1111-1111-1", "3782 822463 10", "6011 1111 1111 11"] {
-            assert!(contains_sensitive_number(typed), "{typed}");
-        }
+        // After other numbers in the same run, too.
+        assert!(contains_sensitive_number("unit 12 4111 1111 1111"));
         // A "+" doesn't hide a 16-digit card, valid or not.
         assert!(contains_sensitive_number("+4111 1111 1111 1111"));
         assert!(contains_sensitive_number("+4111 1111 1111 1112"));
     }
 
     #[test]
-    fn long_numbers_drop_the_reading_the_tradeoff() {
-        // The stricter rule's cost: these hold no card, but 12+ digits.
+    fn unit_lists_and_order_numbers_get_through() {
         for text in [
+            "Units 101 102 103 104 need new smoke detectors",
+            "Units 101-102-103-104-105-106",
+            "Inspected 12 14 16 18 20 22 24 on Tuesday",
             "Order 112-4567890-1234567 shipped",
+            "Order 411-1111111-111111 shipped",
+            "Dial 0044 20 7946 0958",
+            "Ref 12345678901 (11 digits)",
+        ] {
+            assert!(!contains_sensitive_number(text), "dropped: {text}");
+        }
+    }
+
+    #[test]
+    fn long_numbers_drop_the_reading_the_tradeoff() {
+        // Still dropped: unbroken 12+ digit numbers, and numbers that are
+        // grouped like a card although they aren't one.
+        for text in [
             "Tracking 9400111899223397846523",
             "Account ref 123456789012",
-            "Dial 0044 20 7946 0958",
-            "Rooms 101 102 103 104",
+            "Units 1001 1002 1003",
         ] {
             assert!(contains_sensitive_number(text), "{text}");
         }
-        assert!(!contains_sensitive_number("Ref 12345678901 (11 digits)"));
     }
 
     #[test]
