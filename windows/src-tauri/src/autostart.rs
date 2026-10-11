@@ -273,7 +273,8 @@ mod tests {
     /// setting changes; and nothing about it goes to stderr only.
     #[test]
     fn the_setting_is_applied_at_launch_and_failures_are_logged() {
-        let lib = include_str!("lib.rs");
+        // CI checks out with CRLF line endings.
+        let lib = include_str!("lib.rs").replace("\r\n", "\n");
         let code = lib.split("#[cfg(test)]").next().unwrap();
         let setup = &code[code.find(".setup(move |app|").unwrap()..];
         assert!(setup.contains("autostart::sync("), "setup must sync the startup entry");
