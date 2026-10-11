@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "What Glim's windows are allowed to do. Everything that touches the OS goes through Glim's own commands; none of these permissions can open a network connection.",
   "windows": ["island", "settings", "character"],
-  "permissions": ["core:default", "autostart:default"]
+  "permissions": ["core:default"]
 }
