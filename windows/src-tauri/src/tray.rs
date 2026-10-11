@@ -1,4 +1,4 @@
-// Notification-area icon: Open, Weekly recap, Settings, Pause, Quit.
+// Notification-area icon: Open, Weekly recap, Settings, Pause, Quit Glim.
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -14,7 +14,7 @@ const ITEMS: [(&str, &str); 5] = [
     ("recap", n_("Weekly recap")),
     ("settings", n_("Settings…")),
     ("pause", n_("Pause")),
-    ("quit", n_("Quit")),
+    ("quit", n_("Quit Glim")),
 ];
 
 /// Kept so a language change relabels the menu without rebuilding the tray.

@@ -1145,6 +1145,17 @@
    "ru": "Вопросы",
    "id": "Pertanyaan"
   },
+  "Quit Glim": {
+   "zh-Hans": "退出 Glim",
+   "hi": "Glim बंद करें",
+   "es": "Salir de Glim",
+   "ar": "إنهاء Glim",
+   "fr": "Quitter Glim",
+   "bn": "Glim বন্ধ করুন",
+   "pt-BR": "Sair do Glim",
+   "ru": "Выйти из Glim",
+   "id": "Keluar dari Glim"
+  },
   "Ready · no setup needed": {
    "zh-Hans": "就绪 · 无需设置",
    "hi": "तैयार · कोई सेटअप ज़रूरी नहीं",
