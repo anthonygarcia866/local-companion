@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- Fixture for scripts/verify-capture-sensitive.ps1. Fake data only: the
+     card is a published test number, the SSN is from a never-issued range. -->
+<html><head><meta charset="utf-8"><title>GLIM-VERIFY notes</title></head>
+<body>
+<textarea id="t-ok" aria-label="Notes">Call me at (555) 123-4567 about unit 4B, 221 Baker St. Invoice #2026-0042 total $1,234.56.</textarea>
+<textarea id="t-card" aria-label="Reply">Hi, my card is 4111 1111 1111 1111 exp 12/27, thanks</textarea>
+<textarea id="t-ssn" aria-label="Comment">Applicant SSN 123-45-6789 on file</textarea>
+<textarea id="t-iban" aria-label="Message">Please wire to DE89 3704 0044 0532 0130 00 today</textarea>
+<input id="t-label" aria-label="Card number" value="Glim must not read this">
+<input id="cc-exp" value="Glim must not read this either">
+<iframe src="/checkout/frame.html" width="400" height="80"></iframe>
+</body></html>

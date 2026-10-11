@@ -52,6 +52,39 @@ Read-only fields are skipped like password fields: nothing is read, and the pane
 
 **Delivery:** UIA focus-changed events arrive (3–44 per 30 s while the owner switched apps); the 300 ms poll fills in between them and is what follows typing inside a field (`via poll` in the Grok note). Both paths are reported per reading.
 
+## Writing layer: no payment or ID data
+
+Capture must never read or pass on card numbers, CVCs, bank details or SSNs (code: `capture/sensitive.rs`; full rules in PROJECT_STATUS, "Payment and ID data"):
+
+- **Before any text is read:** paused apps (password managers) are skipped. So are fields whose labels read like payment or ID data, and browser fields on a paused site (checked against the URL of the page and of every frame around the field).
+- **After the text is read, inside the capture thread:** a reading holding a card number (Luhn, card-shaped grouping), an SSN-shaped number or an IBAN is dropped whole.
+
+**What browsers expose** (2026-10-10, Chrome and Edge, a local test page, `examples/uia_probe.rs`):
+
+| HTML | Reaches UI Automation as |
+|---|---|
+| `id` | AutomationId |
+| `<label>`, `aria-label` | Name (LabeledBy for `<label for>`) |
+| `placeholder`, `title` | Name and HelpText |
+| `aria-describedby` | FullDescription |
+| `autocomplete="cc-number"` etc. | **nothing** |
+| `name=` | **nothing** |
+| page / iframe URL | the Document's Value |
+
+So the `cc-*` autocomplete hints can't be used, but sites that reuse them as ids (`id="cc-number"`) are caught through the AutomationId.
+
+**Live check** (`windows/scripts/verify-capture-sensitive.ps1`, release build, 2026-10-10 18:46): all pass.
+
+| Field | Panel |
+|---|---|
+| Notes with a phone number, an address and an invoice total | TextPattern, readable, 90 chars |
+| Textarea holding a test card / an SSN / an IBAN | skipped (sensitive), 0 chars |
+| Field labelled "Card number"; field with id `cc-exp` | skipped (sensitive), 0 chars |
+| Notes in a frame served from `/checkout/`; notes on a `/checkout/` page | skipped (paused app or site) |
+| Text box in `KeePass.exe` (a stand-in) | skipped (paused app or site) |
+
+None of the fake numbers appeared in the panel's text, the results log or glim.log.
+
 ## Model latency vs. context (gemma3:4b, this machine, CPU)
 
 Ollama 0.40.2, `gemma3:4b` (3.4 GB), a grammar fix of one sentence with N characters of surrounding context (synthetic text), reply ~20 tokens. Model loaded, median of 3, each run with a unique prompt so nothing is served from cache.
