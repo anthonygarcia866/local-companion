@@ -1113,6 +1113,9 @@ export class Island {
     for (const [name, view] of this.views) {
       const on = name === State.view;
       view.el.classList.toggle("on", on);
+      // A view that isn't on is only transparent: keep screen readers (and
+      // UI Automation) to the one that shows.
+      view.el.setAttribute("aria-hidden", on ? "false" : "true");
       if (on) view.sync();
     }
 

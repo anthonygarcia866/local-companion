@@ -74,7 +74,7 @@ $file = Join-Path $work "GLIM-VERIFY-writing-$stamp.txt"
 $cleanFile = Join-Path $work "GLIM-VERIFY-clean-$stamp.txt"
 $manyFile = Join-Path $work "GLIM-VERIFY-many-$stamp.txt"
 # Words that must never reach the log.
-$secretWords = @("recieved", "tomorow", "deposit", "received the payment", "notise", "kichen", "maintanance", "tmrw", "lol idk")
+$secretWords = @("recieved", "tomorow", "deposit", "received the payment", "notise", "kichen", "maintanance", "tmrw", "lol idk", "GLIM-VERIFY agent")
 Set-Content -Path $file -Value "We recieved the payment and will deposit it tomorow." -Encoding utf8
 Set-Content -Path $cleanFile -Value "We got the payment and will bank it on Monday." -Encoding utf8
 # Twelve misspellings in one paragraph (for the pages and the ember).
@@ -175,6 +175,36 @@ try {
       $sawCount = $true
     } else {
       Fail "misspelled paragraph: pill count '$b', expected >= 2"
+    }
+  }
+
+  # An agent finishes while the suggestions are showing: its card takes the
+  # island (as when Claude Code stops with its pill in front). A click on the
+  # lantern (UI Automation Invoke, no mouse) must open the suggestions, and
+  # the agent's card stays under Home. The Stop goes through the real relay.
+  if ($sawCount) {
+    $hookExe = Join-Path (Split-Path $Exe) "glim-hook.exe"
+    $stop = '{"hook_event_name":"Stop","session_id":"glim-verify","last_assistant_message":"GLIM-VERIFY agent finished."}'
+    $psi = New-Object System.Diagnostics.ProcessStartInfo $hookExe, "Stop"
+    $psi.RedirectStandardInput = $true; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.WorkingDirectory = $work
+    $hp = [System.Diagnostics.Process]::Start($psi); $hp.StandardInput.Write($stop); $hp.StandardInput.Close(); $hp.WaitForExit(5000) | Out-Null
+    $card = WaitGlim { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" } 8
+    if (-not $card) { Fail "agent card: the finished card did not open (Stop not surfaced)" }
+    else {
+      Note "agent card: the finished card took the island; pill count $(Badge)"
+      $lantern = GlimFind { param($e) $e.Current.AutomationId -eq "bot-lantern" }
+      $lantern.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      $title = WaitGlim { param($e) $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and $e.Current.Name -match '^\d+ writing suggestions?$' } 5
+      $stillCard = GlimFind { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" }
+      if ($title -and -not $stillCard) { Note "lantern click: the suggestions view ('$($title.Current.Name)'), the agent card gone" }
+      else { Fail "lantern click: suggestions view shown=$([bool]$title), agent card still shown=$([bool]$stillCard)" }
+      # Home still reaches the agent.
+      $home = GlimFind { param($e) $e.Current.Name -eq "Overview" -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
+      $home.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      if (WaitGlim { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" } 5) { Note "Home: the agent's last words are there" }
+      else { Note "Home: the overview opened (the agent's text not shown there)" }
+      $min = GlimFind { param($e) $e.Current.Name -eq "Minimize" }
+      if ($min) { $min.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep -Milliseconds 800 }
     }
   }
 
