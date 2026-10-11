@@ -123,13 +123,16 @@ async function main() {
     send.click();
   });
 
-  // Dev sessions only: `glim.exe --dev-fix "<replacement>"` (see lib.rs) clicks
-  // that fix button in the list (a DOM click inside this webview, like a mouse
-  // click on the non-activating island; nothing reaches the desktop).
+  // Dev sessions only: `glim.exe --dev-fix "<replacement>"` (see lib.rs) opens
+  // the list and clicks that fix button (DOM events inside this webview, like
+  // a mouse click on the non-activating island; nothing reaches the desktop).
   await onEvent<string>("dev-fix", (fix) => {
-    const label = t("Replace with “{fix}”", { fix });
-    const button = [...document.querySelectorAll<HTMLButtonElement>("button.fix-btn")].find((b) => b.getAttribute("aria-label") === label);
-    button?.click();
+    island.alert("suggestions");
+    window.setTimeout(() => {
+      const label = t("Replace with “{fix}”", { fix });
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button.fix-btn")].find((b) => b.getAttribute("aria-label") === label);
+      button?.click();
+    }, 600);
   });
 
   // The settings window writes preferences; apply them here without a restart.

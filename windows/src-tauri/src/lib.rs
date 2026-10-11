@@ -716,8 +716,8 @@ fn dev_chat_prompt(argv: &[String]) -> Option<String> {
     dev_arg(argv, "--dev-chat")
 }
 
-/// `glim.exe --dev-fix "<replacement>"`: clicks that fix button in the open
-/// suggestion list, inside the island's page, as a mouse click would
+/// `glim.exe --dev-fix "<replacement>"`: opens the suggestion list and clicks
+/// that fix button, inside the island's page, as a mouse click would
 /// (scripts/verify-fix-notepad.ps1). A UI Automation Invoke can't stand in
 /// for the click: Chromium activates the island window for it, and the fix
 /// is then rightly refused (the field's app is no longer in front). Dev only.

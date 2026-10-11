@@ -14,12 +14,13 @@
   - Starts Glim (GLIM_DEV=1, visibility Normal), writes a fresh file
     "We recieved the payment today." and opens it in Notepad; focus moves
     with UI Automation SetFocus.
-  - Waits for the count, opens the list with a UIA Invoke on the lantern,
-    puts Notepad back in front (that Invoke activates the island), then
-    clicks the fix button "Replace with <received>" with the dev switch
-    `glim.exe --dev-fix received`: a DOM click inside the island's page, as a
-    mouse click would be. (A UIA Invoke on the button would activate Glim's
-    window, and Glim would rightly refuse: the field's app isn't in front.)
+  - Waits for the count, then opens the list and clicks the fix button
+    "Replace with <received>" with the dev switch `glim.exe --dev-fix
+    received`: DOM events inside the island's page, as a mouse click on the
+    non-activating island would be. Nothing in Glim's window is invoked
+    through UI Automation first: a UIA Invoke activates Glim's window
+    (Chromium), Windows' foreground lock then keeps it in front, and Glim
+    rightly refuses the fix (the field's app isn't in front).
   - Reads Notepad's text back through UIA: "received" must be there and
     nothing else changed; the caret must be where it was.
   - Checks glim.log for "writing: fix applied (Notepad)".
@@ -151,7 +152,7 @@ Note "exe: $Exe ($((Get-Item $Exe).Length) bytes, built $((Get-Item $Exe).LastWr
 if (Get-Process notepad -ErrorAction SilentlyContinue) { throw "Notepad is already open: close it first" }
 $front = (Get-Process -Id ([FX]::ForegroundPid()) -ErrorAction SilentlyContinue).Name
 Note "in front before the test: $front; idle $([FX]::IdleMs()) ms"
-if ($front -notin @("glim", "explorer", "WindowsTerminal", "powershell", "pwsh", "OpenConsole", "conhost", "claude")) { throw "another app ($front) is in front: stopping" }
+if ($front -notin @("Idle", "glim", "explorer", "WindowsTerminal", "powershell", "pwsh", "OpenConsole", "conhost", "claude")) { throw "another app ($front) is in front: stopping" }
 if ([FX]::IdleMs() -lt 4000) { throw "the computer is in use: stopping" }
 
 $settingsPath = Join-Path $env:APPDATA "Glim\settings.json"
@@ -183,13 +184,6 @@ try {
   for ($i = 0; $i -lt 40 -and $b -eq ""; $i++) { $b = Badge; if ($b -eq "") { Start-Sleep -Milliseconds 250 } }
   if ($b -notmatch '^\d+$') { throw "no count on the pill ('$b')" }
   Note "pill count $b"
-
-  $lantern = GlimFind { param($e) $e.Current.AutomationId -eq "bot-lantern" }
-  if (-not $lantern) { throw "lantern not found" }
-  $lantern.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-  $fixBtn = WaitGlim { param($e) $e.Current.Name -eq $fixName -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $e.Current.IsEnabled } 6
-  if (-not $fixBtn) { throw "fix button '$fixName' not found or not enabled" }
-  Note "list open; fix button '$fixName' enabled"
 
   if (-not (WaitIdle "apply")) { throw "stopped" }
   if (-not (BringNotepad)) { throw "Notepad is not in front ($(FrontName) is): not applying" }
