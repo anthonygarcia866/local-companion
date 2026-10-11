@@ -171,7 +171,7 @@ How Glim sits on screen. Nine items, one commit each (a few split in two); PR op
 
 - **Dev switches added** (GLIM_DEV=1, forwarded by a second `glim.exe`): `--dock <top-center|top-left|top-right|left-vertical|right-vertical>`, `--visibility <normal|ember|hidden>`, `--fullscreen <on|off|auto>` (pretends a fullscreen app is or isn't in front; `auto` = detect again).
 
-### Presence re-verification (2026-10-10 15:41, `glim.exe` built 15:38, 5,794,816 bytes, commit efe0447)
+### Presence re-verification (2026-10-10, last run 17:07 on `glim.exe` built 17:06, 5,796,352 bytes; first run 15:41 on the 15:38 build)
 Reusable: `windows/scripts/verify-presence.ps1` (dev switches only, no mouse or keyboard; PrintWindow of Glim's island window only; backs up and restores `settings.json`; ends by starting Glim normally). Log and captures in `docs/verification/presence/` (`verify-log.txt`). **All checks passed.**
 - **Pill sizes** (`size-small/medium/large.png`, 2×): lantern 25 / 36 / 49 px tall; small and medium in the compact drawing, large with the full face.
 - **Ignite** (`ignite-*ms.png`): dark grey lantern at 0 ms, flame lit by ~260 ms after the window appears, glow, settled in `s-idle`.
@@ -180,6 +180,8 @@ Reusable: `windows/scripts/verify-presence.ps1` (dev switches only, no mouse or 
 - **Visibility**: Ember = 28×28 at (946,0), an amber dot (`vis-ember.png`, 8×); Hidden = window not visible; Normal brings the pill back; `--fullscreen on` hides it, `off` brings it back.
 - **Palette**: the chat card's glow is amber (`palette-after-chat.png`); before: indigo (`docs/verification/phase-0a/island-chat-local.png`).
 - **ba8d079 / focus**, read from the real window after every step: `WS_EX_NOACTIVATE` held throughout and the foreground was never Glim's (except the chat step, where the chat field takes focus on purpose); after the chat, Ember and Normal both had `WS_EX_NOACTIVATE` back (focus released). The ember was **not** click-through (it takes the mouse over its whole window). Back from Hidden with the cursor elsewhere and not moving, the panel **was** click-through (no swallowed clicks).
+- **Hotkeys** (17:07 run): the startup log line read `shortcuts: registered openChat=Ctrl+Alt+Shift+C, goToAlert=Ctrl+Alt+A, jumpToTerminal=Ctrl+Alt+T, nextPill=Ctrl+Alt+Right, prevPill=Ctrl+Alt+Left, cycleVisibility=Ctrl+Alt+Shift+Space; not registered: none`.
+- Hands-on by the owner (2026-10-10): sizes, dragging + snapping, ember, hidden + the Ctrl+Alt+Shift+Space cycle, tray restore, fullscreen auto-hide, right-click menu, upright dock left/right — all working.
 - Not covered live: the hotkey and clicks (real input), the recording indicator (nothing records yet), real fullscreen apps (dev override only).
 
 ### Presence verification (2026-10-10, `glim.exe` built 13:13, 5,789,184 bytes)
