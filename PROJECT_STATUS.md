@@ -270,6 +270,16 @@ Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.m
 - **Verified on this machine (2026-10-11, `glim.exe` built 09:47, 11,766,784 bytes, installed per-user):** setting off + a stale plugin-style entry → `off; startup entry removed`; setting on + an entry pointing at `target\release` → `on; startup entry updated to start C:\Users\antho\AppData\Local\Glim\glim.exe` (value `"C:\Users\antho\AppData\Local\Glim\glim.exe"`); the build-folder copy launched → entry unchanged, still the installed copy; Task Manager "disabled" planted → left as is and logged (then removed again). Not exercised by hand: ticking the box in Settings (needs a click; covered by a source test that `save_settings` calls the sync), a write failure, and an actual sign-in.
 - **On for the owner** since 2026-10-11 09:48 (`"autostart": true`; Glim running from the installed copy). Tests: `cargo test --workspace` 254 + 30 (8 new in `autostart.rs`), `npm test` 344, `tsc` clean.
 
+## Quitting Glim (2026-10-11)
+- **Tray icon** (notification area) → **Quit Glim**, the last item (was labelled "Quit").
+- **Right-click the lantern** (the closed pill, or the lantern in the open island) → **Quit Glim**, the last item after a separator (new). Both call the same `quit_app` command.
+- The lantern menu now measures 303 px tall (headless Edge with the built CSS, all ten languages; labels don't wrap) against 308 px of room in the top docks' 320 px window (side docks: 400 px). Another item won't fit there without making room first (noted in `menu.ts`).
+
+## Line endings (2026-10-11)
+- `.gitattributes`: `* text=auto eol=lf` (`.bat`/`.cmd` CRLF, binaries listed). Every working copy is LF, here and on CI, whatever `core.autocrlf` says. Before, `core.autocrlf=true` checked files out as CRLF while tools that rewrite files wrote LF, so a test reading its own source failed on CI only (PR #10's first run).
+- `git add --renormalize .` changed nothing: every text file was already stored with LF (190 `i/lf`, 0 CRLF). Only working copies change: after pulling this, run `git rm -r --cached . && git reset --hard` on a clean tree once to rewrite them as LF.
+- Checked on the LF tree: `npm test` 345, `tsc` clean, `cargo test --workspace` 254 + 30, `npm run check:lantern` passed, all three `.ps1` scripts parse in PowerShell 5.1, and `npm run pack` builds the installer (NSIS reads the LF `hooks.nsh`).
+
 ## Removed in Phase 0a
 - **Network paths:** Anthropic Messages API (`api.anthropic.com`, with web search), OpenAI / Google AI / OpenRouter (`openai_compat.rs`), the "any OpenAI-compatible server" option that could point anywhere; GitHub, Stripe, Vercel, Notion, Resend, Cal.com and n8n pollers (`integrations.rs`, `github.rs`); the Codex plan pill, which spawned `codex app-server` (it asks OpenAI for the limits); the domain-directory display-name lookup (`GetUserNameExW`); "open in browser" for arbitrary URLs (now loopback only). No updater existed upstream; none was added.
 - **Secrets:** `secrets.rs` and the `keyring` crate (Windows Credential Manager / Secret Service). Glim stores no keys.
