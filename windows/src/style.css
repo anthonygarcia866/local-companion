@@ -2531,31 +2531,35 @@ html:not([data-presence="pill"]) #lantern-menu {
 }
 
 .suggestion-range {
-  font: 500 11px var(--font);
-  color: var(--dim);
+  font: 600 12px var(--font);
+  color: rgba(255, 255, 255, 0.92);
   min-width: 64px;
   text-align: center;
 }
 
+/* Clearly buttons (the owner missed the first, 22x18 ones): 32x28 hit
+   targets, amber like the badge, with a visible border. */
 .suggestion-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 18px;
+  width: 32px;
+  height: 28px;
   padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(242, 177, 76, 0.55);
+  border-radius: 8px;
+  background: rgba(242, 177, 76, 0.18);
+  color: #f2b14c;
   cursor: pointer;
 }
 
 .suggestion-page:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(242, 177, 76, 0.32);
 }
 
 .suggestion-page:disabled {
-  opacity: 0.35;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.3);
   cursor: default;
 }

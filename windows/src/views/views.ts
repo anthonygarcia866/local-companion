@@ -654,8 +654,8 @@ export function buildSuggestions(): ViewHost {
   const list = h("div", { class: "suggestion-list" });
   const range = h("span", { class: "suggestion-range" });
   // The pager only turns pages: nothing here acts on the app.
-  const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 11, { stroke: 2.2 }));
-  const next = h("button", { class: "suggestion-page", title: tl("Next suggestions"), "aria-label": tl("Next suggestions"), onclick: () => turn(1) }, svg(ICONS.chevronRight, 11, { stroke: 2.2 }));
+  const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 16, { stroke: 2.6 }));
+  const next = h("button", { class: "suggestion-page", title: tl("Next suggestions"), "aria-label": tl("Next suggestions"), onclick: () => turn(1) }, svg(ICONS.chevronRight, 16, { stroke: 2.6 }));
   const pages = h("div", { class: "suggestion-pages" }, prev, range, next);
   const note = h("div", { class: "suggestion-more", text: tl("Fixes can be applied in a later version.") });
   const pager = h("div", { class: "suggestion-pager" }, pages, note);

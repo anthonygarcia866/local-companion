@@ -228,6 +228,17 @@ export class Island {
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
     this.lantern.el.id = "bot-lantern";
+    // A button for screen readers and UI Automation: Invoke clicks it.
+    this.lantern.el.setAttribute("role", "button");
+    this.lantern.el.setAttribute("aria-label", "Glim");
+    // In the open island the lantern goes to what the badge points at (a
+    // waiting card, then the writing suggestions); see State.lanternView.
+    // The closed pill opens on the same through defaultView.
+    this.lantern.el.addEventListener("click", () => {
+      if (State.mode !== "expanded" || this.uploadActive) return;
+      const view = State.lanternView();
+      if (view && view !== State.view) this.setView(view);
+    });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
     this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });

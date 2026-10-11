@@ -238,6 +238,17 @@ mod tests {
         assert!(CHAT_WORDS.iter().all(|w| !w.chars().any(|c| c.is_uppercase())));
     }
 
+    /// The owner's retest (2026-10-10): "timez" looked missed in Outlook but
+    /// was on the list's second page (nearest-caret order). Both typos are
+    /// found, with the full rules and the chat rules alike. "He how" ("Hey
+    /// how") is a real-word error: out of scope here, a 1c (AI rewrite) case.
+    #[test]
+    fn timez_and_weee_are_found() {
+        let text = "He how many timez do weee have to keep doing this";
+        assert_eq!(problems(text), ["timez", "weee"]);
+        assert_eq!(chat_problems(text), ["timez", "weee"]);
+    }
+
     #[test]
     #[ignore = "timing probe: cargo test --release -- --ignored --nocapture"]
     fn timing_probe() {

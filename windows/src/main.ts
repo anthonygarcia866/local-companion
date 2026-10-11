@@ -28,7 +28,7 @@ async function main() {
   const presence = new PresenceView({
     showPill: () => { if (!State.paused) island.reveal(); },
     // The ember's click with suggestions waiting: straight to the list.
-    openSuggestions: () => island.setView("suggestions"),
+    openSuggestions: () => island.setView(State.lanternView() ?? "suggestions"),
   });
   // A peek from the ember ends when the island closes: back to the ember.
   island.onClosed = () => presence.model.islandClosed();

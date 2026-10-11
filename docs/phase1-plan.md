@@ -10,7 +10,7 @@ If a step here turns out wrong while building, this file gets a warning note nex
 2. About **0.6 s after they stop typing** (owner, 2026-10-10: 1 s felt slow), Glim checks the paragraph the caret is in. Only the text they are writing counts: the email signature and quoted reply text are left out.
 3. **Issues found:** the lantern goes to **`s-suggest`** with the attention pop, and the pill shows the **count** ("3").
    **No issues:** the lantern goes back to **`s-listen`** (island open) or `s-idle` (in the notch), and the count disappears.
-4. **Clicking the lantern** (or the ember) opens the island on a **suggestion list**, nearest the caret first, three at a time with Previous / Next. Each entry shows the problem text, a short explanation and the replacement options.
+4. **Clicking the lantern** (or the ember) opens the island on a **suggestion list**, in reading order from the start of the paragraph, three at a time with Previous / Next. Each entry shows the problem text, a short explanation and the replacement options.
 5. **1b:** clicking a replacement applies it in the app, with native undo.
 6. **1c:** **Ctrl+Alt+Shift+R** sends the paragraph (or the selection) to the local model (`gemma3:4b`) with a tone: clearer, friendlier, more formal or shorter. The lantern shows **`s-think`** while it generates.
 
@@ -64,6 +64,9 @@ Each PR is opened, verified and stopped for the owner, never merged without appr
 | Double negatives | "we don't have **no** openings" |
 | Run-ons and comma splices | "The lease ends in May, we will send a renewal." |
 | A lowercase first word | "**please** call me back." |
+| Wrong-but-real words | "**He** how many times…" for "Hey how…" (owner's retest, 2026-10-10) |
+
+> **Out of scope for the instant checker:** wrong-but-real-word errors such as "He how" → "Hey how". Every word is in the dictionary and no fixed pattern matches, so Harper (and any spell checker) can't see them. They are a **1c (AI rewrite)** case: the model reads the sentence. The same holds for the real-word mix-ups in the table above.
 
 It did catch: there/their, then/than, affect/effect, a/an, "the units has", misspellings and repeated words.
 
@@ -88,7 +91,7 @@ Today the capture thread runs only with `GLIM_DEV=1` and re-reads the focused fi
   - A check runs once the field has been unchanged for **600 ms** (was 1 s; owner, 2026-10-10). Readings come every 300 ms, so a check lands 600-900 ms after typing stops.
   - While the user keeps typing nothing is sent: the shown suggestions stay as they are until the pause (no flicker; `typing_continuously_sends_nothing_until_the_pause`).
   - It runs again only when the text changes.
-  - Moving to another field clears the suggestions.
+  - **The suggestions belong to the last field that was checked** (owner, 2026-10-10). They stay while the user is anywhere nothing is checked (another app, Glim itself, a password field), and they are still there, with no gap, when the user comes back to that field. Another checked field replaces them with its own check about 0.6 s later; a checked field with nothing to check (a blank paragraph, the caret in the signature) clears them.
 - **The paragraph:**
   - It is the current paragraph around the caret, as in `caret_window` today (≤500 characters before the caret, ≤200 after).
   - Its offsets in the field are kept, so 1b can find the text again.
@@ -132,12 +135,13 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - The writing checker shows `s-suggest` only while no agent state is active.
   - The **count on the pill** tells the two apart: a number means writing suggestions, no number means an agent is waiting.
 - **Ember** (decided by the owner, 2026-10-10, after 1a showed nothing in Ember): with suggestions waiting, the ember **brightens** (no bounce) and shows a small **count** at its top right ("9+" past nine; its label reads "Glim: N writing suggestions").
-  - **Clicking it opens the island straight on the list.** This is a *peek*: Rust shows the pill without saving a mode (`presence::set_peek`), and when the island closes the ember comes back.
+  - **Clicking it opens the island straight on the list** (a waiting approval or question still comes first). This is a *peek*: Rust shows the pill without saving a mode (`presence::set_peek`), and when the island closes the ember comes back.
   - Without suggestions the click is unchanged (back to Normal). **Hidden** still shows nothing.
 - **The attention pop** plays when the count goes from 0 to more than 0, not on every recount.
+- **What the lantern opens** (owner, 2026-10-10; `State.lanternView`): while the badge shows writing suggestions, a click on the lantern (the closed pill's, the open island's, or the ember) opens the suggestions, even when an agent's finished or error card has taken the island. A waiting **approval or question still comes first** (urgent). Agent cards stay one click away under Home.
 - **Island:** a new "Suggestions" view, shown when the lantern is clicked while there are suggestions (otherwise the island opens as today).
   - Each row shows the problem text in context, the message and up to three replacements.
-  - **Nearest the caret first**, three rows a page, with **Previous / Next** buttons and "1–3 of 12" (owner, 2026-10-10). Buttons, not scrolling: the island's window never takes focus, so the mouse wheel can't be relied on (the first 1a build cut the list off with no way to see the rest).
+  - **In reading order** (left to right, top to bottom, from the start of the paragraph), three rows a page, with **Previous / Next** buttons (32×28 px, amber) and "1–3 of 12" (owner, 2026-10-10). The first round sorted nearest the caret, which put an early typo ("timez") on page 2 where it looked missed. Buttons, not scrolling: the island's window never takes focus, so the mouse wheel can't be relied on (the first 1a build cut the list off with no way to see the rest).
   - Read-only in 1a: the only buttons turn pages, and there are no keyboard hooks.
   - Every new string needs its 9 translations.
 - **Reserved:** `s-record` and `s-delegate` are never used.
@@ -153,7 +157,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
 
 A Grammarly-style marker where the user is typing, so suggestions don't need a trip to the top of the screen:
 
-- **A small amber count bubble anchored to the edge of the focused text field** (bottom right, inside the field's bounds), placed from the field's and the caret's bounding rectangles (UIA `BoundingRectangle`, TextPattern `GetBoundingRectangles` on the caret range). It shows the count only, no text.
+- **A mini version of the Glim lantern with a count badge** (owner, 2026-10-10: not a plain dot), anchored to the edge of the focused text field (bottom right, inside the field's bounds). It is the real lantern, ported from `docs/brand/glim-mascot.html` like the others (never redrawn), at a small size, in `s-suggest`, with the same amber badge as the pill. It is placed from the field's and the caret's bounding rectangles (UIA `BoundingRectangle`, TextPattern `GetBoundingRectangles` on the caret range). It shows the count only, no text.
 - **Clicking it opens the suggestions in a popover right there**, next to the bubble (the same rows as the island's list, with paging). In 1b, clicking a fix applies it in place through §7's path.
 - **Never steals focus:** a separate, non-activating (`WS_EX_NOACTIVATE`), topmost, tool window; the popover too. The text field keeps focus and the caret throughout.
 - **Hidden** in password fields, read-only content and everything PR #8 skips (it only exists when the checker has suggestions, which those fields never produce), when the field loses focus, and while there are no suggestions.

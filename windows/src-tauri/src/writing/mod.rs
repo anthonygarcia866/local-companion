@@ -134,24 +134,35 @@ impl Session {
         now: Instant,
         mut emit: impl FnMut(&Suggestions),
     ) {
+        // The suggestions belong to the last field that was checked (the
+        // owner, 2026-10-10). They stay while the user is anywhere nothing is
+        // checked (another app, Glim itself, a password field) and come back
+        // with that field without a gap. Another field replaces them with its
+        // own check, ~0.6 s later.
         if !same {
             self.debounce.reset();
-            self.show(Suggestions::default(), &mut emit);
         }
-        let Some(paragraph) = text.and_then(|t| paragraph_to_check(t, caret)) else {
+        let Some(text) = text else {
+            self.debounce.reset();
+            return;
+        };
+        // A field that is checked but has nothing to check here (a blank
+        // paragraph, the caret in the signature or the quote): nothing shown.
+        let Some(paragraph) = paragraph_to_check(text, caret) else {
             self.debounce.reset();
             self.show(Suggestions::default(), &mut emit);
             return;
         };
         if self.debounce.feed(key_of(&paragraph), now) == Step::Check {
-            let found = self.check(&paragraph, caret, rules);
+            let found = self.check(&paragraph, rules);
             self.show(found, &mut emit);
         }
     }
 
-    /// The paragraph's suggestions, nearest the caret first (ties: earlier in
-    /// the text), so the first page is about what the user just wrote.
-    fn check(&mut self, p: &Paragraph, caret: Option<usize>, rules: Rules) -> Suggestions {
+    /// The paragraph's suggestions in reading order, from its start (the
+    /// owner, 2026-10-10: nearest-the-caret order put an early typo on the
+    /// second page, where it looked missed).
+    fn check(&mut self, p: &Paragraph, rules: Rules) -> Suggestions {
         let checker = self.checker.get_or_insert_with(Checker::new);
         let t = Instant::now();
         let findings = checker.check(&p.text, rules);
@@ -159,9 +170,7 @@ impl Session {
         self.lengths.push(p.text.chars().count());
         let chars: Vec<char> = p.text.chars().collect();
         let mut items: Vec<Suggestion> = findings.iter().map(|f| suggestion(&chars, p.start, f)).collect();
-        if let Some(caret) = caret {
-            items.sort_by_key(|s| (distance(caret, s.start, s.end), s.start));
-        }
+        items.sort_by_key(|s| (s.start, s.end));
         Suggestions { items }
     }
 
@@ -191,15 +200,6 @@ impl Session {
             n[n.len() / 2],
             n[n.len() - 1]
         ))
-    }
-}
-
-/// How far the caret is from a problem, in characters: 0 inside it.
-fn distance(caret: usize, start: usize, end: usize) -> usize {
-    if caret < start {
-        start - caret
-    } else {
-        caret.saturating_sub(end)
     }
 }
 
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn suggestions_come_nearest_the_caret_first() {
+    fn suggestions_come_in_reading_order_wherever_the_caret_is() {
         let field = "Teh lease is recieved. We will deposit it tomorow and send the reciept.";
         let caret = field.find("send").unwrap();
         let mut s = Session::default();
@@ -302,12 +302,11 @@ mod tests {
             s.observe(true, Some(field), Some(caret), Rules::Full, t0 + Duration::from_millis(ms), |x| got = x.clone());
         }
         let order: Vec<&str> = got.items.iter().map(|i| i.problem.as_str()).collect();
-        assert_eq!(order, ["tomorow", "reciept", "recieved", "Teh"]);
-        assert_eq!((distance(5, 3, 8), distance(2, 3, 8), distance(10, 3, 8)), (0, 1, 2));
+        assert_eq!(order, ["Teh", "recieved", "tomorow", "reciept"]);
     }
 
     #[test]
-    fn a_session_shows_suggestions_after_the_pause_and_clears_on_another_field() {
+    fn a_session_shows_suggestions_after_the_pause_and_another_field_replaces_them() {
         let mut s = Session::default();
         let caret = Some(12);
         let emitted = run(&mut s, &[
@@ -315,17 +314,38 @@ mod tests {
             (true, Some(FIELD), caret, 300),
             (true, Some(FIELD), caret, 1100), // checked: "recieved"
             (true, Some(FIELD), caret, 1400), // unchanged: nothing sent
-            (false, Some("Clean text."), Some(3), 1700), // another field: cleared
+            (false, Some("Clean text."), Some(3), 1700), // another field: kept until its check
+            (true, Some("Clean text."), Some(3), 2000),
+            (true, Some("Clean text."), Some(3), 2300), // its check: nothing to fix
         ]);
         assert_eq!(emitted, vec![1, 0]);
-        assert!(s.take_report().unwrap().starts_with("writing: 1 checks"));
+        assert!(s.take_report().unwrap().starts_with("writing: 2 checks"));
         assert!(s.take_report().is_none());
     }
 
+    /// The owner's retest: suggestions for the last field stay while they are
+    /// in another app (nothing is read there) and are still there, with no gap,
+    /// when they come back to it.
     #[test]
-    fn a_reading_that_may_not_be_checked_clears_the_suggestions() {
+    fn suggestions_stay_while_in_another_app_and_come_back_with_the_field() {
         let mut s = Session::default();
-        let emitted = run(&mut s, &[(true, Some(FIELD), Some(12), 0), (true, Some(FIELD), Some(12), 1000), (true, None, None, 1300)]);
+        let caret = Some(12);
+        let emitted = run(&mut s, &[
+            (true, Some(FIELD), caret, 0),
+            (true, Some(FIELD), caret, 600), // checked: "recieved"
+            (false, None, None, 900),        // a terminal (checker off): kept
+            (true, None, None, 5000),
+            (false, Some(FIELD), caret, 9000), // back in the same field
+            (true, Some(FIELD), caret, 9300),
+            (true, Some(FIELD), caret, 9600), // rechecked: the same, nothing sent
+        ]);
+        assert_eq!(emitted, vec![1]);
+    }
+
+    #[test]
+    fn a_checked_field_with_nothing_to_check_clears_the_suggestions() {
+        let mut s = Session::default();
+        let emitted = run(&mut s, &[(true, Some(FIELD), Some(12), 0), (true, Some(FIELD), Some(12), 1000), (true, Some("   "), Some(1), 1300)]);
         assert_eq!(emitted, vec![1, 0]);
         // A caret in the signature: nothing to check, nothing shown.
         let mut s = Session::default();

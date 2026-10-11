@@ -185,3 +185,36 @@ test("the island tells presence when it closes", () => {
   const island = read("src/island/island.ts");
   assert.match(island, /State\.mode = mode;\n    if \(prev === "expanded"\) this\.onClosed\?\.\(\);/);
 });
+
+test("the lantern opens the suggestions over an agent's card; a waiting approval still wins", () => {
+  State.pendingApproval = null;
+  State.writing = [];
+  assert.equal(State.lanternView(), null);
+  // An agent finished and its card took the island; the badge shows 4.
+  State.view = "finished";
+  State.writing = [item("a"), item("b"), item("c"), item("d")];
+  assert.equal(State.lanternView(), "suggestions");
+  assert.equal(State.defaultView(), "suggestions");
+  // Approvals and questions are urgent: they come first.
+  State.pendingApproval = { requestId: "r", pillId: "p", questions: null };
+  assert.equal(State.lanternView(), "approval");
+  State.pendingApproval = { requestId: "r", pillId: "p", questions: [{ question: "?" }] };
+  assert.equal(State.lanternView(), "question");
+  State.pendingApproval = null;
+  State.writing = [];
+  State.view = "overview";
+});
+
+test("the open island's lantern click and the ember both follow lanternView", () => {
+  const island = read("src/island/island.ts");
+  assert.match(island, /this\.lantern\.el\.setAttribute\("role", "button"\);/);
+  assert.match(island, /this\.lantern\.el\.addEventListener\("click", \(\) => \{\n\s+if \(State\.mode !== "expanded" \|\| this\.uploadActive\) return;\n\s+const view = State\.lanternView\(\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
+  assert.match(read("src/core/state.ts"), /return this\.lanternView\(\) \?\? \(this\.tasks\.length === 0 \? "empty" : "overview"\);/);
+});
+
+test("the pager's buttons are at least 28 px", () => {
+  const css = read("src/style.css");
+  const rule = css.slice(css.indexOf(".suggestion-page {"), css.indexOf("}", css.indexOf(".suggestion-page {")));
+  const px = (prop) => Number(rule.match(new RegExp(`\\n  ${prop}: (\\d+)px;`))[1]);
+  assert.ok(px("width") >= 28 && px("height") >= 28, rule);
+});

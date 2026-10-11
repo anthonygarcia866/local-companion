@@ -485,10 +485,20 @@ class AppState {
    * reopening a folded island shows it again (Mac #117, #290).
    */
   defaultView(): IslandViewName {
+    return this.lanternView() ?? (this.tasks.length === 0 ? "empty" : "overview");
+  }
+
+  /**
+   * What a click on the lantern (the pill's or the ember's) opens, whatever
+   * the island shows: a card waiting for an answer (urgent), then the writing
+   * suggestions while the badge shows them; null for neither. An agent's
+   * finished or error card never takes the lantern from the suggestions:
+   * those stay one click away under Home (the owner, 2026-10-10).
+   */
+  lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
-    // Then the writing suggestions, when the focused field has any.
     if (this.writing.length > 0) return "suggestions";
-    return this.tasks.length === 0 ? "empty" : "overview";
+    return null;
   }
 }
 
