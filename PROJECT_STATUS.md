@@ -111,6 +111,11 @@ A local-first Windows desktop companion.
 
 - **Lantern-check CI flake (known issue, to fix later).** `npm run check:lantern` in `windows-ci.yml` fails now and then on GitHub's GPU-less runners: the aura's SVG blur (`feGaussianBlur`) isn't bit-stable, so a frame differs from the design by 1,307 pixels up to 32/255 on the same markup. The check re-renders a differing frame up to twice, which catches most of it, but on 2026-10-11 (PR #9's last run) one frame (`record/false/300/pop-record`) kept differing through both re-renders and failed the job; re-running the job passed. Workaround: `gh run rerun <id> --failed`. To fix later: compare the blurred aura with a tolerance (or mask it) while keeping exact comparison for everything else, and keep the mutation tests (a changed colour must still fail).
 
+- **Agent cards: three bugs (reported by the owner 2026-10-11; a small PR after 1b-apply, not fixed yet):**
+  1. **A usage limit offered "Open in n8n".** When Claude Code hit its usage limit, the card said "Session stopped on an error" with "Retry" and "Open in n8n". The session was Claude Code in Windows Terminal, so the button should open the terminal. To do: find why it picked n8n (the card's app/terminal detection).
+  2. **A usage or spend limit should be its own state**, not an error: "Usage limit, resets 2 PM" when the reset time is known, and no Retry before the reset.
+  3. **Glim can't be dragged while a card with buttons is showing.** Dragging should work from the lantern or the top bar in every state, without triggering the card's buttons.
+
 ## Open questions
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
