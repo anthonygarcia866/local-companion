@@ -25,6 +25,37 @@ pub const CHAT: [&str; 9] = [
     "ChatGPT.exe", "Grok Bot.exe",
 ];
 
+/// Apps where clicking a fix types it (1b): the owner's test matrix, Notepad,
+/// Word, Outlook classic and Chrome (Gmail). Every other app that is on shows
+/// its suggestions view-only until it has been tested (owner, 2026-10-11):
+/// Edge, new Outlook and the chat apps. The list is in PROJECT_STATUS.
+pub const FIXES: [&str; 4] = ["Notepad.exe", "WINWORD.EXE", "OUTLOOK.EXE", "chrome.exe"];
+
+/// Whether fixes may be typed into this app.
+pub fn fixes(exe: &str) -> bool {
+    FIXES.iter().any(|a| a.eq_ignore_ascii_case(exe))
+}
+
+/// The app's name as the island shows it ("Ctrl+Z in Word undoes it").
+pub fn display_name(exe: &str) -> String {
+    let name = match exe.to_ascii_lowercase().as_str() {
+        "winword.exe" => "Word",
+        "outlook.exe" | "olk.exe" => "Outlook",
+        "notepad.exe" => "Notepad",
+        "chrome.exe" => "Chrome",
+        "msedge.exe" => "Edge",
+        "slack.exe" => "Slack",
+        "ms-teams.exe" | "teams.exe" => "Teams",
+        "discord.exe" => "Discord",
+        "whatsapp.exe" | "whatsapp.root.exe" => "WhatsApp",
+        "claude.exe" => "Claude",
+        "chatgpt.exe" => "ChatGPT",
+        "grok bot.exe" => "Grok",
+        _ => return exe.strip_suffix(".exe").or_else(|| exe.strip_suffix(".EXE")).unwrap_or(exe).to_string(),
+    };
+    name.to_string()
+}
+
 /// The rules for this app: relaxed in chat apps, full everywhere else.
 pub fn rules(exe: &str) -> super::Rules {
     if CHAT.iter().any(|a| a.eq_ignore_ascii_case(exe)) {
@@ -69,5 +100,29 @@ mod tests {
             assert!(!enabled(exe), "{exe}");
         }
         assert!(OFF.iter().all(|o| !ON.iter().any(|a| a.eq_ignore_ascii_case(o))));
+    }
+
+    /// The owner, 2026-10-11: fixes only in the tested apps; chat apps, Edge
+    /// and new Outlook stay view-only until each one is tested.
+    #[test]
+    fn fixes_are_typed_only_in_the_tested_apps() {
+        for exe in ["Notepad.exe", "WINWORD.EXE", "winword.exe", "OUTLOOK.EXE", "chrome.exe"] {
+            assert!(fixes(exe) && enabled(exe), "{exe}");
+        }
+        for exe in CHAT.iter().copied().chain(["msedge.exe", "olk.exe", "Code.exe", "SomeNewApp.exe"]) {
+            assert!(!fixes(exe), "{exe}");
+        }
+        assert!(FIXES.iter().all(|f| enabled(f)));
+    }
+
+    #[test]
+    fn apps_have_short_names_for_the_island() {
+        assert_eq!(display_name("WINWORD.EXE"), "Word");
+        assert_eq!(display_name("olk.exe"), "Outlook");
+        assert_eq!(display_name("Grok Bot.exe"), "Grok");
+        assert_eq!(display_name("SomeNewApp.exe"), "SomeNewApp");
+        for exe in ON {
+            assert!(!display_name(exe).to_ascii_lowercase().ends_with(".exe"), "{exe}");
+        }
     }
 }

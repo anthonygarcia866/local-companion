@@ -11,6 +11,7 @@
 // paragraphs have Debug impls without their words, and nothing here logs
 // anything but counts and timings (tests check the source).
 
+pub mod apply;
 pub mod apps;
 pub mod checker;
 pub mod text;
@@ -52,16 +53,148 @@ impl std::fmt::Debug for Suggestion {
     }
 }
 
+/// What clicking a replacement does (1b, docs/phase1-plan.md §7).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FixMode {
+    /// Nothing: an app not yet tested for fixes (chat apps, Edge, new Outlook).
+    #[default]
+    View,
+    /// Typed into the field (§7.3).
+    Apply,
+    /// A field Glim can't select or type in (ValuePattern only): each
+    /// replacement is a Copy button the user clicks (§7.7).
+    Copy,
+    /// Fixes would be typed, but the user is no longer in that text (another
+    /// field or app, another paragraph): "Click in the field first".
+    Away,
+}
+
+/// The fix mode for a field: by app, then by what UI Automation offers.
+pub fn fix_mode(exe: &str, pattern: &str) -> FixMode {
+    if !apps::fixes(exe) {
+        FixMode::View
+    } else if pattern.starts_with("TextPattern") {
+        FixMode::Apply
+    } else if pattern == "ValuePattern" {
+        FixMode::Copy
+    } else {
+        FixMode::View
+    }
+}
+
 /// What the island shows: the current field's suggestions (empty = none).
 #[derive(Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Suggestions {
+    /// Changes whenever the list does: a click on an older list is refused.
+    pub check_id: u64,
+    pub mode: FixMode,
+    /// The app's short name ("Word"), for the island's notes.
+    pub app: String,
     pub items: Vec<Suggestion>,
 }
 
 impl std::fmt::Debug for Suggestions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Suggestions").field("count", &self.items.len()).finish()
+        f.debug_struct("Suggestions").field("count", &self.items.len()).field("mode", &self.mode).finish()
     }
+}
+
+/// The longest a checked paragraph is kept for a fix (owner, 2026-10-11).
+pub const KEEP_FOR: Duration = Duration::from_secs(10 * 60);
+
+/// The paragraph the shown suggestions came from, kept (in memory only) so a
+/// fix can find it again (§7.2). Only in fields where fixes are typed.
+struct Kept {
+    text: String,
+    /// Where it starts in the field, in characters.
+    start: usize,
+    key: u64,
+    at: Instant,
+}
+
+/// Everything one fix needs, handed to the apply step (apply.rs).
+pub struct Job {
+    /// The paragraph as it was checked.
+    pub paragraph: String,
+    /// Where it started in the field, in characters (a tie-breaker only).
+    pub field_start: usize,
+    /// The problem's span in the paragraph, in characters.
+    pub start: usize,
+    pub end: usize,
+    pub replacement: String,
+    /// The app's short name, for the island's note.
+    pub app: String,
+}
+
+impl std::fmt::Debug for Job {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Job").field("start", &self.start).field("end", &self.end).field("app", &self.app).finish()
+    }
+}
+
+/// Why a click did nothing, or that it worked. Sent to the island as a code
+/// and logged as one (never with text).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Outcome {
+    Applied,
+    Copied,
+    /// The text or the list changed since the check: nothing typed, rechecked.
+    Changed,
+    /// The user isn't in that field.
+    Away,
+    Paused,
+    /// The field is protected now (password, payment labels, paused app or
+    /// site, read-only) or the app isn't one fixes are typed in.
+    Blocked,
+    /// An app running as administrator: Windows blocks Glim's keys.
+    Elevated,
+    /// A key or mouse button was held down.
+    KeysHeld,
+    /// The app didn't let Glim select the text.
+    Unsupported,
+    /// Typed, but the read-back doesn't match: the user is told to undo.
+    NotClean,
+    /// The clipboard was busy.
+    ClipboardBusy,
+}
+
+impl Outcome {
+    pub fn code(self) -> &'static str {
+        match self {
+            Outcome::Applied => "applied",
+            Outcome::Copied => "copied",
+            Outcome::Changed => "changed",
+            Outcome::Away => "away",
+            Outcome::Paused => "paused",
+            Outcome::Blocked => "blocked",
+            Outcome::Elevated => "elevated",
+            Outcome::KeysHeld => "keys-held",
+            Outcome::Unsupported => "unsupported",
+            Outcome::NotClean => "not-clean",
+            Outcome::ClipboardBusy => "clipboard-busy",
+        }
+    }
+}
+
+/// The island's note after a click.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixResult {
+    pub outcome: Outcome,
+    pub app: String,
+}
+
+/// The event the island hears a click's outcome on.
+pub const RESULT_EVENT: &str = "writing-fix";
+
+/// A replacement Glim may offer: printable text only (Enter would send a chat
+/// message; a tab moves focus), and never something that looks like a card,
+/// an SSN or an IBAN.
+pub fn offerable(replacement: &str) -> bool {
+    !replacement.chars().any(char::is_control) && !crate::capture::sensitive::contains_sensitive_number(replacement)
 }
 
 /// What a reading calls for.
@@ -78,10 +211,16 @@ pub struct Debouncer {
     key: Option<u64>,
     since: Option<Instant>,
     done: bool,
+    /// Check on the next reading, without the wait (after a fix).
+    now: bool,
 }
 
 impl Debouncer {
     pub fn feed(&mut self, key: u64, now: Instant) -> Step {
+        if self.now {
+            *self = Debouncer { key: Some(key), since: Some(now), done: true, now: false };
+            return Step::Check;
+        }
         if self.key != Some(key) {
             self.key = Some(key);
             self.since = Some(now);
@@ -97,6 +236,16 @@ impl Debouncer {
 
     pub fn reset(&mut self) {
         *self = Debouncer::default();
+    }
+
+    /// The next reading is checked at once, whatever its text.
+    pub fn check_next(&mut self) {
+        self.now = true;
+    }
+
+    /// The paragraph currently being watched.
+    pub fn key(&self) -> Option<u64> {
+        self.key
     }
 }
 
@@ -114,17 +263,39 @@ pub struct Session {
     checker: Option<Checker>,
     debounce: Debouncer,
     shown: Suggestions,
+    /// The mode the shown list was checked in (Apply turns into Away for the
+    /// island once the paragraph is no longer kept).
+    checked_mode: FixMode,
+    kept: Option<Kept>,
+    /// The paragraph whose suggestions were dismissed: not shown again until
+    /// its text changes.
+    dismissed: Option<u64>,
+    next_id: u64,
     /// Check times since the last report, in microseconds.
     times: Vec<u128>,
     /// Paragraph lengths checked since the last report, in characters.
     lengths: Vec<usize>,
 }
 
+/// One reading, as the writing checker sees it.
+pub struct Observed<'a> {
+    /// False when focus moved to another field.
+    pub same: bool,
+    /// None when nothing may be checked (an app that is off, a skipped or
+    /// dropped reading).
+    pub text: Option<&'a str>,
+    pub caret: Option<usize>,
+    pub rules: Rules,
+    pub mode: FixMode,
+    /// The app's short name.
+    pub app: &'a str,
+    /// Glim is paused (the tray's Pause).
+    pub paused: bool,
+}
+
 impl Session {
-    /// One reading of the focused field. `text` is None when nothing may be
-    /// checked (an app that is off, a skipped or dropped reading); `same` is
-    /// false when focus moved to another field. `emit` gets the island's new
-    /// suggestions whenever they change.
+    /// One reading of the focused field, 1a's way: view-only, never paused.
+    #[cfg(test)]
     pub fn observe(
         &mut self,
         same: bool,
@@ -132,31 +303,143 @@ impl Session {
         caret: Option<usize>,
         rules: Rules,
         now: Instant,
-        mut emit: impl FnMut(&Suggestions),
+        emit: impl FnMut(&Suggestions),
     ) {
+        let r = Observed { same, text, caret, rules, mode: FixMode::View, app: "", paused: false };
+        self.observe_in(&r, now, emit);
+    }
+
+    /// One reading of the focused field. `emit` gets the island's new
+    /// suggestions whenever they change.
+    pub fn observe_in(&mut self, r: &Observed, now: Instant, mut emit: impl FnMut(&Suggestions)) {
+        // Paused: nothing is checked, kept or shown.
+        if r.paused {
+            self.kept = None;
+            self.debounce.reset();
+            self.show(Suggestions::default(), FixMode::View, &mut emit);
+            return;
+        }
+        // Kept 10 minutes at most; checked again if the user is still there.
+        if self.kept.as_ref().is_some_and(|k| now.duration_since(k.at) >= KEEP_FOR) {
+            self.kept = None;
+            self.debounce.reset();
+        }
         // The suggestions belong to the last field that was checked (the
         // owner, 2026-10-10). They stay while the user is anywhere nothing is
         // checked (another app, Glim itself, a password field) and come back
         // with that field without a gap. Another field replaces them with its
-        // own check, ~0.6 s later.
-        if !same {
+        // own check, ~0.6 s later. The kept paragraph doesn't stay: moving to
+        // other text drops it (owner, 2026-10-11), and the island's fix
+        // buttons say "Click in the field first" until the next check.
+        if !r.same {
             self.debounce.reset();
+            self.kept = None;
         }
-        let Some(text) = text else {
+        let Some(text) = r.text else {
             self.debounce.reset();
+            self.kept = None;
+            self.refresh(&mut emit);
             return;
         };
         // A field that is checked but has nothing to check here (a blank
         // paragraph, the caret in the signature or the quote): nothing shown.
-        let Some(paragraph) = paragraph_to_check(text, caret) else {
+        let Some(paragraph) = paragraph_to_check(text, r.caret) else {
             self.debounce.reset();
-            self.show(Suggestions::default(), &mut emit);
+            self.kept = None;
+            self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         };
-        if self.debounce.feed(key_of(&paragraph), now) == Step::Check {
-            let found = self.check(&paragraph, rules);
-            self.show(found, &mut emit);
+        let key = key_of(&paragraph);
+        // Another paragraph, or this one edited: different text.
+        if self.kept.as_ref().is_some_and(|k| k.key != key) {
+            self.kept = None;
         }
+        if self.dismissed.is_some_and(|d| d != key) {
+            self.dismissed = None;
+        }
+        if self.debounce.feed(key, now) == Step::Check && self.dismissed.is_none() {
+            let mut found = self.check(&paragraph, r.rules);
+            found.app = r.app.to_string();
+            let mut mode = r.mode;
+            if mode == FixMode::Apply && !found.items.is_empty() {
+                // The sensitive-data scan runs again before anything is kept
+                // (owner, 2026-10-11): a hit keeps nothing and shows nothing.
+                if crate::capture::sensitive::contains_sensitive_number(&paragraph.text) {
+                    found.items.clear();
+                    mode = FixMode::View;
+                } else {
+                    self.kept = Some(Kept { text: paragraph.text.clone(), start: paragraph.start, key, at: now });
+                }
+            }
+            self.show(found, mode, &mut emit);
+        } else {
+            self.refresh(&mut emit);
+        }
+    }
+
+    /// Dismissed from the island: nothing shown or kept until the text changes.
+    pub fn dismiss(&mut self, mut emit: impl FnMut(&Suggestions)) {
+        self.dismissed = self.debounce.key();
+        self.kept = None;
+        self.show(Suggestions::default(), FixMode::View, &mut emit);
+    }
+
+    /// The fix the island asked for (`check_id`, row, replacement): only
+    /// numbers come from the island; the words are the checker's own.
+    pub fn job(&self, check_id: u64, index: usize, choice: usize) -> Result<Job, Outcome> {
+        if check_id != self.shown.check_id {
+            return Err(Outcome::Changed);
+        }
+        match self.shown.mode {
+            FixMode::Apply => {}
+            FixMode::Away => return Err(Outcome::Away),
+            FixMode::View | FixMode::Copy => return Err(Outcome::Blocked),
+        }
+        let kept = self.kept.as_ref().ok_or(Outcome::Away)?;
+        let item = self.shown.items.get(index).ok_or(Outcome::Changed)?;
+        let replacement = item.replacements.get(choice).ok_or(Outcome::Changed)?;
+        let (start, end) = (item.start.checked_sub(kept.start).ok_or(Outcome::Changed)?, item.end - kept.start);
+        let chars: Vec<char> = kept.text.chars().collect();
+        if end > chars.len() || chars[start..end].iter().collect::<String>() != item.problem {
+            return Err(Outcome::Changed);
+        }
+        Ok(Job {
+            paragraph: kept.text.clone(),
+            field_start: kept.start,
+            start,
+            end,
+            replacement: replacement.clone(),
+            app: self.shown.app.clone(),
+        })
+    }
+
+    /// The replacement to copy, for a Copy button (§7.7).
+    pub fn copy_text(&self, check_id: u64, index: usize, choice: usize) -> Result<String, Outcome> {
+        if check_id != self.shown.check_id {
+            return Err(Outcome::Changed);
+        }
+        if self.shown.mode != FixMode::Copy {
+            return Err(Outcome::Blocked);
+        }
+        let item = self.shown.items.get(index).ok_or(Outcome::Changed)?;
+        item.replacements.get(choice).cloned().ok_or(Outcome::Changed)
+    }
+
+    /// After a fix (or a refused one): the paragraph changed, or may have.
+    /// Drop it and check the field again on the next reading, at once.
+    pub fn after_fix(&mut self) {
+        self.kept = None;
+        self.debounce.check_next();
+    }
+
+    /// The app's short name for the shown list.
+    pub fn app(&self) -> String {
+        self.shown.app.clone()
+    }
+
+    /// The check id of the list whose paragraph is kept, if one is.
+    pub fn kept_check(&self) -> Option<u64> {
+        self.kept.as_ref().map(|_| self.shown.check_id)
     }
 
     /// The paragraph's suggestions in reading order, from its start (the
@@ -171,10 +454,35 @@ impl Session {
         let chars: Vec<char> = p.text.chars().collect();
         let mut items: Vec<Suggestion> = findings.iter().map(|f| suggestion(&chars, p.start, f)).collect();
         items.sort_by_key(|s| (s.start, s.end));
-        Suggestions { items }
+        Suggestions { items, ..Default::default() }
     }
 
-    fn show(&mut self, s: Suggestions, emit: &mut impl FnMut(&Suggestions)) {
+    /// The list as the island should see it: Apply becomes Away when the
+    /// paragraph is no longer kept.
+    fn refresh(&mut self, emit: &mut impl FnMut(&Suggestions)) {
+        let mode = self.checked_mode;
+        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items: self.shown.items.clone() };
+        self.show(s, mode, emit);
+    }
+
+    /// Sends the list when it (or its mode) changed. The check id stays the
+    /// same for the same list, so a click on it still works after a recheck.
+    fn show(&mut self, mut s: Suggestions, mode: FixMode, emit: &mut impl FnMut(&Suggestions)) {
+        self.checked_mode = mode;
+        s.mode = if mode == FixMode::Apply && self.kept.is_none() { FixMode::Away } else { mode };
+        if s.items.is_empty() {
+            s.mode = FixMode::View;
+            s.app.clear();
+        }
+        let same_list = s.items == self.shown.items && s.app == self.shown.app;
+        s.check_id = if s.items.is_empty() {
+            0
+        } else if same_list && self.shown.check_id != 0 {
+            self.shown.check_id
+        } else {
+            self.next_id += 1;
+            self.next_id
+        };
         if s != self.shown {
             emit(&s);
             self.shown = s;
@@ -205,6 +513,7 @@ impl Session {
 
 fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
     let s: String = chars[f.start..f.end].iter().collect();
+    let replacements = f.replacements.iter().filter(|r| offerable(r)).cloned().collect();
     let before: String = chars[f.start.saturating_sub(CONTEXT_CHARS)..f.start].iter().collect();
     let after: String = chars[f.end..(f.end + CONTEXT_CHARS).min(chars.len())].iter().collect();
     Suggestion {
@@ -215,7 +524,7 @@ fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
         after,
         kind: f.kind.clone(),
         message: f.message.clone(),
-        replacements: f.replacements.clone(),
+        replacements,
     }
 }
 
@@ -368,9 +677,190 @@ mod tests {
         assert_eq!(item.replacements[0], "received");
     }
 
+    // ── 1b: what is kept for a fix, and when it is dropped (§7.2) ────────────
+
+    /// A field where fixes are typed: one reading per step.
+    fn feed(s: &mut Session, same: bool, text: Option<&str>, caret: Option<usize>, mode: FixMode, paused: bool, at: Instant) -> Option<Suggestions> {
+        let mut got = None;
+        let r = Observed { same, text, caret, rules: Rules::Full, mode, app: "Notepad", paused };
+        s.observe_in(&r, at, |x| got = Some(x.clone()));
+        got
+    }
+
+    /// Checked in an Apply field: returns the session, its list and the time.
+    fn checked() -> (Session, Suggestions, Instant) {
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        assert_eq!(got.mode, FixMode::Apply);
+        assert!(s.kept.is_some());
+        (s, got, t0 + DEBOUNCE)
+    }
+
+    #[test]
+    fn a_fix_field_keeps_its_paragraph_and_the_job_carries_the_checkers_words() {
+        let (s, got, _) = checked();
+        assert_eq!(got.app, "Notepad");
+        assert_eq!(s.kept.as_ref().unwrap().text, "We recieved the payment.");
+        let job = s.job(got.check_id, 0, 0).unwrap();
+        assert_eq!((job.paragraph.as_str(), job.start, job.end, job.replacement.as_str()), ("We recieved the payment.", 3, 11, "received"));
+        assert_eq!(job.field_start, 8);
+    }
+
+    #[test]
+    fn a_stale_list_or_a_bad_index_is_refused() {
+        let (s, got, _) = checked();
+        assert_eq!(s.job(got.check_id + 1, 0, 0).unwrap_err(), Outcome::Changed);
+        assert_eq!(s.job(got.check_id, 9, 0).unwrap_err(), Outcome::Changed);
+        assert_eq!(s.job(got.check_id, 0, 9).unwrap_err(), Outcome::Changed);
+    }
+
+    #[test]
+    fn dismissing_drops_the_paragraph_and_hides_the_list_until_the_text_changes() {
+        let (mut s, got, t) = checked();
+        let mut sent = Vec::new();
+        s.dismiss(|x| sent.push(x.items.len()));
+        assert_eq!(sent, [0]);
+        assert!(s.kept.is_none());
+        assert_eq!(s.job(got.check_id, 0, 0).unwrap_err(), Outcome::Changed);
+        // The same text: still nothing, however long.
+        for ms in [300, 900, 5000] {
+            assert!(feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + Duration::from_millis(ms)).is_none());
+        }
+        // Changed text: checked again.
+        let edited = "Hi Sam,\nWe recieved the payments.\nBest regards,\nAnthony";
+        feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(6));
+        let back = feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(7)).unwrap();
+        assert_eq!(back.items.len(), 1);
+    }
+
+    #[test]
+    fn moving_to_another_field_or_app_drops_the_paragraph_and_the_buttons_say_so() {
+        // Another app (nothing read there).
+        let (mut s, got, t) = checked();
+        let away = feed(&mut s, false, None, None, FixMode::View, false, t + Duration::from_millis(300)).unwrap();
+        assert!(s.kept.is_none());
+        assert_eq!((away.mode, away.items.len(), away.check_id), (FixMode::Away, 1, got.check_id), "the list stays, view-only");
+        assert_eq!(s.job(got.check_id, 0, 0).unwrap_err(), Outcome::Away);
+        // Back in the field: checked again, kept again, same list id.
+        feed(&mut s, false, Some(FIELD), Some(12), FixMode::Apply, false, t + Duration::from_secs(2));
+        let back = feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + Duration::from_secs(3)).unwrap();
+        assert_eq!((back.mode, back.check_id), (FixMode::Apply, got.check_id));
+        assert!(s.job(got.check_id, 0, 0).is_ok());
+        // Another field that is read: dropped at once.
+        let (mut s, _, t) = checked();
+        feed(&mut s, false, Some("Another field, no typos."), Some(3), FixMode::Apply, false, t + Duration::from_millis(300));
+        assert!(s.kept.is_none());
+    }
+
+    #[test]
+    fn moving_to_another_paragraph_or_editing_this_one_drops_it() {
+        let (mut s, _, t) = checked();
+        // The caret in "Hi Sam," (another paragraph).
+        feed(&mut s, true, Some(FIELD), Some(2), FixMode::Apply, false, t + Duration::from_millis(300));
+        assert!(s.kept.is_none(), "another paragraph");
+        let (mut s, _, t) = checked();
+        let edited = "Hi Sam,\nWe recieved the payment!\nBest regards,\nAnthony";
+        feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_millis(300));
+        assert!(s.kept.is_none(), "edited");
+    }
+
+    #[test]
+    fn pausing_drops_the_paragraph_and_the_list_and_checks_nothing() {
+        let (mut s, _, t) = checked();
+        let shown = feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, true, t + Duration::from_millis(300)).unwrap();
+        assert!(s.kept.is_none());
+        assert!(shown.items.is_empty());
+        for ms in [600, 1200, 5000] {
+            assert!(feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, true, t + Duration::from_millis(ms)).is_none());
+        }
+        assert!(s.kept.is_none());
+    }
+
+    #[test]
+    fn the_paragraph_is_kept_ten_minutes_at_most() {
+        assert_eq!(KEEP_FOR, Duration::from_secs(600));
+        let (mut s, _, t) = checked();
+        feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + KEEP_FOR - Duration::from_secs(1));
+        assert!(s.kept.is_some());
+        feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + KEEP_FOR);
+        assert!(s.kept.is_none(), "dropped at 10 minutes");
+        // Still in the field: checked (and kept) again after the usual wait.
+        feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + KEEP_FOR + DEBOUNCE);
+        assert!(s.kept.is_some());
+    }
+
+    #[test]
+    fn a_paragraph_holding_a_card_number_is_never_kept_or_shown() {
+        // A reading that reaches the checker has passed capture's scan; this
+        // is the second scan, before keeping (owner, 2026-10-11).
+        let field = "Charge 4111 1111 1111 1111 for the recieved order.";
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(field), Some(5), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(field), Some(5), FixMode::Apply, false, t0 + DEBOUNCE);
+        assert!(s.kept.is_none());
+        assert!(got.is_none_or(|g| g.items.is_empty()));
+    }
+
+    #[test]
+    fn view_only_and_copy_fields_keep_nothing() {
+        for mode in [FixMode::View, FixMode::Copy] {
+            let mut s = Session::default();
+            let t0 = Instant::now();
+            feed(&mut s, true, Some(FIELD), Some(12), mode, false, t0);
+            let got = feed(&mut s, true, Some(FIELD), Some(12), mode, false, t0 + DEBOUNCE).unwrap();
+            assert_eq!((got.mode, got.items.len()), (mode, 1));
+            assert!(s.kept.is_none(), "{mode:?}");
+            assert_eq!(s.job(got.check_id, 0, 0).unwrap_err(), Outcome::Blocked);
+            let copied = s.copy_text(got.check_id, 0, 0);
+            if mode == FixMode::Copy {
+                assert_eq!(copied.unwrap(), "received");
+            } else {
+                assert_eq!(copied.unwrap_err(), Outcome::Blocked);
+            }
+        }
+    }
+
+    #[test]
+    fn after_a_fix_the_field_is_checked_again_at_once() {
+        let (mut s, _, t) = checked();
+        s.after_fix();
+        assert!(s.kept.is_none());
+        let fixed = "Hi Sam,\nWe received the payment.\nBest regards,\nAnthony";
+        let got = feed(&mut s, true, Some(fixed), Some(12), FixMode::Apply, false, t + Duration::from_millis(10)).unwrap();
+        assert!(got.items.is_empty());
+    }
+
+    #[test]
+    fn only_printable_replacements_without_sensitive_numbers_are_offered() {
+        assert!(offerable("received") && offerable("") && offerable("it's") && offerable("Unit 4B"));
+        for bad in ["a\nb", "a\rb", "tab\there", "\u{7}", "4111 1111 1111 1111", "123-45-6789"] {
+            assert!(!offerable(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_fix_modes_follow_the_app_and_the_pattern() {
+        assert_eq!(fix_mode("WINWORD.EXE", "TextPattern2"), FixMode::Apply);
+        assert_eq!(fix_mode("Notepad.exe", "TextPattern"), FixMode::Apply);
+        assert_eq!(fix_mode("chrome.exe", "ValuePattern"), FixMode::Copy);
+        assert_eq!(fix_mode("slack.exe", "TextPattern2"), FixMode::View);
+        assert_eq!(fix_mode("msedge.exe", "TextPattern2"), FixMode::View);
+        assert_eq!(fix_mode("slack.exe", "ValuePattern"), FixMode::View, "chat apps: view-only, no Copy");
+        assert_eq!(fix_mode("Notepad.exe", "none"), FixMode::View);
+    }
+
+    #[test]
+    fn a_job_never_shows_its_words() {
+        let j = Job { paragraph: "SENTINEL-p".into(), field_start: 0, start: 0, end: 1, replacement: "SENTINEL-r".into(), app: "Word".into() };
+        assert!(!format!("{j:?} {j:#?}").contains("SENTINEL"));
+    }
+
     #[test]
     fn formatting_suggestions_never_shows_their_words() {
-        let s = Suggestions { items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()] }] };
+        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()] }] };
         let shown = format!("{s:?} {:?} {:#?}", s.items[0], s);
         assert!(!shown.contains("SENTINEL"), "{shown}");
     }
@@ -384,6 +874,7 @@ mod tests {
             ("writing/text.rs", include_str!("text.rs")),
             ("writing/checker.rs", include_str!("checker.rs")),
             ("writing/apps.rs", include_str!("apps.rs")),
+            ("writing/apply.rs", include_str!("apply.rs")),
             ("capture/uia.rs", include_str!("../capture/uia.rs")),
         ];
         for (file, src) in files {
