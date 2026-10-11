@@ -80,3 +80,11 @@ test("the suggestion list is view only and never logs", () => {
   assert.ok(body.length > 50);
   for (const banned of ["Bridge.", "console.", "localStorage"]) assert.ok(!body.includes(banned), `the handler uses ${banned}`);
 });
+
+test("the pill's count is announced and visible to UI Automation", () => {
+  // A plain div is left out of the accessibility tree: no screen reader, no
+  // scripts/verify-writing-notepad.ps1.
+  const island = read("src/island/island.ts");
+  assert.match(island, /h\("div", \{ id: "writing-count", role: "status"/);
+  assert.match(island, /badge\.setAttribute\("aria-label", tn\("\{count\} writing suggestion", "\{count\} writing suggestions", writing\)\)/);
+});

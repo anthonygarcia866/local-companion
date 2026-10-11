@@ -37,18 +37,26 @@ pub const DISABLED_RULES: [&str; 2] = ["ExpandMemoryShorthands", "NeedToNoun"];
 /// preference, not an error. They share this message.
 const INITIALISM_MESSAGE: &str = "Try expanding this initialism";
 
+/// Checked once at setup to warm Harper's caches; never shown.
+const WARM_UP: &str = "Hi Sarah, I wanted to folow up on the the lease. Their going to send the payment tomorrow, and we will deposit it on Monday.";
+
 pub struct Checker {
     group: LintGroup,
 }
 
 impl Checker {
-    /// Loads the dictionary and the rules: ~440 ms once (release build).
+    /// Loads the dictionary and the rules, then checks a sample paragraph:
+    /// ~0.5 s once (release build). Harper fills its caches on the first
+    /// check (~25 ms, 60-70 ms live), so that one is paid here and not on the
+    /// user's first paragraph; later checks take well under 1 ms.
     pub fn new() -> Self {
         let mut group = LintGroup::new_curated(FstDictionary::curated(), Dialect::American);
         for rule in DISABLED_RULES {
             group.config.set_rule_enabled(rule, false);
         }
-        Checker { group }
+        let mut checker = Checker { group };
+        checker.check(WARM_UP);
+        checker
     }
 
     pub fn check(&mut self, paragraph: &str) -> Vec<Finding> {
@@ -162,6 +170,22 @@ mod tests {
 
     fn check(text: &str) -> Vec<Finding> {
         CHECKER.with(|c| c.borrow_mut().check(text))
+    }
+
+    #[test]
+    #[ignore = "timing probe: cargo test --release -- --ignored --nocapture"]
+    fn timing_probe() {
+        let t = std::time::Instant::now();
+        let mut c = Checker::new();
+        println!("setup {:?}", t.elapsed());
+        let texts = ["We recieved the payment and will deposit it tomorow.", "We got the payment and will bank it on Monday.", "Hi Sarah, I wanted to follow up on the the lease. We recieved the payment tomorow and will send the receipt to the owner by Friday afternoon at the latest."];
+        for round in 0..3 {
+            for x in texts {
+                let t = std::time::Instant::now();
+                c.check(x);
+                println!("round {round} {} chars {:?}", x.len(), t.elapsed());
+            }
+        }
     }
 
     fn problems(text: &str) -> Vec<String> {

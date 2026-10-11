@@ -18,6 +18,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
+import { tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -229,7 +230,7 @@ export class Island {
     this.lantern.el.id = "bot-lantern";
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
-    this.writingBadge = h("div", { id: "writing-count", style: "display:none" });
+    this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -1048,6 +1049,8 @@ export class Island {
       badge.style.display = shown ? "" : "none";
       if (shown) {
         badge.textContent = writing > 99 ? "99+" : String(writing);
+        // Read out as "3 writing suggestions" (and found by UI Automation).
+        badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
         badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
         badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
       }
