@@ -1,0 +1,16 @@
+﻿
+15:23:17.436 exe: C:\Users\antho\AppData\Local\Glim\glim.exe (11806720 bytes, built 10/11/2026 15:22:18)
+15:23:17.566 in front before the test: LogiOverlay; idle 363157 ms
+15:23:26.714 dev Glim pid 342084, visibility normal (saved: normal)
+15:23:27.773 Notepad text: 'We recieved the payment today.'
+15:23:29.940 pill count 1
+15:23:30.461 caret before: 0
+15:23:32.197 applied: text reads 'We received the payment today.'
+15:23:32.197 caret back where it was (0)
+15:23:32.219 island note: 'Fixed. Ctrl+Z in Notepad undoes it.'
+15:23:32.264 glim.log: 'writing: fix applied (Notepad)'
+15:23:36.162 Ctrl+Z (one press): text back to 'We recieved the payment today.'
+15:23:36.981 Ctrl+S: saved, so Notepad keeps no unsaved edit
+15:23:41.082 closed Notepad, removed the test file, visibility back to normal, Glim started normally
+15:23:41.119 glim.log searched for the test text: 11 new lines
+15:23:41.128 PASS

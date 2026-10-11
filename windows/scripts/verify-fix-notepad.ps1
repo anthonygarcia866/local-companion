@@ -152,7 +152,8 @@ Note "exe: $Exe ($((Get-Item $Exe).Length) bytes, built $((Get-Item $Exe).LastWr
 if (Get-Process notepad -ErrorAction SilentlyContinue) { throw "Notepad is already open: close it first" }
 $front = (Get-Process -Id ([FX]::ForegroundPid()) -ErrorAction SilentlyContinue).Name
 Note "in front before the test: $front; idle $([FX]::IdleMs()) ms"
-if ($front -notin @("Idle", "glim", "explorer", "WindowsTerminal", "powershell", "pwsh", "OpenConsole", "conhost", "claude")) { throw "another app ($front) is in front: stopping" }
+# LogiOverlay: Logitech Options+ overlay, takes the front with nothing to type in.
+if ($front -notin @("Idle", "LogiOverlay", "glim", "explorer", "WindowsTerminal", "powershell", "pwsh", "OpenConsole", "conhost", "claude")) { throw "another app ($front) is in front: stopping" }
 if ([FX]::IdleMs() -lt 4000) { throw "the computer is in use: stopping" }
 
 $settingsPath = Join-Path $env:APPDATA "Glim\settings.json"
