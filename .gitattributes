@@ -1,2 +1,36 @@
+# Line endings: LF in the repository AND in every working copy, whatever the
+# machine's core.autocrlf says. Before this, core.autocrlf=true checked text
+# out as CRLF (locally and on the Windows CI runner) while tools that rewrite
+# files wrote LF, so a test reading its own sources could pass here and fail
+# on CI (PR #10). Everything we run reads LF: rustc, node, PowerShell 5.1,
+# NSIS, cscript.
+* text=auto eol=lf
+
+# Windows batch files are the one thing cmd.exe needs CRLF for (none yet).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary: never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.exe binary
+*.msi binary
+*.dll binary
+*.zip binary
+*.docx binary
+
 docs/** linguist-documentation
 design/** linguist-documentation
