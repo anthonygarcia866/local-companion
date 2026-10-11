@@ -716,6 +716,15 @@ fn dev_chat_prompt(argv: &[String]) -> Option<String> {
     dev_arg(argv, "--dev-chat")
 }
 
+/// `glim.exe --dev-fix "<replacement>"`: clicks that fix button in the open
+/// suggestion list, inside the island's page, as a mouse click would
+/// (scripts/verify-fix-notepad.ps1). A UI Automation Invoke can't stand in
+/// for the click: Chromium activates the island window for it, and the fix
+/// is then rightly refused (the field's app is no longer in front). Dev only.
+fn dev_fix(argv: &[String]) -> Option<String> {
+    dev_arg(argv, "--dev-fix")
+}
+
 /// The value after `flag`, only when the running Glim was started with
 /// `GLIM_DEV=1`.
 fn dev_arg(argv: &[String], flag: &str) -> Option<String> {
@@ -771,6 +780,10 @@ pub fn run() {
             }
             if dev_open_settings(&argv) {
                 show_settings_window(app);
+                return;
+            }
+            if let Some(fix) = dev_fix(&argv) {
+                let _ = app.emit_to(island::WINDOW_LABEL, "dev-fix", fix);
                 return;
             }
             if let Some(prompt) = dev_chat_prompt(&argv) {

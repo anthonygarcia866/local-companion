@@ -12,7 +12,7 @@ import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
-import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages } from "./i18n/i18n";
+import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t } from "./i18n/i18n";
 
 /** Shows the language Settings asks for ("" = the system's, when Glim has it). */
 function applyLanguage() {
@@ -121,6 +121,15 @@ async function main() {
     if (!input || !send) return;
     input.value = prompt;
     send.click();
+  });
+
+  // Dev sessions only: `glim.exe --dev-fix "<replacement>"` (see lib.rs) clicks
+  // that fix button in the list (a DOM click inside this webview, like a mouse
+  // click on the non-activating island; nothing reaches the desktop).
+  await onEvent<string>("dev-fix", (fix) => {
+    const label = t("Replace with “{fix}”", { fix });
+    const button = [...document.querySelectorAll<HTMLButtonElement>("button.fix-btn")].find((b) => b.getAttribute("aria-label") === label);
+    button?.click();
   });
 
   // The settings window writes preferences; apply them here without a restart.

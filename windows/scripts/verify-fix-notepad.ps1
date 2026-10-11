@@ -15,7 +15,11 @@
     "We recieved the payment today." and opens it in Notepad; focus moves
     with UI Automation SetFocus.
   - Waits for the count, opens the list with a UIA Invoke on the lantern,
-    then invokes the fix button "Replace with <received>".
+    puts Notepad back in front (that Invoke activates the island), then
+    clicks the fix button "Replace with <received>" with the dev switch
+    `glim.exe --dev-fix received`: a DOM click inside the island's page, as a
+    mouse click would be. (A UIA Invoke on the button would activate Glim's
+    window, and Glim would rightly refuse: the field's app isn't in front.)
   - Reads Notepad's text back through UIA: "received" must be there and
     nothing else changed; the caret must be where it was.
   - Checks glim.log for "writing: fix applied (Notepad)".
@@ -48,6 +52,9 @@ public static class FX {
   [DllImport("user32")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   public static uint ForegroundPid() { uint p; GetWindowThreadProcessId(GetForegroundWindow(), out p); return p; }
+  // Brings a window forward without any keystroke (UIA SetFocus alone can
+  // move focus while the window stays behind Windows' foreground lock).
+  [DllImport("user32")] public static extern void SwitchToThisWindow(IntPtr h, bool altTab);
   [DllImport("user32")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
   // Ctrl + a letter key, down and up (keybd_event: test code only).
   public static void Ctrl(char key) {
@@ -125,7 +132,20 @@ function Caret {
   $r.MoveEndpointByRange([System.Windows.Automation.Text.TextPatternRangeEndpoint]::End, $sel[0], [System.Windows.Automation.Text.TextPatternRangeEndpoint]::Start)
   return $r.GetText(-1).Length
 }
-function NotepadInFront { [FX]::ForegroundPid() -eq [uint32]$notepad.Id -or (Get-Process -Id ([FX]::ForegroundPid()) -ErrorAction SilentlyContinue).Name -eq "Notepad" }
+function FrontName { (Get-Process -Id ([FX]::ForegroundPid()) -ErrorAction SilentlyContinue).Name }
+function NotepadInFront { (FrontName) -eq "Notepad" }
+# Notepad in front, by UIA SetFocus on its window, then SwitchToThisWindow;
+# never a key or a click.
+function BringNotepad {
+  if (NotepadInFront) { return $true }
+  try { $w.SetFocus() } catch { }
+  Start-Sleep -Milliseconds 400
+  if (NotepadInFront) { return $true }
+  [FX]::SwitchToThisWindow([IntPtr]$w.Current.NativeWindowHandle, $true)
+  Start-Sleep -Milliseconds 600
+  if (NotepadInFront) { Note "Notepad brought to the front with SwitchToThisWindow" }
+  return (NotepadInFront)
+}
 
 Note "exe: $Exe ($((Get-Item $Exe).Length) bytes, built $((Get-Item $Exe).LastWriteTime))"
 if (Get-Process notepad -ErrorAction SilentlyContinue) { throw "Notepad is already open: close it first" }
@@ -157,6 +177,7 @@ try {
   if (-not $doc) { throw "Notepad's text area not found" }
   Note "Notepad text: '$(DocText)'"
   if (-not (WaitIdle "focus")) { throw "stopped" }
+  if (-not (BringNotepad)) { throw "Notepad can't be brought to the front ($(FrontName) is): not applying" }
   $doc.SetFocus()
   $b = ""
   for ($i = 0; $i -lt 40 -and $b -eq ""; $i++) { $b = Badge; if ($b -eq "") { Start-Sleep -Milliseconds 250 } }
@@ -171,10 +192,12 @@ try {
   Note "list open; fix button '$fixName' enabled"
 
   if (-not (WaitIdle "apply")) { throw "stopped" }
-  if (-not (NotepadInFront)) { throw "Notepad is not in front: not applying" }
+  if (-not (BringNotepad)) { throw "Notepad is not in front ($(FrontName) is): not applying" }
+  $doc.SetFocus()
+  Start-Sleep -Milliseconds 400
   $caretBefore = Caret
   Note "caret before: $caretBefore"
-  $fixBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+  GlimDev @("--dev-fix", "received")
   $fixedNote = WaitGlim { param($e) $e.Current.Name -eq "Fixed. Ctrl+Z in Notepad undoes it." } 6
   Start-Sleep -Milliseconds 500
   $after = DocText
@@ -185,7 +208,7 @@ try {
   $newLog = (Get-Content $glimLog -Encoding utf8 | Select-Object -Skip $logStart) -join "`n"
   if ($newLog -match 'writing: fix applied \(Notepad\)') { Note "glim.log: 'writing: fix applied (Notepad)'" } else { Fail "glim.log has no 'writing: fix applied (Notepad)'" }
 
-  if ((WaitIdle "undo") -and (NotepadInFront)) {
+  if ((WaitIdle "undo") -and (BringNotepad)) {
     [FX]::Ctrl([char]'Z')
     Start-Sleep -Milliseconds 800
     $undone = DocText
