@@ -1,5 +1,5 @@
-// The lantern's right-click menu: Settings…, Hide, Ember, and the dock
-// position. Drawn in the island's own page, never a native popup: a Windows
+// The lantern's right-click menu: Settings…, Hide, Ember, the dock
+// position, and Quit Glim (last, after a separator, like the tray's). Drawn in the island's own page, never a native popup: a Windows
 // popup menu needs its window in the foreground, which would take focus from
 // the app the user is typing in. The island window is WS_EX_NOACTIVATE, so
 // clicking in this menu takes no focus (and it has none: no keyboard use).
@@ -10,13 +10,17 @@ import { N_, t, tl } from "../i18n/i18n";
 import { h } from "../views/dom";
 
 export const MENU_W = 196;
+// Height with every item (measured 2026-10-11 in headless Edge with the built
+// CSS, all ten languages): 303 px, against 308 px of room in the top docks'
+// 320 px window. An extra item no longer fits there: make room first.
 /** Gap kept between the menu and the window's edges. */
 const EDGE = 6;
 
 export type MenuAction =
   | { kind: "settings" }
   | { kind: "visibility"; visibility: "ember" | "hidden" }
-  | { kind: "dock"; dock: Dock };
+  | { kind: "dock"; dock: Dock }
+  | { kind: "quit" };
 
 /** Docks in the order Settings lists them, with Settings' labels. */
 export const DOCK_LABELS: Record<Dock, string> = {
@@ -49,6 +53,9 @@ export function runMenuAction(a: MenuAction) {
       break;
     case "dock":
       void Bridge.setDock(a.dock);
+      break;
+    case "quit":
+      void Bridge.quit();
       break;
   }
 }
@@ -99,6 +106,8 @@ export class LanternMenu {
       h("div", { class: "menu-sep" }),
       h("div", { class: "menu-head", text: tl("Dock position") }),
       ...DOCKS.map((d) => item(t(DOCK_LABELS[d]), { kind: "dock", dock: d }, d === dock ? " on" : "")),
+      h("div", { class: "menu-sep" }),
+      item(t("Quit Glim"), { kind: "quit" }),
     );
     this.el.hidden = false;
     this.open = true;

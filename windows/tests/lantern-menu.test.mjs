@@ -33,6 +33,15 @@ test("each item does what Settings and the tray do", () => {
   assert.deepEqual(sent("set_dock").slice(d), [{ dock: "left" }]);
 });
 
+test("Quit Glim quits, as the tray's Quit Glim does, and comes last after a separator", () => {
+  const q = sent("quit_app").length;
+  runMenuAction({ kind: "quit" });
+  assert.equal(sent("quit_app").length, q + 1);
+  const menu = read("src/island/menu.ts");
+  assert.match(menu, /h\("div", \{ class: "menu-sep" \}\),\n\s+item\(t\("Quit Glim"\), \{ kind: "quit" \}\),\n\s+\);/);
+  assert.match(read("src-tauri/src/tray.rs"), /\("quit", n_\("Quit Glim"\)\)/);
+});
+
 test("every dock is in the menu, with Settings' labels", () => {
   assert.deepEqual(Object.keys(DOCK_LABELS).sort(), [...DOCKS].sort());
   const settings = read("src/settings/main.ts");
