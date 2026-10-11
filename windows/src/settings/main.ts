@@ -682,6 +682,8 @@ const SHORTCUTS_UI = {
   get none() { return t("None"); },
   get reset() { return t("Reset to defaults"); },
   get inUse() { return t("In use by another app"); },
+  notRegistered: (names: string) =>
+    t("These Glim shortcuts aren't working: {names}. Another app may be using the keys — pick other keys below.", { names }),
   get duplicate() { return t("Used twice"); },
   get invalid() { return t("Not a valid shortcut"); },
   get unavailable() { return t("Not available"); },
@@ -804,6 +806,16 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
     }
 
     clear(blockedNote);
+    // Any enabled shortcut Windows wouldn't give us: say so plainly, at the top.
+    const failing = new Set(["inUse", "typesCharacter", "invalid", "duplicate"]);
+    const broken = SHORTCUTS.filter((d) => d.ported && effective(d, settings.shortcuts).enabled
+      && failing.has(report?.actions.find((a) => a.id === d.id)?.status ?? ""));
+    if (broken.length) {
+      blockedNote.append(h("div", {
+        class: "notice warn",
+        text: SHORTCUTS_UI.notRegistered(broken.map((d) => t(SHORTCUT_TEXT[d.id])).join(", ")),
+      }));
+    }
     if (report?.blocked === "wayland") {
       const commands = h("div", { class: "diff" });
       for (const d of SHORTCUTS) {

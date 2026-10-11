@@ -37,6 +37,16 @@ test("every default parses, is canonical and holds Ctrl+Alt", () => {
   }
 });
 
+test("Glim's own keys are Ctrl+Alt+Shift: Space = show/hide, C = chat, R = rewrite", () => {
+  const keys = Object.fromEntries(SHORTCUTS.map((d) => [d.id, d.defaultKeys]));
+  assert.equal(keys.cycleVisibility, "Ctrl+Alt+Shift+Space");
+  assert.equal(keys.openChat, "Ctrl+Alt+Shift+C");
+  assert.equal(keys.rewrite, "Ctrl+Alt+Shift+R");
+  // Shift+AltGr is another layer: the unshifted table doesn't apply to it.
+  assert.deepEqual(altGrClashes("Ctrl+Alt+Shift+C"), []);
+  assert.ok(altGrClashes("Ctrl+Alt+C").includes("Brazilian (ABNT2)"));
+});
+
 test("no two defaults share a combination", () => {
   assert.deepEqual(duplicates(SHORTCUTS.map((d) => [d.id, d.defaultKeys])), new Set());
 });
@@ -139,7 +149,7 @@ test("a stored binding wins, the rest keep their default, and off ones hold no k
   };
   const chat = SHORTCUTS.find((d) => d.id === "openChat");
   assert.deepEqual(effective(chat, stored), { keys: "Ctrl+Alt+K", enabled: true });
-  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Space", enabled: true });
+  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Shift+C", enabled: true });
   const ids = activeKeys(stored).map(([id]) => id);
   assert.ok(ids.includes("toggleIsland"));
   assert.ok(!ids.includes("goToAlert"));

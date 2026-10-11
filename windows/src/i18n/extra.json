@@ -2484,6 +2484,17 @@
    "pt-BR": "Chega na fase 1",
    "ru": "Появится в этапе 1",
    "id": "Hadir di fase 1"
+  },
+  "These Glim shortcuts aren't working: {names}. Another app may be using the keys — pick other keys below.": {
+   "zh-Hans": "这些 Glim 快捷键无法使用：{names}。可能有其他应用占用了这些按键——请在下方选择其他按键。",
+   "hi": "ये Glim शॉर्टकट काम नहीं कर रहे: {names}। हो सकता है कोई दूसरा ऐप इन कुंजियों का उपयोग कर रहा हो — नीचे दूसरी कुंजियाँ चुनें।",
+   "es": "Estos atajos de Glim no funcionan: {names}. Puede que otra app use esas teclas — elige otras abajo.",
+   "ar": "اختصارات Glim هذه لا تعمل: {names}. ربما يستخدم تطبيق آخر هذه المفاتيح — اختر مفاتيح أخرى أدناه.",
+   "fr": "Ces raccourcis de Glim ne fonctionnent pas : {names}. Une autre app utilise peut-être ces touches — choisissez-en d'autres ci-dessous.",
+   "bn": "এই Glim শর্টকাটগুলো কাজ করছে না: {names}। হয়তো অন্য কোনো অ্যাপ এই কীগুলো ব্যবহার করছে — নিচে অন্য কী বেছে নিন।",
+   "pt-BR": "Estes atalhos do Glim não estão funcionando: {names}. Outro app pode estar usando essas teclas — escolha outras abaixo.",
+   "ru": "Эти сочетания клавиш Glim не работают: {names}. Возможно, их занимает другое приложение — выберите другие клавиши ниже.",
+   "id": "Pintasan Glim ini tidak berfungsi: {names}. Mungkin aplikasi lain memakai tombol itu — pilih tombol lain di bawah."
   }
  }
 }

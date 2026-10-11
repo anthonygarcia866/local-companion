@@ -53,7 +53,10 @@ const fn action(id: &'static str, keys: &'static str, on: bool, ported: bool) ->
 /// Same order as `ShortcutAction.allCases`.
 pub const ACTIONS: &[ActionDef] = &[
     action("toggleIsland", "Ctrl+Alt+N", false, true),
-    action("openChat", "Ctrl+Alt+Space", true, true),
+    // Not Ctrl+Alt+Space (Word's Read Aloud, and held by another app on the
+    // owner's machine, so it never registered). Glim's own keys are
+    // Ctrl+Alt+Shift + a key: Space = show/hide, C = chat, R = rewrite.
+    action("openChat", "Ctrl+Alt+Shift+C", true, true),
     action("goToAlert", "Ctrl+Alt+A", true, true),
     action("jumpToTerminal", "Ctrl+Alt+T", true, true),
     // Dragging Mochi onto a window is not in this version.
@@ -318,6 +321,8 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, stored: &Bindings) {
 
     let mut by_id = HashMap::new();
     let mut report = Vec::new();
+    // For the log: what registered, and what didn't (and why).
+    let (mut registered, mut missing) = (Vec::new(), Vec::new());
     for (def, outcome) in plan(stored, typed_character) {
         let status = match outcome {
             Err(status) => status,
@@ -342,8 +347,19 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, stored: &Bindings) {
                 ActionStatus { id: def.id, status, typed: None }
             }
         };
+        let keys = effective(def, stored).keys;
+        match status.status {
+            Status::Active => registered.push(format!("{}={keys}", def.id)),
+            Status::Off | Status::NotPorted => {}
+            other => missing.push(format!("{}={keys} ({other:?})", def.id)),
+        }
         report.push(status);
     }
+    crate::log::line(format!(
+        "shortcuts: registered {}; not registered: {}",
+        if registered.is_empty() { "none".to_string() } else { registered.join(", ") },
+        if missing.is_empty() { "none".to_string() } else { missing.join(", ") },
+    ));
 
     if let Some(registry) = app.try_state::<Registry>() {
         *registry.by_id.lock().unwrap() = by_id;

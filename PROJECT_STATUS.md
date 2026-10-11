@@ -192,11 +192,12 @@ Driven only by dev switches (no mouse or keyboard); PrintWindow of Glim's own is
 - **Not verified live:** the recording indicator (nothing records yet; covered by the Rust rule test and `tests/presence.test.mjs`), the real fullscreen detection against a real fullscreen app (only the dev override was driven), the visibility hotkey and a click on the ember (both need real input).
 
 ### Hotkeys (checked 2026-10-10 on the owner's machine)
-Three global hotkeys, all in Settings → Shortcuts and rebindable: chat, visibility, and the Phase 1 rewrite (listed as "Coming in Phase 1": shown and rebindable now, registered only once Phase 1 lands, so it takes no key from other apps before then).
+Glim's own hotkeys follow one pattern, **Ctrl+Alt+Shift + a key**: Space = show/hide, C = chat, R = rewrite. All three are in Settings → Shortcuts and rebindable; if any enabled Glim shortcut fails to register, Settings → Shortcuts shows a warning naming it, and the log has one line at startup listing what registered and what didn't (`shortcuts: registered …; not registered: …`). The three are chat, visibility, and the Phase 1 rewrite (listed as "Coming in Phase 1": shown and rebindable now, registered only once Phase 1 lands, so it takes no key from other apps before then).
 
 | Hotkey | Use | Word (and Outlook's editor) | Held by another app | Result |
 |---|---|---|---|---|
-| Ctrl+Alt+Space | Open the chat (kept) | **Read Aloud** | **yes** | Glim can't register it on this machine today (log: "openChat not registered: HotKey already registered"); Settings tags it "in use". Kept as asked. |
+| Ctrl+Alt+Space | Open the chat (until 2026-10-10) | **Read Aloud** | **yes** | Never registered on this machine (log: "openChat not registered: HotKey already registered"). Replaced. |
+| Ctrl+Alt+Shift+C | Open the chat (new default) | unassigned | free | Adopted. AltGr+C types ₢ on Brazilian ABNT2, but that is the unshifted layer; Shift+AltGr is checked at run time against the installed layouts. |
 | Ctrl+Alt+Shift+Space | Visibility cycle | unassigned | free | Adopted. |
 | Ctrl+Alt+G | Planned Phase 1 rewrite | **"next Editor suggestion"** | **yes** | Conflicts: not used. |
 | Ctrl+Alt+Shift+R | Phase 1 rewrite (default instead of G) | unassigned | free | Adopted as the planned default (R for rewrite). |

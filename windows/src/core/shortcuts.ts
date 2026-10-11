@@ -77,7 +77,7 @@ export const PLANNED_SHORTCUTS: ReadonlySet<ShortcutId> = new Set(["rewrite"]);
 /** Same order and defaults as ACTIONS in src-tauri/src/shortcuts.rs. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
   def("toggleIsland", "Ctrl+Alt+N", false, true),
-  def("openChat", "Ctrl+Alt+Space", true, true),
+  def("openChat", "Ctrl+Alt+Shift+C", true, true),
   def("goToAlert", "Ctrl+Alt+A", true, true),
   def("jumpToTerminal", "Ctrl+Alt+T", true, true),
   def("attachFrontWindow", "Ctrl+Alt+F", true, false),
@@ -335,7 +335,9 @@ export const ALTGR_CHARACTERS: Record<string, Record<string, string>> = {
 /** The layouts on which `keys` would type a character instead of running. */
 export function altGrClashes(keys: string): string[] {
   const c = parseKeys(keys);
-  if (!c || !c.ctrl || !c.alt || c.meta) return [];
+  // The table is the unshifted AltGr layer. Shift+AltGr is another layer, which
+  // Rust checks against the layouts actually installed (platform::ctrl_alt_types).
+  if (!c || !c.ctrl || !c.alt || c.meta || c.shift) return [];
   return Object.entries(ALTGR_CHARACTERS)
     .filter(([, chars]) => chars[c.key] != null)
     .map(([layout]) => layout);

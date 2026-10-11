@@ -157,6 +157,14 @@ try {
     if ($size -ne "large") { StopGlim }
   }
 
+  # ── Hotkeys: the startup log line says what registered ──
+  $glimLog = Join-Path $env:LOCALAPPDATA "Glim\glim.log"
+  $line = Get-Content $glimLog -Tail 400 | Where-Object { $_ -like "*shortcuts: registered*" } | Select-Object -Last 1
+  Note "hotkeys at startup: $line"
+  foreach ($k in "openChat=Ctrl+Alt+Shift+C", "cycleVisibility=Ctrl+Alt+Shift+Space") {
+    if (-not $line -or -not $line.Contains($k) -or $line.IndexOf($k) -gt $line.IndexOf("; not registered")) { Fail "hotkey not registered at startup: $k" }
+  }
+
   # ── 2. The attention pop: a burst around one state change ──
   Forward @("--mascot-state", "idle"); Start-Sleep -Milliseconds 900
   $rest = Shot "pop-before" 3
