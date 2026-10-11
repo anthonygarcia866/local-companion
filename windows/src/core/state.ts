@@ -173,6 +173,23 @@ export const MAX_DIFFS_PER_PILL = 50;
 /** A pill's diffs are forgotten after an hour without a new one, as on macOS. */
 export const DIFF_TTL_MS = 3_600_000;
 
+/**
+ * One writing suggestion from the instant checker (src-tauri/src/writing),
+ * for the island's list. Live only: never logged or stored.
+ */
+export interface WritingSuggestion {
+  /** Offsets in characters in the field (for applying fixes, 1b). */
+  start: number;
+  end: number;
+  problem: string;
+  before: string;
+  after: string;
+  kind: string;
+  message: string;
+  /** "" means "remove it". */
+  replacements: string[];
+}
+
 class AppState {
   mode: IslandMode = "hidden";
   /** Where the island is docked on its display (Rust tells: "placement"). */
@@ -202,6 +219,8 @@ class AppState {
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
   pendingApproval: ApprovalInfo | null = null;
+  /** The focused field's writing suggestions (Rust: "writing-suggestions"). */
+  writing: WritingSuggestion[] = [];
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -467,6 +486,8 @@ class AppState {
    */
   defaultView(): IslandViewName {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
+    // Then the writing suggestions, when the focused field has any.
+    if (this.writing.length > 0) return "suggestions";
     return this.tasks.length === 0 ? "empty" : "overview";
   }
 }

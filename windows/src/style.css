@@ -2398,3 +2398,79 @@ html:not([data-presence="pill"]) #lantern-menu {
   font-size: 11px;
   color: var(--dim-2);
 }
+
+/* ── Writing suggestions (Phase 1a) ─────────────────────────────────────── */
+
+/* The count on the pill, at the lantern's top right. */
+#writing-count {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #f2b14c;
+  color: #1b1408;
+  font: 700 10px/15px var(--font);
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.suggestion {
+  min-width: 0;
+}
+
+.suggestion-context {
+  font: 400 12.5px var(--font);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-context .problem {
+  color: #f2b14c;
+  font-weight: 600;
+  text-decoration: underline wavy rgba(242, 177, 76, 0.7);
+  text-underline-offset: 3px;
+}
+
+.suggestion-message {
+  font: 400 11.5px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-fixes {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* View only in 1a: replacements are shown, not clickable. */
+.suggestion-fixes .fix {
+  font: 500 11.5px var(--font);
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
+  white-space: nowrap;
+}
+
+.suggestion-more {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  margin-top: 4px;
+}

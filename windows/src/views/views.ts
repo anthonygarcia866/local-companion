@@ -5,7 +5,7 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
-import { State, type AgentTask } from "../core/state";
+import { State, type AgentTask, type WritingSuggestion } from "../core/state";
 import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
@@ -17,7 +17,7 @@ import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { buildRecap } from "./recap";
-import { language, t, tl, type Msg } from "../i18n/i18n";
+import { language, t, tl, tn, type Msg } from "../i18n/i18n";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -93,6 +93,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const tabHome = h("button", { class: "tab", title: tl("Overview"), onclick: () => go("overview") }, svg(ICONS.house, 13));
   const tabChat = h("button", { class: "tab", title: tl("Ask"), onclick: () => go("prompt") }, svg(ICONS.bubble, 13));
   const tabDrop = h("button", { class: "tab", title: tl("Drop"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
+  // Only while the focused field has writing suggestions.
+  const tabWriting = h("button", { class: "tab", title: tl("Writing suggestions"), onclick: () => go("suggestions") }, svg(ICONS.pencil, 13));
 
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
   // Folds the open island back to the pill (a waiting card is folded, never
@@ -109,7 +111,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const el = h(
     "div",
     { id: "header" },
-    h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
+    h("div", { class: "tabs" }, tabHome, tabChat, tabDrop, tabWriting),
     h("div", { class: "header-actions" }, planPills, minBtn, gearBtn),
   );
 
@@ -120,6 +122,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
       tabHome.classList.toggle("on", v === "overview" || v === "empty");
       tabChat.classList.toggle("on", v === "prompt");
       tabDrop.classList.toggle("on", v === "upload");
+      tabWriting.classList.toggle("on", v === "suggestions");
+      tabWriting.style.display = State.writing.length > 0 || v === "suggestions" ? "" : "none";
       gearBtn.classList.toggle("on", v === "settings");
       clear(gearBtn);
       gearBtn.append(svg(v === "settings" ? ICONS.gearFill : ICONS.gear, 14));
@@ -618,6 +622,54 @@ function buildNote(): ViewHost {
   };
 }
 
+// ── Writing suggestions (Phase 1a: read-only) ─────────────────────────────────
+
+/** Suggestions shown at once; the rest are counted. */
+export const SUGGESTIONS_SHOWN = 3;
+
+/**
+ * The instant checker's suggestions for the focused field: the problem in a
+ * little context, Harper's explanation (English: the checker is en-US only),
+ * and its replacements. View only in 1a: nothing here acts on the app, and
+ * nothing is logged.
+ */
+export function buildSuggestions(): ViewHost {
+  const title = h("div", { class: "title one-line" });
+  const list = h("div", { class: "suggestion-list" });
+  const more = h("div", { class: "suggestion-more" });
+  const note = h("div", { class: "suggestion-more", text: tl("Fixes can be applied in a later version.") });
+  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, more, note)));
+  return {
+    el,
+    sync() {
+      const items = State.writing;
+      title.textContent = items.length > 0
+        ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
+        : t("Nothing to fix here.");
+      clear(list);
+      for (const s of items.slice(0, SUGGESTIONS_SHOWN)) list.append(suggestionRow(s));
+      const rest = items.length - SUGGESTIONS_SHOWN;
+      more.textContent = rest > 0 ? t("+{count} more", { count: rest }) : "";
+      more.style.display = rest > 0 ? "" : "none";
+    },
+  };
+}
+
+function suggestionRow(s: WritingSuggestion): HTMLElement {
+  const context = h(
+    "div",
+    { class: "suggestion-context" },
+    h("span", { class: "ctx", text: s.before.replace(/\s+/g, " ") }),
+    h("span", { class: "problem", text: s.problem }),
+    h("span", { class: "ctx", text: s.after.replace(/\s+/g, " ") }),
+  );
+  const fixes = h("div", { class: "suggestion-fixes" });
+  for (const r of s.replacements) {
+    fixes.append(h("span", { class: "fix", text: r === "" ? t("Remove it") : r }));
+  }
+  return h("div", { class: "suggestion" }, context, h("div", { class: "suggestion-message", text: s.message }), fixes);
+}
+
 // ── In-island settings ────────────────────────────────────────────────────────
 
 function buildSettings(actions: ViewActions): ViewHost {
@@ -702,6 +754,7 @@ export function buildViews(
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   map.set("recap", buildRecap(actions));
+  map.set("suggestions", buildSuggestions());
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));

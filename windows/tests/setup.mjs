@@ -11,7 +11,7 @@ import { internals } from "./tauri.mjs";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const ours = !context.parentURL?.includes("/node_modules/");
-    if (ours && specifier.startsWith(".") && !/\.(?:[cm]?[jt]s|json)$/.test(specifier)) {
+    if (ours && specifier.startsWith(".") && !/\.(?:[cm]?[jt]s|json)$|\?raw$/.test(specifier)) {
       return nextResolve(`${specifier}.ts`, context);
     }
     return nextResolve(specifier, context);
@@ -22,6 +22,11 @@ registerHooks({
     if (url.startsWith("file:") && url.endsWith(".json") && !url.includes("/node_modules/")) {
       const source = readFileSync(fileURLToPath(url), "utf8");
       return { format: "module", source: `export default ${source};`, shortCircuit: true };
+    }
+    // `?raw` (src/recap/share.ts inlines lantern.css) is the file's text.
+    if (url.startsWith("file:") && url.endsWith("?raw") && !url.includes("/node_modules/")) {
+      const source = readFileSync(fileURLToPath(url.slice(0, -"?raw".length)), "utf8");
+      return { format: "module", source: `export default ${JSON.stringify(source)};`, shortCircuit: true };
     }
     return nextLoad(url, context);
   },

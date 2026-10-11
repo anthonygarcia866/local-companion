@@ -21,7 +21,8 @@ export type IslandViewName =
   | "result"
   | "note"
   | "settings"
-  | "recap";
+  | "recap"
+  | "suggestions";
 
 export type BotStateName =
   | "idle"
@@ -168,6 +169,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // day, longest session, permissions and questions, which the Mac card leaves
   // to the shared image.
   recap: { height: 184, botX: 62, botY: null, botDiameter: 58, agentMode: "column" },
+  // The writing checker's list (src/views/views.ts buildSuggestions): a title
+  // and up to three suggestions.
+  suggestions: { height: 212, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually

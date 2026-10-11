@@ -32,6 +32,7 @@ import {
   Lantern,
   isReservedLanternState,
   lanternStateFor,
+  withWritingSuggestions,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -65,6 +66,8 @@ export class Island {
   private botGlow!: HTMLElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
+  /** The writing suggestions' count on the pill. */
+  private writingBadge!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -226,6 +229,7 @@ export class Island {
     this.lantern.el.id = "bot-lantern";
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
+    this.writingBadge = h("div", { id: "writing-count", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -259,6 +263,7 @@ export class Island {
       this.lantern.el,
       this.miniGrid,
       this.countdown,
+      this.writingBadge,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -1033,7 +1038,20 @@ export class Island {
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
-    else this.lantern.show(forced ?? lanternStateFor(this.engine.state, State.mode === "expanded"));
+    else {
+      const writing = State.writing.length;
+      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // The count of writing suggestions, at the lantern's top right; none
+      // while the island is hidden.
+      const badge = this.writingBadge;
+      const shown = writing > 0 && State.mode !== "hidden" && !State.mochiOnDesktop;
+      badge.style.display = shown ? "" : "none";
+      if (shown) {
+        badge.textContent = writing > 99 ? "99+" : String(writing);
+        badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+    }
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */

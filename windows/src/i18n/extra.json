@@ -2495,6 +2495,103 @@
    "pt-BR": "Estes atalhos do Glim não estão funcionando: {names}. Outro app pode estar usando essas teclas — escolha outras abaixo.",
    "ru": "Эти сочетания клавиш Glim не работают: {names}. Возможно, их занимает другое приложение — выберите другие клавиши ниже.",
    "id": "Pintasan Glim ini tidak berfungsi: {names}. Mungkin aplikasi lain memakai tombol itu — pilih tombol lain di bawah."
+  },
+  "Writing suggestions": {
+   "zh-Hans": "写作建议",
+   "hi": "लेखन सुझाव",
+   "es": "Sugerencias de escritura",
+   "ar": "اقتراحات الكتابة",
+   "fr": "Suggestions d'écriture",
+   "bn": "লেখার পরামর্শ",
+   "pt-BR": "Sugestões de escrita",
+   "ru": "Подсказки по тексту",
+   "id": "Saran penulisan"
+  },
+  "{count} writing suggestions": {
+   "zh-Hans": {
+    "other": "{count} 条写作建议"
+   },
+   "hi": {
+    "one": "{count} लेखन सुझाव",
+    "other": "{count} लेखन सुझाव"
+   },
+   "es": {
+    "one": "{count} sugerencia de escritura",
+    "other": "{count} sugerencias de escritura"
+   },
+   "ar": {
+    "zero": "{count} اقتراح للكتابة",
+    "one": "اقتراح واحد للكتابة",
+    "two": "اقتراحان للكتابة",
+    "few": "{count} اقتراحات للكتابة",
+    "many": "{count} اقتراحًا للكتابة",
+    "other": "{count} اقتراح للكتابة"
+   },
+   "fr": {
+    "one": "{count} suggestion d'écriture",
+    "other": "{count} suggestions d'écriture"
+   },
+   "bn": {
+    "one": "{count}টি লেখার পরামর্শ",
+    "other": "{count}টি লেখার পরামর্শ"
+   },
+   "pt-BR": {
+    "one": "{count} sugestão de escrita",
+    "other": "{count} sugestões de escrita"
+   },
+   "ru": {
+    "one": "{count} подсказка по тексту",
+    "few": "{count} подсказки по тексту",
+    "many": "{count} подсказок по тексту",
+    "other": "{count} подсказки по тексту"
+   },
+   "id": {
+    "other": "{count} saran penulisan"
+   }
+  },
+  "Nothing to fix here.": {
+   "zh-Hans": "这里没有需要修改的。",
+   "hi": "यहाँ ठीक करने को कुछ नहीं है।",
+   "es": "Aquí no hay nada que corregir.",
+   "ar": "لا شيء يحتاج إلى تصحيح هنا.",
+   "fr": "Rien à corriger ici.",
+   "bn": "এখানে ঠিক করার কিছু নেই।",
+   "pt-BR": "Nada para corrigir aqui.",
+   "ru": "Здесь нечего исправлять.",
+   "id": "Tidak ada yang perlu diperbaiki di sini."
+  },
+  "+{count} more": {
+   "zh-Hans": "另有 {count} 条",
+   "hi": "+{count} और",
+   "es": "+{count} más",
+   "ar": "+{count} أخرى",
+   "fr": "+{count} de plus",
+   "bn": "আরও +{count}",
+   "pt-BR": "+{count} a mais",
+   "ru": "ещё +{count}",
+   "id": "+{count} lagi"
+  },
+  "Remove it": {
+   "zh-Hans": "删除",
+   "hi": "हटाएँ",
+   "es": "Quitarlo",
+   "ar": "احذفه",
+   "fr": "Le supprimer",
+   "bn": "সরিয়ে দিন",
+   "pt-BR": "Remover",
+   "ru": "Удалить",
+   "id": "Hapus"
+  },
+  "Fixes can be applied in a later version.": {
+   "zh-Hans": "之后的版本将可以直接应用修改。",
+   "hi": "सुधार लागू करना बाद के संस्करण में आएगा।",
+   "es": "Aplicar las correcciones llegará en una versión posterior.",
+   "ar": "سيصبح تطبيق التصحيحات ممكنًا في إصدار لاحق.",
+   "fr": "Appliquer les corrections arrivera dans une version ultérieure.",
+   "bn": "সংশোধন প্রয়োগ করা পরের সংস্করণে আসবে।",
+   "pt-BR": "Aplicar as correções chegará em uma versão futura.",
+   "ru": "Применять исправления можно будет в следующей версии.",
+   "id": "Menerapkan perbaikan akan hadir di versi berikutnya."
   }
  }
 }
