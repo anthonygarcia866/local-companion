@@ -30,9 +30,14 @@
 #>
 param(
   [string]$Exe = (Join-Path $PSScriptRoot "..\target\release\glim.exe"),
-  [string]$Out = (Join-Path $PSScriptRoot "..\..\docs\verification\writing-notepad")
+  [string]$Out = (Join-Path $PSScriptRoot "..\..\docs\verification\writing-notepad"),
+  # Also save the open list (page 1 of 12) as suggestions-page1.png: PrintWindow
+  # on Glim's island only, cropped to what the island draws.
+  [switch]$Shot
 )
 $ErrorActionPreference = "Stop"
+# Physical pixels everywhere (UIA rectangles and GetWindowRect), so the crop lines up.
+if ($Shot) { Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -Name Dpi -Namespace GlimVerify; [void][GlimVerify.Dpi]::SetProcessDPIAware() }
 $Exe = (Resolve-Path $Exe).Path
 New-Item -ItemType Directory -Force $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
@@ -120,6 +125,41 @@ function GlimFind([scriptblock]$match) {
     }
   }
   return $null
+}
+# PrintWindow of the Glim window holding $inside, cropped to the union of its
+# shown elements (inactive views are aria-hidden, so out of the tree) plus a
+# margin: the panel, never what's behind the transparent window.
+function ShotGlim([System.Windows.Automation.AutomationElement]$inside, [string]$path) {
+  if (-not ("GlimShot" -as [type])) {
+    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class GlimShot {
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint f);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  public struct RECT { public int L, T, R, B; }
+}
+'@
+  }
+  Add-Type -AssemblyName System.Drawing
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $win = $inside; $parent = $walker.GetParent($win)
+  while ($parent -and -not $parent.Equals($root)) { $win = $parent; $parent = $walker.GetParent($win) }
+  $h = [IntPtr]$win.Current.NativeWindowHandle
+  $r = New-Object GlimShot+RECT; [void][GlimShot]::GetWindowRect($h, [ref]$r)
+  $bmp = New-Object System.Drawing.Bitmap ($r.R - $r.L), ($r.B - $r.T)
+  $g = [System.Drawing.Graphics]::FromImage($bmp); $hdc = $g.GetHdc(); [void][GlimShot]::PrintWindow($h, $hdc, 2); $g.ReleaseHdc($hdc); $g.Dispose()
+  $x0 = [double]::MaxValue; $y0 = [double]::MaxValue; $x1 = 0.0; $y1 = 0.0
+  foreach ($e in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+    $b = $e.Current.BoundingRectangle
+    if ($b.IsEmpty -or $b.Width -le 0 -or $b.Height -le 0) { continue }
+    $x0 = [Math]::Min($x0, $b.Left); $y0 = [Math]::Min($y0, $b.Top); $x1 = [Math]::Max($x1, $b.Right); $y1 = [Math]::Max($y1, $b.Bottom)
+  }
+  $m = 24
+  $cx = [int][Math]::Max(0, $x0 - $r.L - $m); $cy = [int][Math]::Max(0, $y0 - $r.T - $m)
+  $cw = [int][Math]::Min($bmp.Width - $cx, $x1 - $x0 + 2 * $m); $ch = [int][Math]::Min($bmp.Height - $cy, $y1 - $y0 + 2 * $m)
+  $crop = $bmp.Clone((New-Object System.Drawing.Rectangle $cx, $cy, $cw, $ch), $bmp.PixelFormat)
+  $crop.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); $crop.Dispose(); $bmp.Dispose()
+  Note "shot: $(Split-Path -Leaf $path) ${cw}x${ch} (window $($r.R - $r.L)x$($r.B - $r.T))"
 }
 function WaitGlim([scriptblock]$match, [int]$seconds) {
   for ($i = 0; $i -lt $seconds * 4; $i++) { $e = GlimFind $match; if ($e) { return $e }; Start-Sleep -Milliseconds 250 }
@@ -264,6 +304,11 @@ try {
         $saved = (Get-Content $settingsPath -Raw -Encoding utf8) -match '"visibility"\s*:\s*"ember"'
         if (-not $saved) { Fail "ember click: the saved visibility changed (a peek must not save)" }
         $next = GlimFind { param($e) $e.Current.Name -eq "Next suggestions" }
+        # The pager must fit inside the island: report its buttons' size and
+        # where they end against the list's last row.
+        $prev = GlimFind { param($e) $e.Current.Name -eq "Previous suggestions" }
+        foreach ($b in @($prev, $next)) { if ($b) { $br = $b.Current.BoundingRectangle; Note ("pager: '{0}' {1}x{2} at ({3},{4})" -f $b.Current.Name, $br.Width, $br.Height, $br.Left, $br.Top) } }
+        if ($Shot) { Start-Sleep -Milliseconds 600; ShotGlim $next (Join-Path $Out "suggestions-page1.png") }
         $next.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         $second = "4${dash}6 of $n"
         if (WaitGlim { param($e) $e.Current.Name -eq $second } 5) { Note "Next: '$second'" } else { Fail "Next: '$second' not shown" }

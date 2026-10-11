@@ -1,20 +1,23 @@
 ﻿
-23:23:46.837 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (11787264 bytes, built 10/10/2026 23:22:34)
-23:23:56.114 dev Glim pid 355816, visibility normal (saved: normal)
-23:23:57.569 Notepad text area: ControlType.Document class=RichEditD2DPT
-23:23:59.104 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
-23:23:59.819 agent card: the finished card took the island; pill count 2
-23:23:59.927 lantern: UIA Button 'Glim'
-23:24:00.556 lantern click: the suggestions view ('2 writing suggestions'), the agent card gone
-23:24:00.813 Home: the agent's last words are there
-23:24:06.492 clean paragraph: count gone
-23:24:09.410 ember: label 'Glim: 12 writing suggestions'
-23:24:10.146 ember click: island open on the list, '1–3 of 12'
-23:24:10.971 Next: '4–6 of 12'
-23:24:11.455 island closed: back to the ember (Glim: 12 writing suggestions)
-23:24:14.615 chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through
-23:24:14.704 waiting for the periodic writing log line (up to 35 s)
-23:24:19.847 log: writing: 4 checks, median 18.37 ms, max 20.55 ms; paragraphs median 52 chars, max 154 chars
-23:24:23.195 closed Notepad, removed the test file, visibility back to normal, Glim started normally
-23:24:23.231 glim.log searched for the test text: 21 new lines
-23:24:23.235 PASS
+23:26:57.741 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (11787264 bytes, built 10/10/2026 23:22:34)
+23:27:06.943 dev Glim pid 328660, visibility normal (saved: normal)
+23:27:08.488 Notepad text area: ControlType.Document class=RichEditD2DPT
+23:27:10.945 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
+23:27:11.601 agent card: the finished card took the island; pill count 2
+23:27:11.730 lantern: UIA Button 'Glim'
+23:27:12.379 lantern click: the suggestions view ('2 writing suggestions'), the agent card gone
+23:27:12.681 Home: the agent's last words are there
+23:27:17.150 clean paragraph: count gone
+23:27:20.606 ember: label 'Glim: 12 writing suggestions'
+23:27:21.054 ember click: island open on the list, '1–3 of 12'
+23:27:21.683 pager: 'Previous suggestions' 33x29 at (749,255)
+23:27:21.688 pager: 'Next suggestions' 33x29 at (857,255)
+23:27:22.786 shot: suggestions-page1.png 720x320 (window 720x320)
+23:27:23.014 Next: '4–6 of 12'
+23:27:23.516 island closed: back to the ember (Glim: 12 writing suggestions)
+23:27:26.681 chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through
+23:27:26.747 waiting for the periodic writing log line (up to 35 s)
+23:27:30.857 log: writing: 4 checks, median 10.84 ms, max 14.70 ms; paragraphs median 52 chars, max 154 chars
+23:27:34.173 closed Notepad, removed the test file, visibility back to normal, Glim started normally
+23:27:34.190 glim.log searched for the test text: 21 new lines
+23:27:34.194 PASS
