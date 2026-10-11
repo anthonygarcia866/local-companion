@@ -1,15 +1,14 @@
-{"app":"msedge.exe","controlType":"Window","pattern":"skipped (read-only content)","readable":false,"password":false,"readOnly":true,"sensitive":false,"paused":false,"charCount":0,"caret":null,"at":1791683160}
-{"app":"msedge.exe","controlType":"Document","pattern":"skipped (read-only content)","readable":false,"password":false,"readOnly":true,"sensitive":false,"paused":false,"charCount":0,"caret":null,"at":1791683165}
-{"app":"msedge.exe","controlType":"Window","pattern":"skipped (read-only content)","readable":false,"password":false,"readOnly":true,"sensitive":false,"paused":false,"charCount":0,"caret":null,"at":1791683177}
-{"app":"msedge.exe","controlType":"Edit","pattern":"TextPattern","readable":true,"password":false,"readOnly":false,"sensitive":false,"paused":false,"charCount":90,"caret":0,"at":1791683178}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791683179}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791683180}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791683181}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791683182}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791683183}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791683184}
-{"app":"msedge.exe","controlType":"Edit","pattern":"TextPattern","readable":true,"password":false,"readOnly":false,"sensitive":false,"paused":false,"charCount":90,"caret":0,"at":1791683186}
-{"app":"msedge.exe","controlType":"Document","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791683186}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791683188}
-{"app":"KeePass.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791683190}
-{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791683195}
+﻿{"app":"msedge.exe","controlType":"Document","pattern":"skipped (read-only content)","readable":false,"password":false,"readOnly":true,"sensitive":false,"paused":false,"charCount":0,"caret":null,"at":1791684839}
+{"app":"msedge.exe","controlType":"Edit","pattern":"TextPattern","readable":true,"password":false,"readOnly":false,"sensitive":false,"paused":false,"charCount":90,"caret":0,"at":1791684840}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684842}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684843}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684844}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684845}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684846}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (sensitive)","readable":false,"password":false,"readOnly":false,"sensitive":true,"paused":false,"charCount":0,"caret":null,"at":1791684847}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791684848}
+{"app":"msedge.exe","controlType":"Edit","pattern":"TextPattern","readable":true,"password":false,"readOnly":false,"sensitive":false,"paused":false,"charCount":90,"caret":0,"at":1791684849}
+{"app":"msedge.exe","controlType":"Document","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791684850}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791684851}
+{"app":"KeePass.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791684853}
+{"app":"msedge.exe","controlType":"Edit","pattern":"skipped (paused app or site)","readable":false,"password":false,"readOnly":false,"sensitive":false,"paused":true,"charCount":0,"caret":null,"at":1791684857}

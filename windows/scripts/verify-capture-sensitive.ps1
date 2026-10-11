@@ -56,7 +56,7 @@ public static class CW {
 '@
 
 # Every fake number, and the digits alone, which must never come out.
-$fakes = @("4111 1111 1111 1111", "4111111111111111", "123-45-6789", "123456789", "DE89 3704 0044 0532 0130 00", "DE89370400440532013000", "Glim must not read this")
+$fakes = @("4111 1111 1111 1111", "4111 1111 1111", "411111111111", "4111111111111111", "123-45-6789", "123456789", "DE89 3704 0044 0532 0130 00", "DE89370400440532013000", "Glim must not read this")
 $local = Join-Path $env:LOCALAPPDATA "Glim"
 $resultsPath = Join-Path $local "capture-results.jsonl"
 $glimLog = Join-Path $local "glim.log"
@@ -153,6 +153,7 @@ try {
   $s = "skipped (sensitive)"; $p = "skipped (paused app or site)"
   Check "ordinary notes (phone, address, invoice)" (ById $w "t-ok") "TextPattern" $true
   Check "textarea holding a test card" (ById $w "t-card") $s $false
+  Check "textarea holding a card being typed (12 digits)" (ById $w "t-partial") $s $false
   Check "textarea holding an SSN" (ById $w "t-ssn") $s $false
   Check "textarea holding an IBAN" (ById $w "t-iban") $s $false
   Check "field labelled 'Card number'" (ById $w "t-label") $s $false

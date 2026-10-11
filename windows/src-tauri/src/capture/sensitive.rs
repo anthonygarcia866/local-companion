@@ -111,21 +111,59 @@ fn words_of(label: &str) -> Vec<String> {
 
 /// Whether text contains a card number (13–19 digits passing the Luhn check,
 /// optionally in groups split by single spaces or dashes), a number written
-/// like an SSN (3-2-4 digits, split by spaces or dashes), or a valid IBAN.
+/// like an SSN (3-2-4 digits, split by spaces or dashes), a valid IBAN, or
+/// any other run of LONG_RUN or more digits; international phone numbers
+/// excepted (see `is_phone`).
 pub fn contains_sensitive_number(text: &str) -> bool {
-    digit_runs(text).iter().any(|groups| has_card(groups) || has_ssn(groups)) || has_iban(text)
+    digit_runs(text)
+        .iter()
+        .any(|run| !is_phone(run) && (has_card(&run.groups) || has_ssn(&run.groups) || run_len(run) >= LONG_RUN))
+        || has_iban(text)
 }
 
-/// Each run of digits, as its groups: "4111 1111-1111" is one run of three
-/// groups. A run ends at anything other than a digit or one separator
-/// followed by a digit.
-fn digit_runs(text: &str) -> Vec<Vec<String>> {
+/// Readings with a run of this many digits are dropped even when the run is
+/// no valid card: a card being typed passes through 12–15 digit states that
+/// fail Luhn. The owner's choice (2026-10-10), accepting that long order,
+/// tracking and account-style numbers drop the reading too.
+pub const LONG_RUN: usize = 12;
+
+/// The longest international phone number (E.164).
+const MAX_PHONE_DIGITS: usize = 15;
+
+fn run_len(run: &DigitRun) -> usize {
+    run.groups.iter().map(|g| g.len()).sum()
+}
+
+/// An international phone number: a leading "+" and at most 15 digits
+/// ("+44 20 7946 0958", "+4915112345678"). Exempt from every number check:
+/// unbroken 13–15 digit phone numbers pass Luhn one time in ten. A card
+/// typed after a "+" still drops the reading once it passes 15 digits, so
+/// only a 15-digit (Amex) number written that way could get through.
+fn is_phone(run: &DigitRun) -> bool {
+    run.plus && run_len(run) <= MAX_PHONE_DIGITS
+}
+
+/// A run of digits, as its groups: "4111 1111-1111" is one run of three
+/// groups.
+struct DigitRun {
+    groups: Vec<String>,
+    /// Written right after a "+", as international phone numbers are.
+    plus: bool,
+}
+
+/// Each run of digits in the text. A run ends at anything other than a digit
+/// or one separator followed by a digit.
+fn digit_runs(text: &str) -> Vec<DigitRun> {
     let chars: Vec<char> = text.chars().collect();
     let mut runs = Vec::new();
     let mut groups: Vec<String> = Vec::new();
     let mut cur = String::new();
+    let mut plus = false;
     for (i, &c) in chars.iter().enumerate() {
         if c.is_ascii_digit() {
+            if cur.is_empty() && groups.is_empty() {
+                plus = i > 0 && chars[i - 1] == '+';
+            }
             cur.push(c);
         } else if is_separator(c) && !cur.is_empty() && chars.get(i + 1).is_some_and(|n| n.is_ascii_digit()) {
             groups.push(std::mem::take(&mut cur));
@@ -134,7 +172,7 @@ fn digit_runs(text: &str) -> Vec<Vec<String>> {
                 groups.push(std::mem::take(&mut cur));
             }
             if !groups.is_empty() {
-                runs.push(std::mem::take(&mut groups));
+                runs.push(DigitRun { groups: std::mem::take(&mut groups), plus });
             }
         }
     }
@@ -142,7 +180,7 @@ fn digit_runs(text: &str) -> Vec<Vec<String>> {
         groups.push(cur);
     }
     if !groups.is_empty() {
-        runs.push(groups);
+        runs.push(DigitRun { groups, plus });
     }
     runs
 }
@@ -383,9 +421,7 @@ mod tests {
             "Unit 4B, 221 Baker St, Apt 12, ZIP 90210",
             "Invoice #2026-0042 total: $1,234.56 due 2026-10-31, PO 450012345.",
             "Rent of $2,450.00 for 10/2026; balance $13,005.75 after 3 payments.",
-            "Order 112-4567890-1234567 shipped",
             "Version 0.2.3, build 17:06, 123-456-7890",
-            "Tracking 9400111899223397846523",
             "The 4111 units in 1111 buildings",
             "Card ending in 1111, exp 12/27.",
             "DE is Germany; GB12 is not an IBAN.",
@@ -395,18 +431,56 @@ mod tests {
     }
 
     #[test]
-    fn a_luhn_valid_number_not_grouped_like_a_card_gets_through() {
-        // 4111111111111111 split 3-7-6 (an order-number layout) passes Luhn
-        // but isn't written like a card.
-        assert!(luhn("4111111111111111"));
-        assert!(!contains_sensitive_number("Order 411-1111111-111111 shipped"));
+    fn phone_numbers_get_through_even_when_long() {
+        for text in [
+            "Call (555) 123-4567, 555-123-4567, 555 123 4567 or +1 555 123 4567.",
+            "+1-555-123-4567 ext. 89",
+            "UK office: +44 20 7946 0958",
+            "Berlin: +49 30 12345678, mobile +4915112345678",
+            "Beijing: +86 138 0013 8000",
+            "Paris: +33 1 23 45 67 89",
+        ] {
+            assert!(!contains_sensitive_number(text), "dropped a phone number: {text}");
+        }
+    }
+
+    #[test]
+    fn a_card_being_typed_is_dropped_from_12_digits() {
+        // Each state a typed card passes through, though most fail Luhn.
+        let card = "4111 1111 1111 1111";
+        for len in 1..=card.len() {
+            let typed = &card[..len];
+            let digits = typed.chars().filter(|c| c.is_ascii_digit()).count();
+            assert_eq!(contains_sensitive_number(&format!("my card is {typed}")), digits >= LONG_RUN, "{typed}");
+        }
+        for typed in ["411111111111", "4111-1111-1111-1", "3782 822463 10", "6011 1111 1111 11"] {
+            assert!(contains_sensitive_number(typed), "{typed}");
+        }
+        // A "+" doesn't hide a 16-digit card, valid or not.
+        assert!(contains_sensitive_number("+4111 1111 1111 1111"));
+        assert!(contains_sensitive_number("+4111 1111 1111 1112"));
+    }
+
+    #[test]
+    fn long_numbers_drop_the_reading_the_tradeoff() {
+        // The stricter rule's cost: these hold no card, but 12+ digits.
+        for text in [
+            "Order 112-4567890-1234567 shipped",
+            "Tracking 9400111899223397846523",
+            "Account ref 123456789012",
+            "Dial 0044 20 7946 0958",
+            "Rooms 101 102 103 104",
+        ] {
+            assert!(contains_sensitive_number(text), "{text}");
+        }
+        assert!(!contains_sensitive_number("Ref 12345678901 (11 digits)"));
     }
 
     #[test]
     fn a_number_that_fails_luhn_is_not_a_card() {
         assert!(!luhn("4111111111111112"));
-        assert!(!contains_sensitive_number("4111 1111 1111 1112"));
         assert!(luhn("79927398713"));
+        assert!(!has_card(&["4111".into(), "1111".into(), "1111".into(), "1112".into()]));
     }
 
     #[test]

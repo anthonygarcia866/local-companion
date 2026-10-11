@@ -57,7 +57,7 @@ Read-only fields are skipped like password fields: nothing is read, and the pane
 Capture must never read or pass on card numbers, CVCs, bank details or SSNs (code: `capture/sensitive.rs`; full rules in PROJECT_STATUS, "Payment and ID data"):
 
 - **Before any text is read:** paused apps (password managers) are skipped. So are fields whose labels read like payment or ID data, and browser fields on a paused site (checked against the URL of the page and of every frame around the field).
-- **After the text is read, inside the capture thread:** a reading holding a card number (Luhn, card-shaped grouping), an SSN-shaped number or an IBAN is dropped whole.
+- **After the text is read, inside the capture thread:** a reading holding a card number (Luhn, card-shaped grouping), an SSN-shaped number, an IBAN, or any run of 12+ digits (a card being typed; international "+" phone numbers excepted) is dropped whole.
 
 **What browsers expose** (2026-10-10, Chrome and Edge, a local test page, `examples/uia_probe.rs`):
 
@@ -73,12 +73,12 @@ Capture must never read or pass on card numbers, CVCs, bank details or SSNs (cod
 
 So the `cc-*` autocomplete hints can't be used, but sites that reuse them as ids (`id="cc-number"`) are caught through the AutomationId.
 
-**Live check** (`windows/scripts/verify-capture-sensitive.ps1`, release build, 2026-10-10 18:46): all pass.
+**Live check** (`windows/scripts/verify-capture-sensitive.ps1`, release build, 2026-10-10 19:14): all 11 pass.
 
 | Field | Panel |
 |---|---|
 | Notes with a phone number, an address and an invoice total | TextPattern, readable, 90 chars |
-| Textarea holding a test card / an SSN / an IBAN | skipped (sensitive), 0 chars |
+| Textarea holding a test card / a card being typed (12 digits) / an SSN / an IBAN | skipped (sensitive), 0 chars |
 | Field labelled "Card number"; field with id `cc-exp` | skipped (sensitive), 0 chars |
 | Notes in a frame served from `/checkout/`; notes on a `/checkout/` page | skipped (paused app or site) |
 | Text box in `KeePass.exe` (a stand-in) | skipped (paused app or site) |
