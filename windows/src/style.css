@@ -2510,8 +2510,24 @@ html:not([data-presence="pill"]) #lantern-menu {
 .suggestion-pager {
   display: flex;
   align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.suggestion-pages {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  flex: none;
+}
+
+.suggestion-pager .suggestion-more {
+  margin-top: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .suggestion-range {

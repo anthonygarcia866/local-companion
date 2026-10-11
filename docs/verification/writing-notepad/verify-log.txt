@@ -1,11 +1,16 @@
 ﻿
-20:58:22.554 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (11776512 bytes, built 10/10/2026 20:58:18)
-20:58:32.208 dev Glim pid 320760, visibility normal (saved: ember)
-20:58:33.706 Notepad text area: ControlType.Document class=RichEditD2DPT
-20:58:36.479 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
-20:58:37.381 clean paragraph: count gone
-20:58:37.384 waiting for the periodic writing log line (up to 35 s)
-20:58:55.773 log: writing: 2 checks, median 5.13 ms, max 5.13 ms; paragraphs median 52 chars, max 52 chars
-20:58:59.914 closed Notepad, removed the test file, visibility back to ember, Glim started normally
-20:58:59.933 glim.log searched for the test text: 14 new lines
-20:58:59.939 PASS
+21:44:38.623 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (11788800 bytes, built 10/10/2026 21:41:07)
+21:44:47.781 dev Glim pid 366520, visibility normal (saved: normal)
+21:44:48.922 Notepad text area: ControlType.Document class=RichEditD2DPT
+21:44:50.886 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
+21:44:52.042 clean paragraph: count gone
+21:44:55.247 ember: label 'Glim: 12 writing suggestions'
+21:44:55.864 ember click: island open on the list, '1–3 of 12'
+21:44:56.170 Next: '4–6 of 12'
+21:44:56.771 island closed: back to the ember (Glim: 12 writing suggestions)
+21:44:58.888 chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through
+21:44:59.000 waiting for the periodic writing log line (up to 35 s)
+21:45:11.303 log: writing: 4 checks, median 12.53 ms, max 17.65 ms; paragraphs median 52 chars, max 154 chars
+21:45:14.596 closed Notepad, removed the test file, visibility back to normal, Glim started normally
+21:45:14.622 glim.log searched for the test text: 20 new lines
+21:45:14.627 PASS

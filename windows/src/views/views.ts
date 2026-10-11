@@ -656,9 +656,10 @@ export function buildSuggestions(): ViewHost {
   // The pager only turns pages: nothing here acts on the app.
   const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 11, { stroke: 2.2 }));
   const next = h("button", { class: "suggestion-page", title: tl("Next suggestions"), "aria-label": tl("Next suggestions"), onclick: () => turn(1) }, svg(ICONS.chevronRight, 11, { stroke: 2.2 }));
-  const pager = h("div", { class: "suggestion-pager" }, prev, range, next);
+  const pages = h("div", { class: "suggestion-pages" }, prev, range, next);
   const note = h("div", { class: "suggestion-more", text: tl("Fixes can be applied in a later version.") });
-  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, pager, note)));
+  const pager = h("div", { class: "suggestion-pager" }, pages, note);
+  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, pager)));
   const sync = () => {
     const items = State.writing;
     if (items !== pageOf) {
@@ -672,7 +673,7 @@ export function buildSuggestions(): ViewHost {
       : t("Nothing to fix here.");
     clear(list);
     for (const s of items.slice(at.from - 1, at.to)) list.append(suggestionRow(s));
-    pager.style.display = at.pages > 1 ? "" : "none";
+    pages.style.display = at.pages > 1 ? "" : "none";
     range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
     (prev as HTMLButtonElement).disabled = at.page === 0;
     (next as HTMLButtonElement).disabled = at.page === at.pages - 1;

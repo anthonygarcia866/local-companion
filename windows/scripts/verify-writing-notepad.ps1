@@ -16,7 +16,13 @@
   - Reads the suggestion count on the pill (#writing-count) from Glim's own
     window through UI Automation.
   - Then opens a second file with a clean sentence (a new tab) and checks the
-    count goes away. Nothing is ever typed or edited: Notepad keeps unsaved
+    count goes away.
+  - Then Ember, with a twelve-mistake paragraph: the ember's label counts
+    them; a UI Automation Invoke on the ember (a click, no mouse) opens the
+    list on "1-3 of N" without saving a mode, Next shows "4-6 of N", and
+    Minimize brings the ember back.
+  - Then a chat app: a tiny text box compiled here as slack.exe, holding chat
+    slang and one real misspelling: exactly one suggestion. Nothing is ever typed or edited: Notepad keeps unsaved
     edits per file path across launches, and each run's files get fresh
     names for the same reason.
   - Waits for the periodic log line ("writing: N checks ...", numbers only)
@@ -66,10 +72,13 @@ New-Item -ItemType Directory -Force $work | Out-Null
 $stamp = Get-Date -Format "HHmmss"
 $file = Join-Path $work "GLIM-VERIFY-writing-$stamp.txt"
 $cleanFile = Join-Path $work "GLIM-VERIFY-clean-$stamp.txt"
+$manyFile = Join-Path $work "GLIM-VERIFY-many-$stamp.txt"
 # Words that must never reach the log.
-$secretWords = @("recieved", "tomorow", "deposit", "received the payment")
+$secretWords = @("recieved", "tomorow", "deposit", "received the payment", "notise", "kichen", "maintanance", "tmrw", "lol idk")
 Set-Content -Path $file -Value "We recieved the payment and will deposit it tomorow." -Encoding utf8
 Set-Content -Path $cleanFile -Value "We got the payment and will bank it on Monday." -Encoding utf8
+# Twelve misspellings in one paragraph (for the pages and the ember).
+Set-Content -Path $manyFile -Value "Teh tenant recieved the notise and will pay the balence tomorow. Plese send the reciept to the ownr and adress the maintanance reqest for the kichen sink." -Encoding utf8
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 $notepad = $null
 
@@ -101,6 +110,20 @@ function Badge {
     return "?"
   }
   return ""
+}
+# The first element in Glim's own windows that $match accepts.
+function GlimFind([scriptblock]$match) {
+  $pc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, [int]$script:glimPid)
+  foreach ($win in $root.FindAll([System.Windows.Automation.TreeScope]::Children, $pc)) {
+    foreach ($e in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)) {
+      if (& $match $e) { return $e }
+    }
+  }
+  return $null
+}
+function WaitGlim([scriptblock]$match, [int]$seconds) {
+  for ($i = 0; $i -lt $seconds * 4; $i++) { $e = GlimFind $match; if ($e) { return $e }; Start-Sleep -Milliseconds 250 }
+  return $null
 }
 function WaitBadge([scriptblock]$ok, [int]$seconds) {
   $b = ""
@@ -171,6 +194,85 @@ try {
       if ($b -eq "") { Note "clean paragraph: count gone" } else { Fail "clean paragraph: count still '$b'" }
     }
   }
+
+  # Ember with many suggestions: the ember's label counts them, a click
+  # (UI Automation Invoke, no mouse) opens the list without saving a mode,
+  # Next turns the page, and closing the island brings the ember back.
+  GlimDev @("--visibility", "ember")
+  Start-Sleep -Seconds 2
+  Start-Process notepad.exe -ArgumentList "`"$manyFile`"" | Out-Null
+  $w = WindowNamed "GLIM-VERIFY-many-$stamp"
+  $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, $doc.Current.ControlType)
+  $doc3 = $null
+  for ($i = 0; $i -lt 20 -and -not $doc3; $i++) { $doc3 = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c); if (-not $doc3) { Start-Sleep -Milliseconds 250 } }
+  if (-not $doc3) { Fail "ember: Notepad's text area not found" }
+  elseif (WaitIdle "ember") {
+    try { $doc3.SetFocus() } catch { }
+    $ember = $null; $n = 0
+    for ($i = 0; $i -lt 40 -and $n -lt 10; $i++) {
+      $ember = GlimFind { param($e) $e.Current.AutomationId -eq "ember" }
+      if ($ember -and $ember.Current.Name -match '^Glim: (\d+) writing suggestion') { $n = [int]$Matches[1] }
+      if ($n -lt 10) { Start-Sleep -Milliseconds 250 }
+    }
+    if ($n -lt 10) { Fail "ember: label '$(if ($ember) { $ember.Current.Name })', expected 10+ writing suggestions" }
+    else {
+      Note "ember: label 'Glim: $n writing suggestions'"
+      $dash = [string][char]0x2013
+      $ember.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      $first = "1${dash}3 of $n"
+      $range = WaitGlim { param($e) $e.Current.Name -eq $first } 10
+      if (-not $range) { Fail "ember click: the list with '$first' did not open" }
+      else {
+        Note "ember click: island open on the list, '$first'"
+        $saved = (Get-Content $settingsPath -Raw -Encoding utf8) -match '"visibility"\s*:\s*"ember"'
+        if (-not $saved) { Fail "ember click: the saved visibility changed (a peek must not save)" }
+        $next = GlimFind { param($e) $e.Current.Name -eq "Next suggestions" }
+        $next.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $second = "4${dash}6 of $n"
+        if (WaitGlim { param($e) $e.Current.Name -eq $second } 5) { Note "Next: '$second'" } else { Fail "Next: '$second' not shown" }
+        $min = GlimFind { param($e) $e.Current.Name -eq "Minimize" }
+        $min.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $back = WaitGlim { param($e) $e.Current.AutomationId -eq "ember" -and $e.Current.BoundingRectangle.Width -gt 0 -and $e.Current.BoundingRectangle.Width -le 40 } 10
+        if ($back) { Note "island closed: back to the ember ($($back.Current.Name))" } else { Fail "island closed: the ember did not come back" }
+      }
+    }
+  }
+
+  # A chat app: a tiny text box compiled here as slack.exe (as the capture
+  # script's KeePass.exe). Chat slang and lowercase are let through; the one
+  # real misspelling is still found. Read from the ember's label.
+  Add-Type -OutputType WindowsApplication -OutputAssembly "$work\slack.exe" -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+using System; using System.Windows.Forms; using System.Drawing;
+public static class P { [STAThread] public static void Main() {
+  Application.EnableVisualStyles();
+  var f = new Form { Text = "GLIM-VERIFY chat", StartPosition = FormStartPosition.Manual, Location = new Point(-2400, -2400) };
+  var t = new TextBox { Width = 500, Text = "hey u coming tmrw? lol idk, i recieved it btw. ok ty" };
+  f.Controls.Add(t); Application.Run(f); } }
+'@
+  $chat = Start-Process -PassThru "$work\slack.exe"
+  try {
+    $w = WindowNamed "GLIM-VERIFY chat"
+    $box = $null
+    for ($i = 0; $i -lt 40 -and -not $box; $i++) {
+      $box = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | Where-Object { $_.Current.ClassName -like "WindowsForms10.EDIT*" } | Select-Object -First 1
+      if (-not $box) { Start-Sleep -Milliseconds 250 }
+    }
+    if (-not $box) { Fail "chat: text box not found" }
+    elseif (WaitIdle "chat") {
+      try { $box.SetFocus() } catch { }
+      # Wait for the label to settle on this field (the previous field's
+      # count clears on the focus change first).
+      $label = ""
+      for ($i = 0; $i -lt 40; $i++) {
+        $e = GlimFind { param($x) $x.Current.AutomationId -eq "ember" }
+        $label = if ($e) { $e.Current.Name } else { "" }
+        if ($label -eq "Glim: 1 writing suggestion") { break }
+        Start-Sleep -Milliseconds 250
+      }
+      if ($label -eq "Glim: 1 writing suggestion") { Note "chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through" }
+      else { Fail "chat (slack.exe): ember label '$label', expected 'Glim: 1 writing suggestion'" }
+    }
+  } finally { Stop-Process -Id $chat.Id -Force -ErrorAction SilentlyContinue }
 
   Note "waiting for the periodic writing log line (up to 35 s)"
   $statLine = $null

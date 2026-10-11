@@ -65,7 +65,7 @@ test("the list shows the problem in context, the message and the replacements", 
   view.sync();
   assert.equal(view.el.find(".suggestion").length, 0);
   assert.equal(texts(".title")[0], "Nothing to fix here.");
-  assert.equal(view.el.find(".suggestion-pager")[0].style.display, "none");
+  assert.equal(view.el.find(".suggestion-pages")[0].style.display, "none");
 });
 
 test("pages: three at a time, in the order given (nearest the caret first)", () => {
@@ -85,7 +85,7 @@ test("Next / Previous walk through 12 suggestions without scrolling", () => {
   const problems = () => view.el.find(".problem").map((e) => e.textContent);
   const range = () => view.el.find(".suggestion-range")[0].textContent;
   const [prev, next] = view.el.find(".suggestion-page");
-  assert.equal(view.el.find(".suggestion-pager")[0].style.display, "");
+  assert.equal(view.el.find(".suggestion-pages")[0].style.display, "");
   assert.deepEqual([problems(), range(), prev.disabled, next.disabled], [words.slice(0, 3), "1–3 of 12", true, false]);
   for (let p = 1; p < 4; p++) {
     next.fire("click");
