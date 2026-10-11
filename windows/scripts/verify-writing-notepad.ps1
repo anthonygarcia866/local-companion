@@ -192,15 +192,22 @@ try {
     if (-not $card) { Fail "agent card: the finished card did not open (Stop not surfaced)" }
     else {
       Note "agent card: the finished card took the island; pill count $(Badge)"
+      # Screen readers must find it as what it is: a button named Glim.
       $lantern = GlimFind { param($e) $e.Current.AutomationId -eq "bot-lantern" }
-      $lantern.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      if (-not $lantern) { Fail "lantern: not in the UI Automation tree (hidden from screen readers)" }
+      elseif ($lantern.Current.Name -ne "Glim" -or $lantern.Current.ControlType -ne [System.Windows.Automation.ControlType]::Button) {
+        Fail "lantern: UIA sees '$($lantern.Current.Name)' $($lantern.Current.ControlType.ProgrammaticName), expected Button 'Glim'"
+      } else {
+        Note "lantern: UIA Button 'Glim'"
+        $lantern.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      }
       $title = WaitGlim { param($e) $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and $e.Current.Name -match '^\d+ writing suggestions?$' } 5
       $stillCard = GlimFind { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" }
       if ($title -and -not $stillCard) { Note "lantern click: the suggestions view ('$($title.Current.Name)'), the agent card gone" }
       else { Fail "lantern click: suggestions view shown=$([bool]$title), agent card still shown=$([bool]$stillCard)" }
       # Home still reaches the agent.
-      $home = GlimFind { param($e) $e.Current.Name -eq "Overview" -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
-      $home.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+      $homeBtn = GlimFind { param($e) $e.Current.Name -eq "Overview" -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
+      $homeBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
       if (WaitGlim { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" } 5) { Note "Home: the agent's last words are there" }
       else { Note "Home: the overview opened (the agent's text not shown there)" }
       $min = GlimFind { param($e) $e.Current.Name -eq "Minimize" }
