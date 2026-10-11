@@ -220,22 +220,47 @@ pub fn withheld(app: String, control_type: String, paused: bool) -> Capture {
     Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }
 }
 
+/// The `pattern` for a field in an app the writing checker is off for, in a
+/// normal (non-dev) session: nothing is read from it.
+pub const SKIPPED_OFF: &str = "skipped (writing off)";
+
+/// One reading inside the capture thread: what may go to the dev panel, and
+/// the field's text for the writing checker. `text` never leaves the capture
+/// thread, and is None whenever the reading was skipped or dropped.
+pub struct Reading {
+    pub capture: Capture,
+    pub text: Option<String>,
+}
+
+impl From<Capture> for Reading {
+    fn from(capture: Capture) -> Self {
+        Reading { capture, text: None }
+    }
+}
+
 /// Turns a field's text into the reading that leaves the capture thread.
 /// Text holding a card number, an SSN or an IBAN is dropped here, before
 /// anything else sees it: the reading becomes `withheld`, the same as a
 /// payment field skipped by its labels.
+#[cfg(test)]
 pub fn finish_reading(meta: CaptureMeta, window_title: String, text: Option<String>, caret: Option<usize>) -> Capture {
+    finish(meta, window_title, text, caret).capture
+}
+
+/// `finish_reading`, keeping the text for the writing checker unless it was
+/// dropped.
+pub fn finish(meta: CaptureMeta, window_title: String, text: Option<String>, caret: Option<usize>) -> Reading {
     if text.as_deref().is_some_and(sensitive::contains_sensitive_number) {
-        return withheld(meta.app, meta.control_type, false);
+        return withheld(meta.app, meta.control_type, false).into();
     }
     let mut meta = meta;
     meta.readable = text.is_some();
     meta.char_count = text.as_ref().map(|t| t.chars().count()).unwrap_or(0);
     meta.caret = caret;
-    // The full text stays here and is dropped when this returns; only the
-    // window around the caret goes to the panel.
+    // Only the window around the caret goes to the panel; the full text stays
+    // in the capture thread for the checker and is dropped after it.
     let excerpt = text.as_deref().map(|t| caret_window(t, caret));
-    Capture { meta, window_title, excerpt, via: String::new() }
+    Reading { capture: Capture { meta, window_title, excerpt, via: String::new() }, text }
 }
 
 /// The most text read from one field: a safety limit (a whole document can
@@ -570,7 +595,7 @@ mod tests {
         }
         let title = read.find("foreground_title()").expect("title");
         assert!(read.find("pauses_url(").unwrap() < title && title < text);
-        let finish = read.find("finish_reading(").expect("finish_reading");
+        let finish = read.find("finish(").expect("finish");
         assert!(text < finish && !read[text..].contains("caret_window("));
     }
 

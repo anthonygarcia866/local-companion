@@ -25,6 +25,7 @@ mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+mod writing;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -823,12 +824,15 @@ pub fn run() {
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
-            // Dev only: the text-capture spike's live debug panel, and the
-            // capture thread that feeds it (src/capture/).
+            // The capture thread (src/capture/): the writing checker in every
+            // session, for the apps it is on in (src/writing/apps.rs); in dev
+            // sessions also the live debug panel, for every app.
             #[cfg(windows)]
-            if dev_session() {
-                create_capture_panel(&handle);
-                capture::uia::start(handle.clone());
+            {
+                if dev_session() {
+                    create_capture_panel(&handle);
+                }
+                capture::uia::start(handle.clone(), dev_session());
             }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
