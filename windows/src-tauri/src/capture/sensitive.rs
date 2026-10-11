@@ -369,18 +369,25 @@ impl PauseList {
     /// Whether a page or frame URL is on a paused site. Only http(s) URLs
     /// have a site; anything else (file:, about:) is not paused.
     pub fn pauses_url(&self, url: &str) -> bool {
-        let Some((host, path)) = host_and_path(url) else { return false };
-        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        self.sites.iter().any(|site| {
-            let site = site.to_ascii_lowercase();
-            let (site_host, site_path) = site.split_once('/').unwrap_or((&site, ""));
-            if site_host == "*" {
-                return !site_path.is_empty() && segments.contains(&site_path);
-            }
-            let host_ok = host == site_host || host.ends_with(&format!(".{site_host}"));
-            host_ok && (site_path.is_empty() || path.trim_start_matches('/').starts_with(site_path))
-        })
+        url_on_sites(url, &self.sites)
     }
+}
+
+/// Whether an http(s) URL is on one of `sites`: "example.com" is the host and
+/// its subdomains, "example.com/path" only under that path, "*/segment" any
+/// page with that path segment. Anything that isn't http(s) is on none.
+pub fn url_on_sites<S: AsRef<str>>(url: &str, sites: &[S]) -> bool {
+    let Some((host, path)) = host_and_path(url) else { return false };
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    sites.iter().any(|site| {
+        let site = site.as_ref().to_ascii_lowercase();
+        let (site_host, site_path) = site.split_once('/').unwrap_or((&site, ""));
+        if site_host == "*" {
+            return !site_path.is_empty() && segments.contains(&site_path);
+        }
+        let host_ok = host == site_host || host.ends_with(&format!(".{site_host}"));
+        host_ok && (site_path.is_empty() || path.trim_start_matches('/').starts_with(site_path))
+    })
 }
 
 /// (lower-case host, path) of an http or https URL.

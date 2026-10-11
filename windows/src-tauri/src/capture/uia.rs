@@ -251,7 +251,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             text: checked,
             caret: capture.meta.caret,
             rules: crate::writing::apps::rules(&capture.meta.app),
-            mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern),
+            mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern, capture.meta.chat_site),
             app: &name,
             paused: false,
         };
@@ -294,11 +294,15 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
         // A payment or ID field, by its labels: nothing is read.
         return withheld(meta.app, meta.control_type, false).into();
     }
-    if is_browser(&meta.app) && page_urls(uia, element).iter().any(|url| pause.pauses_url(url)) {
+    let urls = if is_browser(&meta.app) { page_urls(uia, element) } else { Vec::new() };
+    if urls.iter().any(|url| pause.pauses_url(url)) {
         // A field on a paused site, or in a frame from one (a card form from
         // a payment provider inside a shop's page).
         return withheld(meta.app, meta.control_type, true).into();
     }
+    // A web chat app (claude.ai in Chrome): read and checked like the desktop
+    // chat apps, and view-only like them.
+    meta.chat_site = urls.iter().any(|url| crate::writing::apps::chat_site(url));
     // The window title is for the dev panel only.
     let window_title = if dev { foreground_title() } else { String::new() };
 

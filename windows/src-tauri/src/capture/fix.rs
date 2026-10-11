@@ -98,7 +98,12 @@ impl Field for UiaField<'_> {
             if self.element.CurrentIsPassword().is_ok_and(|b| b.as_bool()) || is_sensitive_field(&field_labels(&self.element)) {
                 return Err(Outcome::Blocked);
             }
-            if is_browser(&app) && page_urls(self.uia, &self.element).iter().any(|u| self.pause.pauses_url(u)) {
+            if is_browser(&app)
+                && page_urls(self.uia, &self.element)
+                    .iter()
+                    .any(|u| self.pause.pauses_url(u) || crate::writing::apps::chat_site(u))
+            {
+                // A paused site, or a web chat app (view-only).
                 return Err(Outcome::Blocked);
             }
             let control = self.element.CurrentControlType().map(|t| t.0).unwrap_or(0);
@@ -317,6 +322,16 @@ mod tests {
         assert_eq!(key_events("\u{1F600}").len(), 4);
         // Never Enter or Tab: those are refused before this (writing::offerable).
         assert!(key_events("it's").iter().all(|k| !matches!(k, Key::Unicode(13 | 10 | 9, _))));
+    }
+
+    /// A web chat app is view-only, and the gate checks it again at click
+    /// time (a stale list, or a tab switched to claude.ai under it).
+    #[test]
+    fn the_gate_refuses_web_chat_apps() {
+        let src = include_str!("fix.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        let gate = &code[code.find("Every PR #8 rule").unwrap()..code.find("fn caret_paragraph").unwrap()];
+        assert!(gate.contains("chat_site(u)") && gate.contains("pauses_url(u)"));
     }
 
     #[test]

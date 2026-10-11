@@ -18,6 +18,8 @@ interface CaptureMeta {
   sensitive: boolean;
   /** The app or site is on the pause list. */
   paused: boolean;
+  /** On a web chat app (claude.ai, chatgpt.com, ...): suggestions view-only. */
+  chatSite: boolean;
   charCount: number;
   caret: number | null;
 }

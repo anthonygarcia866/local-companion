@@ -69,7 +69,8 @@ pub fn paused() -> bool {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FixMode {
-    /// Nothing: an app not yet tested for fixes (chat apps, Edge, new Outlook).
+    /// Nothing: an app not yet tested for fixes (chat apps and their web
+    /// versions, Edge, new Outlook).
     #[default]
     View,
     /// Typed into the field (§7.3).
@@ -82,9 +83,10 @@ pub enum FixMode {
     Away,
 }
 
-/// The fix mode for a field: by app, then by what UI Automation offers.
-pub fn fix_mode(exe: &str, pattern: &str) -> FixMode {
-    if !apps::fixes(exe) {
+/// The fix mode for a field: by app and site, then by what UI Automation
+/// offers. `chat_site`: the field is on a web chat app (apps::CHAT_SITES).
+pub fn fix_mode(exe: &str, pattern: &str, chat_site: bool) -> FixMode {
+    if !apps::fixes(exe) || chat_site {
         FixMode::View
     } else if pattern.starts_with("TextPattern") {
         FixMode::Apply
@@ -855,13 +857,17 @@ mod tests {
 
     #[test]
     fn the_fix_modes_follow_the_app_and_the_pattern() {
-        assert_eq!(fix_mode("WINWORD.EXE", "TextPattern2"), FixMode::Apply);
-        assert_eq!(fix_mode("Notepad.exe", "TextPattern"), FixMode::Apply);
-        assert_eq!(fix_mode("chrome.exe", "ValuePattern"), FixMode::Copy);
-        assert_eq!(fix_mode("slack.exe", "TextPattern2"), FixMode::View);
-        assert_eq!(fix_mode("msedge.exe", "TextPattern2"), FixMode::View);
-        assert_eq!(fix_mode("slack.exe", "ValuePattern"), FixMode::View, "chat apps: view-only, no Copy");
-        assert_eq!(fix_mode("Notepad.exe", "none"), FixMode::View);
+        assert_eq!(fix_mode("WINWORD.EXE", "TextPattern2", false), FixMode::Apply);
+        assert_eq!(fix_mode("Notepad.exe", "TextPattern", false), FixMode::Apply);
+        assert_eq!(fix_mode("chrome.exe", "TextPattern2", false), FixMode::Apply, "Gmail");
+        assert_eq!(fix_mode("chrome.exe", "ValuePattern", false), FixMode::Copy);
+        assert_eq!(fix_mode("slack.exe", "TextPattern2", false), FixMode::View);
+        assert_eq!(fix_mode("msedge.exe", "TextPattern2", false), FixMode::View);
+        assert_eq!(fix_mode("slack.exe", "ValuePattern", false), FixMode::View, "chat apps: view-only, no Copy");
+        assert_eq!(fix_mode("Notepad.exe", "none", false), FixMode::View);
+        // A web chat app (claude.ai in Chrome): view-only, no Copy either.
+        assert_eq!(fix_mode("chrome.exe", "TextPattern2", true), FixMode::View);
+        assert_eq!(fix_mode("chrome.exe", "ValuePattern", true), FixMode::View);
     }
 
     /// The island can only say which fix was clicked, never what to type
