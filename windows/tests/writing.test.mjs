@@ -213,6 +213,9 @@ test("Rust's answer clears Fixing… and shows the outcome; Pause reaches Rust",
   const handler = main.slice(main.indexOf('"writing-fix"'));
   assert.match(handler, /State\.writingBusy = false;\n\s+State\.writingResult = result;/);
   assert.match(main, /State\.paused = on;\n\s+\/\/ [^\n]*\n\s+void Bridge\.writingSetPaused\(on\);/);
+  // The last fix empties the list: the view stays, so "Fixed…" is seen.
+  assert.match(main, /State\.view === "suggestions" && State\.writingResult\?\.outcome !== "applied"\) State\.view = State\.defaultView\(\);/);
+  assert.equal(suggestionNote({ checkId: 0, mode: "view", app: "" }, { outcome: "applied", app: "Notepad" }, false), "Fixed. Ctrl+Z in Notepad undoes it.");
 });
 
 test("the pill's count is announced and visible to UI Automation", () => {

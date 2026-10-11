@@ -151,7 +151,9 @@ async function main() {
     State.writingFix = { checkId, mode, app };
     presence.setWriting(items.length);
     // The list emptied while it was open: back to what the island shows.
-    if (had && items.length === 0 && State.view === "suggestions") State.view = State.defaultView();
+    // Not when it emptied because a fix just worked: the list stays to say so
+    // ("Fixed. Ctrl+Z in Notepad undoes it.").
+    if (had && items.length === 0 && State.view === "suggestions" && State.writingResult?.outcome !== "applied") State.view = State.defaultView();
     State.notify();
   });
   // A fix or Copy click's outcome (a code; the island words it).
