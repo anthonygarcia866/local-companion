@@ -18,6 +18,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
+import { tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -32,6 +33,7 @@ import {
   Lantern,
   isReservedLanternState,
   lanternStateFor,
+  withWritingSuggestions,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -65,6 +67,8 @@ export class Island {
   private botGlow!: HTMLElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
+  /** The writing suggestions' count on the pill. */
+  private writingBadge!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -226,6 +230,7 @@ export class Island {
     this.lantern.el.id = "bot-lantern";
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
+    this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -259,6 +264,7 @@ export class Island {
       this.lantern.el,
       this.miniGrid,
       this.countdown,
+      this.writingBadge,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -316,10 +322,14 @@ export class Island {
 
   // ── Mode / view ─────────────────────────────────────────────────────────────
 
+  /** The open island closed (to the pill or further). */
+  onClosed: (() => void) | null = null;
+
   private setMode(mode: IslandMode) {
     const prev = State.mode;
     if (mode === prev) return;
     State.mode = mode;
+    if (prev === "expanded") this.onClosed?.();
     if (prev === "expanded") {
       // A folded card is still waiting: it keeps the island pinned.
       if (!State.pendingApproval) State.isPinned = false;
@@ -1033,7 +1043,22 @@ export class Island {
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
-    else this.lantern.show(forced ?? lanternStateFor(this.engine.state, State.mode === "expanded"));
+    else {
+      const writing = State.writing.length;
+      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // The count of writing suggestions, at the lantern's top right; none
+      // while the island is hidden.
+      const badge = this.writingBadge;
+      const shown = writing > 0 && State.mode !== "hidden" && !State.mochiOnDesktop;
+      badge.style.display = shown ? "" : "none";
+      if (shown) {
+        badge.textContent = writing > 99 ? "99+" : String(writing);
+        // Read out as "3 writing suggestions" (and found by UI Automation).
+        badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
+        badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+    }
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */

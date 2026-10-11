@@ -37,8 +37,8 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowText
 
 use super::sensitive::{is_browser, is_sensitive_field, FieldLabels, PauseList};
 use super::{
-    control_type_name, finish_reading, is_editable, record_to, results_path, withheld, Capture, CaptureMeta,
-    EditSignals, MAX_FIELD_CHARS, SKIPPED_READ_ONLY,
+    control_type_name, finish, is_editable, record_to, results_path, withheld, Capture, CaptureMeta, EditSignals,
+    Reading, MAX_FIELD_CHARS, SKIPPED_OFF, SKIPPED_READ_ONLY,
 };
 
 /// How often the focused field is re-read between focus events: the fallback
@@ -61,34 +61,43 @@ impl IUIAutomationFocusChangedEventHandler_Impl for FocusHandler_Impl {
     }
 }
 
-/// Starts the capture thread. Dev sessions only (the caller checks).
-pub fn start(app: AppHandle) {
+/// Starts the capture thread. In every session it feeds the writing checker
+/// for apps that have it on (crate::writing); in a dev session (`dev`) it
+/// also reads every other app for the debug panel and keeps the results log.
+pub fn start(app: AppHandle, dev: bool) {
     std::thread::Builder::new()
         .name("glim-capture".into())
         .spawn(move || {
-            if let Err(err) = run(&app) {
+            if let Err(err) = run(&app, dev) {
                 crate::log::line(format!("capture: stopped: {err}"));
             }
         })
         .ok();
 }
 
-fn run(app: &AppHandle) -> WinResult<()> {
+fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok()? };
     let uia: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)? };
     let (tx, rx) = channel();
     let handler: IUIAutomationFocusChangedEventHandler = FocusHandler(tx).into();
     unsafe { uia.AddFocusChangedEventHandler(None, &handler)? };
-    crate::log::line("capture: subscribed to UIA focus changes (dev session)");
+    crate::log::line(if dev {
+        "capture: subscribed to UIA focus changes (dev session: all apps, debug panel)"
+    } else {
+        "capture: subscribed to UIA focus changes (writing checker apps only)"
+    });
 
     // Glim's own process tree (glim.exe and its msedgewebview2.exe children):
     // nothing in it is ever read (super::OwnGuard).
     let mut guard = super::OwnGuard::default();
     // Apps and sites never captured in (built in until Phase 1d's settings).
     let pause = PauseList::default();
+    // The writing checker: the field's text stays in this thread.
+    let mut writer = crate::writing::Session::default();
     let results = results_path();
     // The field being watched, and its last reading's metadata: recorded to
-    // the results log when focus leaves it, so its char count is the final one.
+    // the results log (dev sessions only) when focus leaves it, so its char
+    // count is the final one.
     let mut current: Option<(IUIAutomationElement, CaptureMeta)> = None;
     // Diagnostics for the log: how many focus events and polls arrived, how
     // many readings went to the panel and by which path, and which apps were
@@ -115,6 +124,9 @@ fn run(app: &AppHandle) -> WinResult<()> {
                 REPORT_EVERY.as_secs(),
                 if apps.is_empty() { "none".to_string() } else { apps.join(", ") }
             ));
+            if let Some(r) = writer.take_report() {
+                crate::log::line(r);
+            }
             (events, polls, by_event, by_poll) = (0, 0, 0, 0);
             apps.clear();
             report_at = std::time::Instant::now() + REPORT_EVERY;
@@ -123,72 +135,89 @@ fn run(app: &AppHandle) -> WinResult<()> {
         let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
         // Glim's own windows (the island, the panel, Settings, its webviews):
         // skipped by the element's process and by the foreground window's,
-        // before anything about the element is read.
+        // before anything about the element is read. The island keeps its
+        // suggestions while the user clicks it.
         if guard.is_own(pid as u32, foreground_pid(), std::time::Instant::now(), own_tree) {
             continue;
         }
-        let mut capture = read(&uia, &element, pid, &pause);
+        let reading = read(&uia, &element, pid, &pause, dev);
+        let mut capture = reading.capture;
         capture.via = via.into();
         let same = current
             .as_ref()
             .is_some_and(|(cur, _)| unsafe { uia.CompareElements(cur, &element) }.is_ok_and(|b| b.as_bool()));
         if !same {
             if let Some((_, meta)) = current.take() {
-                let _ = record_to(&results, &meta);
+                if dev {
+                    let _ = record_to(&results, &meta);
+                }
             }
         }
         if !same && !apps.contains(&capture.meta.app) {
             apps.push(capture.meta.app.clone());
         }
+        // The checker only ever sees apps that have it on.
+        let checked = reading.text.as_deref().filter(|_| crate::writing::apps::enabled(&capture.meta.app));
+        let rules = crate::writing::apps::rules(&capture.meta.app);
+        writer.observe(same, checked, capture.meta.caret, rules, std::time::Instant::now(), |s| {
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
+        });
         current = Some((element, capture.meta.clone()));
-        if app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
+        if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }
         }
     }
     Ok(())
 }
 
-/// Everything the panel shows about the focused element.
-fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &PauseList) -> Capture {
+/// Everything the panel shows about the focused element, and its text for
+/// the writing checker. Outside dev sessions, apps the checker is off for
+/// are not read at all.
+fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &PauseList, dev: bool) -> Reading {
     let control = unsafe { element.CurrentControlType() }.map(|t| t.0).unwrap_or(0);
     let app = process_name(pid);
     if pause.pauses_app(&app) {
         // A paused app (a password manager): nothing about the field is read.
-        return withheld(app, control_type_name(control), true);
+        return withheld(app, control_type_name(control), true).into();
     }
     let mut meta = CaptureMeta { app, control_type: control_type_name(control), pattern: "none".into(), ..Default::default() };
+    if !dev && !crate::writing::apps::enabled(&meta.app) {
+        meta.pattern = SKIPPED_OFF.into();
+        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
+    }
 
     if unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool()) {
         // Ignored completely: no pattern is asked for, nothing is read.
         meta.password = true;
         meta.pattern = "skipped (password)".into();
-        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() };
+        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
     }
 
     if is_sensitive_field(&field_labels(element)) {
         // A payment or ID field, by its labels: nothing is read.
-        return withheld(meta.app, meta.control_type, false);
+        return withheld(meta.app, meta.control_type, false).into();
     }
     if is_browser(&meta.app) && page_urls(uia, element).iter().any(|url| pause.pauses_url(url)) {
         // A field on a paused site, or in a frame from one (a card form from
         // a payment provider inside a shop's page).
-        return withheld(meta.app, meta.control_type, true);
+        return withheld(meta.app, meta.control_type, true).into();
     }
-    let window_title = foreground_title();
+    // The window title is for the dev panel only.
+    let window_title = if dev { foreground_title() } else { String::new() };
 
     if !is_editable(&edit_signals(element, control)) {
         // Read-only content (a web page, a document view): the writing layer
         // never reads it. Like a password field, nothing is read.
         meta.read_only = true;
         meta.pattern = SKIPPED_READ_ONLY.into();
-        return Capture { meta, window_title, excerpt: None, via: String::new() };
+        return Capture { meta, window_title, excerpt: None, via: String::new() }.into();
     }
 
     let (pattern, text, caret) = read_text(element);
     meta.pattern = pattern.into();
     // Card numbers, SSNs and IBANs in the text are caught here, before the
     // reading goes anywhere.
-    finish_reading(meta, window_title, text, caret)
+    finish(meta, window_title, text, caret)
 }
 
 /// The field's labels from UI Automation, never its text.

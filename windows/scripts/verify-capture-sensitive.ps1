@@ -152,6 +152,7 @@ try {
   $w = WindowNamed "GLIM-VERIFY notes"
   $s = "skipped (sensitive)"; $p = "skipped (paused app or site)"
   Check "ordinary notes (phone, address, invoice)" (ById $w "t-ok") "TextPattern" $true
+  Check "unit list (101 102 103 104)" (ById $w "t-units") "TextPattern" $true
   Check "textarea holding a test card" (ById $w "t-card") $s $false
   Check "textarea holding a card being typed (12 digits)" (ById $w "t-partial") $s $false
   Check "textarea holding an SSN" (ById $w "t-ssn") $s $false

@@ -79,10 +79,13 @@ impl Presence {
     }
 }
 
-/// The rule. Recording can never end in `Hidden`.
-pub fn presence(vis: Visibility, fullscreen: bool, recording: bool) -> Presence {
+/// The rule. Recording can never end in `Hidden`. `peek`: the ember was
+/// clicked to see the writing suggestions, so the pill (and the island) is
+/// out until the island closes again; Ember stays the saved mode.
+pub fn presence(vis: Visibility, fullscreen: bool, recording: bool, peek: bool) -> Presence {
     match (vis, fullscreen) {
         (Visibility::Normal, false) => Presence::Pill,
+        (Visibility::Ember, false) if peek => Presence::Pill,
         (Visibility::Ember, false) => Presence::Ember,
         _ if recording => Presence::Indicator,
         _ => Presence::Hidden,
@@ -92,6 +95,8 @@ pub fn presence(vis: Visibility, fullscreen: bool, recording: bool) -> Presence 
 /// Set by the screen recorder (Phase 2) for as long as it records. Nothing
 /// sets it yet: there is no recorder.
 static RECORDING: AtomicBool = AtomicBool::new(false);
+/// The ember was clicked to open the writing suggestions (see `presence`).
+static PEEK: AtomicBool = AtomicBool::new(false);
 /// A fullscreen app is in front on the island's display (the display watch).
 static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 /// `--fullscreen on|off|auto` in a dev session: pretends, for testing.
@@ -130,7 +135,15 @@ fn visibility(app: &AppHandle) -> Visibility {
 
 /// What should be on screen now.
 pub fn current(app: &AppHandle) -> Presence {
-    presence(visibility(app), fullscreen(), RECORDING.load(Ordering::SeqCst))
+    presence(visibility(app), fullscreen(), RECORDING.load(Ordering::SeqCst), PEEK.load(Ordering::SeqCst))
+}
+
+/// The ember's click with writing suggestions waiting (on), and the island
+/// closing after it (off). Never saved: Ember stays the user's mode.
+pub fn set_peek(app: &AppHandle, on: bool) {
+    if PEEK.swap(on, Ordering::SeqCst) != on {
+        refresh(app);
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -169,6 +182,8 @@ pub fn refresh(app: &AppHandle) {
 /// Picks a visibility mode, saves it, and applies it.
 pub fn set_visibility(app: &AppHandle, vis: Visibility) {
     let Some(shared) = app.try_state::<crate::Shared>() else { return };
+    // Picking a mode ends a peek.
+    PEEK.store(false, Ordering::SeqCst);
     let settings = {
         let mut s = shared.settings.lock().unwrap();
         s.visibility = vis.as_str().to_string();
@@ -196,16 +211,33 @@ mod tests {
 
     #[test]
     fn each_mode_shows_what_it_says() {
-        assert_eq!(presence(Visibility::Normal, false, false), Presence::Pill);
-        assert_eq!(presence(Visibility::Ember, false, false), Presence::Ember);
-        assert_eq!(presence(Visibility::Hidden, false, false), Presence::Hidden);
+        assert_eq!(presence(Visibility::Normal, false, false, false), Presence::Pill);
+        assert_eq!(presence(Visibility::Ember, false, false, false), Presence::Ember);
+        assert_eq!(presence(Visibility::Hidden, false, false, false), Presence::Hidden);
     }
 
     #[test]
     fn a_fullscreen_app_hides_every_mode() {
         for v in ALL {
-            assert_eq!(presence(v, true, false), Presence::Hidden, "{v:?}");
+            for peek in [false, true] {
+                assert_eq!(presence(v, true, false, peek), Presence::Hidden, "{v:?}");
+            }
         }
+    }
+
+    /// A peek brings the pill out of the ember only: never out of Hidden,
+    /// never over a fullscreen app, and it is never saved.
+    #[test]
+    fn a_peek_opens_the_ember_only() {
+        assert_eq!(presence(Visibility::Ember, false, false, true), Presence::Pill);
+        assert_eq!(presence(Visibility::Hidden, false, false, true), Presence::Hidden);
+        assert_eq!(presence(Visibility::Normal, false, false, true), Presence::Pill);
+        let src = include_str!("presence.rs").replace("\r\n", "\n");
+        let peek = &src[src.find("pub fn set_peek").unwrap()..];
+        let body = &peek[..peek.find("\n}\n").unwrap()];
+        assert!(!body.contains("save"), "a peek is never saved");
+        let set = &src[src.find("pub fn set_visibility").unwrap()..];
+        assert!(set[..set.find("\n}\n").unwrap()].contains("PEEK.store(false"), "picking a mode ends a peek");
     }
 
     /// The recording rule: while recording, something is always on screen —
@@ -214,12 +246,12 @@ mod tests {
     fn recording_is_never_hidden() {
         for v in ALL {
             for fullscreen in [false, true] {
-                let p = presence(v, fullscreen, true);
+                let p = presence(v, fullscreen, true, false);
                 assert_ne!(p, Presence::Hidden, "{v:?}, fullscreen {fullscreen}");
             }
         }
-        assert_eq!(presence(Visibility::Hidden, false, true), Presence::Indicator);
-        assert_eq!(presence(Visibility::Normal, true, true), Presence::Indicator);
+        assert_eq!(presence(Visibility::Hidden, false, true, false), Presence::Indicator);
+        assert_eq!(presence(Visibility::Normal, true, true, false), Presence::Indicator);
     }
 
     /// Hidden → Normal once left the window hidden: it was hidden through tao

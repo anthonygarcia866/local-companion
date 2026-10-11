@@ -2336,6 +2336,37 @@ html[data-presence="hidden"] :is(#island, #wake-strip) {
   transform: scale(1.2);
 }
 
+/* Writing suggestions waiting: the ember brightens (no bounce) and shows
+   the count at its top right. */
+#ember.lit .ember-dot {
+  width: 14px;
+  height: 14px;
+  background: radial-gradient(circle at 50% 45%, #fffbe6 0%, #ffc864 55%, #f08a24 100%);
+  box-shadow: 0 0 8px 3px rgba(255, 200, 100, 0.95), 0 0 16px 6px rgba(255, 150, 40, 0.5);
+  animation: none;
+  opacity: 1;
+}
+
+.ember-count {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: #f2b14c;
+  color: #1b1408;
+  font: 700 8.5px/12px var(--font);
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.ember-count[hidden] {
+  display: none;
+}
+
 @keyframes ember-breathe {
   0%, 100% { opacity: 0.8; }
   50% { opacity: 1; }
@@ -2397,4 +2428,134 @@ html:not([data-presence="pill"]) #lantern-menu {
   padding: 4px 10px 2px;
   font-size: 11px;
   color: var(--dim-2);
+}
+
+/* ── Writing suggestions (Phase 1a) ─────────────────────────────────────── */
+
+/* The count on the pill, at the lantern's top right. */
+#writing-count {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #f2b14c;
+  color: #1b1408;
+  font: 700 10px/15px var(--font);
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.suggestion {
+  min-width: 0;
+}
+
+.suggestion-context {
+  font: 400 12.5px var(--font);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-context .problem {
+  color: #f2b14c;
+  font-weight: 600;
+  text-decoration: underline wavy rgba(242, 177, 76, 0.7);
+  text-underline-offset: 3px;
+}
+
+.suggestion-message {
+  font: 400 11.5px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-fixes {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* View only in 1a: replacements are shown, not clickable. */
+.suggestion-fixes .fix {
+  font: 500 11.5px var(--font);
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
+  white-space: nowrap;
+}
+
+.suggestion-more {
+  font: 400 11px var(--font);
+  color: var(--dim-2);
+  margin-top: 4px;
+}
+
+/* Previous / Next: buttons, not scrolling (the window never takes focus). */
+.suggestion-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.suggestion-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.suggestion-pager .suggestion-more {
+  margin-top: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestion-range {
+  font: 500 11px var(--font);
+  color: var(--dim);
+  min-width: 64px;
+  text-align: center;
+}
+
+.suggestion-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+}
+
+.suggestion-page:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.suggestion-page:disabled {
+  opacity: 0.35;
+  cursor: default;
 }

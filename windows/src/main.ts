@@ -4,7 +4,7 @@ import "./style.css";
 import "./mascot/lantern.css";
 import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
-import { State, type Settings } from "./core/state";
+import { State, type Settings, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -25,7 +25,13 @@ async function main() {
 
   const island = new Island(root);
   // Pill: the compact island on screen (it may have been folded or paused).
-  const presence = new PresenceView({ showPill: () => { if (!State.paused) island.reveal(); } });
+  const presence = new PresenceView({
+    showPill: () => { if (!State.paused) island.reveal(); },
+    // The ember's click with suggestions waiting: straight to the list.
+    openSuggestions: () => island.setView("suggestions"),
+  });
+  // A peek from the ember ends when the island closes: back to the ember.
+  island.onClosed = () => presence.model.islandClosed();
   root.append(presence.el);
 
   const boot = await Bridge.boot();
@@ -136,6 +142,15 @@ async function main() {
   island.onGreetingDone = checkRecap;
   island.onWake = checkRecap;
   await onEvent<null>("recap-check", checkRecap);
+  // The writing checker's suggestions for the focused field (Phase 1a).
+  await onEvent<{ items: WritingSuggestion[] }>("writing-suggestions", ({ items }) => {
+    const had = State.writing.length > 0;
+    State.writing = items;
+    presence.setWriting(items.length);
+    // The list emptied while it was open: back to what the island shows.
+    if (had && items.length === 0 && State.view === "suggestions") State.view = State.defaultView();
+    State.notify();
+  });
 
   island.launch();
 }

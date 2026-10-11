@@ -62,6 +62,9 @@ export const Bridge = {
   placement: () => call<{ dock: string; vertical: boolean } | undefined>("placement"),
   /** Normal (the pill), ember or hidden: Settings' picker and the ember's click. */
   setVisibility: (visibility: string) => call<void>("set_visibility", { visibility }),
+  /** The ember's click with writing suggestions waiting (on), the island
+   *  closing after it (off): the pill without changing the saved mode. */
+  setPeek: (on: boolean) => call<void>("set_peek", { on }),
   /** What is on screen: pill, ember, hidden or the recording indicator. */
   presenceInfo: () =>
     call<{ kind: string; visibility: "normal" | "ember" | "hidden"; recording: boolean } | undefined>("presence_info"),

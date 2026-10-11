@@ -25,6 +25,7 @@ mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+mod writing;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -189,6 +190,13 @@ fn set_dock(app: AppHandle, dock: String) {
     if let Some(dock) = placement::Dock::parse(&dock) {
         island::set_dock(&app, None, dock);
     }
+}
+
+/// The ember's click with writing suggestions waiting, and the island
+/// closing after it: the pill without changing the saved mode.
+#[tauri::command]
+fn set_peek(app: AppHandle, on: bool) {
+    presence::set_peek(&app, on);
 }
 
 /// Settings' visibility picker and the ember's click (back to "normal").
@@ -767,6 +775,7 @@ pub fn run() {
             reposition,
             dock_drag_start,
             set_visibility,
+            set_peek,
             presence_info,
             set_dock,
             placement,
@@ -823,12 +832,15 @@ pub fn run() {
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
-            // Dev only: the text-capture spike's live debug panel, and the
-            // capture thread that feeds it (src/capture/).
+            // The capture thread (src/capture/): the writing checker in every
+            // session, for the apps it is on in (src/writing/apps.rs); in dev
+            // sessions also the live debug panel, for every app.
             #[cfg(windows)]
-            if dev_session() {
-                create_capture_panel(&handle);
-                capture::uia::start(handle.clone());
+            {
+                if dev_session() {
+                    create_capture_panel(&handle);
+                }
+                capture::uia::start(handle.clone(), dev_session());
             }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
