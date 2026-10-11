@@ -10,7 +10,7 @@ import { installFakeDom } from "./fakedom.mjs";
 installFakeDom();
 const { withWritingSuggestions, lanternStateFor, shouldPop } = await import("../src/mascot/lantern.ts");
 const { State } = await import("../src/core/state.ts");
-const { buildSuggestions, SUGGESTIONS_SHOWN, suggestionPage } = await import("../src/views/views.ts");
+const { buildSuggestions, SUGGESTIONS_SHOWN, suggestionPage, suggestionNote } = await import("../src/views/views.ts");
 const { PresenceModel, emberWriting } = await import("../src/island/presence.ts");
 const { sent, calls } = await import("./tauri.mjs");
 
@@ -106,24 +106,113 @@ test("Next / Previous walk through 12 suggestions without scrolling", () => {
   State.writing = [];
 });
 
-test("the suggestion list is view only and never logs", () => {
+test("the suggestion list sends ids only and never logs", () => {
   const views = read("src/views/views.ts");
   const start = views.indexOf("// ── Writing suggestions");
   const section = views.slice(start, views.indexOf("// ── In-island settings", start));
   assert.ok(section.length > 200);
-  for (const banned of ["addEventListener", "Bridge.", "console.", "keydown", "localStorage"]) {
+  for (const banned of ["addEventListener", "console.", "keydown", "localStorage"]) {
     assert.ok(!section.includes(banned), `the suggestion list uses ${banned}`);
   }
-  // Its only clicks turn pages.
-  assert.deepEqual(section.match(/onclick: [^}]*/g), ["onclick: () => turn(-1) ", "onclick: () => turn(1) "]);
-  const turn = section.slice(section.indexOf("const turn = "), section.indexOf("return { el, sync };"));
-  assert.match(turn, /^const turn = \(by: number\) => \{\s+page \+= by;\s+sync\(\);\s+\};\s+$/);
-  // The event handler only stores and redraws.
+  // Its only calls to Rust: a fix, a copy, dismiss; with ids, never words.
+  assert.deepEqual(section.match(/Bridge\.\w+\([^)]*\)/g), [
+    "Bridge.writingDismiss()",
+    "Bridge.writingFix(fix.checkId, index, choice)",
+    "Bridge.writingCopy(fix.checkId, index, choice)",
+  ]);
+  // The event handlers only store and redraw.
   const main = read("src/main.ts");
-  const handler = main.slice(main.indexOf('onEvent<{ items: WritingSuggestion[] }>("writing-suggestions"'));
-  const body = handler.slice(0, handler.indexOf("\n  });") + 5);
-  assert.ok(body.length > 50);
-  for (const banned of ["Bridge.", "console.", "localStorage"]) assert.ok(!body.includes(banned), `the handler uses ${banned}`);
+  for (const event of ['"writing-suggestions"', '"writing-fix"']) {
+    const handler = main.slice(main.indexOf(event));
+    const body = handler.slice(0, handler.indexOf("\n  });") + 5);
+    assert.ok(body.length > 50, event);
+    for (const banned of ["Bridge.", "console.", "localStorage"]) assert.ok(!body.includes(banned), `${event} uses ${banned}`);
+  }
+});
+
+// ── 1b: fixes ────────────────────────────────────────────────────────────────
+
+/** A list of 5 in `mode`, drawn on its second page when `page2`. */
+function listIn(mode, page2 = false) {
+  State.writing = [item("one"), item("two"), item("three"), item("tomorow", { replacements: ["tomorrow", ""] }), item("five")];
+  State.writingFix = { checkId: 41, mode, app: "Word" };
+  State.writingResult = null;
+  State.writingBusy = false;
+  const view = buildSuggestions();
+  view.sync();
+  if (page2) view.el.find(".suggestion-page")[1].fire("click");
+  return view;
+}
+const fixButtons = (view) => view.el.find(".fix-btn");
+
+test("a fix button sends which list, row and replacement it is, and waits for the answer", () => {
+  const view = listIn("apply", true);
+  const buttons = fixButtons(view);
+  // Page 2: "tomorow" (row 3 of the whole list) with "tomorrow" and Remove it; "five".
+  assert.deepEqual(buttons.map((b) => b.getAttribute("aria-label")), ["Replace with “tomorrow”", "Remove it", "Replace with “received”", "Replace with “relieved”"]);
+  assert.match(view.el.find(".suggestion-more")[0].textContent, /^Click a fix to apply it\. Ctrl\+Z in Word undoes it\.$/);
+  const n = sent("writing_fix").length;
+  buttons[1].fire("click");
+  assert.deepEqual(sent("writing_fix").slice(n), [{ checkId: 41, index: 3, choice: 1 }]);
+  // Waiting: "Fixing…", every button off, a second click sends nothing.
+  assert.equal(State.writingBusy, true);
+  assert.equal(view.el.find(".suggestion-more")[0].textContent, "Fixing…");
+  assert.ok(fixButtons(view).every((b) => b.disabled));
+  fixButtons(view)[0].fire("click");
+  assert.equal(sent("writing_fix").length, n + 1);
+  State.writingBusy = false;
+});
+
+test("away from the field the buttons are off and say why; view-only apps show plain chips", () => {
+  let view = listIn("away");
+  assert.ok(fixButtons(view).length > 0 && fixButtons(view).every((b) => b.disabled));
+  assert.equal(view.el.find(".suggestion-more")[0].textContent, "Click in the field first.");
+  view = listIn("view");
+  assert.equal(fixButtons(view).length, 0);
+  assert.ok(view.el.find(".fix").length > 0);
+  assert.equal(view.el.find(".suggestion-more")[0].textContent, "Suggestions only in Word for now.");
+});
+
+test("in a field Glim can't type in, each replacement is a Copy button the user clicks", () => {
+  const view = listIn("copy", true);
+  const buttons = fixButtons(view);
+  // A removal has nothing to copy: a plain chip.
+  assert.deepEqual(buttons.map((b) => b.getAttribute("aria-label")), ["Copy “tomorrow”", "Copy “received”", "Copy “relieved”"]);
+  assert.equal(view.el.find(".suggestion-more")[0].textContent, "Glim can't type in this field. Click a fix to copy it.");
+  const n = sent("writing_copy").length;
+  buttons[0].fire("click");
+  assert.deepEqual(sent("writing_copy").slice(n), [{ checkId: 41, index: 3, choice: 0 }]);
+  assert.equal(State.writingBusy, false, "a copy doesn't wait");
+});
+
+test("Dismiss asks Rust to drop the list", () => {
+  const view = listIn("apply");
+  const n = sent("writing_dismiss").length;
+  view.el.find(".suggestion-dismiss")[0].fire("click");
+  assert.equal(sent("writing_dismiss").length, n + 1);
+  assert.equal(view.el.find(".suggestion-dismiss")[0].getAttribute("aria-label"), "Dismiss suggestions");
+});
+
+test("every outcome Rust can send has its own note", () => {
+  const fix = { checkId: 1, mode: "apply", app: "Word" };
+  const notes = ["applied", "copied", "changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean", "clipboard-busy"]
+    .map((outcome) => suggestionNote(fix, { outcome, app: "Notepad" }, false));
+  assert.equal(new Set(notes).size, notes.length);
+  assert.equal(notes[0], "Fixed. Ctrl+Z in Notepad undoes it.");
+  assert.equal(notes[9], "That didn't apply cleanly. Press Ctrl+Z in Notepad to undo it.");
+  for (const n of notes) assert.ok(!n.startsWith("Click a fix"), n);
+  // The codes are the ones Rust sends (writing::Outcome::code).
+  const rust = read("src-tauri/src/writing/mod.rs");
+  for (const code of ["applied", "copied", "changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean", "clipboard-busy"]) {
+    assert.ok(rust.includes(`=> "${code}",`), code);
+  }
+});
+
+test("Rust's answer clears Fixing… and shows the outcome; Pause reaches Rust", () => {
+  const main = read("src/main.ts");
+  const handler = main.slice(main.indexOf('"writing-fix"'));
+  assert.match(handler, /State\.writingBusy = false;\n\s+State\.writingResult = result;/);
+  assert.match(main, /State\.paused = on;\n\s+\/\/ [^\n]*\n\s+void Bridge\.writingSetPaused\(on\);/);
 });
 
 test("the pill's count is announced and visible to UI Automation", () => {

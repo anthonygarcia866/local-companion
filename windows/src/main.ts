@@ -4,7 +4,7 @@ import "./style.css";
 import "./mascot/lantern.css";
 import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
-import { State, type Settings, type WritingSuggestion } from "./core/state";
+import { State, type Settings, type WritingFix, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -55,6 +55,8 @@ async function main() {
 
   const setPaused = (on: boolean) => {
     State.paused = on;
+    // Rust stops reading fields, checking and typing fixes while paused.
+    void Bridge.writingSetPaused(on);
   };
 
   await onEvent<string>("tray", (what) => {
@@ -143,12 +145,25 @@ async function main() {
   island.onWake = checkRecap;
   await onEvent<null>("recap-check", checkRecap);
   // The writing checker's suggestions for the focused field (Phase 1a).
-  await onEvent<{ items: WritingSuggestion[] }>("writing-suggestions", ({ items }) => {
+  await onEvent<{ items: WritingSuggestion[] } & WritingFix>("writing-suggestions", ({ items, checkId, mode, app }) => {
     const had = State.writing.length > 0;
     State.writing = items;
+    State.writingFix = { checkId, mode, app };
     presence.setWriting(items.length);
     // The list emptied while it was open: back to what the island shows.
     if (had && items.length === 0 && State.view === "suggestions") State.view = State.defaultView();
+    State.notify();
+  });
+  // A fix or Copy click's outcome (a code; the island words it).
+  let resultTimer: ReturnType<typeof setTimeout> | undefined;
+  await onEvent<{ outcome: string; app: string }>("writing-fix", (result) => {
+    State.writingBusy = false;
+    State.writingResult = result;
+    clearTimeout(resultTimer);
+    resultTimer = setTimeout(() => {
+      State.writingResult = null;
+      State.notify();
+    }, 6000);
     State.notify();
   });
 

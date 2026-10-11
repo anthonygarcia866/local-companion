@@ -2497,7 +2497,8 @@ html:not([data-presence="pill"]) #lantern-menu {
   overflow: hidden;
 }
 
-/* View only in 1a: replacements are shown, not clickable. */
+/* A replacement: a plain chip where fixes are view-only, a button (1b) where
+   a click types it or copies it. */
 .suggestion-fixes .fix {
   font: 500 11.5px var(--font);
   padding: 1px 7px;
@@ -2505,6 +2506,57 @@ html:not([data-presence="pill"]) #lantern-menu {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.86);
   white-space: nowrap;
+}
+
+button.fix-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid rgba(242, 177, 76, 0.55);
+  background: rgba(242, 177, 76, 0.16);
+  color: #f6c877;
+  cursor: pointer;
+}
+
+button.fix-btn:hover:not(:disabled) {
+  background: rgba(242, 177, 76, 0.32);
+}
+
+button.fix-btn:focus-visible,
+.suggestion-dismiss:focus-visible {
+  outline: 2px solid #f2b14c;
+  outline-offset: 1px;
+}
+
+/* "Click in the field first" (away) or a fix on its way. */
+button.fix-btn:disabled {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.45);
+  cursor: default;
+}
+
+/* Dismiss: last in the pager row. */
+.suggestion-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+}
+
+.suggestion-dismiss:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .suggestion-more {

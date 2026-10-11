@@ -93,6 +93,17 @@ export const Bridge = {
 
   quit: () => call<void>("quit_app"),
 
+  // Writing fixes (1b): ids only. Rust types or copies the checker's own
+  // words, never text from here.
+  /** A fix button: replacement `choice` of row `index` of list `checkId`. */
+  writingFix: (checkId: number, index: number, choice: number) => call<void>("writing_fix", { checkId, index, choice }),
+  /** A Copy button (fields Glim can't type in). */
+  writingCopy: (checkId: number, index: number, choice: number) => call<void>("writing_copy", { checkId, index, choice }),
+  /** Dismiss: the list goes until the text changes. */
+  writingDismiss: () => call<void>("writing_dismiss"),
+  /** The tray's Pause: Rust stops reading, checking and typing. */
+  writingSetPaused: (paused: boolean) => call<void>("writing_set_paused", { paused }),
+
   openSettingsWindow: () => call<void>("open_settings_window"),
 
   /** Writes to the app's log file (%LOCALAPPDATA%\Glim\glim.log), next to the Rust lines. */
