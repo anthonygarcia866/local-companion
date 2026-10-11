@@ -6,8 +6,8 @@ import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
 import { State, type AgentTask } from "../core/state";
-import { washRGBA, type IslandViewName, type Wash } from "../core/layout";
-import { createMiniBot, pruneMiniBots } from "../mochi/minibots";
+import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
+import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
 import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { pillCard } from "./pill-card";
@@ -95,6 +95,9 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const tabDrop = h("button", { class: "tab", title: tl("Drop"), onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
+  // Folds the open island back to the pill (a waiting card is folded, never
+  // dropped). The island takes no focus, so neither does this.
+  const minBtn = h("button", { class: "min-btn", title: tl("Minimize"), onclick: () => actions.collapse() }, svg(ICONS.minus, 14));
   // Plan usage pill (off by default): before the gear, as on the Mac.
   const claudePill = buildPlanPill();
   const planPills = h("div", { class: "plan-pills" }, claudePill.el);
@@ -107,7 +110,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "div",
     { id: "header" },
     h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
-    h("div", { class: "header-actions" }, planPills, gearBtn),
+    h("div", { class: "header-actions" }, planPills, minBtn, gearBtn),
   );
 
   return {
@@ -288,12 +291,15 @@ function buildOverview(actions: ViewActions): ViewHost {
       jump.style.display = mode === "plan" || mode === "diff" ? "none" : "";
 
       const others = State.otherTasks.slice(0, 4);
+      // The right card is the switcher for the other pills: with none, it was
+      // an empty card. The session card takes the whole width instead.
+      el.classList.toggle("solo", !showsSwitcher(others.length));
       const pillKey = others.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}`).join("|");
       if (pillKey !== pillIds) {
         pillIds = pillKey;
         clear(pills);
         for (const t of others) pills.append(buildPill(t, actions));
-        pruneMiniBots();
+        pruneMiniLanterns();
       }
     },
   };
@@ -315,11 +321,11 @@ export function hasSessionTicker(task: AgentTask): boolean {
 
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
   const label = task.id === "integration_claude" ? "VS Code" : task.name;
-  const canvas = createMiniBot(task, 24);
+  const mini = createMiniLantern(task, 24);
   const pill = h(
     "div",
     { class: "pill", onclick: () => actions.setFocus(task.id) },
-    canvas,
+    mini,
     h("span", { class: "lbl", text: label }),
   );
   pill.style.borderColor = `${task.color}24`;

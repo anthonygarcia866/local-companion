@@ -4,16 +4,15 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
-  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
+  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
-  islandSize,
+  dockedBot, dockedSize, islandFrame, islandSize, isVerticalDock, pillGeometry,
   QUESTION_PICKER_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
-import { Greeting } from "../mochi/greeting";
-import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
+import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
@@ -23,10 +22,13 @@ import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
+import { LanternMenu } from "./menu";
 import {
   LANTERN_DRAWN_BOTTOM,
   LANTERN_DRAWN_TOP,
   LANTERN_HEIGHT_PER_DIAMETER,
+  IGNITE_DARK_MS,
+  IGNITE_MS,
   Lantern,
   isReservedLanternState,
   lanternStateFor,
@@ -56,11 +58,11 @@ export class Island {
   private contentEl!: HTMLElement;
   private viewsEl!: HTMLElement;
   /** Glim in the notch: the design's lantern, without its large-context aura. */
-  private lantern = new Lantern({ detail: "notch" });
+  // Dark until launch() lights it: the first frame never shows a lit lantern.
+  private lantern = new Lantern({ detail: "notch", state: "paused" });
   /** A state forced from the command line in a dev session (`--mascot-state`). */
   private forcedLantern: LanternState | null = null;
   private botGlow!: HTMLElement;
-  private greetingCanvas!: HTMLCanvasElement;
   private miniGrid!: HTMLElement;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
@@ -77,19 +79,25 @@ export class Island {
   private botSize = new Spring(10);
 
   private engine = new BotEngine();
-  private greeting = new Greeting();
-  private greetingShown = false;
+  private igniteTimer: number | null = null;
 
   private running = false;
   private lastFrame = 0;
   private dirty = true;
 
-  // Rust starts the window at full size so the launch greeting has room.
   private collapsed = false;
   private collapseTimer: number | null = null;
   private wasInIsland = false;
   /** Last shape handed to Rust for the click-through test. */
   private pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+  /** The right-click menu's rect while it is open: it takes the mouse too. */
+  private menuRect: { x: number; y: number; w: number; h: number } | null = null;
+  private menu = new LanternMenu({
+    setMenuRect: (r) => {
+      this.menuRect = r;
+      this.applyGeometry();
+    },
+  });
 
   // Bot hover → love (IslandWindowController.botHoverIn)
   private botHovering = false;
@@ -101,13 +109,17 @@ export class Island {
   private prevViewBeforeConfused: IslandViewName = "overview";
   private lastSyncedView: IslandViewName | null = null;
 
-  /** The launch greeting ended, or the island came out of hidden — two of the
+  /** The launch ignite ended, or the island came out of hidden — two of the
    *  moments the Monday recap may open (see src/recap/recap.ts). */
   onGreetingDone: (() => void) | null = null;
   onWake: (() => void) | null = null;
 
   /** Where a press on Mochi started: moving past DRAG_THRESHOLD drags him out. */
   private botPress: { x: number; y: number } | null = null;
+  /** Where a press on the closed pill started: moving past DRAG_THRESHOLD
+   *  drags the pill to another dock (Rust moves the window); a release
+   *  before that opens the island. */
+  private dockPress: { x: number; y: number } | null = null;
 
   /** Drop sequence bookkeeping: last tick played, and whether the ✓ has fired. */
   private uploadTens = 0;
@@ -123,10 +135,6 @@ export class Island {
     this.wireFsm();
     this.wireInput();
     this.engine.onDizzy = () => this.handleDizzy();
-    this.greeting.onComplete = () => {
-      this.fsm.greetComplete();
-      this.onGreetingDone?.();
-    };
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
@@ -216,7 +224,6 @@ export class Island {
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
     this.lantern.el.id = "bot-lantern";
-    this.greetingCanvas = h("canvas", { id: "greeting-canvas" });
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
 
@@ -241,7 +248,6 @@ export class Island {
     this.clipEl = h(
       "div",
       { id: "island-clip" },
-      this.greetingCanvas,
       this.uploadCanvas.el,
       this.contentEl,
     );
@@ -255,13 +261,7 @@ export class Island {
       this.countdown,
     );
 
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.greetingCanvas.width = Math.round(EXPANDED_W * dpr);
-    this.greetingCanvas.height = Math.round(150 * dpr);
-    this.greetingCanvas.style.width = `${EXPANDED_W}px`;
-    this.greetingCanvas.style.height = "150px";
-
-    this.root.append(this.wakeStrip, this.islandEl);
+    this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
     this.applyGeometry();
   }
 
@@ -269,15 +269,17 @@ export class Island {
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    // Pill mode means the pill is on screen: it never folds into the invisible
+    // wake strip by itself (that made Normal look like Hidden).
+    this.fsm.foldsToHidden = false;
     this.fsm.onTransition = (from, to) => {
-      // The greeting is over, however it ended: back to his desktop spot.
+      // The launch is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
       switch (to) {
         case "hidden":
           this.setMode("hidden");
           break;
         case "petit":
-          if (from === "coucou") this.greeting.interrupt();
           this.setMode("compact");
           if (from === "coucou") State.view = State.defaultView();
           if (!this.wasInIsland) this.fsm.mouseLeft();
@@ -290,8 +292,17 @@ export class Island {
           void refreshHookPills();
           break;
         case "coucou":
-          this.expand("greeting");
-          this.greeting.start();
+          // The launch: the compact pill with the lantern dark, then its flame
+          // lights (Lantern.ignite) and it settles into s-idle. This replaced
+          // upstream's greeting animation, which drew a placeholder character.
+          this.setMode("compact");
+          this.lantern.ignite();
+          if (this.igniteTimer != null) window.clearTimeout(this.igniteTimer);
+          this.igniteTimer = window.setTimeout(() => {
+            this.igniteTimer = null;
+            this.fsm.greetComplete();
+            this.onGreetingDone?.();
+          }, IGNITE_DARK_MS + IGNITE_MS);
           break;
       }
       State.notify();
@@ -387,6 +398,11 @@ export class Island {
 
   reveal() {
     this.fsm.reveal();
+  }
+
+  /** The right-click menu, closed (Glim went to the ember or hid). */
+  closeMenu() {
+    this.menu.close();
   }
 
   /**
@@ -550,10 +566,11 @@ export class Island {
   // ── Geometry ────────────────────────────────────────────────────────────────
 
   private targetSize(): { w: number; h: number; r: number } {
-    let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
+    let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length, pillGeometry(State.settings.pillSize));
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
     }
+    ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
@@ -576,30 +593,67 @@ export class Island {
     const w = this.width.value;
     const hh = this.height.value;
     const r = this.radius.value;
+    const frame = islandFrame(State.dock, w, hh, r);
+    this.islandEl.style.left = `${frame.x}px`;
+    this.islandEl.style.top = `${frame.y}px`;
     this.islandEl.style.width = `${w}px`;
     this.islandEl.style.height = `${hh}px`;
-    this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
-    this.islandEl.style.transform = `translateX(-50%)`;
+    this.islandEl.style.borderRadius = frame.radius;
+    this.islandEl.style.transform = "none";
     // These follow the island as it resizes, so they belong here rather than in
-    // the state-driven DOM sync.
-    this.miniGrid.style.left = `${w - 40 - 14.5}px`;
-    this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
-    this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
+    // the state-driven DOM sync. An upright pill carries the minis at its foot.
+    const upright = isVerticalDock(State.dock) && State.mode !== "expanded";
+    this.miniGrid.style.left = `${upright ? w / 2 - 14.5 : w - 40 - 14.5}px`;
+    this.miniGrid.style.top = `${upright ? hh - 40 - 14.5 : hh / 2 - 14.5}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
+    this.placeWakeStrip();
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    let rect = { x: frame.x, y: frame.y, w, h: hh };
+    const m = this.menuRect;
+    if (m) {
+      const x0 = Math.min(rect.x, m.x);
+      const y0 = Math.min(rect.y, m.y);
+      rect = {
+        x: x0, y: y0,
+        w: Math.max(rect.x + rect.w, m.x + m.w) - x0,
+        h: Math.max(rect.y + rect.h, m.y + m.h) - y0,
+      };
+    }
     const p = this.pushedRect;
-    if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
+    if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.y - rect.y) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
       void Bridge.setIslandRect(rect.x, rect.y, rect.w, rect.h);
     }
   }
 
-  /** Island rect in window coordinates (origin top-left of the 720×320 window). */
+  /** Island rect in window coordinates (origin top-left of the panel window). */
   private islandRect(): { x: number; y: number; w: number; h: number } {
-    const w = this.width.value;
-    const hh = this.height.value;
-    return { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const f = islandFrame(State.dock, this.width.value, this.height.value, 0);
+    return { x: f.x, y: f.y, w: f.w, h: f.h };
+  }
+
+  /**
+   * The wake strip: the whole window once it has shrunk to the strip; before
+   * that, the edge the island retracted into.
+   */
+  private placeWakeStrip() {
+    const s = this.wakeStrip.style;
+    const upright = isVerticalDock(State.dock);
+    if (this.collapsed) {
+      Object.assign(s, { left: "0", top: "0", right: "", width: "100%", height: "100%", transform: "none" });
+      return;
+    }
+    const f = islandFrame(State.dock, upright ? 6 : 240, upright ? 240 : 6, 0);
+    Object.assign(s, { left: `${f.x}px`, top: `${f.y}px`, right: "", width: `${f.w}px`, height: `${f.h}px`, transform: "none" });
+  }
+
+  /** The dock changed (a drop, Settings, or `--dock`): lay the island out again. */
+  setDock(dock: typeof State.dock) {
+    if (State.dock === dock) return;
+    State.dock = dock;
+    this.pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+    this.animateGeometry(false);
+    State.notify();
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -635,13 +689,17 @@ export class Island {
 
     this.islandEl.addEventListener("mousedown", (e) => {
       State.lastActivity = performance.now();
+      if (State.mode !== "expanded") {
+        // The closed pill: a press may become a drag to another dock; a
+        // release before that opens the island (see mouseup below).
+        if (e.button === 0) this.dockPress = { x: e.clientX, y: e.clientY };
+        // A right press is the menu's (contextmenu below), not an open.
+        else if (e.button !== 2) this.fsm.click();
+        return;
+      }
       // A press on Mochi may become a drag out to the desktop.
       if (e.button === 0 && this.isBotHit(e.clientX, e.clientY)) {
         this.botPress = { x: e.clientX, y: e.clientY };
-      }
-      if (State.mode !== "expanded") {
-        this.fsm.click();
-        return;
       }
       if (this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
@@ -649,16 +707,29 @@ export class Island {
       }
     });
 
-    // No browser menu over the character. Everywhere else (the chat field) the
+    // Right-click the lantern (anywhere on the closed pill, or the lantern in
+    // the open island): Glim's menu. Everywhere else (the chat field) the
     // webview keeps its own menu.
     this.islandEl.addEventListener("contextmenu", (e) => {
-      if (this.isBotHit(e.clientX, e.clientY)) e.preventDefault();
+      if (State.mode === "expanded" && !this.isBotHit(e.clientX, e.clientY)) return;
+      e.preventDefault();
+      this.dockPress = null;
+      this.menu.show(e.clientX, e.clientY, State.dock);
     });
 
     // Dragging Mochi out of the island puts him on the desktop.
     window.addEventListener("mousemove", (e) => {
       if (this.desktop.carrying) {
         this.desktop.carry(e.clientX, e.clientY);
+        return;
+      }
+      const dock = this.dockPress;
+      if (dock && !(e.buttons & 1)) this.dockPress = null;
+      else if (dock && Math.hypot(e.clientX - dock.x, e.clientY - dock.y) > DRAG_THRESHOLD) {
+        // Rust moves the window with the cursor from here and snaps it to the
+        // nearest dock on release; the page only hears the new dock.
+        this.dockPress = null;
+        void Bridge.dockDragStart();
         return;
       }
       const press = this.botPress;
@@ -669,11 +740,19 @@ export class Island {
       }
       if (Math.hypot(e.clientX - press.x, e.clientY - press.y) <= DRAG_THRESHOLD) return;
       this.botPress = null;
-      if (!this.canDragOut()) return;
+      // The drop sequence draws a lantern of its own: not that one.
+      if (this.uploadActive) return;
+      // Dragging the lantern moves Glim: Rust carries the window and snaps it
+      // to the nearest dock on release, as for the closed pill. (Upstream
+      // carried its character out onto the desktop here; Glim doesn't.)
       this.cancelBotHover();
-      this.desktop.pickUp(e.clientX, e.clientY);
+      void Bridge.dockDragStart();
     });
     window.addEventListener("mouseup", (e) => {
+      if (this.dockPress) {
+        this.dockPress = null;
+        this.fsm.click();
+      }
       this.botPress = null;
       if (this.desktop.carrying) this.desktop.carryEnd(e.clientX, e.clientY);
     });
@@ -727,6 +806,10 @@ export class Island {
       x = -10_000;
       y = -10_000;
     }
+    if (this.menu.isOpen) {
+      const r = this.islandRect();
+      this.menu.onCursor(x, y, x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+    }
     State.mouse = { x, y };
     const rect = this.islandRect();
     State.mouseInIsland = { x: x - rect.x, y: y - rect.y };
@@ -742,7 +825,6 @@ export class Island {
       y >= rect.y - HIT_MARGIN && y <= rect.y + rect.h + HIT_MARGIN;
 
     if (inIsland && !this.wasInIsland) {
-      if (this.fsm.state === "coucou") this.greeting.hover();
       this.fsm.mouseEntered();
     }
     if (!inIsland && this.wasInIsland) {
@@ -764,12 +846,6 @@ export class Island {
     }
 
     this.ensureRunning();
-  }
-
-  /** The greeting and the drop sequence draw a Mochi of their own: not that one. */
-  private canDragOut(): boolean {
-    if (State.mode === "hidden" || !this.desktop.canPickUp()) return false;
-    return !(State.mode === "expanded" && (State.view === "greeting" || this.uploadActive));
   }
 
   private isBotHit(x: number, y: number): boolean {
@@ -854,26 +930,15 @@ export class Island {
     this.botCy.step(dt);
     this.botSize.step(dt);
 
-    const greetingActive = State.mode === "expanded" && State.view === "greeting";
-    if (greetingActive) {
-      const gctx = this.greetingCanvas.getContext("2d");
-      if (gctx) {
-        const dpr = Math.min(2, window.devicePixelRatio || 1);
-        gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        this.greeting.draw(gctx);
-      }
-    } else {
-      // Kept running even while the drop canvas is up, so the island's own Mochi
-      // is already in the right place the moment the canvas fades out.
-      this.drawBot(dt);
-    }
+    // Kept running even while the drop canvas is up, so the island's own
+    // lantern is already in the right place the moment the canvas fades out.
+    this.drawBot(dt);
 
     const uploadActive = this.uploadActive;
     if (uploadActive) this.uploadCanvas.draw(UploadSeq.frame(), nowMs / 1000);
     this.uploadCanvas.el.classList.toggle("on", uploadActive);
     this.viewsEl.classList.toggle("hidden-by-upload", uploadActive);
 
-    tickMiniBots(dt);
     // A ticker scroll that loses its frames freezes mid-way, rows overlapping.
     const viewAnimating = this.views.get(State.view)?.tick?.(nowMs) === true;
     if (UploadSeq.isActive) this.stepSequence();
@@ -891,7 +956,7 @@ export class Island {
       ? settling
       : settling ||
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
-        greetingActive || this.engine.busy || UploadSeq.isActive || viewAnimating;
+        this.engine.busy || UploadSeq.isActive || viewAnimating;
 
     if (busy) {
       requestAnimationFrame(this.frame);
@@ -901,19 +966,22 @@ export class Island {
   };
 
   private updateBotTargets() {
-    const p = botPosition(State.mode, State.view, this.height.value, State.uploadProgress);
+    const p = dockedBot(
+      State.dock,
+      State.mode,
+      botPosition(State.mode, State.view, this.height.value, State.uploadProgress, pillGeometry(State.settings.pillSize)),
+    );
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
 
-    const greetingActive = State.mode === "expanded" && State.view === "greeting";
     // The drop canvas draws its own Mochi; two of them would overlap. Out on the
     // desktop, he isn't here at all.
     const away = State.mochiOnDesktop;
-    const visible = p.opacity > 0 && !greetingActive && !this.uploadActive && !away;
+    const visible = p.opacity > 0 && !this.uploadActive && !away;
     this.lantern.el.style.opacity = visible ? "1" : "0";
 
-    if (State.mode === "expanded" && State.view !== "uploading" && !greetingActive && !this.uploadActive && !away) {
+    if (State.mode === "expanded" && State.view !== "uploading" && !this.uploadActive && !away) {
       const d = p.diameter;
       const color = botGlowColor(State.effectiveState);
       this.botGlow.style.display = "block";
@@ -998,19 +1066,12 @@ export class Island {
 
   private syncDom() {
     const expanded = State.mode === "expanded";
-    const greetingActive = expanded && State.view === "greeting";
-
-    const live = expanded && !greetingActive;
+    const live = expanded;
     this.contentEl.style.opacity = live ? "1" : "0";
     // While the drop sequence owns the body its buttons are painted on the canvas
     // underneath, so only the header may keep taking clicks up here.
     this.contentEl.style.pointerEvents = live && !this.uploadActive ? "auto" : "none";
     this.header.el.style.pointerEvents = live ? "auto" : "none";
-    this.greetingCanvas.style.display = greetingActive ? "block" : "none";
-
-    // Leaving the greeting, however it ends, lets its sound fade out.
-    if (this.greetingShown && !greetingActive) this.greeting.leave();
-    this.greetingShown = greetingActive;
 
     this.header.sync();
     for (const [name, view] of this.views) {
@@ -1042,24 +1103,26 @@ export class Island {
         this.miniGrid.dataset.key = key;
         this.miniGrid.replaceChildren();
         for (const t of others) {
-          this.miniGrid.append(createMiniBot(t, 13));
+          this.miniGrid.append(createMiniLantern(t, 13));
         }
-        pruneMiniBots();
+        pruneMiniLanterns();
       }
     }
 
-    syncMiniBotStates(State.tasks);
+    syncMiniLanterns(State.tasks);
     this.engine.setState(State.effectiveState);
   }
 
   /** Applies settings coming from Rust at boot. */
   applySettings() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    // The pill size may have changed: resize to it.
+    this.animateGeometry(false);
     State.notify();
   }
 
   get panelSize() {
-    return { w: PANEL_W, h: PANEL_H };
+    return { w: PANEL_W, h: isVerticalDock(State.dock) ? PANEL_V_H : PANEL_H };
   }
 
   get chatHeight() {

@@ -1,4 +1,6 @@
-// The desktop character's own window (character.html): draws him, and turns clicks and
+// The desktop character's own window (character.html): shows Glim's lantern
+// (upstream drew its own character here; that art is not MIT and is not used),
+// and turns clicks and
 // drags on him into pokes, flights home, the wardrobe and a new spot. Port of
 // DesktopBotView + the mouse half of DesktopMochiController (DesktopMochi.swift).
 //
@@ -7,9 +9,11 @@
 // like the Mac, and a few frames a second asleep — with no cursor polling at
 // all while he sleeps.
 
+import "../mascot/lantern.css";
 import { Bridge, emitToWindow, onEvent, type DesktopMode } from "../core/bridge";
 import type { BotEmoteName } from "../core/layout";
 import { BotEngine } from "../mochi/engine";
+import { LANTERN_DRAWN_BOTTOM, LANTERN_DRAWN_TOP, LANTERN_HEIGHT_PER_DIAMETER, Lantern, lanternStateFor } from "../mascot/lantern";
 import {
   DESKTOP_EVENTS, DOUBLE_CLICK_MS, DRAG_THRESHOLD, PANEL_SIZE, agentActive, gaze, isOverBody,
   layerDragTopLeft, lookOrigin, pointerDistance, shouldSleep, windowDragTopLeft,
@@ -18,20 +22,19 @@ import {
 
 const ISLAND = "island";
 
-/**
- * Width Mochi is drawn at. The engine's body radius is 0.3 × width, so this
- * gives the 28.8 px body the hit test uses, and leaves room around him for
- * hats, hands and hearts inside the 120 px window.
- */
-const DRAW_W = PANEL_SIZE * 0.8;
-const SIDE = (PANEL_SIZE - DRAW_W) / 2;
+/** The body the hit test uses (BODY_RADIUS_FRACTION): 28.8 px of radius at
+ *  the window's centre. The lantern stands 1.2× its diameter, base at its bottom. */
+const BODY_D = PANEL_SIZE * 0.48;
 /** Frame pacing: TimelineView(minimumInterval: 1/30) awake; asleep, barely. */
 const AWAKE_FRAME_MS = 1000 / 30;
 const ASLEEP_FRAME_MS = 250;
 
 class DesktopMochi {
+  /** Still drives what he does (states, emotes, three pokes → dizzy); the
+   *  lantern shows it. */
   private engine = new BotEngine();
-  private canvas: HTMLCanvasElement;
+  private lantern = new Lantern({ detail: "notch", state: "idle" });
+  private canvas: HTMLElement;
   private mode: DesktopMode = "off";
 
   private snap: DesktopSnapshot = {
@@ -60,11 +63,24 @@ class DesktopMochi {
   private moveFrame = false;
   private pokeTimer: number | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLElement) {
     this.canvas = canvas;
-    const dpr = this.dpr();
-    canvas.width = Math.round(PANEL_SIZE * dpr);
-    canvas.height = Math.round(PANEL_SIZE * dpr);
+    const unit = (BODY_D * LANTERN_HEIGHT_PER_DIAMETER) / (LANTERN_DRAWN_BOTTOM - LANTERN_DRAWN_TOP);
+    const el = this.lantern.el;
+    el.style.position = "absolute";
+    el.style.width = `${100 * unit}px`;
+    el.style.height = `${124 * unit}px`;
+    el.style.left = `${PANEL_SIZE / 2 - 50 * unit}px`;
+    el.style.top = `${PANEL_SIZE / 2 + BODY_D / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+    el.style.pointerEvents = "none";
+    // Drawn only while he is out on the desktop. On Windows the hidden window
+    // is parked off screen but stays shown, and Windows moves off-screen
+    // windows back into view (cascaded at 208,208, 234,234…): upstream's canvas
+    // was blank until he flew out, but a lantern drawn from the start showed
+    // up there as a stray, click-through lantern nobody could move.
+    el.style.display = "none";
+    this.lantern.setHeight(124 * unit);
+    canvas.append(el);
     this.engine.particleOverhang = 0;
     this.engine.setState("idle", true);
     // Three pokes: dizzy, and the island shows the confused view (as on macOS).
@@ -110,6 +126,7 @@ class DesktopMochi {
 
   private setVisible(on: boolean) {
     this.visible = on;
+    this.lantern.el.style.display = on ? "" : "none";
     if (on) {
       // The two pages may have started in either order: ask again if needed.
       if (!this.informed) void emitToWindow(ISLAND, DESKTOP_EVENTS.ready);
@@ -186,8 +203,6 @@ class DesktopMochi {
   }
 
   private draw(dt: number, now: number) {
-    const ctx = this.canvas.getContext("2d");
-    if (!ctx) return;
     const engine = this.engine;
     if (!this.asleep) {
       // Windows: the global cursor. Linux: only while the pointer is over him.
@@ -198,10 +213,7 @@ class DesktopMochi {
     }
     // No dancing: the Windows and Linux app has no music signal to dance to.
     engine.update(dt);
-    const dpr = this.dpr();
-    ctx.setTransform(dpr, 0, 0, dpr, SIDE * dpr, 0);
-    ctx.clearRect(-SIDE, 0, PANEL_SIZE, PANEL_SIZE);
-    engine.draw(ctx, DRAW_W, PANEL_SIZE);
+    this.lantern.show(lanternStateFor(engine.state, false));
   }
 
   private dpr(): number {
@@ -339,4 +351,4 @@ class DesktopMochi {
 }
 
 const canvas = document.getElementById("character");
-if (canvas instanceof HTMLCanvasElement) void new DesktopMochi(canvas).start();
+if (canvas instanceof HTMLElement) void new DesktopMochi(canvas).start();

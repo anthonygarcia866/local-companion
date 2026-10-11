@@ -1,11 +1,13 @@
-// Entry point: boot the bridge, wire the island, start the greeting.
+// Entry point: boot the bridge, wire the island, light the lantern.
 
 import "./style.css";
 import "./mascot/lantern.css";
+import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
+import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
@@ -22,6 +24,9 @@ async function main() {
   if (!root) return;
 
   const island = new Island(root);
+  // Pill: the compact island on screen (it may have been folded or paused).
+  const presence = new PresenceView({ showPill: () => { if (!State.paused) island.reveal(); } });
+  root.append(presence.el);
 
   const boot = await Bridge.boot();
   if (boot) {
@@ -69,6 +74,20 @@ async function main() {
   });
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
+  // The dock on the island's display: a drop of the pill, Settings, `--dock`.
+  await onEvent<{ dock: string }>("placement", ({ dock }) => {
+    if (isDock(dock)) island.setDock(dock);
+  });
+  const placed = await Bridge.placement();
+  if (placed && isDock(placed.dock)) island.setDock(placed.dock);
+  // Pill, ember, hidden or the recording indicator (presence.rs decides).
+  await onEvent<{ kind: string }>("presence", ({ kind }) => {
+    if (!isPresenceKind(kind)) return;
+    if (kind !== "pill") island.closeMenu();
+    presence.apply(kind);
+  });
+  const shown = await Bridge.presenceInfo();
+  if (shown && isPresenceKind(shown.kind)) presence.apply(shown.kind);
   // Dev sessions only: `glim.exe --mascot-state <state|auto>` (see lib.rs).
   await onEvent<string>("mascot-force", (s) => island.forceLanternState(isLanternState(s) ? s : null));
   // Dev sessions only: `glim.exe --dev-chat "<prompt>"` (see lib.rs). Connects
@@ -112,7 +131,7 @@ async function main() {
   void refreshConfigured();
   registerShortcutHandlers(island, () => setPaused(false));
 
-  // Monday recap: app start (greeting over), an agent starting work, waking up.
+  // Monday recap: app start (ignite over), an agent starting work, waking up.
   const checkRecap = () => void Recap.check(island);
   island.onGreetingDone = checkRecap;
   island.onWake = checkRecap;

@@ -70,7 +70,7 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 export function buildRecap(actions: ViewActions): ViewHost {
   const card = h("div", { class: "card wash recap-card" });
-  card.style.setProperty("--wash", washRGBA("indigo"));
+  card.style.setProperty("--wash", washRGBA("ember"));
   const el = h("div", { class: "view" }, card);
 
   let built = -1;
@@ -143,15 +143,16 @@ export function buildRecap(actions: ViewActions): ViewHost {
     const status = h("div", { class: "recap-status" });
     const sw = h("button", { class: Recap.prefs.hideProjects ? "switch on" : "switch" });
 
-    const draw = () => {
-      shareCanvas = renderShareImage(s, Recap.prefs.hideProjects);
+    const draw = async () => {
+      const drawn = await renderShareImage(s, Recap.prefs.hideProjects);
+      shareCanvas = drawn;
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       thumb.width = Math.round(64 * dpr);
       thumb.height = Math.round(114 * dpr);
       const ctx = thumb.getContext("2d");
       if (ctx) {
         ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(shareCanvas, 0, 0, thumb.width, thumb.height);
+        ctx.drawImage(drawn, 0, 0, thumb.width, thumb.height);
       }
     };
 
@@ -165,7 +166,7 @@ export function buildRecap(actions: ViewActions): ViewHost {
       const next = !Recap.prefs.hideProjects;
       sw.classList.toggle("on", next);
       void Recap.setHideProjects(next);
-      draw();
+      void draw();
       clear(status);
     });
 
@@ -203,7 +204,7 @@ export function buildRecap(actions: ViewActions): ViewHost {
         status,
       ),
     ));
-    draw();
+    void draw();
     redrawShare = draw;
   }
 

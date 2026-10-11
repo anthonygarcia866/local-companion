@@ -77,7 +77,9 @@ fn run(app: &AppHandle) -> WinResult<()> {
     unsafe { uia.AddFocusChangedEventHandler(None, &handler)? };
     crate::log::line("capture: subscribed to UIA focus changes (dev session)");
 
-    let own_pid = std::process::id() as i32;
+    // Glim's own process tree (glim.exe and its msedgewebview2.exe children):
+    // nothing in it is ever read (super::OwnGuard).
+    let mut guard = super::OwnGuard::default();
     let results = results_path();
     // The field being watched, and its last reading's metadata: recorded to
     // the results log when focus leaves it, so its char count is the final one.
@@ -113,8 +115,11 @@ fn run(app: &AppHandle) -> WinResult<()> {
         }
         let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
         let pid = unsafe { element.CurrentProcessId() }.unwrap_or(0);
-        if pid == own_pid {
-            continue; // Glim's own windows (the panel, the island)
+        // Glim's own windows (the island, the panel, Settings, its webviews):
+        // skipped by the element's process and by the foreground window's,
+        // before anything about the element is read.
+        if guard.is_own(pid as u32, foreground_pid(), std::time::Instant::now(), own_tree) {
+            continue;
         }
         let mut capture = read(&element, pid);
         capture.via = via.into();
@@ -255,6 +260,47 @@ fn offset_of(doc: &IUIAutomationTextRange, at: &IUIAutomationTextRange) -> Optio
             .ok()?;
         Some(before.GetText(MAX_FIELD_CHARS).ok()?.to_string().chars().count())
     }
+}
+
+/// Glim's own process tree, from a Toolhelp snapshot of every process; only
+/// processes whose image is one of OWN_IMAGES can join it. `None` if the
+/// snapshot can't be taken (retried: ERROR_BAD_LENGTH is transient).
+fn own_tree() -> Option<std::collections::HashSet<u32>> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    for _ in 0..3 {
+        let mut pairs = Vec::new();
+        unsafe {
+            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { continue };
+            let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+            let first = Process32FirstW(snap, &mut e).is_ok();
+            let mut ok = first;
+            while ok {
+                let len = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+                let name = String::from_utf16_lossy(&e.szExeFile[..len]).to_ascii_lowercase();
+                if super::OWN_IMAGES.contains(&name.as_str()) {
+                    pairs.push((e.th32ProcessID, e.th32ParentProcessID));
+                }
+                ok = Process32NextW(snap, &mut e).is_ok();
+            }
+            let _ = CloseHandle(snap);
+            if !first {
+                continue;
+            }
+        }
+        return Some(super::process_tree(std::process::id(), &pairs));
+    }
+    crate::log::line("capture: process snapshot failed; skipping this reading");
+    None
+}
+
+/// The process owning the foreground window.
+fn foreground_pid() -> u32 {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
+    pid
 }
 
 /// The executable's file name for a process id.

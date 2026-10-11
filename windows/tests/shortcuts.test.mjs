@@ -18,11 +18,13 @@ const MAC_IDS = [
   "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
+/** Glim's own actions, after the Mac ones. */
+const GLIM_IDS = ["cycleVisibility", "rewrite"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
 test("every Mac action has a default, in the Mac's order, with its Mac id", () => {
-  assert.deepEqual(SHORTCUTS.map((d) => d.id), MAC_IDS);
+  assert.deepEqual(SHORTCUTS.map((d) => d.id), [...MAC_IDS, ...GLIM_IDS]);
   for (const d of SHORTCUTS) assert.ok(SHORTCUT_TEXT[d.id], `${d.id} has no label`);
 });
 
@@ -33,6 +35,16 @@ test("every default parses, is canonical and holds Ctrl+Alt", () => {
     assert.ok(c.ctrl && c.alt && !c.meta, `${d.id} default is not Ctrl+Alt`);
     assert.equal(formatKeys(c), d.defaultKeys, `${d.id} default is not in canonical form`);
   }
+});
+
+test("Glim's own keys are Ctrl+Alt+Shift: Space = show/hide, C = chat, R = rewrite", () => {
+  const keys = Object.fromEntries(SHORTCUTS.map((d) => [d.id, d.defaultKeys]));
+  assert.equal(keys.cycleVisibility, "Ctrl+Alt+Shift+Space");
+  assert.equal(keys.openChat, "Ctrl+Alt+Shift+C");
+  assert.equal(keys.rewrite, "Ctrl+Alt+Shift+R");
+  // Shift+AltGr is another layer: the unshifted table doesn't apply to it.
+  assert.deepEqual(altGrClashes("Ctrl+Alt+Shift+C"), []);
+  assert.ok(altGrClashes("Ctrl+Alt+C").includes("Brazilian (ABNT2)"));
 });
 
 test("no two defaults share a combination", () => {
@@ -67,13 +79,13 @@ test("the defaults are the same on both sides of the bridge", () => {
 // testEnabledByDefault
 test("only the island toggle is off by default; the four not in this version are reserved", () => {
   // Mute and the wardrobe went with upstream's sounds and outfits.
-  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle"];
+  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle", "rewrite"];
   for (const d of SHORTCUTS) {
     assert.equal(d.enabledByDefault, d.id !== "toggleIsland", d.id);
     assert.equal(d.ported, !reserved.includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility",
   ]);
 });
 
@@ -137,7 +149,7 @@ test("a stored binding wins, the rest keep their default, and off ones hold no k
   };
   const chat = SHORTCUTS.find((d) => d.id === "openChat");
   assert.deepEqual(effective(chat, stored), { keys: "Ctrl+Alt+K", enabled: true });
-  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Space", enabled: true });
+  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Shift+C", enabled: true });
   const ids = activeKeys(stored).map(([id]) => id);
   assert.ok(ids.includes("toggleIsland"));
   assert.ok(!ids.includes("goToAlert"));

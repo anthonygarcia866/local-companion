@@ -298,6 +298,14 @@ pub fn cursor_physical() -> Option<(f64, f64)> {
     None
 }
 
+pub fn foreground_center() -> Option<(f64, f64)> {
+    None
+}
+
+pub fn foreground_fullscreen(_display: (i32, i32, u32, u32)) -> bool {
+    false
+}
+
 pub fn left_button_down() -> bool {
     false
 }

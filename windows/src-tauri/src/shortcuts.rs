@@ -53,7 +53,10 @@ const fn action(id: &'static str, keys: &'static str, on: bool, ported: bool) ->
 /// Same order as `ShortcutAction.allCases`.
 pub const ACTIONS: &[ActionDef] = &[
     action("toggleIsland", "Ctrl+Alt+N", false, true),
-    action("openChat", "Ctrl+Alt+Space", true, true),
+    // Not Ctrl+Alt+Space (Word's Read Aloud, and held by another app on the
+    // owner's machine, so it never registered). Glim's own keys are
+    // Ctrl+Alt+Shift + a key: Space = show/hide, C = chat, R = rewrite.
+    action("openChat", "Ctrl+Alt+Shift+C", true, true),
     action("goToAlert", "Ctrl+Alt+A", true, true),
     action("jumpToTerminal", "Ctrl+Alt+T", true, true),
     // Dragging Mochi onto a window is not in this version.
@@ -66,6 +69,16 @@ pub const ACTIONS: &[ActionDef] = &[
     action("desktopToggle", "Ctrl+Alt+D", true, false),
     // The wardrobe (upstream's outfits for Mochi) was removed with the character.
     action("wardrobeToggle", "Ctrl+Alt+G", true, false),
+    // Glim's own: Normal → Ember → Hidden (presence.rs). Handled here in Rust,
+    // since it has to reach a hidden window. Not Ctrl+Alt+H: Word and OneNote
+    // highlight with it. Ctrl+Alt+Shift+Space is unassigned in Word (and so in
+    // Outlook's editor) and was free system-wide when checked (2026-10-10).
+    action("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
+    // Phase 1's rewrite of the selected text: reserved, shown and rebindable in
+    // Settings, registered once Phase 1 lands. Not Ctrl+Alt+G, the planned key:
+    // Word's "next Editor suggestion", and held by another app on the owner's
+    // machine. See PROJECT_STATUS.md (hotkeys).
+    action("rewrite", "Ctrl+Alt+Shift+R", true, false),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -267,9 +280,22 @@ pub fn plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
         .build()
 }
 
-/// Hands an action to the island.
+/// What the visibility hotkey runs (set up in lib.rs).
+static CYCLE_VISIBILITY: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_cycle_visibility(f: impl Fn() + Send + Sync + 'static) {
+    let _ = CYCLE_VISIBILITY.set(Box::new(f));
+}
+
+/// Hands an action to the island; the visibility cycle runs here.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
+    if action == "cycleVisibility" {
+        if let Some(f) = CYCLE_VISIBILITY.get() {
+            f();
+        }
+        return;
+    }
     let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
 }
 
@@ -295,6 +321,8 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, stored: &Bindings) {
 
     let mut by_id = HashMap::new();
     let mut report = Vec::new();
+    // For the log: what registered, and what didn't (and why).
+    let (mut registered, mut missing) = (Vec::new(), Vec::new());
     for (def, outcome) in plan(stored, typed_character) {
         let status = match outcome {
             Err(status) => status,
@@ -319,8 +347,19 @@ pub fn apply<R: Runtime>(app: &AppHandle<R>, stored: &Bindings) {
                 ActionStatus { id: def.id, status, typed: None }
             }
         };
+        let keys = effective(def, stored).keys;
+        match status.status {
+            Status::Active => registered.push(format!("{}={keys}", def.id)),
+            Status::Off | Status::NotPorted => {}
+            other => missing.push(format!("{}={keys} ({other:?})", def.id)),
+        }
         report.push(status);
     }
+    crate::log::line(format!(
+        "shortcuts: registered {}; not registered: {}",
+        if registered.is_empty() { "none".to_string() } else { registered.join(", ") },
+        if missing.is_empty() { "none".to_string() } else { missing.join(", ") },
+    ));
 
     if let Some(registry) = app.try_state::<Registry>() {
         *registry.by_id.lock().unwrap() = by_id;
@@ -379,6 +418,8 @@ mod tests {
         "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
+    /// Glim's own actions, after the Mac ones.
+    const GLIM_IDS: [&str; 2] = ["cycleVisibility", "rewrite"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None
@@ -388,7 +429,8 @@ mod tests {
     #[test]
     fn every_mac_action_has_a_default_and_keeps_its_id() {
         let ids: Vec<_> = ACTIONS.iter().map(|a| a.id).collect();
-        assert_eq!(ids, MAC_IDS);
+        let expected: Vec<_> = MAC_IDS.iter().chain(GLIM_IDS.iter()).copied().collect();
+        assert_eq!(ids, expected);
     }
 
     // testAllDefaultsHaveModifier
@@ -422,7 +464,7 @@ mod tests {
     fn the_actions_not_ported_yet_are_reserved_not_registered() {
         let plan = plan(&Bindings::new(), never);
         for (def, outcome) in plan {
-            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle");
+            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle" | "rewrite");
             assert_eq!(def.ported, !reserved);
             match outcome {
                 Ok(_) => assert!(def.ported && def.enabled_by_default, "{}", def.id),

@@ -307,3 +307,22 @@ test("an unusable delay is ignored", () => {
   for (const bad of [NaN, -1, Infinity]) fsm.homeToPetitDelay = bad;
   assert.equal(fsm.homeToPetitDelay, 15);
 });
+
+test("Glim's pill never folds to hidden by itself (foldsToHidden off)", () => {
+  fsm.foldsToHidden = false;
+  fsm.launch();
+  fsm.greetComplete();
+  seconds(1);
+  assert.equal(fsm.state, "petit");
+  fsm.mouseLeft();
+  seconds(3600);
+  assert.equal(fsm.state, "petit");
+  // Opening and closing still work, and closing lands on the pill.
+  fsm.click();
+  assert.equal(fsm.state, "home");
+  fsm.mouseLeft();
+  seconds(fsm.homeToPetitDelay);
+  assert.equal(fsm.state, "petit");
+  seconds(3600);
+  assert.equal(fsm.state, "petit");
+});

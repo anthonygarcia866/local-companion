@@ -1,6 +1,6 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
-import type { BotEmoteName, BotStateName, IslandMode, IslandViewName } from "./layout";
+import type { BotEmoteName, BotStateName, Dock, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
   DEFAULT_MAIN_PILL, HOST_OS, availablePills, orderPills, pillDefinition, sanitizeDeclared,
@@ -102,8 +102,17 @@ export interface Settings {
   activeIntegrations: string[];
   /** The always-on workspace pill: VS Code, Cursor, Codex or Antigravity. */
   mainPill: string;
-  /** "primary", "cursor", or `at:<x>,<y>` for one display (logical origin). */
+  /** "primary", "active" (the foreground window's display), "cursor", or
+   *  `at:<x>,<y>` for one display (logical origin). */
   screen: string;
+  /** The notch pill's size (see core/layout.ts pillGeometry). */
+  pillSize: PillSize;
+  /** The dock on each display, by display key. Rust owns it (dragging the
+   *  pill, Settings' picker): whatever the page sends back is ignored. */
+  docks?: Record<string, string>;
+  /** "normal" (the pill), "ember" or "hidden" (island/presence.ts). Rust owns
+   *  it, like `docks`: set it through Bridge.setVisibility. */
+  visibility?: "normal" | "ember" | "hidden";
   autostart: boolean;
   hooksInstalled: boolean;
   /** Show the Claude plan pill (5 h and weekly limits) in the island's header. */
@@ -143,6 +152,7 @@ export const DEFAULT_SETTINGS: Settings = {
   activeIntegrations: [],
   mainPill: DEFAULT_MAIN_PILL,
   screen: "primary",
+  pillSize: "large",
   autostart: false,
   hooksInstalled: false,
   showPlanInNotch: false,
@@ -165,6 +175,8 @@ export const DIFF_TTL_MS = 3_600_000;
 
 class AppState {
   mode: IslandMode = "hidden";
+  /** Where the island is docked on its display (Rust tells: "placement"). */
+  dock: Dock = "top-center";
   view: IslandViewName = "overview";
 
   tasks: AgentTask[] = [];

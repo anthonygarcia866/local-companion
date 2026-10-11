@@ -47,6 +47,8 @@ windows = { version = "0.61", features = [
   "Win32_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
+  # Fullscreen detection (presence.rs): SHQueryUserNotificationState.
+  "Win32_UI_Shell",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

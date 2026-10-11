@@ -70,10 +70,13 @@ export function portCss(html) {
   const style = html.match(/<style>([\s\S]*?)<\/style>/)?.[1];
   if (!style) throw new Error("no <style> in the design file");
   const first = style.indexOf(".lantern{display:block");
-  const media = style.indexOf("@media (prefers-reduced-motion");
+  // The design's own reduced-motion rule is the last one; the additive pop
+  // and ignite block has one of its own before it.
+  const media = style.lastIndexOf("@media (prefers-reduced-motion");
   if (first < 0 || media < 0) throw new Error("the design file's lantern CSS has moved");
   const end = style.indexOf("\n", media);
-  const css = style.slice(first, end < 0 ? undefined : end);
+  // Comments are the design's notes, not rules: dropped.
+  const css = style.slice(first, end < 0 ? undefined : end).replace(/\/\*[\s\S]*?\*\//g, "");
 
   // Keyframes the design already prefixed (`lantern-hop`) keep their name.
   const names = [...css.matchAll(/@keyframes ([a-z-]+)/g)].map((m) => m[1]);

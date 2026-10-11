@@ -39,6 +39,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             "quit" => app.exit(0),
             "settings" => crate::show_settings_window(app),
             id => {
+                // The way back from Hidden (and Ember): opening Glim from the
+                // tray brings the pill back first.
+                if id == "open" && crate::presence::current(app) != crate::presence::Presence::Pill {
+                    crate::presence::set_visibility(app, crate::presence::Visibility::Normal);
+                }
                 let _ = app.emit_to(WINDOW_LABEL, "tray", id.to_string());
             }
         });

@@ -7,7 +7,8 @@
 //    (docs/brand/glim-mascot.html) render the same pixels (to within ±2/255
 //    of rasterisation rounding, every exception listed), for every state,
 //    full and compact, with animations frozen at the same instants (state
-//    transitions finished first, so each frame is the state at rest).
+//    transitions finished first, so each frame is the state at rest); and
+//    the additive classes (pop, pop-record, ignite) on top of their states.
 // 2. Reduced motion: with prefers-reduced-motion emulated through the DevTools
 //    protocol (not the OS setting), no lantern animation runs in any state;
 //    without it, every state animates.
@@ -30,6 +31,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const DESIGN = resolve(here, "../../docs/brand/glim-mascot.html");
 const CSS = resolve(here, "../src/mascot/lantern.css");
 const STATES = ["idle", "listen", "think", "suggest", "record", "paused", "delegate", "done", "error"];
+/** The design's additive classes, each on the state it plays with: the
+ * attention pop, the recording cue, the startup ignite. */
+const EXTRAS = [["pop", "think"], ["pop", "done"], ["pop-record", "record"], ["ignite", "idle"]];
 /** Largest per-channel difference (of 255) still counted as the same pixel.
  * Chromium's blur under a running brightness filter (s-idle) isn't bit-stable
  * from frame to frame: renders of the very same page differ by 1 now and then. */
@@ -39,6 +43,8 @@ const ROUNDING = 2;
 const RERENDERS = 2;
 /** Instants (ms into every animation) at which both renders are compared. */
 const FREEZE_AT = [0, 450, 1100, 2000, 3300];
+/** Instants for the additive classes: their animations are 0.4-1.2 s. */
+const POP_AT = [0, 120, 300, 600];
 /** The notch's compact sprite: 1.2 × the diameter 20 over the 99 drawn
  * viewBox units (LANTERN_HEIGHT_PER_DIAMETER in src/mascot/lantern.ts). */
 const NOTCH_UNIT = (20 * 1.2) / 99;
@@ -127,10 +133,14 @@ async function main() {
     };
     // `settle`: wait out the state change's transitions (longest .35s) before
     // freezing, so a slow machine can't start one after it was finished.
-    const setUp = (state, compact, at, settle = false) =>
+    // `extra` (pop, ignite, ...) goes on after settling: its one-shot
+    // animation must still be running when it is frozen.
+    const setUp = (state, compact, at, settle = false, extra = "") =>
       evaluate(`(async()=>{setState('s-${state}');const el=document.getElementById('glim');el.classList.toggle('compact',${compact});
+        for(const c of ['pop','pop-record','ignite'])el.classList.remove(c);
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         if(${settle})await new Promise(r=>setTimeout(r,600));
+        if('${extra}'){el.classList.add('${extra}');await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}
         for(const a of document.getAnimations()){if(a.constructor.name==='CSSTransition'){a.finish();}else{a.pause();a.currentTime=${at};}}
         await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
         const b=el.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height,animations:document.getAnimations().length};})()`);
@@ -142,14 +152,15 @@ async function main() {
     const portUrl = portPage(work);
     const renders = { design: {}, port: {} };
     for (const [name, url] of [["design", designUrl], ["port", portUrl]]) {
-      for (const state of STATES) {
+      for (const [state, extra] of [...STATES.map((s) => [s, ""]), ...EXTRAS.map(([c, s]) => [s, c])]) {
         for (const compact of [false, true]) {
           // A fresh page for each state and size: the same history on both pages.
           await open(url);
-          for (const at of FREEZE_AT) {
-            const r = await setUp(state, compact, at, at === FREEZE_AT[0]);
+          for (const at of extra ? POP_AT : FREEZE_AT) {
+            // An extra class restarts from a settled state at every instant.
+            const r = await setUp(state, compact, at, extra ? true : at === FREEZE_AT[0], extra);
             // The glow and the aura reach past the viewBox: capture around it.
-            renders[name][`${state}/${compact}/${at}`] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
+            renders[name][`${state}/${compact}/${at}/${extra}`] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
           }
         }
       }
@@ -178,18 +189,18 @@ async function main() {
       // ~32/255 apart on the very same markup. Re-render both pages from
       // scratch, up to RERENDERS times; only a difference that persists fails.
       for (let retry = 1; retry <= RERENDERS && (d.pixels < 0 || d.max > ROUNDING); retry++) {
-        const [state, compact, at] = key.split("/");
+        const [state, compact, at, extra] = key.split("/");
         const again = {};
         for (const [name, url] of [["design", designUrl], ["port", portUrl]]) {
           await open(url);
-          const r = await setUp(state, compact === "true", Number(at), true);
+          const r = await setUp(state, compact === "true", Number(at), true, extra);
           again[name] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
         }
         d = again.design === again.port ? { pixels: 0, max: 0, total: d.total } : await diff(again.design, again.port);
         near.push(`  re-rendered ${key} (${retry}/${RERENDERS}): ${d.pixels} pixels differ, by at most ${d.max}/255`);
       }
       if (d.pixels < 0 || d.max > ROUNDING) {
-        const tag = key.replaceAll("/", "-");
+        const tag = key.replace(/\/$/, "").replaceAll("/", "-");
         writeFileSync(join(outDir, `mismatch-${tag}-design.png`), Buffer.from(renders.design[key], "base64"));
         writeFileSync(join(outDir, `mismatch-${tag}-port.png`), Buffer.from(renders.port[key], "base64"));
         failures.push(`pixels differ: ${key}`);
@@ -212,6 +223,16 @@ async function main() {
           if (reduce && running.length) failures.push(`reduced motion: ${state}${compact ? " compact" : ""} still runs ${running.join(", ")}`);
           if (!reduce && !running.length) failures.push(`no animation at all in ${state}${compact ? " compact" : ""}`);
         }
+      }
+      for (const [extra, state] of EXTRAS) {
+        const running = await evaluate(`(async()=>{setState('s-${state}');const el=document.getElementById('glim');el.classList.remove('compact','pop','pop-record','ignite');
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));el.classList.add('${extra}');
+          await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+          const names=document.getAnimations().filter(a=>a.constructor.name==='CSSAnimation'&&a.playState==='running').map(a=>a.animationName);
+          el.classList.remove('${extra}');return names;})()`);
+        const own = running.filter((n) => n.startsWith("lantern-pop") || n.startsWith("lantern-ignite"));
+        if (reduce && running.length) failures.push(`reduced motion: ${extra} still runs ${running.join(", ")}`);
+        if (!reduce && !own.length) failures.push(`${extra} on ${state} runs no animation of its own`);
       }
       console.log(`reduced motion ${reduce ? "on " : "off"}: checked ${STATES.length * 2} state/size pairs`);
     }

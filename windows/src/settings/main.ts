@@ -7,7 +7,7 @@ import "./settings.css";
 import { Bridge, onEvent, type HookPreview, type HookStatus, type ShortcutsReport } from "../core/bridge";
 import { providerDef, urlExposure, type ProviderId } from "../core/providers";
 import {
-  ISLAND_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
+  ISLAND_SHORTCUTS, PLANNED_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
   recordPress, type Binding,
 } from "../core/shortcuts";
 import { DEFAULT_SETTINGS, type Settings } from "../core/state";
@@ -537,6 +537,9 @@ function declaredChanged() {
 
 // ── General section ───────────────────────────────────────────────────────────
 
+/** Keeps Settings' visibility picker in step with the hotkey and the ember. */
+let visibilityListener: (() => void) | null = null;
+
 function generalSection(): HTMLElement {
   const autoClose = h("input", {
     type: "number", min: "5", max: "120", step: "1",
@@ -552,6 +555,7 @@ function generalSection(): HTMLElement {
   const screen = h("select", {}) as HTMLSelectElement;
   screen.append(
     h("option", { value: "primary", text: t("Main display") }),
+    h("option", { value: "active", text: t("Display of the active window") }),
     h("option", { value: "cursor", text: t("Display under the cursor") }),
   );
   screen.value = settings.screen;
@@ -575,6 +579,45 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  const pillSize = h("select", {}) as HTMLSelectElement;
+  pillSize.append(
+    h("option", { value: "small", text: t("Small") }),
+    h("option", { value: "medium", text: t("Medium") }),
+    h("option", { value: "large", text: t("Large") }),
+  );
+  pillSize.value = settings.pillSize;
+  pillSize.addEventListener("change", () => {
+    settings.pillSize = pillSize.value as typeof settings.pillSize;
+    void save();
+  });
+
+  // Where the island sits on its display. Rust owns the docks (dragging the
+  // pill sets them too); this asks for the island's own display.
+  const position = h("select", {}) as HTMLSelectElement;
+  position.append(
+    h("option", { value: "top-center", text: t("Top centre") }),
+    h("option", { value: "top-left", text: t("Top left") }),
+    h("option", { value: "top-right", text: t("Top right") }),
+    h("option", { value: "left", text: t("Left edge (upright)") }),
+    h("option", { value: "right", text: t("Right edge (upright)") }),
+  );
+  void Bridge.placement().then((p) => {
+    if (p) position.value = p.dock;
+  });
+  position.addEventListener("change", () => void Bridge.setDock(position.value));
+
+  // Pill, ember or hidden. Rust owns it (the hotkey changes it too), so the
+  // picker follows "settings-changed" instead of saving it with the rest.
+  const visibility = h("select", {}) as HTMLSelectElement;
+  visibility.append(
+    h("option", { value: "normal", text: t("Pill") }),
+    h("option", { value: "ember", text: t("Ember (a small glowing dot)") }),
+    h("option", { value: "hidden", text: t("Hidden") }),
+  );
+  visibility.value = settings.visibility ?? "normal";
+  visibilityListener = () => (visibility.value = settings.visibility ?? "normal");
+  visibility.addEventListener("change", () => void Bridge.setVisibility(visibility.value));
+
   return h(
     "section",
     {},
@@ -587,6 +630,19 @@ function generalSection(): HTMLElement {
     h("div", { class: "row" },
       h("label", { text: t("Island lives on") }),
       screen,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Pill size") }),
+      pillSize,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Position") }),
+      position,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Show Glim as") }),
+      visibility,
+      h("span", { class: "hint", text: t("Hidden: bring it back from the tray icon or with the shortcut") }),
     ),
     h("div", { class: "row" },
       h("label", { text: t("Launch at startup") }),
@@ -626,6 +682,8 @@ const SHORTCUTS_UI = {
   get none() { return t("None"); },
   get reset() { return t("Reset to defaults"); },
   get inUse() { return t("In use by another app"); },
+  notRegistered: (names: string) =>
+    t("These Glim shortcuts aren't working: {names}. Another app may be using the keys — pick other keys below.", { names }),
   get duplicate() { return t("Used twice"); },
   get invalid() { return t("Not a valid shortcut"); },
   get unavailable() { return t("Not available"); },
@@ -634,6 +692,7 @@ const SHORTCUTS_UI = {
     t("{keys} types “{char}” on your keyboard, so it can't be a shortcut. Pick another key.", { keys, char: ch }),
   get needsModifier() { return t("Hold Ctrl, Alt or the Windows key with it."); },
   get unsupportedKey() { return t("That key can't be used in a shortcut."); },
+  get planned() { return t("Coming in Phase 1"); },
   get wayland() {
     return t("Your Wayland desktop doesn't let apps listen for keys outside their own windows. Add the shortcuts in your system's keyboard settings instead, with these commands:");
   },
@@ -725,7 +784,8 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
     clear(list);
     const dups = duplicates(activeKeys(settings.shortcuts));
     for (const d of SHORTCUTS) {
-      if (!d.ported) continue;
+      const planned = PLANNED_SHORTCUTS.has(d.id);
+      if (!d.ported && !planned) continue;
       const binding = effective(d, settings.shortcuts);
       const keycap = h("button", {
         class: "keycap",
@@ -734,7 +794,9 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
       keycap.disabled = !binding.enabled;
       keycap.addEventListener("click", () => record(d.id, binding, keycap));
       const sw = toggle(binding.enabled, (on) => store(d.id, { keys: binding.keys, enabled: on }));
-      const tag = binding.enabled ? tagFor(d.id, dups) : null;
+      const tag = planned
+        ? h("span", { class: "tag", text: SHORTCUTS_UI.planned })
+        : binding.enabled ? tagFor(d.id, dups) : null;
       list.append(h("div", { class: binding.enabled ? "row shortcut" : "row shortcut off" },
         sw,
         h("span", { class: "shortcut-name", text: t(SHORTCUT_TEXT[d.id]) }),
@@ -744,6 +806,16 @@ function shortcutsSection(initial: ShortcutsReport | null): HTMLElement {
     }
 
     clear(blockedNote);
+    // Any enabled shortcut Windows wouldn't give us: say so plainly, at the top.
+    const failing = new Set(["inUse", "typesCharacter", "invalid", "duplicate"]);
+    const broken = SHORTCUTS.filter((d) => d.ported && effective(d, settings.shortcuts).enabled
+      && failing.has(report?.actions.find((a) => a.id === d.id)?.status ?? ""));
+    if (broken.length) {
+      blockedNote.append(h("div", {
+        class: "notice warn",
+        text: SHORTCUTS_UI.notRegistered(broken.map((d) => t(SHORTCUT_TEXT[d.id])).join(", ")),
+      }));
+    }
     if (report?.blocked === "wayland") {
       const commands = h("div", { class: "diff" });
       for (const d of SHORTCUTS) {
@@ -908,6 +980,7 @@ async function main() {
     const before = `${settings.chatProvider}|${settings.ollamaUrl}|${settings.lmstudioUrl}`;
     settings = { ...settings, ...s };
     shortcutsListener?.settingsChanged();
+    visibilityListener?.();
     for (const redraw of declaredViews) redraw();
     const after = `${settings.chatProvider}|${settings.ollamaUrl}|${settings.lmstudioUrl}`;
     if (before !== after) localRedraw?.();

@@ -29,6 +29,8 @@ export const SHORTCUT_TEXT = {
   muteToggle: N_("Mute or unmute Glim"),
   desktopToggle: N_("Send Glim to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
+  cycleVisibility: N_("Show Glim as pill, ember or hidden"),
+  rewrite: N_("Rewrite the selected text"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -53,7 +55,10 @@ export type ShortcutId =
   | "prevPill"
   | "muteToggle"
   | "desktopToggle"
-  | "wardrobeToggle";
+  | "wardrobeToggle"
+  // Glim's own, after the Mac ones.
+  | "cycleVisibility"
+  | "rewrite";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -66,10 +71,13 @@ export interface ShortcutDef {
 const def = (id: ShortcutId, defaultKeys: string, enabledByDefault: boolean, ported: boolean): ShortcutDef =>
   ({ id, defaultKeys, enabledByDefault, ported });
 
+/** Not working yet, but listed in Settings so its key can be picked now. */
+export const PLANNED_SHORTCUTS: ReadonlySet<ShortcutId> = new Set(["rewrite"]);
+
 /** Same order and defaults as ACTIONS in src-tauri/src/shortcuts.rs. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
   def("toggleIsland", "Ctrl+Alt+N", false, true),
-  def("openChat", "Ctrl+Alt+Space", true, true),
+  def("openChat", "Ctrl+Alt+Shift+C", true, true),
   def("goToAlert", "Ctrl+Alt+A", true, true),
   def("jumpToTerminal", "Ctrl+Alt+T", true, true),
   def("attachFrontWindow", "Ctrl+Alt+F", true, false),
@@ -79,6 +87,10 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("muteToggle", "Ctrl+Alt+S", true, false),
   def("desktopToggle", "Ctrl+Alt+D", true, false),
   def("wardrobeToggle", "Ctrl+Alt+G", true, false),
+  // Glim's own: Normal → Ember → Hidden. Rust runs it (it has to reach a hidden window).
+  def("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
+  // Phase 1: shown and rebindable in Settings, not registered yet.
+  def("rewrite", "Ctrl+Alt+Shift+R", true, false),
 ];
 
 export interface Binding {
@@ -323,7 +335,9 @@ export const ALTGR_CHARACTERS: Record<string, Record<string, string>> = {
 /** The layouts on which `keys` would type a character instead of running. */
 export function altGrClashes(keys: string): string[] {
   const c = parseKeys(keys);
-  if (!c || !c.ctrl || !c.alt || c.meta) return [];
+  // The table is the unshifted AltGr layer. Shift+AltGr is another layer, which
+  // Rust checks against the layouts actually installed (platform::ctrl_alt_types).
+  if (!c || !c.ctrl || !c.alt || c.meta || c.shift) return [];
   return Object.entries(ALTGR_CHARACTERS)
     .filter(([, chars]) => chars[c.key] != null)
     .map(([layout]) => layout);

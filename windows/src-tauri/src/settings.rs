@@ -18,8 +18,21 @@ pub struct Settings {
     pub active_integrations: Vec<String>,
     /// The always-on workspace pill (src/core/pills.ts checks it is one).
     pub main_pill: String,
-    /// "primary" = the main display, "cursor" = whichever display the mouse is on.
+    /// "primary" = the main display, "active" = the display of the active
+    /// (foreground) window, "cursor" = whichever display the mouse is on, or
+    /// `at:<x>,<y>|<name>` for one display.
     pub screen: String,
+    /// The notch pill's size: "small" (24 px lantern, compact drawing),
+    /// "medium" (36 px) or "large" (48 px, full detail).
+    pub pill_size: String,
+    /// The island's dock on each display, by display key (as `at:` screen
+    /// preferences): "top-center", "top-left", "top-right", "left" or "right"
+    /// (placement.rs). A display not in here uses top centre. Owned by the
+    /// Rust side: what a webview sends back is ignored.
+    pub docks: BTreeMap<String, String>,
+    /// "normal" (the pill), "ember" (a glowing dot at the dock's edge) or
+    /// "hidden" (presence.rs). Owned by the Rust side, like `docks`.
+    pub visibility: String,
     pub autostart: bool,
     pub hooks_installed: bool,
     /// Show the Claude plan pill (5 h and weekly limits) in the island's header.
@@ -79,6 +92,9 @@ impl Default for Settings {
             active_integrations: Vec::new(),
             main_pill: "integration_claude".into(),
             screen: "primary".into(),
+            pill_size: "large".into(),
+            docks: BTreeMap::new(),
+            visibility: "normal".into(),
             autostart: false,
             hooks_installed: false,
             show_plan_in_notch: false,
@@ -349,6 +365,9 @@ mod tests {
   "activeIntegrations": ["agent_codex"],
   "mainPill": "agent_cursor",
   "screen": "cursor",
+  "pillSize": "small",
+  "docks": { "at:0,0|DELL|1920x1080": "left" },
+  "visibility": "ember",
   "autostart": true,
   "hooksInstalled": true,
   "showPlanInNotch": true,
@@ -744,6 +763,9 @@ mod tests {
                 "activeIntegrations",
                 "mainPill",
                 "screen",
+                "pillSize",
+                "docks",
+                "visibility",
                 "autostart",
                 "hooksInstalled",
                 "showPlanInNotch",

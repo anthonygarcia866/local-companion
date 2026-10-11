@@ -20,6 +20,8 @@ mod recap;
 mod session_window;
 mod settings;
 mod shortcuts;
+mod placement;
+mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
@@ -80,9 +82,12 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let screen_changed = current.screen != settings.screen;
         let autostart_changed = current.autostart != settings.autostart;
         let shortcuts_changed = current.shortcuts != settings.shortcuts;
-        // Where the character sits on the desktop is desktop.rs's to say, not a webview's.
+        // Where the character sits on the desktop is desktop.rs's to say, not a
+        // webview's; so are the docks (island.rs, set by dragging the pill).
         let mut settings = settings.clone();
         settings.desktop_mochi = current.desktop_mochi.clone();
+        settings.docks = current.docks.clone();
+        settings.visibility = current.visibility.clone();
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -153,12 +158,58 @@ fn set_island_rect(app: AppHandle, shared: State<Shared>, x: f64, y: f64, width:
 }
 
 #[tauri::command]
-fn focus_window(app: AppHandle, focused: bool) {
+fn focus_window(app: AppHandle, caller: tauri::WebviewWindow, focused: bool) {
+    // Only the island's own page asks for its chat field: no other window
+    // (Settings, the desktop character) may hand it the keyboard.
+    if caller.label() != island::WINDOW_LABEL {
+        log::line(format!("focus_window refused from window {:?}", caller.label()));
+        return;
+    }
     let Some(win) = island::window(&app) else { return };
+    // Through tao (FOCUSABLE): tao rewrites the extended styles on every flag
+    // change (click-through toggles, show/hide) from its own flags, so a
+    // WS_EX_NOACTIVATE set behind its back was wiped and the island took focus
+    // when shown again. The raw toggle stays for Linux and the first frame.
+    let _ = win.set_focusable(focused);
     platform::set_activating(&win, focused);
     if focused {
         let _ = win.set_focus();
     }
+}
+
+/// The pill was pressed and moved: the window follows the cursor from here.
+#[tauri::command]
+fn dock_drag_start(app: AppHandle) {
+    island::start_dock_drag(&app);
+}
+
+/// Settings' position picker: the dock on the island's own display.
+#[tauri::command]
+fn set_dock(app: AppHandle, dock: String) {
+    if let Some(dock) = placement::Dock::parse(&dock) {
+        island::set_dock(&app, None, dock);
+    }
+}
+
+/// Settings' visibility picker and the ember's click (back to "normal").
+#[tauri::command]
+fn set_visibility(app: AppHandle, visibility: String) {
+    if let Some(v) = presence::Visibility::parse(&visibility) {
+        presence::set_visibility(&app, v);
+    }
+}
+
+/// What is on screen (pill, ember, hidden, recording indicator), for the page.
+#[tauri::command]
+fn presence_info(app: AppHandle) -> presence::PresencePayload {
+    presence::payload(&app)
+}
+
+/// Where the island is docked on its display, for the page's layout.
+#[tauri::command]
+fn placement() -> island::PlacementPayload {
+    let dock = island::current_dock();
+    island::PlacementPayload { dock: dock.as_str(), vertical: dock.vertical() }
 }
 
 #[tauri::command]
@@ -557,6 +608,9 @@ fn create_capture_panel(app: &AppHandle) {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
+        // tao keeps WS_EX_NOACTIVATE only through its own FOCUSABLE flag; set
+        // behind its back it is wiped on the next restyle (as the island's was).
+        .focusable(false)
         .visible(true)
         .build()
     {
@@ -587,6 +641,28 @@ fn open_settings_window(app: AppHandle) {
 /// when the running Glim was started with `GLIM_DEV=1` in its environment.
 fn dev_mascot_state(argv: &[String]) -> Option<String> {
     dev_arg(argv, "--mascot-state")
+}
+
+/// `glim.exe --dock <top-center|top-left|top-right|left-vertical|right-vertical>`:
+/// docks the island on its display, as dragging the pill there would. Dev only.
+fn dev_dock(argv: &[String]) -> Option<placement::Dock> {
+    dev_arg(argv, "--dock").and_then(|d| placement::Dock::parse(&d))
+}
+
+/// `glim.exe --visibility <normal|ember|hidden>`: as Settings or the hotkey
+/// would set it. `glim.exe --fullscreen <on|off|auto>`: pretends a fullscreen
+/// app is (or isn't) in front, to check the auto-hide. Dev only.
+fn dev_visibility(argv: &[String]) -> Option<presence::Visibility> {
+    dev_arg(argv, "--visibility").and_then(|v| presence::Visibility::parse(&v))
+}
+
+fn dev_fullscreen(argv: &[String]) -> Option<Option<bool>> {
+    match dev_arg(argv, "--fullscreen")?.as_str() {
+        "on" => Some(Some(true)),
+        "off" => Some(Some(false)),
+        "auto" => Some(None),
+        _ => None,
+    }
 }
 
 /// `glim.exe --dev-chat "<prompt>"`: sends the prompt through the island's own
@@ -639,6 +715,18 @@ pub fn run() {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
             }
+            if let Some(v) = dev_visibility(&argv) {
+                presence::set_visibility(app, v);
+                return;
+            }
+            if let Some(f) = dev_fullscreen(&argv) {
+                presence::set_dev_fullscreen(app, f);
+                return;
+            }
+            if let Some(dock) = dev_dock(&argv) {
+                island::set_dock(app, None, dock);
+                return;
+            }
             if dev_open_settings(&argv) {
                 show_settings_window(app);
                 return;
@@ -677,6 +765,11 @@ pub fn run() {
             set_island_rect,
             focus_window,
             reposition,
+            dock_drag_start,
+            set_visibility,
+            presence_info,
+            set_dock,
+            placement,
             list_monitors,
             open_url,
             open_in_vscode,
@@ -762,6 +855,10 @@ pub fn run() {
             }
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
+            island::spawn_display_watch(handle.clone());
+            // The visibility hotkey works in Rust: it has to reach a hidden window.
+            let cycle_handle = handle.clone();
+            shortcuts::on_cycle_visibility(move || presence::cycle(&cycle_handle));
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
@@ -791,6 +888,13 @@ mod tests {
             .find(|w| w["label"] == "island")
             .expect("the island window");
         assert_eq!(island["focus"], false);
+        // tao owns WS_EX_NOACTIVATE only through its FOCUSABLE flag: anything
+        // set behind its back is wiped on its next restyle (seen 2026-10-10:
+        // Hidden → Normal took the foreground).
+        assert_eq!(island["focusable"], false);
+        let src_lf = include_str!("lib.rs").replace("\r\n", "\n");
+        let focus = &src_lf[src_lf.find("fn focus_window").unwrap()..];
+        assert!(focus[..focus.find("\n}\n").unwrap()].contains("let _ = win.set_focusable(focused);"));
 
         // CI checks the sources out with CRLF (core.autocrlf): compare as LF.
         let src = include_str!("lib.rs").replace("\r\n", "\n");

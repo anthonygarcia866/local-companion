@@ -21,7 +21,6 @@ export type IslandViewName =
   | "result"
   | "note"
   | "settings"
-  | "greeting"
   | "recap";
 
 export type BotStateName =
@@ -61,7 +60,86 @@ export const COMPACT_W = 288; // NOTCH_W + 104
 export const EXPANDED_W = 640;
 
 export const ROUNDED_CORNER = 14; // hidden / compact
+
+/** The notch pill's size setting. */
+export type PillSize = "small" | "medium" | "large";
+export const PILL_SIZES: readonly PillSize[] = ["small", "medium", "large"];
+
+/** The collapsed pill for a size: its box, and where the lantern sits in it.
+ *  The lantern stands 1.2 × `diameter` tall (island.ts), its base at
+ *  `botCy + diameter / 2`: 24 px (small, compact drawing), 36 px (medium,
+ *  still compact) and 48 px (large: the full drawing with face, brows and
+ *  hands, since the lantern's own box is 60 px ≥ COMPACT_BELOW_PX). */
+export interface PillGeometry {
+  w: number;
+  h: number;
+  botCx: number;
+  botCy: number;
+  diameter: number;
+}
+
+export function pillGeometry(size: PillSize | string): PillGeometry {
+  switch (size) {
+    case "small":
+      return { w: 288, h: 32, botCx: 40, botCy: 16, diameter: 20 };
+    case "medium":
+      return { w: 320, h: 44, botCx: 46, botCy: 25, diameter: 30 };
+    default:
+      return { w: 352, h: 56, botCx: 52, botCy: 32, diameter: 40 };
+  }
+}
 export const EXPANDED_CORNER = 22;
+
+/** Where the island is docked on its display (src-tauri/src/placement.rs). */
+export type Dock = "top-center" | "top-left" | "top-right" | "left" | "right";
+export const DOCKS: readonly Dock[] = ["top-center", "top-left", "top-right", "left", "right"];
+
+export function isDock(s: string): s is Dock {
+  return (DOCKS as readonly string[]).includes(s);
+}
+
+/** Upright along the left or right edge: the pill stands vertically and the
+ *  island opens sideways, away from the edge. */
+export function isVerticalDock(d: Dock): boolean {
+  return d === "left" || d === "right";
+}
+
+/** The window's height when docked upright (placement.rs PANEL_V_H). */
+export const PANEL_V_H = 400;
+/** Gap between a top-corner island and the display's side edge. */
+export const CORNER_GAP = 12;
+
+/**
+ * The island's drawn size for a dock: upright docks turn the pill (and the
+ * retracted island) on its side; the open island keeps its size.
+ */
+export function dockedSize(dock: Dock, mode: IslandMode, size: { w: number; h: number }): { w: number; h: number } {
+  return isVerticalDock(dock) && mode !== "expanded" ? { w: size.h, h: size.w } : size;
+}
+
+/** The island's frame in its window (window-logical px), and its corners. */
+export function islandFrame(dock: Dock, w: number, h: number, r: number): {
+  x: number; y: number; w: number; h: number; radius: string;
+} {
+  switch (dock) {
+    case "top-left":
+      return { x: CORNER_GAP, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+    case "top-right":
+      return { x: PANEL_W - CORNER_GAP - w, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+    case "left":
+      return { x: 0, y: (PANEL_V_H - h) / 2, w, h, radius: `0 ${r}px ${r}px 0` };
+    case "right":
+      return { x: PANEL_W - w, y: (PANEL_V_H - h) / 2, w, h, radius: `${r}px 0 0 ${r}px` };
+    default:
+      return { x: (PANEL_W - w) / 2, y: 0, w, h, radius: `0 0 ${r}px ${r}px` };
+  }
+}
+
+/** The lantern's place in a docked island: an upright pill carries it at the
+ *  top, where a level pill has it on the left. */
+export function dockedBot(dock: Dock, mode: IslandMode, p: BotPlacement): BotPlacement {
+  return isVerticalDock(dock) && mode !== "expanded" ? { ...p, cx: p.cy, cy: p.cx } : p;
+}
 
 /** Invisible hover strip that wakes the island when hidden. */
 export const WAKE_STRIP_W = 240;
@@ -86,7 +164,6 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
   note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
   settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
-  greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Mac: 160. The extra 24 hold the two lines with top agent, project, busiest
   // day, longest session, permissions and questions, which the Mac card leaves
   // to the shared image.
@@ -109,6 +186,7 @@ export function islandSize(
   mode: IslandMode,
   view: IslandViewName,
   chatCount = 0,
+  pill: PillGeometry = pillGeometry("small"),
 ): { w: number; h: number } {
   switch (mode) {
     case "hidden":
@@ -116,7 +194,7 @@ export function islandSize(
       // slides into the top edge of the screen instead of sitting there as a bar.
       return { w: NOTCH_W, h: 0 };
     case "compact":
-      return { w: COMPACT_W, h: NOTCH_H };
+      return { w: pill.w, h: pill.h };
     case "expanded": {
       const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
       return { w: EXPANDED_W, h };
@@ -137,12 +215,13 @@ export function botPosition(
   view: IslandViewName,
   islandH: number,
   uploadProgress = 0,
+  pill: PillGeometry = pillGeometry("small"),
 ): BotPlacement {
   switch (mode) {
     case "hidden":
       return { cx: 46, cy: 16, diameter: 6, opacity: 0 };
     case "compact":
-      return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
+      return { cx: pill.botCx, cy: pill.botCy, diameter: pill.diameter, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
       if (view === "uploading") {
@@ -169,10 +248,12 @@ export function botGlowColor(s: BotStateName): string {
   switch (s) {
     case "working":
       return "#3B9EFF";
+    // Thinking and searching glow in Glim's own amber (they were purple and
+    // indigo, upstream's palette).
     case "thinking":
-      return "#A78BFA";
+      return "#FFB347";
     case "searching":
-      return "#6366F1";
+      return "#FFB347";
     case "approval":
       return "#F5A524";
     case "error":
@@ -227,7 +308,7 @@ export function colorForProject(name: string): string {
 }
 
 // Card wash colours (CardBackground.washColor)
-export type Wash = "red" | "green" | "pink" | "amber" | "cyan" | "indigo" | "soft" | null;
+export type Wash = "red" | "green" | "pink" | "amber" | "cyan" | "ember" | "soft" | null;
 
 export function washRGBA(wash: Wash): string {
   switch (wash) {
@@ -241,11 +322,18 @@ export function washRGBA(wash: Wash): string {
       return "rgba(245,165,36,0.42)";
     case "cyan":
       return "rgba(34,211,238,0.38)";
-    case "indigo":
-      return "rgba(99,102,241,0.5)";
+    // Glim's warm amber (#FFB347) at low opacity; was upstream's indigo.
+    case "ember":
+      return "rgba(255,179,71,0.22)";
     case "soft":
       return "rgba(255,255,255,0.08)";
     default:
       return "rgba(0,0,0,0)";
   }
+}
+
+/** The overview's right card (the other pills, to switch to) only has a
+ *  reason to be there when there is another pill. */
+export function showsSwitcher(otherPills: number): boolean {
+  return otherPills > 0;
 }

@@ -17,6 +17,7 @@ import {
   lanternIds,
   lanternMarkup,
   lanternStateFor,
+  shouldPop,
 } from "../src/mascot/lantern.ts";
 
 const WINDOWS = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,6 +59,31 @@ test("the CSS has a rule for each of the nine states, compact, and reduced motio
     if (!rule || rule.startsWith("@")) continue;
     for (const sel of rule.slice(0, rule.indexOf("{")).split(",")) assert.ok(sel.startsWith(".lantern"), sel);
   }
+});
+
+test("the pop, the recording cue and the ignite are separate classes, still under reduced motion", () => {
+  const css = read("src/mascot/lantern.css");
+  for (const cls of ["pop", "pop-record", "ignite"]) assert.match(css, new RegExp(`\\.lantern\\.${cls}[{ ]`), cls);
+  // About 1.15x over about 400 ms, as asked.
+  assert.match(css, /\.lantern\.pop\{[^}]*animation:lantern-pop \.4s/);
+  assert.match(css, /@keyframes lantern-pop\{[^\n]*scale\(1\.15\)/);
+  // Reduced motion: no bounce, the glow alone changes.
+  assert.ok(css.includes("@media (prefers-reduced-motion: reduce){.lantern.pop,.lantern.pop-record{animation:none}"));
+  // The approved state rules don't mention them: the classes only add.
+  for (const rule of css.split("\n")) {
+    if (/\.s-[a-z]+/.test(rule)) assert.ok(!/\.(pop|ignite)\b/.test(rule), rule);
+  }
+});
+
+test("every state change pops except idle and listen, and recording has its own cue", () => {
+  assert.equal(shouldPop("idle", "listen"), false);
+  assert.equal(shouldPop("listen", "idle"), false);
+  assert.equal(shouldPop("idle", "idle"), false);
+  for (const [a, b] of [["idle", "think"], ["listen", "suggest"], ["think", "done"], ["think", "error"], ["done", "idle"], ["paused", "idle"]]) {
+    assert.equal(shouldPop(a, b), true, `${a} -> ${b}`);
+  }
+  // s-record repeats its stronger cue instead of a one-off pop.
+  assert.equal(shouldPop("idle", "record"), false);
 });
 
 test("ids are unique per instance and every reference follows", () => {
@@ -117,6 +143,9 @@ test("every island state maps to one of the design's states", () => {
 const SHOWS_RESERVED = {
   // The dev-only `--mascot-state` switch (GLIM_DEV=1) previews any state.
   "src/island/island.ts": ["dev-preview"],
+  // The recording indicator (visibility modes): what stays on screen in every
+  // mode, Hidden and fullscreen included, while the screen is being recorded.
+  "src/island/presence.ts": ["screen-recording"],
 };
 
 function sources(dir = "src", out = []) {
@@ -159,5 +188,68 @@ test("only the allowed owners call showReserved", () => {
       const owner = args.match(/["']([a-z0-9-]+)["']\s*$/)?.[1];
       assert.ok(allowed.includes(owner), `${file}: showReserved owner ${owner ?? args} isn't allowed there`);
     }
+  }
+});
+
+// ── The Lantern class: startup ignite ────────────────────────────────────────
+
+/** Just enough of an <svg> for the Lantern class: its class attribute. */
+function fakeDocument() {
+  globalThis.document = {
+    createElementNS: () => {
+      const attrs = new Map();
+      return {
+        innerHTML: "",
+        setAttribute: (k, v) => attrs.set(k, String(v)),
+        getAttribute: (k) => attrs.get(k) ?? null,
+        getBoundingClientRect: () => ({ height: 48 }),
+      };
+    },
+  };
+}
+
+test("launch: dark, the flame lights, then the latest app state", async (t) => {
+  fakeDocument();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { Lantern, IGNITE_DARK_MS, IGNITE_MS } = await import("../src/mascot/lantern.ts");
+  const l = new Lantern({ detail: "notch", state: "paused", heightPx: 48 });
+  const cls = () => l.el.getAttribute("class");
+  l.ignite();
+  assert.equal(cls(), "lantern s-paused");
+  l.show("think"); // an agent starts during the ignite: it waits
+  assert.equal(cls(), "lantern s-paused");
+  t.mock.timers.tick(IGNITE_DARK_MS);
+  assert.equal(cls(), "lantern s-idle ignite");
+  t.mock.timers.tick(IGNITE_MS);
+  assert.ok(!l.isIgniting);
+  assert.match(cls(), /^lantern s-think pop$/);
+});
+
+test("recording never waits for the ignite", async (t) => {
+  fakeDocument();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { Lantern, IGNITE_DARK_MS, IGNITE_MS } = await import("../src/mascot/lantern.ts");
+  const l = new Lantern({ detail: "notch", state: "paused", heightPx: 48 });
+  l.ignite();
+  l.showReserved("record", "screen-recording");
+  assert.equal(l.el.getAttribute("class"), "lantern s-record pop-record");
+  t.mock.timers.tick(IGNITE_DARK_MS + IGNITE_MS);
+  assert.equal(l.el.getAttribute("class"), "lantern s-record pop-record");
+});
+
+test("the file drop: listening, thinking while it loads, done at the check", async () => {
+  fakeDocument();
+  const { uploadLanternState } = await import("../src/mascot/lantern.ts");
+  assert.equal(uploadLanternState({ check: 0, barAlpha: 0, progress: 0 }), "listen");
+  assert.equal(uploadLanternState({ check: 0, barAlpha: 1, progress: 0.4 }), "think");
+  assert.equal(uploadLanternState({ check: 0.2, barAlpha: 1, progress: 1 }), "done");
+});
+
+test("no upstream character art is drawn anywhere", () => {
+  // The engine keeps the animation state; nothing may paint it again.
+  const engine = read("src/mochi/engine.ts");
+  assert.ok(!/^\s+draw\(/m.test(engine));
+  for (const gone of ["src/mochi/greeting.ts", "src/mochi/minibots.ts"]) {
+    assert.throws(() => read(gone), gone);
   }
 });

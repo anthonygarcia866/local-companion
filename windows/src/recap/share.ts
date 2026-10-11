@@ -1,8 +1,11 @@
 // The 1080 × 1920 image of the week, drawn once into an offscreen canvas —
 // port of RecapShareImageView in WeeklyRecapView.swift. Same colours, sizes
-// and order; the character comes from the island's own engine.
+// and order. The character is Glim's lantern, at rest (upstream drew its own
+// character here; that art is not MIT and is not used).
 
-import { BotEngine } from "../mochi/engine";
+import lanternCss from "../mascot/lantern.css?raw";
+import { LANTERN_VIEWBOX } from "../mascot/lantern-svg";
+import { lanternMarkup } from "../mascot/lantern";
 import { formatCount, formatDuration, weekRangeLabel, type WeeklySummary } from "./summary";
 import { t } from "../i18n/i18n";
 import { SCRIPT_FONTS } from "../core/fonts";
@@ -15,7 +18,8 @@ const MONO = `"Cascadia Mono", "Consolas", "DejaVu Sans Mono", ui-monospace, mon
 
 const INK = "#F1F2F4";
 const DIM = "#8E939C";
-const INDIGO_TEXT = "#818CF8";
+/** Glim's amber (was upstream's indigo). */
+const EMBER_TEXT = "#FFB347";
 
 /** Strings drawn into the image, in the current language (src/i18n). */
 const T = {
@@ -131,18 +135,30 @@ function badge(x: Ctx, left: number, top: number, w: number, label: string, valu
   x.fillText(ellipsize(x, value, w - 64 - labelW - 16), left + w - 32, mid);
 }
 
-/** A still character, drawn by the same engine as the island's. */
-function drawCharacter(x: Ctx, cx: number, top: number, size: number) {
-  const engine = new BotEngine();
-  engine.setState("idle", true);
-  engine.update(1 / 60);
-  x.save();
-  x.translate(cx - size / 2, top);
-  engine.draw(x, size, size);
-  x.restore();
+/** The lantern in s-idle, full detail, still (no animation): an SVG image. */
+function loadLantern(): Promise<HTMLImageElement> {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" class="lantern s-idle" viewBox="${LANTERN_VIEWBOX}" width="100" height="124">` +
+    `<style>${lanternCss}.lantern *{animation:none !important}</style>${lanternMarkup("share", "full")}</svg>`;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("the lantern image did not load"));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
 }
 
-export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLCanvasElement {
+let lantern: Promise<HTMLImageElement> | null = null;
+
+/** The lantern, `height` px tall, its base at `bottom`, centred on `cx`. */
+function drawCharacter(x: Ctx, img: HTMLImageElement, cx: number, bottom: number, height: number) {
+  const width = (height * 100) / 124;
+  x.drawImage(img, cx - width / 2, bottom - height, width, height);
+}
+
+export async function renderShareImage(s: WeeklySummary, hideProjects: boolean): Promise<HTMLCanvasElement> {
+  lantern ??= loadLantern();
+  const img = await lantern;
   const canvas = document.createElement("canvas");
   canvas.width = SHARE_W;
   canvas.height = SHARE_H;
@@ -151,12 +167,12 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
   const W = SHARE_W;
   const cx = W / 2;
 
-  // Background: near-black with an indigo glow low in the frame.
+  // Background: near-black with a warm amber glow low in the frame.
   x.fillStyle = "#0B0C0E";
   x.fillRect(0, 0, W, SHARE_H);
   const glow = x.createRadialGradient(cx, SHARE_H * 0.75, 0, cx, SHARE_H * 0.75, 900);
-  glow.addColorStop(0, "rgba(99,102,241,0.30)");
-  glow.addColorStop(0.65, "rgba(99,102,241,0)");
+  glow.addColorStop(0, "rgba(255,179,71,0.22)");
+  glow.addColorStop(0.65, "rgba(255,179,71,0)");
   x.fillStyle = glow;
   x.fillRect(0, 0, W, SHARE_H);
 
@@ -172,10 +188,9 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
 
   // Heights of each block, so the whole stack can be centred like the VStack.
   // Mochi's body fills ~60 % of the square the engine draws into.
-  const MOCHI = 220;
-  const MOCHI_DRAW = 320;
+  const LANTERN_H = 220;
   const blockH =
-    MOCHI + 20 + 62 + 6 + 36 + 14 + 29 + 80 + // character, name, title, range
+    LANTERN_H + 20 + 62 + 6 + 36 + 14 + 29 + 80 + // character, name, title, range
     110 + 6 + 26 + // time + caption
     56 + 94 + // stat row
     (hasLines ? 24 + 34 : 0) +
@@ -185,8 +200,8 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
 
   x.textBaseline = "top";
 
-  drawCharacter(x, cx, y + MOCHI / 2 - MOCHI_DRAW / 2 - MOCHI_DRAW * 0.02, MOCHI_DRAW);
-  y += MOCHI + 20;
+  drawCharacter(x, img, cx, y + LANTERN_H, LANTERN_H);
+  y += LANTERN_H + 20;
 
   x.fillStyle = INK;
   x.textAlign = "center";
@@ -199,7 +214,7 @@ export function renderShareImage(s: WeeklySummary, hideProjects: boolean): HTMLC
   x.fillText(T.title, cx, y);
   y += 36 + 14;
 
-  x.fillStyle = INDIGO_TEXT;
+  x.fillStyle = EMBER_TEXT;
   font(x, 400, 24);
   x.fillText(weekRangeLabel(s), cx, y);
   y += 29 + 80;

@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, WebviewWindow};
 
+use crate::placement::{nearest_dock, window_rect, Dock, Shape};
 use crate::platform::{self, cursor_physical, left_button_down};
 
 /// Logical size of the full window — the largest island view, like the macOS panel.
@@ -61,6 +62,13 @@ pub struct PollGate {
     pub rect: Mutex<IslandRect>,
     /// Mirrors the window flag so we only call into the OS when it changes.
     ignoring: AtomicBool,
+    /// The next poll tick decides click-through even if the cursor hasn't
+    /// moved: after a resize or a show the flag was reset to "take the mouse",
+    /// and a still cursor must not leave the whole panel swallowing clicks.
+    recheck: AtomicBool,
+    /// The window is the ember dot (or the recording indicator): all of it
+    /// takes the mouse, whatever island shape the page last pushed.
+    pub ember: AtomicBool,
 }
 
 impl PollGate {
@@ -71,6 +79,8 @@ impl PollGate {
             collapsed: AtomicBool::new(true),
             rect: Mutex::new(IslandRect::default()),
             ignoring: AtomicBool::new(false),
+            recheck: AtomicBool::new(false),
+            ember: AtomicBool::new(false),
         }
     }
 
@@ -81,6 +91,7 @@ impl PollGate {
     /// Forces the next poll tick to re-apply the flag (after a window resize).
     pub fn forget_ignore_state(&self) {
         self.ignoring.store(false, Ordering::Relaxed);
+        self.recheck.store(true, Ordering::Relaxed);
     }
 
     pub fn set_active(&self, on: bool) {
@@ -217,13 +228,29 @@ fn pick_display(pref: &str, displays: &[DisplayId]) -> Option<usize> {
     displays.iter().position(at)
 }
 
-/// The display the island lives on: a chosen one, the primary one, or the one
-/// under the cursor.
+/// The display "active" last resolved to, by DisplayId key: kept while Glim
+/// itself (or nothing) is in front.
+static LAST_ACTIVE: Mutex<Option<String>> = Mutex::new(None);
+
+/// The display the island lives on: a chosen one, the primary one, the one of
+/// the active (foreground) window, or the one under the cursor.
 fn target_monitor(app: &AppHandle, pref: &str) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
     let ids: Vec<DisplayId> = monitors.iter().map(describe).collect();
     if let Some(i) = pick_display(pref, &ids) {
         return Some(monitors[i].clone());
+    }
+    if pref == "active" {
+        if let Some((cx, cy)) = platform::foreground_center() {
+            if let Some(i) = monitors.iter().position(|m| monitor_contains(m, cx, cy)) {
+                *LAST_ACTIVE.lock().unwrap() = Some(ids[i].key());
+                return Some(monitors[i].clone());
+            }
+        }
+        let last = LAST_ACTIVE.lock().unwrap().clone();
+        if let Some(i) = last.and_then(|k| pick_display(&k, &ids)) {
+            return Some(monitors[i].clone());
+        }
     }
     if pref == "cursor" {
         if let Some((cx, cy)) = cursor_physical() {
@@ -271,6 +298,41 @@ mod display_tests {
     }
 
     #[test]
+    fn the_ember_takes_the_mouse_whatever_rect_the_page_pushed() {
+        // The page last pushed the pill's rect; the window is now the 28 px dot.
+        let pill = IslandRect { x: 184.0, y: 0.0, w: 352.0, h: 56.0 };
+        assert!(takes_mouse(pill, 10.0, 10.0, true));
+        assert!(!takes_mouse(pill, 10.0, 10.0, false));
+        assert!(takes_mouse(pill, 300.0, 20.0, false));
+        // Nothing drawn: nothing takes the mouse (unless it is the ember).
+        assert!(!takes_mouse(IslandRect::default(), 0.0, 0.0, false));
+    }
+
+    #[test]
+    fn a_reset_flag_is_decided_again_without_the_cursor_moving() {
+        let gate = PollGate::new();
+        assert!(!gate.recheck.load(Ordering::Relaxed));
+        gate.forget_ignore_state();
+        assert!(gate.recheck.swap(false, Ordering::Relaxed));
+    }
+
+    #[test]
+    fn a_window_moved_off_its_place_is_noticed() {
+        assert!(!drifted(None, Some((0, 0))));
+        assert!(!drifted(Some((100, 0, 720, 320)), Some((100, 0))));
+        // Windows moved it to the display on the left while it was folded away.
+        assert!(drifted(Some((100, 0, 720, 320)), Some((-1272, -58))));
+        assert!(!drifted(Some((100, 0, 720, 320)), None));
+    }
+
+    #[test]
+    fn active_and_cursor_are_not_saved_displays() {
+        let lap = d("eDP-1", 0, 0, 1920, 1200);
+        assert_eq!(pick_display("active", &[lap.clone()]), None);
+        assert_eq!(pick_display("cursor", &[lap]), None);
+    }
+
+    #[test]
     fn preferences_saved_before_still_match() {
         let lap = d("eDP-1", 0, 0, 1920, 1200);
         let ext = d("HDMI-1", 1920, 0, 1920, 1080);
@@ -298,6 +360,41 @@ pub fn screen_info(app: &AppHandle, pref: &str) -> ScreenInfo {
     }
 }
 
+/// Where apply_geometry last put the window: physical x, y, width, height.
+/// The display watch puts it back if anything else moves it.
+static PLACED: Mutex<Option<(i32, i32, u32, u32)>> = Mutex::new(None);
+
+/// The dock the island uses on the display it lives on (see placement.rs).
+static CURRENT_DOCK: Mutex<Dock> = Mutex::new(Dock::TopCenter);
+
+pub fn current_dock() -> Dock {
+    *CURRENT_DOCK.lock().unwrap()
+}
+
+/// What the page needs to lay the island out in its window.
+#[derive(Serialize, Clone)]
+pub struct PlacementPayload {
+    pub dock: &'static str,
+    pub vertical: bool,
+}
+
+/// The dock remembered for display `m` (settings.docks), matched the way
+/// `at:` display preferences are, so a rearranged or rescaled display keeps
+/// its dock. Top centre when none was chosen.
+fn dock_for(app: &AppHandle, m: &Monitor) -> Dock {
+    let Some(shared) = app.try_state::<crate::Shared>() else { return Dock::TopCenter };
+    let docks = shared.settings.lock().unwrap().docks.clone();
+    let Ok(monitors) = app.available_monitors() else { return Dock::TopCenter };
+    let ids: Vec<DisplayId> = monitors.iter().map(describe).collect();
+    let me = describe(m);
+    let Some(here) = ids.iter().position(|d| *d == me) else { return Dock::TopCenter };
+    docks
+        .iter()
+        .find(|(key, _)| pick_display(key, &ids) == Some(here))
+        .and_then(|(_, d)| Dock::parse(d))
+        .unwrap_or(Dock::TopCenter)
+}
+
 /// Places and sizes the window. `collapsed` picks the wake strip instead of the panel.
 pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let Some(win) = window(app) else { return };
@@ -307,11 +404,43 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let mp = *m.position();
     let ms = *m.size();
 
-    let (lw, lh) = if collapsed { (STRIP_W, STRIP_H) } else { (PANEL_W, PANEL_H) };
+    let dock = dock_for(app, &m);
+    let previous = std::mem::replace(&mut *CURRENT_DOCK.lock().unwrap(), dock);
+    if previous != dock {
+        let _ = app.emit_to(WINDOW_LABEL, "placement", PlacementPayload { dock: dock.as_str(), vertical: dock.vertical() });
+    }
+    let shape = match crate::presence::current(app) {
+        crate::presence::Presence::Hidden => {
+            release_focus(&win);
+            let _ = win.hide();
+            return;
+        }
+        crate::presence::Presence::Ember | crate::presence::Presence::Indicator => Shape::Ember,
+        crate::presence::Presence::Pill if collapsed => Shape::Strip,
+        crate::presence::Presence::Pill => Shape::Panel,
+    };
+    // Through tao, both ways (`hide` above, `show` here): tao re-applies its
+    // own idea of visibility on every later flag change (click-through,
+    // always-on-top), so a window shown behind its back is hidden again. The
+    // island is WS_EX_NOACTIVATE, so showing it never takes focus — kept by
+    // tao itself: the window is built `focusable: false` (tauri.conf.json).
+    if shape != Shape::Panel {
+        // Only the open island's chat field ever takes focus; nothing smaller
+        // keeps it (a chat closed by the hotkey, Hidden or a fullscreen app
+        // never said focusWindow(false)).
+        release_focus(&win);
+    }
+    if let Some(shared) = app.try_state::<crate::Shared>() {
+        shared.gate.ember.store(shape == Shape::Ember, Ordering::Relaxed);
+    }
+    if !win.is_visible().unwrap_or(true) {
+        let _ = win.show();
+    }
+    let (rx, ry, lw, lh) = window_rect(dock, shape, ms.width as f64 / scale, ms.height as f64 / scale);
     let pw = (lw * scale).round().max(1.0) as u32;
     let ph = (lh * scale).round().max(1.0) as u32;
-    let x = mp.x + (ms.width as i32 - pw as i32) / 2;
-    let y = mp.y;
+    let x = mp.x + (rx * scale).round() as i32;
+    let y = mp.y + (ry * scale).round() as i32;
 
     // GTK never sizes a non-resizable window below its natural size (200 px
     // here), so on Linux the 6 px wake strip would stay a 200 px block. tao
@@ -327,6 +456,177 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     // Moving across displays can rescale the window: re-assert the physical size.
     let _ = win.set_size(PhysicalSize::new(pw, ph));
     let _ = win.set_always_on_top(true);
+
+    // Where it really landed (Windows may round on a scaled display): what the
+    // display watch compares against, so a rounding never reads as a drift.
+    let (x, y) = win.outer_position().map(|p| (p.x, p.y)).unwrap_or((x, y));
+    let placed = (x, y, pw, ph);
+    let mut last = PLACED.lock().unwrap();
+    if last.is_none_or(|l| (l.0, l.1) != (x, y)) {
+        let d = describe(&m);
+        crate::log::line(format!(
+            "island placed on {} ({}x{} at {},{}, scale {}) for screen={pref}, dock {}",
+            d.name, d.w, d.h, d.x, d.y, scale, dock.as_str()
+        ));
+    }
+    *last = Some(placed);
+}
+
+/// Every display: name, logical size and origin, and scale. For the log.
+fn displays_summary(app: &AppHandle) -> String {
+    let Ok(monitors) = app.available_monitors() else { return "unknown".into() };
+    let list: Vec<String> = monitors
+        .iter()
+        .map(|m| {
+            let d = describe(m);
+            format!("{} {}x{} at {},{} scale {}", d.name, d.w, d.h, d.x, d.y, m.scale_factor())
+        })
+        .collect();
+    format!("{} — {}", list.len(), list.join("; "))
+}
+
+/// Back to never taking focus (tao's FOCUSABLE flag, so it sticks).
+fn release_focus(win: &WebviewWindow) {
+    let _ = win.set_focusable(false);
+    platform::set_activating(win, false);
+}
+
+/// Whether the window is no longer where apply_geometry put it: Windows moves
+/// windows itself when a display sleeps, is unplugged or changes scale, and an
+/// island left on another display (or off every display) is unreachable.
+fn drifted(placed: Option<(i32, i32, u32, u32)>, now: Option<(i32, i32)>) -> bool {
+    match (placed, now) {
+        (Some(p), Some(n)) => (p.0, p.1) != n,
+        _ => false,
+    }
+}
+
+/// Watches, once a second and whether or not the island is showing: the
+/// display the island should be on (plugged in, unplugged, rearranged,
+/// rescaled, or the active window moving to another display), and the window
+/// drifting from where Glim put it. Either way the page is told to reposition.
+pub fn spawn_display_watch(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_screen = current_screen_key(&app);
+        let mut last_displays = displays_summary(&app);
+        crate::log::line(format!("displays: {last_displays}"));
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            if DRAGGING.load(Ordering::Relaxed) {
+                continue;
+            }
+            let displays = displays_summary(&app);
+            if displays != last_displays {
+                crate::log::line(format!("displays: {displays}"));
+                last_displays = displays;
+            }
+            let pref = app
+                .try_state::<crate::Shared>()
+                .map(|s| s.settings.lock().unwrap().screen.clone())
+                .unwrap_or_else(|| "primary".into());
+            if let Some(m) = target_monitor(&app, &pref) {
+                let (p, z) = (*m.position(), *m.size());
+                crate::presence::set_fullscreen(&app, platform::foreground_fullscreen((p.x, p.y, z.width, z.height)));
+            }
+            let now = current_screen_key(&app);
+            let at = window(&app).and_then(|w| w.outer_position().ok()).map(|p| (p.x, p.y));
+            let reason = if now.is_some() && now != last_screen {
+                last_screen = now;
+                Some("the island's display changed".to_string())
+            } else if drifted(*PLACED.lock().unwrap(), at) {
+                Some(format!("the window was moved off its place (now at {:?})", at.unwrap_or_default()))
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                crate::log::line(format!("{reason} — repositioning"));
+                let _ = app.emit_to(WINDOW_LABEL, "screen-changed", ());
+                // Until the page has placed it again, don't report the same drift twice.
+                *PLACED.lock().unwrap() = None;
+            }
+        }
+    });
+}
+
+/// Set while the pill is being dragged: the watch leaves the window alone.
+pub static DRAGGING: AtomicBool = AtomicBool::new(false);
+
+/// Starts dragging the pill: the window follows the cursor (it never takes
+/// focus: it is moved, not activated) until the left button is released, then
+/// snaps to the nearest dock of the display under the cursor.
+pub fn start_dock_drag(app: &AppHandle) {
+    if DRAGGING.swap(true, Ordering::SeqCst) {
+        crate::log::line("dock drag: already dragging");
+        return;
+    }
+    let (Some(win), Some((cx, cy))) = (window(app), cursor_physical()) else {
+        crate::log::line("dock drag: no window or cursor");
+        DRAGGING.store(false, Ordering::SeqCst);
+        return;
+    };
+    let Ok(origin) = win.outer_position() else {
+        DRAGGING.store(false, Ordering::SeqCst);
+        return;
+    };
+    let grab = (cx - origin.x as f64, cy - origin.y as f64);
+    crate::log::line(format!("dock drag started (button down: {})", left_button_down()));
+    let app = app.clone();
+    std::thread::spawn(move || {
+        while left_button_down() {
+            if let Some((cx, cy)) = cursor_physical() {
+                let _ = win.set_position(PhysicalPosition::new((cx - grab.0).round() as i32, (cy - grab.1).round() as i32));
+            }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+        drop_dock_drag(&app);
+        DRAGGING.store(false, Ordering::SeqCst);
+    });
+}
+
+/// The drag ended: the nearest dock of the display under the cursor.
+fn drop_dock_drag(app: &AppHandle) {
+    let Some((cx, cy)) = cursor_physical() else { return };
+    let Ok(monitors) = app.available_monitors() else { return };
+    let Some(m) = monitors.iter().find(|m| monitor_contains(m, cx, cy)) else { return };
+    let scale = m.scale_factor();
+    let (mp, ms) = (*m.position(), *m.size());
+    let dock = nearest_dock(
+        (cx - mp.x as f64) / scale,
+        (cy - mp.y as f64) / scale,
+        ms.width as f64 / scale,
+        ms.height as f64 / scale,
+    );
+    crate::log::line(format!("pill dropped on {} — dock {}", describe(m).name, dock.as_str()));
+    set_dock(app, Some(m), dock);
+}
+
+/// Remembers `dock` for display `on` (the island's own display when None) and
+/// places the island there. A drop on another display moves the island to it,
+/// unless it follows the active window or the cursor anyway.
+pub fn set_dock(app: &AppHandle, on: Option<&Monitor>, dock: Dock) {
+    let Some(shared) = app.try_state::<crate::Shared>() else { return };
+    let pref = shared.settings.lock().unwrap().screen.clone();
+    let Some(target) = target_monitor(app, &pref) else { return };
+    let m = on.cloned().unwrap_or(target.clone());
+    let key = describe(&m).key();
+    let settings = {
+        let mut s = shared.settings.lock().unwrap();
+        // One entry per display: drop any older key that finds the same one.
+        let ids: Vec<DisplayId> = app.available_monitors().map(|v| v.iter().map(describe).collect()).unwrap_or_default();
+        let here = ids.iter().position(|d| *d == describe(&m));
+        s.docks.retain(|k, _| here.is_none() || pick_display(k, &ids) != here);
+        s.docks.insert(key.clone(), dock.as_str().to_string());
+        if describe(&m) != describe(&target) && pref != "active" && pref != "cursor" {
+            s.screen = key;
+        }
+        s.clone()
+    };
+    if let Err(err) = crate::settings::save(&settings) {
+        crate::log::line(format!("could not save settings: {err}"));
+    }
+    let collapsed = shared.gate.collapsed.load(Ordering::Relaxed);
+    apply_geometry(app, &settings.screen, collapsed);
+    let _ = app.emit_to(WINDOW_LABEL, "settings-changed", settings);
 }
 
 /// Position, size and scale of the monitor the island lives on. Any change here
@@ -347,36 +647,14 @@ fn current_screen_key(app: &AppHandle) -> Option<(i32, i32, u32, u32, u64)> {
 pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     std::thread::spawn(move || {
         let mut was_down = false;
-        // Remembered across wakes so a display change while hidden is noticed the
-        // moment the island comes back.
-        let mut last_screen: Option<(i32, i32, u32, u32, u64)> = None;
-        // Without a cursor to read (Linux) the loop only watches the display
-        // layout, and twice a second is plenty for that: waking at 60 Hz just to
-        // find no cursor costs CPU for nothing.
-        let (period, screen_every) = if platform::CURSOR_POLL { (16, 30) } else { (500, 1) };
+        // Without a cursor to read (Linux) there's nothing to do at 60 Hz.
+        let period = if platform::CURSOR_POLL { 16 } else { 500 };
         loop {
             gate.wait_until_active();
             let mut last = (f64::MIN, f64::MIN);
-            let mut ticks: u32 = 0;
             while gate.is_active() {
                 std::thread::sleep(Duration::from_millis(period));
-
-                // Monitors get plugged in, unplugged, rearranged and rescaled, and
-                // an island pinned to coordinates that no longer exist is an island
-                // nobody can reach. Checked about twice a second — the cursor poll
-                // is already running, so this costs one monitor query.
-                ticks = ticks.wrapping_add(1);
-                if ticks % screen_every == 0 {
-                    let now = current_screen_key(&app);
-                    if now.is_some() && now != last_screen {
-                        let first = last_screen.is_none();
-                        last_screen = now;
-                        if !first {
-                            crate::log::line("display layout changed — repositioning".to_string());
-                            let _ = app.emit_to(WINDOW_LABEL, "screen-changed", ());
-                        }
-                    }
-                }
+                // Display changes are spawn_display_watch's.
 
                 let Some(win) = window(&app) else { continue };
                 let Ok(origin) = win.outer_position() else { continue };
@@ -388,7 +666,8 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                     Ok(s) => (s.width as f64 / scale, s.height as f64 / scale),
                     Err(_) => (PANEL_W, PANEL_H),
                 };
-                if (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {
+                let recheck = gate.recheck.swap(false, Ordering::Relaxed);
+                if !recheck && (x - last.0).abs() < 1.0 && (y - last.1).abs() < 1.0 {
                     continue;
                 }
                 last = (x, y);
@@ -397,11 +676,7 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 // shape. A small entry margin means the flag is already off by the
                 // time a moving cursor reaches a button.
                 let r = *gate.rect.lock().unwrap();
-                let on_island = r.w > 0.0
-                    && x >= r.x - HIT_MARGIN
-                    && x <= r.x + r.w + HIT_MARGIN
-                    && y >= r.y - HIT_MARGIN
-                    && y <= r.y + r.h + HIT_MARGIN;
+                let on_island = takes_mouse(r, x, y, gate.ember.load(Ordering::Relaxed));
 
                 // A file being dragged has to be able to find us. WS_EX_TRANSPARENT
                 // — what click-through is on Windows — hides the window from
@@ -425,7 +700,10 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                     && y >= 0.0
                     && y <= size.1;
 
-                let accept = on_island || dragging;
+                // The ember (and the recording indicator) fills its small
+                // window, whatever rect the page last sent: all of it is the dot.
+                let dot = crate::presence::current(&app).is_dot();
+                let accept = on_island || dragging || dot;
                 if gate.ignoring.load(Ordering::Relaxed) == accept {
                     gate.ignoring.store(!accept, Ordering::Relaxed);
                     let _ = win.set_ignore_cursor_events(!accept);
@@ -435,6 +713,17 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             }
         }
     });
+}
+
+/// Whether the window takes the mouse at (`x`, `y`): over the island shape
+/// (with HIT_MARGIN), or anywhere while it is the ember dot.
+fn takes_mouse(r: IslandRect, x: f64, y: f64, ember: bool) -> bool {
+    ember
+        || (r.w > 0.0
+            && x >= r.x - HIT_MARGIN
+            && x <= r.x + r.w + HIT_MARGIN
+            && y >= r.y - HIT_MARGIN
+            && y <= r.y + r.h + HIT_MARGIN)
 }
 
 /// Re-applies click-through after the window or the island changed shape.

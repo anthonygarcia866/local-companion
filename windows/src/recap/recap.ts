@@ -2,7 +2,7 @@
 // AppDelegate.checkMondayRecap / openWeeklyRecap.
 //
 // It opens on its own once a week, on Monday from 8 am, at the first of:
-//   * the launch greeting ending (the app starting that day),
+//   * the launch ignite ending (the app starting that day),
 //   * an agent starting work (SessionStart / UserPromptSubmit — Rust sends
 //     `recap-check` when it sees one),
 //   * the island waking from hidden (the user coming back to the machine).
@@ -22,7 +22,7 @@ export interface RecapHost {
 }
 
 /** Views the Monday card may replace; anything else is the user busy with something. */
-const QUIET_VIEWS: ReadonlySet<IslandViewName> = new Set(["overview", "empty", "settings", "greeting"]);
+const QUIET_VIEWS: ReadonlySet<IslandViewName> = new Set(["overview", "empty", "settings"]);
 
 /** Same 1.5 s as the Mac, so it never lands on top of the event that triggered it. */
 const SHOW_DELAY_MS = 1500;
