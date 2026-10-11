@@ -39,7 +39,14 @@ pub trait Field {
     /// Step 7: types `text` over the selection in one go; an empty `text` is
     /// one Backspace. False if Windows didn't take the input.
     fn type_over(&mut self, text: &str) -> bool;
+    /// A short pause while the app takes the keys: `SendInput` only queues
+    /// them, so the field changes a moment later, a key at a time.
+    fn pause(&mut self);
 }
+
+/// How many times the result is read back while the keys land (with `pause`
+/// between: about 1.5 s in all).
+pub const SETTLE_TRIES: usize = 50;
 
 /// Where a paragraph was found: the range searched, and the paragraph's
 /// character index in that range's text.
@@ -153,17 +160,27 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         undo_select(f);
         return Outcome::Unsupported;
     }
-    // 8. Read back: the paragraph with exactly that span replaced.
+    // 8. Read back: the paragraph with exactly that span replaced. The keys
+    // land a moment after SendInput (a half-typed word reads back first), so
+    // the result is waited for before anything is decided.
     let fixed: String = chars[..job.start].iter().collect::<String>() + &job.replacement + &chars[job.end..].iter().collect::<String>();
-    let Some(after) = locate(f, &fixed, job.field_start) else {
+    let fixed_len = fixed.chars().count();
+    let mut landed = None;
+    for _ in 0..SETTLE_TRIES {
+        if let Some(found) = locate(f, &fixed, job.field_start) {
+            if checked_sub(f, &found, 0, fixed_len, &fixed).is_some() {
+                landed = Some(found);
+                break;
+            }
+        }
+        f.pause();
+    }
+    let Some(after) = landed else {
         // Nothing changed at all: the keys didn't land (an app that ignores
         // them, or Windows blocked them). Otherwise something else happened.
         let untouched = locate(f, &job.paragraph, job.field_start).is_some();
         return if untouched { Outcome::Unsupported } else { Outcome::NotClean };
     };
-    if checked_sub(f, &after, 0, fixed.chars().count(), &fixed).is_none() {
-        return Outcome::NotClean;
-    }
     // The caret back where the user was typing (owner, 2026-10-11).
     if let Some(c) = caret_in {
         let at = moved_caret(c, job.start, job.end, job.replacement.chars().count());
@@ -190,6 +207,11 @@ mod tests {
         keys: Result<(), Outcome>,
         /// What actually lands when typing (None: what was asked).
         lands: Option<String>,
+        /// Keys still on their way: (start, end, text, pauses left). Until
+        /// they land, the field shows a half-typed word.
+        pending: Option<(usize, usize, String, usize)>,
+        lag: usize,
+        pauses: usize,
         typing_fails: bool,
         typed: Vec<String>,
         selects: usize,
@@ -211,6 +233,9 @@ mod tests {
                 typing_fails: false,
                 typed: Vec::new(),
                 selects: 0,
+                pending: None,
+                lag: 0,
+                pauses: 0,
             }
         }
         fn text(&self) -> String {
@@ -269,9 +294,28 @@ mod tests {
             self.typed.push(text.to_string());
             let (s, e) = self.sel.take().unwrap();
             let lands = self.lands.clone().unwrap_or_else(|| text.to_string());
+            if self.lag > 0 {
+                // The first key has landed, the rest are on their way.
+                let first: String = lands.chars().take(1).collect();
+                self.doc.splice(s..e, first.chars());
+                self.caret = s + 1;
+                self.pending = Some((s, s + 1, lands, self.lag));
+                return true;
+            }
             self.doc.splice(s..e, lands.chars());
             self.caret = s + lands.chars().count();
             true
+        }
+        fn pause(&mut self) {
+            self.pauses += 1;
+            if let Some((s, e, text, left)) = self.pending.take() {
+                if left <= 1 {
+                    self.doc.splice(s..e, text.chars());
+                    self.caret = s + text.chars().count();
+                } else {
+                    self.pending = Some((s, e, text, left - 1));
+                }
+            }
         }
     }
 
@@ -408,6 +452,24 @@ mod tests {
         let mut f = Fake::new(DOC, "payment");
         f.lands = Some("recieved".into()); // e.g. Windows dropped them (an elevated app)
         assert_eq!(run(&mut f, &fix()), Outcome::Unsupported);
+    }
+
+    /// Found live in Notepad (2026-10-11): SendInput only queues the keys,
+    /// so the first read-back saw a half-typed word and reported not-clean.
+    #[test]
+    fn keys_that_land_a_moment_later_are_waited_for() {
+        let mut f = Fake::new(DOC, "payment today.");
+        let caret = f.caret;
+        f.lag = 5;
+        assert_eq!(run(&mut f, &fix()), Outcome::Applied);
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.caret, caret, "the caret is put back once they have landed");
+        assert!(f.pauses >= 5);
+        // Keys that never finish landing: reported, after the wait.
+        let mut f = Fake::new(DOC, "payment");
+        f.lag = SETTLE_TRIES + 10;
+        assert_eq!(run(&mut f, &fix()), Outcome::NotClean);
+        assert_eq!(f.pauses, SETTLE_TRIES);
     }
 
     #[test]

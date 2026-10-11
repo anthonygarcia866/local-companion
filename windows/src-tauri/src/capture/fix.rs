@@ -210,6 +210,10 @@ impl Field for UiaField<'_> {
         let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
         sent as usize == inputs.len()
     }
+
+    fn pause(&mut self) {
+        std::thread::sleep(Duration::from_millis(30));
+    }
 }
 
 /// One keyboard event to send.
