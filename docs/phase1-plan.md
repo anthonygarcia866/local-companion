@@ -1,6 +1,6 @@
 # Phase 1 — writing assistant: plan
 
-Status: **draft for the owner's review** (2026-10-10). Nothing in this plan is built yet. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
+Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a is being built on `phase-1a-checker`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
 
 If a step here turns out wrong while building, this file gets a warning note next to that step; the code is not quietly worked around it.
 
@@ -23,7 +23,7 @@ Glim never takes focus at any point (the island, panel and pill are non-activati
 | **1a — instant checker** | Capture runs in normal sessions for apps that are on. ~1 s debounce. Paragraph extraction without the signature or quote. Harper. Lantern `s-suggest` + count. A **read-only** suggestion list in the island. Per-app defaults hardcoded. | Notepad self-test passes; <50 ms per check measured; tests below pass; the owner tries it in Outlook, Word and Gmail. |
 | **1b — apply fixes** | Clicking a replacement writes it back (design in §7). | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. |
 | **1c — AI rewrite** | Ctrl+Alt+Shift+R and the four tones; `s-think`; the result is shown in the island, with apply going through 1b's path. | Rewrite in ≤ ~4.5 s for a typical paragraph on this machine; model calls only through `net::request`. |
-| **1d — settings** | Per-app on/off, default tone, strictness (which Harper rule groups run), editing the pause list (from PR #8), a one-key pause, and an optional underline overlay. | Settings are kept in `settings.json`; the overlay never takes focus or clicks. |
+| **1d — settings** | Per-app on/off, default tone, strictness (which Harper rule groups run), editing the pause list (from PR #8), the pause hotkey **Ctrl+Alt+Shift+P**, a one-time "Check writing in [app]?" prompt for apps on neither list (§5), and an optional underline overlay. | Settings are kept in `settings.json`; the overlay never takes focus or clicks. |
 
 Each PR is opened, verified and stopped for the owner, never merged without approval.
 
@@ -51,6 +51,23 @@ Each PR is opened, verified and stopped for the owner, never merged without appr
     - "unit **4B**" → "Did you mean `bytes`?" (WordChoice);
     - "need to **discus**" → a replacement of "the".
   - **Duplicates:** two or more lints on the same span ("friday" as both spelling and capitalization; "Their" twice, as there and as they're).
+
+**What Harper misses** (a second trial, 20 sample sentences, same day). It checks spelling, repeated words and a set of fixed patterns; it does not understand the sentence:
+
+| Missed | Example |
+|---|---|
+| Real-word mix-ups | "to **you're** account", "**Your** welcome", "the rent is **to** high", "don't **loose** the key", "we will **except** your payment" |
+| "Its" at the start of a sentence | "**Its** going to rain" (caught mid-sentence: "its been cold") |
+| Agreement with a compound subject | "the tenant and her son **is** moving out" |
+| Verb tense | "Yesterday the plumber **come**" |
+| Missing words | "send the invoice **[to]** the owner" |
+| Double negatives | "we don't have **no** openings" |
+| Run-ons and comma splices | "The lease ends in May, we will send a renewal." |
+| A lowercase first word | "**please** call me back." |
+
+It did catch: there/their, then/than, affect/effect, a/an, "the units has", misspellings and repeated words.
+
+**These are expected to be covered by the gemma layer (1c),** which reads the whole sentence. In 1a the instant checker reports only what Harper finds, and the PR says so. Whether 1c runs on demand only (the rewrite hotkey) or also as a slower background check after the instant one is decided in 1c, from measured timings (~2–3.5 s per paragraph on this CPU).
 
 **Plan for 1a:**
 - Merge lints that cover the same span into one entry, with the suggestions combined and duplicates removed.
@@ -95,19 +112,22 @@ Hardcoded in 1a, editable in 1d. Matched by executable name, any case:
 |---|---|
 | Outlook (`OUTLOOK.EXE`, `olk.exe`) | VS Code (`Code.exe`) and other editors/IDEs |
 | Word (`WINWORD.EXE`) | Terminals: Windows Terminal, `cmd.exe`, `powershell.exe`, `pwsh.exe`, `conhost.exe` |
-| Chrome (`chrome.exe`) — Gmail and web forms | Password managers (already paused by PR #8) |
+| Chrome (`chrome.exe`) and Edge (`msedge.exe`) — Gmail and web forms | Password managers (already paused by PR #8) |
 | Notepad (`Notepad.exe`) | Glim itself (already excluded) |
 | Chat apps: Slack, Teams (`ms-teams.exe`), Discord, WhatsApp, Claude desktop, ChatGPT, Grok | |
 
 In browsers, PR #8's paused sites still apply on top of "on".
 
+**Apps on neither list are off** (owner, 2026-10-10). From 1d on, the first time the user types in one, the island asks once: "Check writing in [app]?" with **Yes** / **Not now** / **Never**. Yes and Never are kept per app in settings; Not now asks again next session. In 1a they simply stay off.
+
+**Payment and ID data:** PR 1a's first commit narrows PR #8's 12-digit rule. Digits split by spaces or dashes count only when grouped like a card being typed (4-4-4, 4-4-4-4, Amex 4-6-x), so unit lists such as "Units 101 102 103 104" in AppFolio notes are read. An unbroken run of 12+ digits is still dropped.
+
 ## 6. Mascot and island
 
-- **`s-suggest` is already taken:** it shows an agent waiting for an approval or an answer (Claude Code hooks). Proposed rule:
+- **`s-suggest` is shared with agents** (decided by the owner, 2026-10-10): it already shows an agent waiting for an approval or an answer (Claude Code hooks).
   - Agent states always win: approval, question, working, error and rate-limit go first.
   - The writing checker shows `s-suggest` only while no agent state is active.
   - The **count on the pill** tells the two apart: a number means writing suggestions, no number means an agent is waiting.
-  - Raised as a question below.
 - **The attention pop** plays when the count goes from 0 to more than 0, not on every recount.
 - **Island:** a new "Suggestions" view, shown when the lantern is clicked while there are suggestions (otherwise the island opens as today).
   - Each row shows the problem text in context, the message and up to three replacements.
@@ -126,7 +146,8 @@ In browsers, PR #8's paused sites still apply on top of "on".
 
 - **Per-app on/off**, the default rewrite tone, and strictness (Harper rule groups).
 - **The pause list** from PR #8, made editable.
-- **A one-key pause** ("not now"). Which key is an open question; it can't clash with the Ctrl+Alt+Shift set.
+- **The pause hotkey Ctrl+Alt+Shift+P** ("not now"), registered and checked for conflicts the same way as the other Glim hotkeys (Settings warns if it can't register).
+- **The one-time "Check writing in [app]?" prompt** for apps on neither list (§5).
 - **Optional underline overlay:** a click-through, non-activating window that draws under the problem spans, placed using the TextRange bounding rectangles. It is redrawn on scroll and move, and hidden when the field loses focus.
 - **Windows' text suggestions** (Settings → Time & language → Typing → "Show text suggestions when typing on the physical keyboard") compete with Glim for the same moment and spot on screen. Onboarding detects the setting and suggests turning it off. If the user keeps it, Glim's UI stays out of its way.
 
@@ -152,10 +173,12 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - It confirms the count on the pill and the island's list. Glim's own windows are captured with PrintWindow only.
 - **Then the owner tries it in Outlook, Word and Gmail.**
 
-## 11. Questions for the owner
+## 11. Decisions (owner, 2026-10-10)
 
-1. **`s-suggest` sharing:** agent states win, and the pill count marks writing suggestions (§6). OK, or should writing get its own look?
-2. **Apps not on either list:** off until switched on in 1d (more private), or on (more useful)?
-3. **Edge:** on by default like Chrome?
-4. **One-key pause (1d):** which key?
-5. **Dialect:** American English only for now?
+1. **`s-suggest`:** agent approval keeps priority; the pill count shows writing suggestions (§6).
+2. **Apps on neither list:** off by default, plus the one-time "Check writing in [app]?" prompt (yes / not now / never) in 1d (§5).
+3. **Edge:** on by default, like Chrome.
+4. **Pause key:** Ctrl+Alt+Shift+P, checked for conflicts like the other hotkeys (1d).
+5. **Dialect:** American English only for now.
+6. **12-digit rule:** narrowed to card-shaped groups as PR 1a's first commit (§5).
+7. **Harper's misses** are left to the gemma layer (1c) (§3).
