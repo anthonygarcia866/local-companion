@@ -249,6 +249,24 @@ How it was checked: Word's own key table (`Application.FindKey`, a hidden read-o
 - **Owner's retest (2026-10-11): passed.** A real mouse click on the lantern in the open island, over a finished card, opens the suggestions; the closed pill's lantern too; the pager is easy to use and in reading order; suggestions stay across apps. **Narrator was not hand-tested** (the owner couldn't find Glim with it); the accessibility check is the UI Automation self-test above. `cargo test --workspace` re-run on the final commit: 246 + 30 passed, 1 ignored. CI: the first run failed on the known lantern-check blur flake (below, Mascot checks: one frame kept differing through both re-renders); the re-run passed.
 - **Next: 1b (applying fixes).** Design in `docs/phase1-plan.md` §7, waiting for the owner's review before any code.
 
+## Applying fixes (Phase 1b-apply, branch `phase-1b-apply`)
+Design: `docs/phase1-plan.md` §7, approved by the owner 2026-10-11 with the answers in §7.9. The floating bubble (§7a) is a separate PR after this one.
+
+- **What it does:** in the suggestion list, each replacement is a button. A click types it into the field it came from with `SendInput` (Unicode keys over a selected range), so the app's own Ctrl+Z undoes it; the caret goes back where the user was typing; the field is checked again at once. No undo button in Glim (owner).
+- **Fail closed** (`writing/apply.rs`, over a `Field` trait; UI Automation in `capture/fix.rs`): the click carries ids only (list, row, replacement), never text; the checked paragraph must be found word for word (the caret's paragraph, else the whole field); every range is read back before use; the app's selection is read back before typing; the result is read back after. Any mismatch types nothing (or, after typing, says "Press Ctrl+Z in [app]"; Glim never sends Ctrl+Z). At click time every PR #8 rule runs again on the field as it is now, plus: same element still focused and in front, no key or mouse button held, not an app running as administrator, no card/SSN/IBAN in the field's text.
+- **Which apps get fixes** (owner, 2026-10-11: view-only until each is tested; `writing::apps::FIXES`):
+
+  | Fixes typed | View-only (suggestions shown, no fix buttons) |
+  |---|---|
+  | Notepad (`Notepad.exe`), Word (`WINWORD.EXE`), Outlook classic (`OUTLOOK.EXE`), Chrome (`chrome.exe`, Gmail) | Edge (`msedge.exe`), new Outlook (`olk.exe`), Slack, Teams (`ms-teams.exe`, `Teams.exe`), Discord, WhatsApp (`WhatsApp.exe`, `WhatsApp.Root.exe`), Claude (`claude.exe`), ChatGPT, Grok (`Grok Bot.exe`) |
+
+  A field in a fix app that offers only ValuePattern (Glim can't select there) shows **Copy** buttons: the word goes to the clipboard only when the user clicks (owner). Chat apps get no Copy either.
+- **Privacy change (called out in the PR):** to find the text again, the checked paragraph (not the field) is now kept in memory while its suggestions show, only in fix fields, and after a second card/SSN/IBAN scan. It is dropped on Dismiss (new button on the list), on moving to other text (another field, app or paragraph, or an edit), on Pause (the island now tells Rust, which also stops reading fields), and after 10 minutes at most. Never logged or stored; the log gets the outcome code and the app's short name only (`writing: fix applied (Notepad)`). Each drop rule has a test.
+- **Plan amendments while building** (warning notes in §7.3): `FindText` isn't used (Word limits search length; the paragraph is located in read-back text instead); an IME composition can't be detected from another process (the read-back covers it).
+- **Tests:** `cargo test --workspace` 285 + 30 (13 apply-step tests on a fake field: found once/zero/twice, edits inside vs elsewhere, unit mismatch, selection ignored, keys held, focus lost after selecting, keys that never land, a result that doesn't read back, removal, caret; 15 session tests: each drop rule, stale list, ids-only job, view/copy modes, replacement filter, the commands' ids-only signatures). `npm test` 350 (buttons per mode, ids-only Bridge calls, Copy, Dismiss, a note per outcome, Pause wiring). `tsc` clean. 18 new strings × 9 languages.
+- **Build:** `glim.exe` built 2026-10-11 14:08, 11,806,720 bytes (contains `writing_fix` / `writing_set_paused`).
+- **Not yet run:** the read-only Notepad self-test (`verify-writing-notepad.ps1` now checks the fix button, "Click in the field first" when focus moves to a Notepad button, and Dismiss; it never invokes a fix): it moves focus, and another app was in front, so it waits for the owner. The **typed** Notepad self-test runs only after the owner says they're away from the keyboard. The owner tests Outlook, Word and Gmail by hand.
+
 ## Text-capture spike (Phase 0b)
 Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.md`.
 

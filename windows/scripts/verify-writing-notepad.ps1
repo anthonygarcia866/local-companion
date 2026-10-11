@@ -245,6 +245,44 @@ try {
       $stillCard = GlimFind { param($e) $e.Current.Name -like "*GLIM-VERIFY agent finished*" }
       if ($title -and -not $stillCard) { Note "lantern click: the suggestions view ('$($title.Current.Name)'), the agent card gone" }
       else { Fail "lantern click: suggestions view shown=$([bool]$title), agent card still shown=$([bool]$stillCard)" }
+      # 1b, read-only: the fix buttons are there (never invoked: invoking one
+      # types into Notepad), they turn off while focus is elsewhere, and
+      # Dismiss clears the list.
+      if ($title) {
+        $fixName = "Replace with " + [char]0x201C + "received" + [char]0x201D
+        $fixBtn = WaitGlim { param($e) $e.Current.Name -eq $fixName -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button } 5
+        $applyNote = WaitGlim { param($e) $e.Current.Name -eq "Click a fix to apply it. Ctrl+Z in Notepad undoes it." } 3
+        if ($fixBtn -and $fixBtn.Current.IsEnabled -and $applyNote) { Note "1b: fix button '$fixName' enabled; note '$($applyNote.Current.Name)'" }
+        else { Fail "1b: fix button found=$([bool]$fixBtn) enabled=$(if ($fixBtn) { $fixBtn.Current.IsEnabled }) note=$([bool]$applyNote)" }
+        if ($Shot -and $fixBtn) { ShotGlim $fixBtn (Join-Path $Out "suggestions-fix-buttons.png") }
+        # Focus on a Notepad button (not text): the paragraph is dropped and
+        # the buttons say "Click in the field first". SetFocus never clicks.
+        $bc = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+        $npBtn = $null
+        foreach ($cand in $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $bc)) { if ($cand.Current.IsKeyboardFocusable -and $cand.Current.IsEnabled) { $npBtn = $cand; break } }
+        if (-not $npBtn) { Fail "1b away: no focusable Notepad button to move focus to" }
+        elseif (WaitIdle "1b away") {
+          try { $npBtn.SetFocus() } catch { Note "SetFocus threw: $($_.Exception.Message)" }
+          $awayNote = WaitGlim { param($e) $e.Current.Name -eq "Click in the field first." } 5
+          $fixBtn = GlimFind { param($e) $e.Current.Name -eq $fixName -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
+          if ($awayNote -and $fixBtn -and -not $fixBtn.Current.IsEnabled) { Note "1b away: focus on Notepad's '$($npBtn.Current.Name)' button -> fix button off, 'Click in the field first.'" }
+          else { Fail "1b away: note=$([bool]$awayNote) button=$([bool]$fixBtn) enabled=$(if ($fixBtn) { $fixBtn.Current.IsEnabled })" }
+          if (WaitIdle "1b back") {
+            try { $doc.SetFocus() } catch { }
+            $back = WaitGlim { param($e) $e.Current.Name -eq $fixName -and $e.Current.IsEnabled } 6
+            if ($back) { Note "1b back in the text: fix button on again" } else { Fail "1b back in the text: fix button still off" }
+          }
+        }
+        $dismiss = GlimFind { param($e) $e.Current.Name -eq "Dismiss suggestions" -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
+        if (-not $dismiss) { Fail "1b dismiss: button not found" }
+        else {
+          $dismiss.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+          $b = WaitBadge { param($x) $x -eq "" } 5
+          Start-Sleep -Seconds 2
+          $b2 = Badge
+          if ($b -eq "" -and $b2 -eq "") { Note "1b dismiss: count gone and stays gone (same text)" } else { Fail "1b dismiss: count '$b' then '$b2'" }
+        }
+      }
       # Home still reaches the agent.
       $homeBtn = GlimFind { param($e) $e.Current.Name -eq "Overview" -and $e.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button }
       $homeBtn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
