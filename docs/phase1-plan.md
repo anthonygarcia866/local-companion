@@ -147,7 +147,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - **In reading order** (left to right, top to bottom, from the start of the paragraph), three rows a page, with **Previous / Next** buttons (32×28 px, amber) and "1–3 of 12" (owner, 2026-10-10). The first round sorted nearest the caret, which put an early typo ("timez") on page 2 where it looked missed. Buttons, not scrolling: the island's window never takes focus, so the mouse wheel can't be relied on (the first 1a build cut the list off with no way to see the rest).
   - Read-only in 1a: the only buttons turn pages, and there are no keyboard hooks.
   - Every new string needs its 9 translations.
-- **Reserved:** `s-record` and `s-delegate` are never used.
+- **Reserved:** `s-record` is never used. `s-delegate` is used only while text is going to the Claude API (from 1c, §12) or, later, Phase 3 delegation.
 
 ## 7. Write-back (1b)
 
@@ -333,10 +333,11 @@ The owner is no longer prioritizing local-only AI. Full statement: `docs/vision.
 3. **Network:** `net::ALLOWED_HOSTS` goes from localhost only to **localhost + `api.anthropic.com`** (https on 443 only), still through the single checkpoint in `net/mod.rs`. The webviews stay localhost-only; API calls come from Rust. Verified empirically: a request to another host fails, and netstat over the process tree shows nothing else.
 4. **Kept:** the card/SSN/IBAN/payment filtering before anything leaves capture, and again on every request body just before it is sent; **send only on the user's click**; no logging of captured text (the log gets outcome, model, tokens and cost only). New powers start as "suggest and wait for my click"; the rewrite's result is a suggestion and is typed only through 1b's apply path, on a click.
 5. **Spend:** Settings shows this month's API spend (Glim's own estimate from the token counts) with an **optional monthly cap**. At the cap nothing is sent and the island says why.
-6. **gemma3 / Ollama** becomes an **optional offline fallback**, not the default. The existing local-chat path stays; nothing new is built for it before the Claude path works.
-7. **1d** gains the AI settings above (key, model per task, spend and cap, offline fallback).
+6. **The "brain" setting:** 1c's Settings picks the brain, **Claude API (default)** or **local model** (gemma3 through Ollama), switchable at run time without rebuilding. Both go through `net::request` and the same pre-send scan. The local path is the optional offline fallback; nothing new is built for it before the Claude path works.
+   - **Local model benchmarking is deferred** until the owner's next laptop (32 GB+ RAM). This one has 16 GB and is already memory-tight, so the API stays the default and the gemma3 timings in §4 are not re-measured here.
+7. **1d** gains the AI settings above (brain, key, model per task, spend and cap).
 
-**Open (for the owner, before 1c code):**
-- Does the **Ctrl+Alt+Shift+R hotkey** count as "the user's click"? The plan assumes yes: it is an explicit action on one paragraph.
-- **Mascot state while text goes to the API.** `s-delegate` is reserved for "Phase 3 data leaving the machine". 1c now sends text off the machine too. Options: show `s-delegate` during every API call (honest about what leaves), or keep `s-think` and leave `s-delegate` to Phase 3. Recommended: `s-delegate`, which means changing that rule in CLAUDE.md and the lantern test.
-- **The repo's `CLAUDE.md`** still says "Phases 0–2 allow localhost only". It needs the same change before 1c is built.
+**Decided (owner, 2026-10-11):**
+1. **The rewrite hotkey counts as the owner's request** to send that paragraph to the API. The result still shows as a suggestion and is typed in only when the owner clicks it (1b's apply path).
+2. **`s-delegate` shows while text is going to the API.** The rule changed in CLAUDE.md, the design file's header and PROJECT_STATUS. The code side changes in the 1c PR: `RESERVED_LANTERN_STATES.delegate`'s owner (now `"phase3-delegation"`) and the allowed callers in `tests/lantern.test.mjs` (`SHOWS_RESERVED`).
+3. **CLAUDE.md's network rule** now matches `docs/vision.md`: localhost + `api.anthropic.com`, through `net/mod.rs`.

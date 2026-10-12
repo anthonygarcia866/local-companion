@@ -14,7 +14,9 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 - **Network rule:** "localhost only" becomes **"localhost + the Anthropic API"** (`api.anthropic.com`, https), still through the single checkpoint in `net/mod.rs`. Not built yet: today's allowlist is still localhost only.
 - **Kept:** card/SSN/payment filtering before anything leaves capture; send only on the user's click; no logging of captured text. New powers start as "suggest and wait for my click".
 - **Settings** shows this month's API spend, with an optional monthly cap.
-- **gemma3 / Ollama** becomes an optional offline fallback, not the default.
+- **gemma3 / Ollama** becomes an optional offline fallback, not the default. 1c gets a **"brain" setting**: Claude API (default) or local model, switchable in Settings without rebuilding.
+- **Local model benchmarking is deferred** until the owner's next laptop (32 GB+). This one has 16 GB and is already memory-tight, so the API stays the default.
+- **`s-delegate`** shows while text is going to the API (it is reserved for data leaving the machine).
 - **Phase 1.5 voice:** compare local whisper with cloud speech-to-text on cost, speed and accuracy before choosing.
 - **Long term:** when the owner upgrades, the current laptop becomes the always-on **hub**. It holds the rules, one approval queue, the open items and the scheduler, exposed via MCP, and it replaces Muse/Jarvis job by job.
 
@@ -131,7 +133,7 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
   7. **Glim is the owner's only writing checker** (2026-10-11: Grammarly and QuillBot are being uninstalled). Drop any Grammarly-coexistence handling that's no longer needed: as of this note the code has none (searched for Grammarly/QuillBot: only a "Grammarly-style marker" description in the plan's floating-bubble section), so this is a check, not a removal.
 
 ## Open questions
-- **Before 1c code** (`docs/phase1-plan.md` §12): does the rewrite hotkey count as "the user's click"; should API calls show `s-delegate` (reserved for data leaving the machine); and CLAUDE.md's "Phases 0–2 allow localhost only" rule needs the same change.
+- **Answered 2026-10-11** (`docs/phase1-plan.md` §12): the rewrite hotkey counts as the owner's request to send; API calls show `s-delegate`; CLAUDE.md's network rule now matches `docs/vision.md`.
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
 ## Current status
@@ -167,7 +169,7 @@ Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of tr
   - What the port changes, and only this: page-level CSS dropped; selectors the design left unscoped are scoped to `.lantern` (same relative order and specificity inside the lantern); keyframes prefixed `lantern-` (the app already had a global `@keyframes pulse`).
   - Wired in `windows/src/island/island.ts` (`drawBot`): the lantern replaces the placeholder orb, drawn 1.2× the old orb's diameter tall with its base on the orb's bottom edge (24 px in the 26 px notch pill → compact; 53–79 px in the expanded cards → full detail minus aura/twinkles). The engine (`mochi/engine.ts`) still runs for its timers but no longer draws in the island.
 - **Nine states** (design updated 2026-10-09): `s-idle`, `s-listen`, `s-think`, `s-suggest`, `s-record`, `s-paused`, `s-delegate`, `s-done` (happy eyes, a hop), `s-error` (dim, droopy, worried brows, a sweat drop — never red). Compact uses a wider listen glance (`glance-c`).
-- **Reserved states — never reuse them for anything else** (design file header, CLAUDE.md): red `s-record` = screen recording only; `s-delegate` = Phase 3 data leaving the machine only. Neither feature exists yet, so no app state maps to them. Enforced three ways: `lanternStateFor` returns `AppLanternState` (reserved states excluded, so `tsc` rejects a mapping to them); the only way to show one is `Lantern.showReserved(state, owner)` with a typed owner (`"screen-recording"` / `"phase3-delegation"`, or `"dev-preview"` for the dev switch); `tests/lantern.test.mjs` fails if any island state (read from the `BotStateName` union) maps to one, if a reserved state name appears in `src/` outside the mascot module, or if anything but the allowed callers calls `showReserved`. When the recording or delegation feature lands, add its file to `SHOWS_RESERVED` in that test.
+- **Reserved states — never reuse them for anything else** (design file header, CLAUDE.md): red `s-record` = screen recording only; `s-delegate` = data leaving the machine only: Claude API calls (from 1c) and Phase 3 delegation (owner, 2026-10-11; was Phase 3 only). Neither feature exists yet, so no app state maps to them. Enforced three ways: `lanternStateFor` returns `AppLanternState` (reserved states excluded, so `tsc` rejects a mapping to them); the only way to show one is `Lantern.showReserved(state, owner)` with a typed owner (`"screen-recording"` / `"phase3-delegation"`, or `"dev-preview"` for the dev switch); `tests/lantern.test.mjs` fails if any island state (read from the `BotStateName` union) maps to one, if a reserved state name appears in `src/` outside the mascot module, or if anything but the allowed callers calls `showReserved`. When the recording or delegation feature lands, add its file to `SHOWS_RESERVED` in that test.
 - **State mapping** (`lanternStateFor`, island state → lantern):
 
   | Island state | Lantern |

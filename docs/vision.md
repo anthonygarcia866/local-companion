@@ -18,7 +18,8 @@ Status: **direction set by the owner 2026-10-11.** Local-only AI is no longer a 
   - The owner enters it in **Settings** and it is stored in **Windows Credential Manager** (the `windows` crate's `CredWriteW` / `CredReadW`, no new crate). Phase 0a removed the `keyring` crate, so this adds credential storage back on purpose, and the PR says so.
   - Only Rust reads it. It never reaches a webview after it is entered, and it is never logged or written to `settings.json`.
   - Settings shows it masked, with **Remove**.
-- **Offline fallback:** gemma3 through Ollama (`net::request` to localhost, as today) becomes **optional, not the default.** Settings can pick it per task, for example while offline. Nothing is built for it before the Claude path works.
+- **The "brain" setting:** Settings picks the brain for 1c, **Claude API (default)** or **local model** (gemma3 through Ollama, `net::request` to localhost as today). It can be switched at any time without rebuilding. The local model is an **optional offline fallback, not the default**, and nothing new is built for it before the Claude path works.
+- **Local model benchmarking is deferred** until the owner's next laptop (32 GB+ RAM). This one has 16 GB and is already memory-tight, so the API stays the default.
 - **Spend:**
   - Settings shows **this month's API spend**, worked out from the token counts in each response times the model's price.
   - An **optional monthly cap** can be set. Once it is reached, Glim sends nothing more that month and the island says why.
@@ -36,9 +37,10 @@ The product is still "Glim decides what leaves the machine." What changes is the
   - Verified empirically, as before: a request to another host is refused, and netstat over the whole process tree shows only loopback and Anthropic's addresses.
 - **Kept, unchanged:**
   - **Card, SSN, IBAN and payment filtering** happens before anything leaves capture. Every request body is scanned again just before it is sent (`finish_reading`'s checks). A hit sends nothing.
-  - **Send only on the user's click.** Nothing goes to the API in the background. §3 of the phase 1 plan floated a slower background check; that idea is dropped.
+  - **Send only on the user's request:** a click, or the rewrite hotkey (owner, 2026-10-11), which sends that one paragraph. Nothing goes to the API in the background. What comes back is a suggestion, typed in only on a click. §3 of the phase 1 plan floated a slower background check; that idea is dropped.
   - **No logging of captured text.** Request and response bodies are never logged or stored. The log gets an outcome code, the model, the token counts and the cost.
   - **New powers start as "suggest and wait for my click".** Anything that types, sends, deletes, buys, publishes or runs a job is first shown as a suggestion. It only moves to "do it without asking" if the owner later says so for that one power.
+- **The mascot shows it:** while text is going to the API, the lantern is in `s-delegate`, the state reserved for data leaving the machine (owner, 2026-10-11).
 - **Not changed:** the Phase 3 memory policy (summaries only, a hard sensitive-data filter, tenants by role), per-app exclusions, the paused sites and apps, and the reserved mascot states.
 
 ## 4. Phase 1.5 voice: measure before choosing
