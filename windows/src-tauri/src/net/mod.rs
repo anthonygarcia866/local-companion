@@ -300,6 +300,44 @@ pub(crate) mod tests {
         url
     }
 
+    /// Like `serve_once`, and hands back the request it got (head and body
+    /// as raw bytes), for tests of what a client sends (ai/claude.rs).
+    pub(crate) fn serve_capture(status: &str, headers: &str, body: Vec<u8>) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let head = format!("HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            // Read the head, then as much body as Content-Length says.
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = conn.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+                if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let text = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                    let len = text
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if got.len() >= end + 4 + len {
+                        break;
+                    }
+                }
+            }
+            let _ = tx.send(got);
+            let _ = conn.write_all(head.as_bytes());
+            let _ = conn.write_all(&body);
+        });
+        (url, rx)
+    }
+
     fn block_on<T>(f: impl std::future::Future<Output = T>) -> T {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
     }
