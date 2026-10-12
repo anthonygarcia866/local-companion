@@ -233,6 +233,73 @@ test("a new turn within 5.2 s of a stop is not put back to idle", () => {
 
 // ── Other agents ──────────────────────────────────────────────────────────────
 
+// ── Several Claude Code sessions ───────────────────────────────────────────────
+
+const inRepo = (session_id, extra = {}) => ({ session_id, cwd: "C:/Users/me/repo", ...extra });
+const claudePills = () => State.tasks.filter((t) => t.id === CLAUDE || t.id.startsWith(`${CLAUDE}~`));
+
+test("two sessions in one project get separate pills and session ids", () => {
+  hook({ hook_event_name: "SessionStart", ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "SessionStart", ...inRepo("bbbb2222-0000") });
+  const pills = claudePills();
+  assert.equal(pills.length, 2);
+  assert.deepEqual(pills.map((t) => t.sessionId), ["aaaa1111-0000", "bbbb2222-0000"]);
+  assert.equal(pills[0].name, "repo");
+  assert.equal(pills[1].name, "repo · 2");
+  // Each session's events go to its own pill: one working, the other thinking.
+  hook({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "UserPromptSubmit", prompt: "hi", ...inRepo("bbbb2222-0000") });
+  assert.equal(pills[0].state, "working");
+  assert.equal(pills[1].state, "thinking");
+  // B stopping on an error doesn't touch A.
+  hook({ hook_event_name: "StopFailure", ...inRepo("bbbb2222-0000") });
+  assert.equal(pills[0].state, "working");
+  assert.equal(pills[1].state, "error");
+});
+
+test("a second session's permission request names its own pill and session", () => {
+  hook({ hook_event_name: "SessionStart", ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "PermissionRequest", request_id: "rb", tool_name: "Bash", tool_input: { command: "rm x" }, ...inRepo("bbbb2222-0000") });
+  const b = claudePills()[1];
+  assert.equal(State.pendingApproval.pillId, b.id);
+  assert.equal(State.pendingApproval.sessionId, "bbbb2222-0000");
+  // A's turn ending doesn't take B's card down.
+  hook({ hook_event_name: "Stop", ...inRepo("aaaa1111-0000") });
+  assert.equal(State.pendingApproval?.requestId, "rb");
+});
+
+test("a second session's pill goes when it ends; the first keeps its own", () => {
+  hook({ hook_event_name: "SessionStart", ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "SessionStart", ...inRepo("bbbb2222-0000") });
+  hook({ hook_event_name: "SessionEnd", ...inRepo("bbbb2222-0000") });
+  assert.deepEqual(claudePills().map((t) => t.sessionId), ["aaaa1111-0000"]);
+  // The first ending frees its pill for the next session.
+  hook({ hook_event_name: "SessionEnd", ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "SessionStart", ...inRepo("cccc3333-0000") });
+  assert.deepEqual(claudePills().map((t) => [t.id, t.sessionId]), [[CLAUDE, "cccc3333-0000"]]);
+});
+
+test("a session silent for 30 minutes gives its pill up to a new one", () => {
+  let now = 1_000_000;
+  const clock = mock.method(Date, "now", () => now);
+  hook({ hook_event_name: "SessionStart", ...inRepo("aaaa1111-0000") });
+  now += 29 * 60_000;
+  hook({ hook_event_name: "SessionStart", ...inRepo("bbbb2222-0000") });
+  assert.equal(claudePills().length, 2, "29 min: still the first one's");
+  hook({ hook_event_name: "SessionEnd", ...inRepo("bbbb2222-0000") });
+  now += 2 * 60_000;
+  hook({ hook_event_name: "SessionStart", ...inRepo("cccc3333-0000") });
+  assert.deepEqual(claudePills().map((t) => [t.id, t.sessionId]), [[CLAUDE, "cccc3333-0000"]]);
+  clock.mock.restore();
+});
+
+test("events with no session id stay on the Claude Code pill", () => {
+  hook({ hook_event_name: "SessionStart", ...inRepo("aaaa1111-0000") });
+  hook({ hook_event_name: "Notification", message: "Shall I?", cwd: "C:/Users/me/repo" });
+  assert.equal(claudePills().length, 1);
+  assert.equal(task().state, "question");
+});
+
 test("a tagged agent gets its own pill next to Claude Code's", () => {
   hook({ hook_event_name: "PreToolUse", cwd: "/p/proj", coucou_agent: "gemini", tool_name: "Bash", tool_input: { command: "ls" } });
   assert.equal(State.tasks[0].id, CLAUDE);

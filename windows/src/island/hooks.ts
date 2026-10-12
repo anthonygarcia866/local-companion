@@ -8,7 +8,7 @@
 import { Bridge, onEvent } from "../core/bridge";
 import { buildFileDiff, fileName, makeDiffStep, toOneLine } from "../core/diff";
 import { State, type AskedQuestion } from "../core/state";
-import { pillDefinition } from "../core/pills";
+import { SESSION_PILL_SEP, pillDefinition } from "../core/pills";
 import { APPROVAL_AGENTS, agentColor, agentName, validateAgent } from "./agents";
 import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
@@ -210,10 +210,45 @@ function askedQuestions(tool: string, input: Record<string, unknown>): AskedQues
   return out.length > 0 ? out : null;
 }
 
+/** A session that sent nothing for this long no longer holds its pill. */
+const SESSION_QUIET_MS = 30 * 60_000;
+
+/**
+ * The pill a Claude Code session's events go to. The first session holds the
+ * VS Code / Cursor pill; one that runs at the same time gets a pill of its own
+ * (`<pill>~<session>`), so two sessions never overwrite each other's state,
+ * steps or session id. The pill is free again once its session ends, or after
+ * 30 minutes of silence (a terminal closed without SessionEnd). Events with no
+ * session id stay on the pill itself.
+ */
+function sessionPill(pillId: string, sessionId: string): string {
+  if (!sessionId) return pillId;
+  const own = State.tasks.find((t) => t.id === pillId);
+  const quiet = (t: { lastEventAt?: number; state: string }) =>
+    Date.now() - (t.lastEventAt ?? 0) > SESSION_QUIET_MS && t.state !== "approval" && t.state !== "question";
+  if (!own || !own.sessionId || own.sessionId === sessionId || quiet(own)) return pillId;
+  const prefix = `${pillId}${SESSION_PILL_SEP}`;
+  const extra = State.tasks.find((t) => t.id.startsWith(prefix) && t.sessionId === sessionId);
+  if (extra) return extra.id;
+  return prefix + sessionId.replace(/[^A-Za-z0-9-]/g, "").slice(0, 12);
+}
+
+/** "repo", then "repo · 2", "repo · 3" for the sessions after the first. */
+function sessionPillName(id: string, projectName: string): string {
+  if (!id.includes(SESSION_PILL_SEP)) return projectName;
+  const base = id.slice(0, id.indexOf(SESSION_PILL_SEP));
+  const others = State.tasks.filter((t) => t.id !== id && (t.id === base || t.id.startsWith(base + SESSION_PILL_SEP)));
+  const mine = State.tasks.find((t) => t.id === id);
+  if (mine) return mine.name;
+  return `${projectName} · ${others.length + 1}`;
+}
+
 /** The Claude Code session's pill, named after its project for the session. */
 function upsert(id: string, projectName: string, cwd: string, sessionId: string) {
-  const t = State.upsertWorkspacePill(id, projectName, cwd);
-  if (t && sessionId) t.sessionId = sessionId;
+  const t = State.upsertWorkspacePill(id, sessionPillName(id, projectName), cwd);
+  if (!t) return;
+  if (sessionId) t.sessionId = sessionId;
+  t.lastEventAt = Date.now();
 }
 
 /** The session is over: the pill goes back as it was, or away if it was only there for it. */
@@ -295,7 +330,7 @@ function handleHook(island: Island, payload: HookPayload) {
   // when it runs in Cursor's terminal (Mac #120), VS Code's otherwise.
   const validAgent = validateAgent(payload.coucou_agent);
   const workspaceId = payload.term_editor === "cursor" ? CURSOR_ID : CLAUDE_ID;
-  const agentId = validAgent ? `agent_${validAgent}` : workspaceId;
+  const agentId = validAgent ? `agent_${validAgent}` : sessionPill(workspaceId, payload.session_id ?? "");
   const isExternalAgent = validAgent !== null;
   const sessionId = payload.session_id ?? "";
 

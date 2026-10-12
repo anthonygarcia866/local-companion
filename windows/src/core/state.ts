@@ -36,6 +36,8 @@ export interface AgentTask {
   sessionCwd?: string | null;
   /** Claude Code's session, so "Open terminal" can find the window it runs in. */
   sessionId?: string | null;
+  /** When its session last sent an event (epoch ms): a pill whose session went quiet can be taken over. */
+  lastEventAt?: number;
   /** Claude's final message after Stop, one line; cleared when a new turn starts. */
   finalLine?: string | null;
   /** The usage or spend limit that stopped it; read only while `state` is "ratelimit". */
@@ -509,6 +511,8 @@ class AppState {
       const def = pillDefinition(id);
       if (!def) return null;
       t = taskFor(def, this.settings.pillColors, name);
+      // A session pill (hooks.ts) is its catalog pill's, under its own id.
+      t.id = id;
       this.insertAfterMain(t);
     }
     t.name = name;
