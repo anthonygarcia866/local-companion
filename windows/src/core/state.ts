@@ -149,6 +149,12 @@ export interface Settings {
     onDesktop: boolean;
     spot: { x: number; y: number; space: string } | null;
   };
+  /** 1c's brain: "claude" (the Claude API, default) or "local" (not built yet). */
+  aiBrain: "claude" | "local";
+  /** The Claude model for the rewrite (src-tauri/src/ai/claude.rs MODELS). */
+  aiModel: string;
+  /** Monthly cap on Glim's API spend estimate, in US dollars; 0 = none. */
+  aiMonthlyCapUsd: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -169,6 +175,9 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   pillColors: {},
   language: "",
+  aiBrain: "claude",
+  aiModel: "claude-haiku-5-5",
+  aiMonthlyCapUsd: 0,
 };
 
 type Listener = () => void;
