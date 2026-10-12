@@ -1,26 +1,26 @@
 ﻿
-15:23:50.321 exe: C:\Users\antho\AppData\Local\Glim\glim.exe (11806720 bytes, built 10/11/2026 15:22:18)
-15:23:59.569 dev Glim pid 351792, visibility normal (saved: normal)
-15:24:00.588 Notepad text area: ControlType.Document class=RichEditD2DPT
-15:24:02.755 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
-15:24:03.431 agent card: the finished card took the island; pill count 2
-15:24:03.534 lantern: UIA Button 'Glim'
-15:24:03.959 lantern click: the suggestions view ('2 writing suggestions'), the agent card gone
-15:24:04.084 1b: fix button 'Replace with “received”' enabled; note 'Click a fix to apply it. Ctrl+Z in Notepad undoes it.'
-15:24:04.732 1b away: focus on Notepad's 'Add New Tab' button -> fix button off, 'Click in the field first.'
-15:24:10.088 1b back in the text: fix button on again
-15:24:12.622 1b dismiss: count gone and stays gone (same text)
-15:24:12.734 Home: the agent's last words are there
-15:24:14.048 clean paragraph: count gone
-15:24:16.938 ember: label 'Glim: 12 writing suggestions'
-15:24:17.102 ember click: island open on the list, '1–3 of 12'
-15:24:17.422 pager: 'Previous suggestions' 41x36 at (689,331)
-15:24:17.422 pager: 'Next suggestions' 41x36 at (824,331)
-15:24:17.523 Next: '4–6 of 12'
-15:24:17.724 island closed: back to the ember (Glim: 12 writing suggestions)
-15:24:18.951 chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through
-15:24:19.018 waiting for the periodic writing log line (up to 35 s)
-15:24:23.185 log: writing: 5 checks, median 6.03 ms, max 16.94 ms; paragraphs median 52 chars, max 154 chars
-15:24:26.501 closed Notepad, removed the test file, visibility back to normal, Glim started normally
-15:24:26.549 glim.log searched for the test text: 22 new lines
-15:24:26.549 PASS
+22:25:24.274 exe: C:\Users\antho\AppData\Local\Glim\glim.exe (11809280 bytes, built 10/11/2026 16:55:34)
+22:25:33.331 dev Glim pid 11876, visibility normal (saved: normal)
+22:25:35.091 Notepad text area: ControlType.Document class=RichEditD2DPT
+22:25:36.452 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
+22:25:37.025 agent card: the finished card took the island; pill count 2
+22:25:37.121 lantern: UIA Button 'Glim'
+22:25:37.360 lantern click: the suggestions view ('2 writing suggestions'), the agent card gone
+22:25:37.455 1b: fix button 'Replace with “received”' enabled; note 'Click a fix to apply it. Ctrl+Z in Notepad undoes it.'
+22:25:38.016 1b away: focus on Notepad's 'Add New Tab' button -> fix button off, 'Click in the field first.'
+22:25:42.788 1b back in the text: fix button on again
+22:25:45.291 1b dismiss: count gone and stays gone (same text)
+22:25:45.397 Home: the agent's last words are there
+22:25:46.671 clean paragraph: count gone
+22:25:49.656 ember: label 'Glim: 12 writing suggestions'
+22:25:49.790 ember click: island open on the list, '1–3 of 12'
+22:25:49.917 pager: 'Previous suggestions' 33x29 at (774,227)
+22:25:49.918 pager: 'Next suggestions' 33x29 at (882,227)
+22:25:50.018 Next: '4–6 of 12'
+22:25:50.183 island closed: back to the ember (Glim: 12 writing suggestions)
+22:25:51.563 chat (slack.exe): 1 suggestion (recieved); u, tmrw, lol, idk, i, btw, ok, ty let through
+22:25:51.574 waiting for the periodic writing log line (up to 35 s)
+22:25:56.807 log: writing: 5 checks, median 3.10 ms, max 15.54 ms; paragraphs median 52 chars, max 154 chars
+22:25:59.734 closed Notepad, removed the test file, visibility back to normal, Glim started normally
+22:25:59.779 glim.log searched for the test text: 22 new lines
+22:25:59.779 PASS
