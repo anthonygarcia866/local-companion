@@ -1,6 +1,6 @@
 # Phase 1 — writing assistant: plan
 
-Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a merged 2026-10-11 (PR #9). **§7 (1b, applying fixes) approved by the owner 2026-10-11** with the answers in §7.9; 1b-apply is being built on `phase-1b-apply`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
+Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a merged 2026-10-11 (PR #9). **§7 (1b, applying fixes) approved by the owner 2026-10-11** with the answers in §7.9; 1b-apply merged 2026-10-11 (PR #12, `b99651b`). **Direction change 2026-10-11:** AI features use the Claude API by default, not a local model; see §12 and `docs/vision.md`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
 
 If a step here turns out wrong while building, this file gets a warning note next to that step; the code is not quietly worked around it.
 
@@ -12,7 +12,7 @@ If a step here turns out wrong while building, this file gets a warning note nex
    **No issues:** the lantern goes back to **`s-listen`** (island open) or `s-idle` (in the notch), and the count disappears.
 4. **Clicking the lantern** (or the ember) opens the island on a **suggestion list**, in reading order from the start of the paragraph, three at a time with Previous / Next. Each entry shows the problem text, a short explanation and the replacement options.
 5. **1b:** clicking a replacement applies it in the app, with native undo.
-6. **1c:** **Ctrl+Alt+Shift+R** sends the paragraph (or the selection) to the local model (`gemma3:4b`) with a tone: clearer, friendlier, more formal or shorter. The lantern shows **`s-think`** while it generates.
+6. **1c:** **Ctrl+Alt+Shift+R** sends the paragraph (or the selection) to the **Claude API** (a fast Haiku-class model by default; §12) with a tone: clearer, friendlier, more formal or shorter. The lantern shows **`s-think`** while it generates. *(Was the local `gemma3:4b`; changed 2026-10-11.)*
 
 Glim never takes focus at any point (the island, panel and pill are non-activating, as today).
 
@@ -22,7 +22,7 @@ Glim never takes focus at any point (the island, panel and pill are non-activati
 |---|---|---|
 | **1a — instant checker** | Capture runs in normal sessions for apps that are on. 600 ms debounce. Paragraph extraction without the signature or quote. Harper. Lantern `s-suggest` + count. A **read-only** suggestion list in the island. Per-app defaults hardcoded. | Notepad self-test passes; <50 ms per check measured; tests below pass; the owner tries it in Outlook, Word and Gmail. |
 | **1b — apply fixes** | Clicking a replacement writes it back (design in §7). The floating bubble at the field (§7a); proposed as a separate PR, §7.9. | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. The bubble follows the field and never takes focus. |
-| **1c — AI rewrite** | Ctrl+Alt+Shift+R and the four tones; `s-think`; the result is shown in the island, with apply going through 1b's path. | Rewrite in ≤ ~4.5 s for a typical paragraph on this machine; model calls only through `net::request`. |
+| **1c — AI rewrite** | Ctrl+Alt+Shift+R and the four tones, sent to the Claude API (§12); `s-think`; the result is shown in the island, with apply going through 1b's path. Settings: API key (Windows Credential Manager), model per task, this month's spend, optional monthly cap. `api.anthropic.com` added to the checkpoint. | Rewrite in ≤ ~4.5 s for a typical paragraph (measured on the Claude path); model calls only through `net::request`; a request to any other host still refused; the card/SSN/IBAN scan runs on every request body; nothing sent without the user's action; no request or response text in any log. |
 | **1d — settings** | Per-app on/off, default tone, strictness (which Harper rule groups run), editing the pause list (from PR #8), the pause hotkey **Ctrl+Alt+Shift+P**, a one-time "Check writing in [app]?" prompt for apps on neither list (§5), and an optional underline overlay. | Settings are kept in `settings.json`; the overlay never takes focus or clicks. |
 
 Each PR is opened, verified and stopped for the owner, never merged without approval.
@@ -70,7 +70,9 @@ Each PR is opened, verified and stopped for the owner, never merged without appr
 
 It did catch: there/their, then/than, affect/effect, a/an, "the units has", misspellings and repeated words.
 
-**These are expected to be covered by the gemma layer (1c),** which reads the whole sentence. In 1a the instant checker reports only what Harper finds, and the PR says so. Whether 1c runs on demand only (the rewrite hotkey) or also as a slower background check after the instant one is decided in 1c, from measured timings (~2–3.5 s per paragraph on this CPU).
+**These are expected to be covered by the AI layer (1c),** which reads the whole sentence. In 1a the instant checker reports only what Harper finds, and the PR says so.
+
+> ⚠️ **Amended 2026-10-11 (direction change, §12):** the AI layer is the Claude API, not gemma. It runs **on demand only**: the background-check option is dropped, because nothing is sent without the user's action.
 
 **Plan for 1a:**
 - Merge lints that cover the same span into one entry, with the suggestions combined and duplicates removed.
@@ -105,6 +107,7 @@ Today the capture thread runs only with `GLIM_DEV=1` and re-reads the focused fi
 - **Context tiers** (from the measured model timings):
   - Grammar is the paragraph only.
   - Rewrite (1c) is the paragraph plus up to ~1,000–1,500 characters of context (subject line, the message being answered). That is ~3.5–4.5 s on this CPU; 5,000 characters is ~10 s, too slow.
+    > ⚠️ **Amended 2026-10-11:** those timings are gemma3 on this CPU. 1c now uses the Claude API (§12); the context limit is set again from timings measured on that path. Context is sent only with the user's action, after the same scan.
   - Quoted text may be *context* for a rewrite, never something Glim corrects.
 - **What leaves the capture thread** in normal sessions: only the paragraph (not the whole field) goes to the checker. Harper runs in the Rust process. The island gets the **suggestions**: problem text, message, replacements, offsets. Nothing else.
 
@@ -144,7 +147,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
   - **In reading order** (left to right, top to bottom, from the start of the paragraph), three rows a page, with **Previous / Next** buttons (32×28 px, amber) and "1–3 of 12" (owner, 2026-10-10). The first round sorted nearest the caret, which put an early typo ("timez") on page 2 where it looked missed. Buttons, not scrolling: the island's window never takes focus, so the mouse wheel can't be relied on (the first 1a build cut the list off with no way to see the rest).
   - Read-only in 1a: the only buttons turn pages, and there are no keyboard hooks.
   - Every new string needs its 9 translations.
-- **Reserved:** `s-record` and `s-delegate` are never used.
+- **Reserved:** `s-record` is never used. `s-delegate` is used only while text is going to the Claude API (from 1c, §12) or, later, Phase 3 delegation.
 
 ## 7. Write-back (1b)
 
@@ -291,7 +294,8 @@ A Grammarly-style marker where the user is typing, so suggestions don't need a t
 ## 9. Privacy
 
 - **Captured text stays in memory** for one check and is dropped (from 1b, the checked paragraph is kept in memory while its suggestions show, so a fix can find it again: §7.2). It is never logged, never stored, and has no history or cache. **Suggestions contain text too:** they get the same rule (in memory, panel and island only; never in glim.log or the results log).
-- **Network:** Harper runs in-process. Model calls (1c) go only through `windows/src-tauri/src/net/mod.rs` (localhost only), with `keep_alive` so the model stays loaded while the assistant is on.
+- **Network:** Harper runs in-process. Model calls (1c) go only through `windows/src-tauri/src/net/mod.rs`.
+  > ⚠️ **Amended 2026-10-11 (§12):** the allowlist becomes localhost + `api.anthropic.com` (https, 443). The Ollama `keep_alive` note applies only to the optional offline fallback.
 - **Checked empirically, not trusted:** with 1a running, netstat over Glim's whole process tree (`glim.exe` and its `msedgewebview2.exe` children) during checks shows no connection. The existing guard test still forbids sockets outside `src/net/`.
 - **PR #8's filters run before the checker.** Their tests stay and new ones are added: a reading they drop never produces a suggestion.
 
@@ -318,4 +322,22 @@ A Grammarly-style marker where the user is typing, so suggestions don't need a t
 4. **Pause key:** Ctrl+Alt+Shift+P, checked for conflicts like the other hotkeys (1d).
 5. **Dialect:** American English only for now.
 6. **12-digit rule:** narrowed to card-shaped groups as PR 1a's first commit (§5).
-7. **Harper's misses** are left to the gemma layer (1c) (§3).
+7. **Harper's misses** are left to the gemma layer (1c) (§3). *(The AI layer is now the Claude API; §12.)*
+
+## 12. Direction change: the Claude API (owner, 2026-10-11)
+
+The owner is no longer prioritizing local-only AI. Full statement: `docs/vision.md`. What it means for Phase 1:
+
+1. **1c rewrite uses the Claude API.** A fast, cheap **Haiku-class** model by default; a stronger one can be picked per task in Settings. Model IDs and prices come from Anthropic's docs at build time.
+2. **API key:** entered in Settings and stored in **Windows Credential Manager** (no new crate; the `windows` crate's credential calls). Only Rust reads it; it never goes back to a webview, a log or `settings.json`. The PR calls out that credential storage is back (Phase 0a removed it).
+3. **Network:** `net::ALLOWED_HOSTS` goes from localhost only to **localhost + `api.anthropic.com`** (https on 443 only), still through the single checkpoint in `net/mod.rs`. The webviews stay localhost-only; API calls come from Rust. Verified empirically: a request to another host fails, and netstat over the process tree shows nothing else.
+4. **Kept:** the card/SSN/IBAN/payment filtering before anything leaves capture, and again on every request body just before it is sent; **send only on the user's click**; no logging of captured text (the log gets outcome, model, tokens and cost only). New powers start as "suggest and wait for my click"; the rewrite's result is a suggestion and is typed only through 1b's apply path, on a click.
+5. **Spend:** Settings shows this month's API spend (Glim's own estimate from the token counts) with an **optional monthly cap**. At the cap nothing is sent and the island says why.
+6. **The "brain" setting:** 1c's Settings picks the brain, **Claude API (default)** or **local model** (gemma3 through Ollama), switchable at run time without rebuilding. Both go through `net::request` and the same pre-send scan. The local path is the optional offline fallback; nothing new is built for it before the Claude path works.
+   - **Local model benchmarking is deferred** until the owner's next laptop (32 GB+ RAM). This one has 16 GB and is already memory-tight, so the API stays the default and the gemma3 timings in §4 are not re-measured here.
+7. **1d** gains the AI settings above (brain, key, model per task, spend and cap).
+
+**Decided (owner, 2026-10-11):**
+1. **The rewrite hotkey counts as the owner's request** to send that paragraph to the API. The result still shows as a suggestion and is typed in only when the owner clicks it (1b's apply path).
+2. **`s-delegate` shows while text is going to the API.** The rule changed in CLAUDE.md, the design file's header and PROJECT_STATUS. The code side changes in the 1c PR: `RESERVED_LANTERN_STATES.delegate`'s owner (now `"phase3-delegation"`) and the allowed callers in `tests/lantern.test.mjs` (`SHOWS_RESERVED`).
+3. **CLAUDE.md's network rule** now matches `docs/vision.md`: localhost + `api.anthropic.com`, through `net/mod.rs`.

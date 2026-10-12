@@ -6,19 +6,31 @@ Repo: `anthonygarcia866/local-companion`. Dev machine location: `C:\Users\antho\
 The app and its mascot are both named **Glim** (decided 2026-10-08). Product name `Glim`, bundle identifier `com.anthonygarcia.glim`, executable `glim.exe`, installers `Glim-Windows-<version>-setup.exe` / `.msi`. The brand artwork is in `docs/brand/` (see below).
 
 ## Vision
-A local-first Windows desktop companion.
+A Windows desktop companion that keeps the owner in control of what leaves the machine. Full statement: [docs/vision.md](docs/vision.md).
+
+### Direction (owner, 2026-10-11): the Claude API is Glim's brain
+- **Roles:** Claude Code builds Glim. Glim lives on the owner's PC: it sees context, types and clicks, and runs 24/7 jobs. The Claude API is Glim's brain.
+- **AI features** (1c rewrite, later email drafts, spoken actions and agent jobs) use the **Claude API by default**: a fast, cheap Haiku-class model by default, a stronger one optional per task. The API key is entered in Settings and kept in Windows Credential Manager.
+- **Network rule:** "localhost only" becomes **"localhost + the Anthropic API"** (`api.anthropic.com`, https), still through the single checkpoint in `net/mod.rs`. Not built yet: today's allowlist is still localhost only.
+- **Kept:** card/SSN/payment filtering before anything leaves capture; send only on the user's click; no logging of captured text. New powers start as "suggest and wait for my click".
+- **Settings** shows this month's API spend, with an optional monthly cap.
+- **gemma3 / Ollama** becomes an optional offline fallback, not the default. 1c gets a **"brain" setting**: Claude API (default) or local model, switchable in Settings without rebuilding.
+- **Local model benchmarking is deferred** until the owner's next laptop (32 GB+). This one has 16 GB and is already memory-tight, so the API stays the default.
+- **`s-delegate`** shows while text is going to the API (it is reserved for data leaving the machine).
+- **Phase 1.5 voice:** compare local whisper with cloud speech-to-text on cost, speed and accuracy before choosing.
+- **Long term:** when the owner upgrades, the current laptop becomes the always-on **hub**. It holds the rules, one approval queue, the open items and the scheduler, exposed via MCP, and it replaces Muse/Jarvis job by job.
 
 ### Phase 1 — writing assistant
 - UI Automation text capture of the focused field (password fields are skipped).
-- Suggestions from a local model via Ollama.
+- Instant checks in-process (Harper); AI rewrite through the Claude API (Ollama as an optional offline fallback).
 - Island/pill UI that never steals focus.
 - Settings for tone, aggressiveness, and a per-app on/off toggle.
 
 ### Phase 1.5 — Voice + Actions (priority right after 1b; owner, 2026-10-10)
 - **Push-to-talk hotkey first:** the microphone is open only while the key is held.
 - **Later, optional:** a local wake word ("Hey Glim"), **off by default**, detected on-device only.
-- **whisper.cpp** speech-to-text; the model is picked by measured speed on the user's CPU (as gemma3:4b was).
-- Then **gemma3 turns the request into a structured action, or into dictated text** (filler words, punctuation, tone matched to the active app, using the writing layer's capture context).
+- **Speech-to-text not decided** (owner, 2026-10-11): local **whisper.cpp** (model picked by speed on this CPU) vs. **cloud speech-to-text**, compared on cost, speed and accuracy with the same clips before choosing.
+- Then **the Claude API turns the request into a structured action, or into dictated text** (filler words, punctuation, tone matched to the active app, using the writing layer's capture context).
 - **First actions:**
   - **Dictate** into the focused field, through 1b's insertion path.
   - **Open apps:** Claude Code, Codex, Outlook (no confirmation).
@@ -32,7 +44,7 @@ A local-first Windows desktop companion.
 - User-initiated only.
 - Windows Graphics Capture + UIA events.
 - The user states the goal at record time.
-- A local LLM writes a real SOP from the recording.
+- The Claude API (by default) writes a real SOP from the recording, sent only on the user's click.
 - Output is editable Markdown with screenshots, PDF export, and redaction.
 - **Two capture layers with different rules:**
   - **Writing layer** (Phase 1): editable fields only, never page content (`capture::is_editable`; see `docs/capture-results.md`).
@@ -63,7 +75,7 @@ A local-first Windows desktop companion.
   - New Outlook has no COM API: out of scope unless the user switches.
 
 ## Privacy model
-- **Phases 0–2: strictly local, no exceptions.** All outbound network access goes through a single choke-point module in Rust, which allows localhost only.
+- **Phases 0–2: localhost + the Anthropic API** (owner, 2026-10-11; was "strictly local, no exceptions"). All outbound network access goes through the single choke-point module in Rust. Text goes to the API only on the user's click, after the card/SSN/IBAN scan, and is never logged. Until 1c is built the allowlist is still localhost only.
 - **Phase 3: opt-in.** Data leaves the machine only on per-task approval, after the user sees the exact outgoing payload. Exceptions are added only through the choke-point module.
 - Phase 1 text and Phase 2 recordings never flow to Phase 3 automatically. Only user-model entries marked shareable may.
 - Enforcement is verified empirically (attempt a blocked request, confirm it fails), not trusted from config.
@@ -71,14 +83,14 @@ A local-first Windows desktop companion.
 
 ### Network choke point
 - **Location:** `windows/src-tauri/src/net/mod.rs`. `net::request(method, url, timeout)` is the only way to build an outbound request; it checks `net::check` first.
-- **Allowlist:** `net::ALLOWED_HOSTS = ["127.0.0.1", "localhost"]`, any port, http/https, no credentials in the URL. Redirects are re-checked hop by hop, proxies are never used, and `localhost` is resolved to 127.0.0.1 by the client itself.
+- **Allowlist:** `net::ALLOWED_HOSTS = ["127.0.0.1", "localhost"]`, any port, http/https, no credentials in the URL. **Planned for 1c:** `api.anthropic.com`, https on 443 only (`docs/vision.md` §3). Redirects are re-checked hop by hop, proxies are never used, and `localhost` is resolved to 127.0.0.1 by the client itself.
 - **Guard test:** `net::tests::no_other_module_can_reach_the_network` fails if any Rust file outside `src/net/` names `reqwest` or a socket type. Mutation-checked: adding a `reqwest::get` line to `tray.rs` makes it fail.
 - **Webview side:** CSP `connect-src ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*`, and WebView2 launched with background networking off and a resolver rule that fails every host name except `localhost` (`BROWSER_ARGS` in `lib.rs`, `additionalBrowserArgs` in `tauri.conf.json`; a test keeps them identical).
 
 ## Roadmap
 - **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *Merged 2026-10-09 (PR #2).*
 - **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (PR #5, see "Mascot"); the remaining placeholders moved to Phase 4. Also a text-capture spike (UI Automation) to decide how Phase 1 reads the focused field: see "Text-capture spike".
-- **Phase 1** — writing assistant. Plan: `docs/phase1-plan.md`; capture plan and spike results: `docs/capture-results.md`. **1a** (instant checker, read-only list) on branch `phase-1a-checker`, PR open: see "Writing checker (Phase 1a)".
+- **Phase 1** — writing assistant. Plan: `docs/phase1-plan.md`; capture plan and spike results: `docs/capture-results.md`. **1a** merged 2026-10-11 (PR #9); **1b-apply** merged 2026-10-11 (PR #12, `b99651b`); next: the post-1b fixes PR, then the floating bubble (§7a). **1c** uses the Claude API (direction change, 2026-10-11).
 - **Phase 1.5** — Voice + Actions (see Vision): push-to-talk dictation and spoken actions. Priority right after 1b.
 - **Phase 2** — SOP recorder, with two capture layers under different rules (see Vision). The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
 - **Phase 3** — delegation layer, with a memory policy: learned summaries only, never raw captured text, behind a testable sensitive-data filter (see Vision).
@@ -121,10 +133,11 @@ A local-first Windows desktop companion.
   7. **Glim is the owner's only writing checker** (2026-10-11: Grammarly and QuillBot are being uninstalled). Drop any Grammarly-coexistence handling that's no longer needed: as of this note the code has none (searched for Grammarly/QuillBot: only a "Grammarly-style marker" description in the plan's floating-bubble section), so this is a check, not a removal.
 
 ## Open questions
+- **Answered 2026-10-11** (`docs/phase1-plan.md` §12): the rewrite hotkey counts as the owner's request to send; API calls show `s-delegate`; CLAUDE.md's network rule now matches `docs/vision.md`.
 - At Phase 3 build time, verify whether Claude Code and Codex CLI can run on a subscription login rather than API keys, and check their current headless flags and permission syntax.
 
 ## Current status
-**Installed on this machine (2026-10-11):** `Glim_0.2.0_x64-setup.exe` (per-user, silent) from the PR #9 build, into `%LOCALAPPDATA%\Glim\glim.exe`, with a Start menu entry "Glim" (the desktop shortcut a silent install adds was removed). Byte-identical to `windows\target\release\glim.exe` except Tauri's bundle-type marker (3 bytes, `UNK` → `NSS`). Before this, Glim had only been run from the build folder: no Start menu entry and no startup entry. Launch at startup is on since 2026-10-11 09:48 (see "Launch at startup").
+**Installed on this machine (2026-10-11 19:32):** the PR #12 build (`glim.exe` built 16:55, 11,809,280 bytes, with the web chat-site rule), reinstalled silently and started from the Start menu. After the PC restart that day, Glim started on its own (log: `autostart: on; the startup entry already starts …\Glim\glim.exe`, then `--- Glim 0.2.0 started ---`). Earlier: `Glim_0.2.0_x64-setup.exe` (per-user, silent) from the PR #9 build, into `%LOCALAPPDATA%\Glim\glim.exe`, with a Start menu entry "Glim" (the desktop shortcut a silent install adds was removed). Byte-identical to `windows\target\release\glim.exe` except Tauri's bundle-type marker (3 bytes, `UNK` → `NSS`). Before this, Glim had only been run from the build folder: no Start menu entry and no startup entry. Launch at startup is on since 2026-10-11 09:48 (see "Launch at startup").
 
 Mascot merged 2026-10-10 (PR #5, `c21debf`). Text-capture spike on branch `phase-0b-capture` (PR open, not merged): see "Text-capture spike".
 Phase 0a merged 2026-10-09 (PR #2, `8f07e66`). Integration rename (relay `glim-hook.exe`, pipe `\\.\pipe\glim-<SID>`, `Glim` data folders with migration) on branch `feat/rename-integration-ids` (PR open, not merged). Non-Windows trees removed 2026-10-09 (PR #3, `82b3fb3`): `NotchBuddy/` (macOS + iPhone app), `relay/` (iPhone relay Worker), `linux/` (Arch recipe for upstream Coucou), the macOS-only `build.yml`/`release.yml` workflows, `scripts/` and `tests/*.swift` (Swift tests and tools that compiled `NotchBuddy/` sources), and `docs/IPHONE.md`; also `linux.yml` (Glim is Windows-only, decided 2026-10-09). Upstream's Mac-app docs moved to `docs/upstream/` with a reference-only note. The string catalog moved to `windows/src/i18n/Localizable.xcstrings`; `scripts/gen-strings.mjs` and its test read it there.
@@ -156,7 +169,7 @@ Done in the island's notch on branch `mascot-lantern` (2026-10-09). Source of tr
   - What the port changes, and only this: page-level CSS dropped; selectors the design left unscoped are scoped to `.lantern` (same relative order and specificity inside the lantern); keyframes prefixed `lantern-` (the app already had a global `@keyframes pulse`).
   - Wired in `windows/src/island/island.ts` (`drawBot`): the lantern replaces the placeholder orb, drawn 1.2× the old orb's diameter tall with its base on the orb's bottom edge (24 px in the 26 px notch pill → compact; 53–79 px in the expanded cards → full detail minus aura/twinkles). The engine (`mochi/engine.ts`) still runs for its timers but no longer draws in the island.
 - **Nine states** (design updated 2026-10-09): `s-idle`, `s-listen`, `s-think`, `s-suggest`, `s-record`, `s-paused`, `s-delegate`, `s-done` (happy eyes, a hop), `s-error` (dim, droopy, worried brows, a sweat drop — never red). Compact uses a wider listen glance (`glance-c`).
-- **Reserved states — never reuse them for anything else** (design file header, CLAUDE.md): red `s-record` = screen recording only; `s-delegate` = Phase 3 data leaving the machine only. Neither feature exists yet, so no app state maps to them. Enforced three ways: `lanternStateFor` returns `AppLanternState` (reserved states excluded, so `tsc` rejects a mapping to them); the only way to show one is `Lantern.showReserved(state, owner)` with a typed owner (`"screen-recording"` / `"phase3-delegation"`, or `"dev-preview"` for the dev switch); `tests/lantern.test.mjs` fails if any island state (read from the `BotStateName` union) maps to one, if a reserved state name appears in `src/` outside the mascot module, or if anything but the allowed callers calls `showReserved`. When the recording or delegation feature lands, add its file to `SHOWS_RESERVED` in that test.
+- **Reserved states — never reuse them for anything else** (design file header, CLAUDE.md): red `s-record` = screen recording only; `s-delegate` = data leaving the machine only: Claude API calls (from 1c) and Phase 3 delegation (owner, 2026-10-11; was Phase 3 only). Neither feature exists yet, so no app state maps to them. Enforced three ways: `lanternStateFor` returns `AppLanternState` (reserved states excluded, so `tsc` rejects a mapping to them); the only way to show one is `Lantern.showReserved(state, owner)` with a typed owner (`"screen-recording"` / `"phase3-delegation"`, or `"dev-preview"` for the dev switch); `tests/lantern.test.mjs` fails if any island state (read from the `BotStateName` union) maps to one, if a reserved state name appears in `src/` outside the mascot module, or if anything but the allowed callers calls `showReserved`. When the recording or delegation feature lands, add its file to `SHOWS_RESERVED` in that test.
 - **State mapping** (`lanternStateFor`, island state → lantern):
 
   | Island state | Lantern |
@@ -259,7 +272,7 @@ How it was checked: Word's own key table (`Application.FindKey`, a hidden read-o
 - **Owner's retest (2026-10-11): passed.** A real mouse click on the lantern in the open island, over a finished card, opens the suggestions; the closed pill's lantern too; the pager is easy to use and in reading order; suggestions stay across apps. **Narrator was not hand-tested** (the owner couldn't find Glim with it); the accessibility check is the UI Automation self-test above. `cargo test --workspace` re-run on the final commit: 246 + 30 passed, 1 ignored. CI: the first run failed on the known lantern-check blur flake (below, Mascot checks: one frame kept differing through both re-renders); the re-run passed.
 - **Next: 1b (applying fixes).** Design in `docs/phase1-plan.md` §7, waiting for the owner's review before any code.
 
-## Applying fixes (Phase 1b-apply, branch `phase-1b-apply`)
+## Applying fixes (Phase 1b-apply, merged 2026-10-11, PR #12, `b99651b`)
 Design: `docs/phase1-plan.md` §7, approved by the owner 2026-10-11 with the answers in §7.9. The floating bubble (§7a) is a separate PR after this one.
 
 - **What it does:** in the suggestion list, each replacement is a button. A click types it into the field it came from with `SendInput` (Unicode keys over a selected range), so the app's own Ctrl+Z undoes it; the caret goes back where the user was typing; the field is checked again at once. No undo button in Glim (owner).

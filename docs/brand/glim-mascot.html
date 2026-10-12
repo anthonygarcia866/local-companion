@@ -4,7 +4,7 @@
 Glim mascot - approved design, reference implementation. Source of truth.
 - One SVG; state = one class on the <svg>: s-idle, s-listen, s-think, s-suggest, s-record, s-paused, s-delegate, s-done, s-error
 - RED IS RESERVED FOR s-record (screen recording). No other app state may map to s-record.
-- s-delegate is reserved for Phase 3 (data leaving the machine after approval). Do not use it for "finished"; use s-done.
+- s-delegate is reserved for data leaving the machine: Claude API calls (from Phase 1c, on the user's request) and Phase 3 delegation (after approval). Do not use it for "finished"; use s-done.
 - s-error = dim, droopy, worried brows, sweat drop. Never red.
 - Add class "compact" for sizes under 48px (hides ribs, embers, face details, hands, brows; enlarges eyes; wider listen glance).
 - The "aura" and "twinkles" groups (ribbons + sparkles) are for large/icon contexts only; remove them in the notch sprite.
