@@ -546,13 +546,25 @@ function buildQuestion(actions: ViewActions): ViewHost {
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
-function buildError(actions: ViewActions): ViewHost {
+/**
+ * What the error card's second button opens for this task, or null for none:
+ * the session's terminal window (Open terminal, the same target as the
+ * finished card), the Claude desktop app for its sessions, and nothing for
+ * the local chat pills (source "n8n"), which have no window to go to.
+ */
+export function errorOpenLabel(task: AgentTask | null): string | null {
+  if (!task || task.source === "n8n") return null;
+  return task.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
+}
+
+export function buildError(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title" });
   const detail = h("div", { class: "detail" });
+  const open = btn(tl("Open terminal"), "secondary", () => actions.openTerminal());
   const row = h("div", { class: "actions" },
     btn(tl("Retry"), "primary", () => actions.setView(State.defaultView())),
-    btn(tl("Open in n8n"), "secondary", () => actions.openUrl("")),
+    open,
   );
   const el = h("div", { class: "view" }, card("red", stack(116, 16, who, title, detail, row)));
   return {
@@ -565,6 +577,10 @@ function buildError(actions: ViewActions): ViewHost {
       who.append(agentWho(task, whoLabel));
       title.textContent = task?.source === "n8n" ? t("Workflow stopped.") : t("Session stopped on an error.");
       detail.textContent = (task && lastTextStep(task.steps)) ?? t("No detail available.");
+      const label = errorOpenLabel(task);
+      open.style.display = label ? "" : "none";
+      const span = open.children[0] as HTMLElement;
+      if (label && span.textContent !== label) span.textContent = label;
     },
   };
 }
