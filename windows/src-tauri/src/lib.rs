@@ -505,6 +505,44 @@ fn log_line(message: String) {
     log::line(format!("ui  {message}"));
 }
 
+// ── Writing checker (1b): the island's clicks ─────────────────────────────────
+// Ids only: which list, which row, which replacement. The words to type or
+// copy are the checker's own, kept in the capture thread (writing::Session),
+// so no webview message can make Glim type text of its own choosing.
+
+/// A fix button: types that replacement into the field (docs/phase1-plan.md §7.3).
+#[tauri::command]
+fn writing_fix(check_id: u64, index: usize, choice: usize) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Fix { check_id, index, choice });
+    #[cfg(not(windows))]
+    let _ = (check_id, index, choice);
+}
+
+/// A Copy button (fields Glim can't type in, §7.7): only on the user's click.
+#[tauri::command]
+fn writing_copy(check_id: u64, index: usize, choice: usize) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Copy { check_id, index, choice });
+    #[cfg(not(windows))]
+    let _ = (check_id, index, choice);
+}
+
+/// Dismiss: the list and its kept paragraph go until the text changes.
+#[tauri::command]
+fn writing_dismiss() {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Dismiss);
+}
+
+/// The tray's Pause, from the island: nothing is read, checked, kept or typed.
+#[tauri::command]
+fn writing_set_paused(paused: bool) {
+    writing::set_paused(paused);
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Wake);
+}
+
 // ── Global shortcuts ──────────────────────────────────────────────────────────
 
 /// How each global shortcut went: registered, taken by another app, and so on.
@@ -678,6 +716,15 @@ fn dev_chat_prompt(argv: &[String]) -> Option<String> {
     dev_arg(argv, "--dev-chat")
 }
 
+/// `glim.exe --dev-fix "<replacement>"`: opens the suggestion list and clicks
+/// that fix button, inside the island's page, as a mouse click would
+/// (scripts/verify-fix-notepad.ps1). A UI Automation Invoke can't stand in
+/// for the click: Chromium activates the island window for it, and the fix
+/// is then rightly refused (the field's app is no longer in front). Dev only.
+fn dev_fix(argv: &[String]) -> Option<String> {
+    dev_arg(argv, "--dev-fix")
+}
+
 /// The value after `flag`, only when the running Glim was started with
 /// `GLIM_DEV=1`.
 fn dev_arg(argv: &[String], flag: &str) -> Option<String> {
@@ -733,6 +780,10 @@ pub fn run() {
             }
             if dev_open_settings(&argv) {
                 show_settings_window(app);
+                return;
+            }
+            if let Some(fix) = dev_fix(&argv) {
+                let _ = app.emit_to(island::WINDOW_LABEL, "dev-fix", fix);
                 return;
             }
             if let Some(prompt) = dev_chat_prompt(&argv) {
@@ -795,6 +846,10 @@ pub fn run() {
             approval_ack,
             approval_decline,
             log_line,
+            writing_fix,
+            writing_copy,
+            writing_dismiss,
+            writing_set_paused,
             chat_send,
             chat_models,
             local_connect,

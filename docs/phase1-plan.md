@@ -1,6 +1,6 @@
 # Phase 1 — writing assistant: plan
 
-Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a is being built on `phase-1a-checker`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
+Status: **reviewed by the owner 2026-10-10**; the answers are in §11. PR 1a merged 2026-10-11 (PR #9). **§7 (1b, applying fixes) approved by the owner 2026-10-11** with the answers in §7.9; 1b-apply is being built on `phase-1b-apply`. Inputs: the owner's Phase 1 brief, `docs/capture-results.md` (the capture spike and the model timings), PR #8 (payment and ID filtering), and a Harper trial run on this machine (below).
 
 If a step here turns out wrong while building, this file gets a warning note next to that step; the code is not quietly worked around it.
 
@@ -21,7 +21,7 @@ Glim never takes focus at any point (the island, panel and pill are non-activati
 | PR | Scope | Done when |
 |---|---|---|
 | **1a — instant checker** | Capture runs in normal sessions for apps that are on. 600 ms debounce. Paragraph extraction without the signature or quote. Harper. Lantern `s-suggest` + count. A **read-only** suggestion list in the island. Per-app defaults hardcoded. | Notepad self-test passes; <50 ms per check measured; tests below pass; the owner tries it in Outlook, Word and Gmail. |
-| **1b — apply fixes** | Clicking a replacement writes it back (design in §7). The floating bubble at the field (§7a). | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. The bubble follows the field and never takes focus. |
+| **1b — apply fixes** | Clicking a replacement writes it back (design in §7). The floating bubble at the field (§7a); proposed as a separate PR, §7.9. | The write-back is verified in Notepad, Word, Outlook and Gmail; undo works; it refuses when the text changed. The bubble follows the field and never takes focus. |
 | **1c — AI rewrite** | Ctrl+Alt+Shift+R and the four tones; `s-think`; the result is shown in the island, with apply going through 1b's path. | Rewrite in ≤ ~4.5 s for a typical paragraph on this machine; model calls only through `net::request`. |
 | **1d — settings** | Per-app on/off, default tone, strictness (which Harper rule groups run), editing the pause list (from PR #8), the pause hotkey **Ctrl+Alt+Shift+P**, a one-time "Check writing in [app]?" prompt for apps on neither list (§5), and an optional underline overlay. | Settings are kept in `settings.json`; the overlay never takes focus or clicks. |
 
@@ -148,10 +148,125 @@ In browsers, PR #8's paused sites still apply on top of "on".
 
 ## 7. Write-back (1b)
 
-- Before replacing anything, the field is **read again**, and Glim checks that the target text at the stored offsets is still exactly what was checked. If not, it refuses and rechecks.
-- **Select** the range via TextPattern (`Select()` on the range), then **replace** it by typing the replacement with `SendInput`, so the app's own undo works. **Never `ValuePattern.SetValue`**: it bypasses undo, and in many apps it replaces the whole field.
-- The replacement is typed only in response to the user's click on that suggestion, and only into the field it came from. If focus moved, nothing is typed.
-- If the app gives no TextPattern for the field (ValuePattern-only), 1b offers copy-to-clipboard instead of typing.
+Status: **approved by the owner 2026-10-11** (answers in §7.9); built as **1b-apply** on `phase-1b-apply`, the bubble (§7a) follows as its own PR. This section replaces the four-line sketch that was here. 1b types into the owner's real apps, so it is written to **fail closed**: at each step it either proves the text is what was checked or does nothing.
+
+### 7.1 The rules (all of them, every apply)
+
+1. **Only on a click.** A fix is typed only when the user clicks one replacement in Glim (the island list, or the bubble's popover in 7a). Nothing is applied automatically, in bulk, or from a keyboard shortcut in 1b.
+2. **Only Glim's own words.** The island sends back **which** fix was clicked (check id, row, replacement index), never the text to type. Rust looks the replacement up in what the checker produced and kept. A webview message can't make Glim type arbitrary text.
+3. **Only into the field it came from**, and only while that field still has focus. Glim never moves focus or brings a window forward to apply a fix.
+4. **Only if the text is unchanged.** The field is read again and the checked paragraph must still be there, word for word, before anything is selected; the selection is read back before anything is typed; the result is read back after.
+5. **Every PR #8 rule runs again at apply time** on the field as it is now, not as it was when it was checked (§7.5).
+6. **Native undo only.** Glim types the replacement over a selection with `SendInput`, the same as the user typing it, so the app's own Ctrl+Z undoes it. Never `ValuePattern.SetValue` (bypasses undo; many apps replace the whole field), never the clipboard (except the Copy button of §7.7, which the user clicks), never a scripted Ctrl+Z.
+7. **When unsure, refuse and recheck.** Every refusal leaves the field untouched, says so in one line in the island, and runs the check again at once so the list matches the field.
+
+### 7.2 What Glim keeps between the check and the click
+
+Today (1a) the paragraph is dropped right after the check (§9). 1b needs it to find the text again, so **while its suggestions are showing**, the capture thread keeps, in memory only:
+
+- the checked paragraph's text (≤ ~700 characters, not the whole field) and a hash of it;
+- the field's identity: process id, top-level window handle, and the UIA element (or its RuntimeId);
+- the suggestions with their replacements, under a **check id** that changes on every new check.
+
+**When it is dropped** (owner, 2026-10-11; each one has a test):
+- the suggestions are **dismissed** (a Dismiss button on the list; new in 1b-apply), replaced by a new check, or cleared;
+- the user **moves to different text**: focus goes to another field or app, the caret moves to another paragraph, or the paragraph is edited. The list may stay on screen (1a's rule), but its fix buttons say "Click in the field first" until the field is checked again;
+- **Glim is paused** (the tray's Pause; the island tells Rust, which also stops checking while paused);
+- **10 minutes** after it was kept, at most (the field is then checked again if the user is still in it);
+- on quit.
+
+**The sensitive-data check runs before it is kept:** the paragraph goes through the card / SSN / IBAN / 12+ digit scan again (on top of the reading's own scan); if it hits, nothing is kept and no suggestions are shown.
+
+Only fields where fixes can be typed keep anything: in view-only apps and Copy-only fields (§7.7) nothing is kept.
+
+Never logged, never written to disk; the same source-scan and sentinel tests as 1a cover it. **This is a change to §9's "dropped after one check" and is called out in the PR.**
+
+The island's click carries the check id. A click on a list that is no longer current (a newer check arrived in between) is refused: "The text changed; rechecked."
+
+### 7.3 Re-reading and confirming the text, step by step
+
+All of this runs on the capture thread (it owns every UIA object), triggered by a message from the island. No step reuses a range or an offset from the check without reading it back.
+
+1. **Gate.** Glim not paused; the check id is current; the foreground window and its process are the stored ones; `GetFocusedElement` is the stored element (`CompareElements`). If the user is in another app, nothing happens: the row says "Click in the field first" (§7.6).
+2. **PR #8 gate, again** (§7.5) on the focused element.
+3. **Find the paragraph by its content, not its offsets.** From the caret range (TextPattern2 `GetCaretRange`, else the selection), widen to a window around it (the paragraph unit where the app supports it, else ±2,000 characters, capped like today's `MAX_FIELD_CHARS`), and `FindText` the checked paragraph, case-sensitive. It must match **exactly once**. Zero → the text changed: refuse. Two or more (the same paragraph pasted twice) → pick the one whose position matches the stored offset; if none does, refuse.
+   - Why not offsets: our offsets count Rust characters of `GetText`'s string; UIA's "character" unit is provider-defined (Word counts hidden field codes, Chrome counts embedded objects, emoji are two UTF-16 units). Offsets are only a tie-breaker.
+   - Edits elsewhere in the field (an earlier paragraph, the subject) don't block a fix; any edit inside the paragraph does.
+   - > ⚠️ **Amended while building (2026-10-11):** `FindText` is not used. Word's search is limited to short strings (a paragraph can be 700 characters), and the text has to be read back anyway. Instead: the caret's range is widened to its paragraph (`ExpandToEnclosingUnit(Paragraph)`), its text is read, and the checked paragraph is located in that text in Rust (exactly once; else the whole document's text is searched the same way, with the stored offset as the tie-breaker). The ranges are then built from there and **read back** as in step 4, so a unit mismatch still refuses.
+4. **Narrow to the problem.** Inside the found paragraph range, move the start and end by the problem's position, then **read the range back**: `GetText` must equal the problem word exactly, and the characters just before and after must match the stored context. Any difference (a unit mismatch in that app included) → refuse. A miscounted range can never be typed over, because it is read back first.
+5. **Select it** with `IUIAutomationTextRange::Select()`, then read the app's selection back (`GetSelection`): exactly one range, text equal to the problem word. Apps whose `Select()` doesn't move the real selection fail here and are refused (and logged by app name, so they go on the "unsupported" list).
+6. **Last checks, immediately before typing:** focus and foreground unchanged; no modifier key held (Ctrl, Alt, Shift, Win via `GetAsyncKeyState`: a held Ctrl would turn typed letters into shortcuts); no mouse button held. If a key is held, wait up to 500 ms for release, else refuse.
+   - > ⚠️ **Amended while building (2026-10-11):** the IME check is not possible from another process: `ImmGetContext` returns nothing for another app's window. An open IME composition (Japanese, Chinese input) is not detected; the read-back in step 8 catches a fix that the IME swallowed. The owner uses en-US only.
+7. **Type the replacement** in **one** `SendInput` call (`KEYEVENTF_UNICODE` down/up per UTF-16 unit). One call means Windows doesn't interleave the user's own keys with ours. A removal (Harper's "remove" suggestion) is a single Backspace over the verified selection.
+   - The replacement must be printable text only: no newline, tab, or control characters. In chat apps Enter **sends the message**, so a replacement containing one is dropped at check time and never offered.
+8. **Read back the result.** Re-read the paragraph: it must equal the stored paragraph with exactly that one span replaced. Then put the caret back where the user had it (a degenerate range `Select()`, shifted by the length change if it was after the fix), so they keep typing where they were. Then recheck at once (no 600 ms wait): the remaining suggestions' positions moved.
+9. **If the read-back doesn't match**, Glim does **not** try to repair it or send Ctrl+Z (that could undo something else). The island says: "That didn't apply cleanly. Press Ctrl+Z in [app] to undo it." The outcome is logged as a code with the app name, never the text.
+
+Steps 1-7 take a few milliseconds; the gap between the last check (6) and the keys landing (7) is the only window where the user could change focus, and step 8 catches it if they do.
+
+### 7.4 Undo in each app
+
+Typing over a selection is what the user would do by hand, so undo is the app's own:
+
+| App | Editor under UIA | Expected Ctrl+Z | To verify in 1b |
+|---|---|---|---|
+| **Word** (`WINWORD.EXE`) | Word's own provider | One Ctrl+Z restores the original word ("Typing" is one undo step). The Undo list shows "Typing". | AutoCorrect: we type no trailing space or punctuation, so it shouldn't fire; confirm. Track Changes on: the fix shows as a tracked edit, as a hand edit would. |
+| **Outlook classic** (`OUTLOOK.EXE`) | The compose body is Word's editor | Same as Word, inside the message. | Same as Word; also the subject line (a plain edit box, its own undo). |
+| **New Outlook** (`olk.exe`) | WebView2 (Chromium) | Like Gmail. | Same checks as Gmail. |
+| **Gmail in Chrome / Edge** | Chromium `contenteditable` | Chromium groups the typed characters with the replaced selection: one Ctrl+Z puts the original word back. Gmail uses the browser's undo for typing. | Confirm one press is enough (not one per character); confirm Gmail's own "Undo" banner isn't involved (it's for send/delete only). |
+| **Notepad** (Win11) | RichEdit-based | Multi-level undo; one Ctrl+Z restores the word. | Confirm. |
+| **Chat apps** (Slack, Teams, Discord…) | Electron / WebView2 | Usually Chromium's undo; some editors (Slack's) keep their own. | Each is tested before it's turned on for fixes. Until then, chat apps show suggestions but no apply button (§7.6). |
+
+Glim shows no undo button of its own in 1b: an undo from Glim would have to send Ctrl+Z, which could undo the user's own next edit. After a fix, the island's one-line note says "Fixed. Ctrl+Z in [app] undoes it."
+
+If an app turns out to need two Ctrl+Z presses (one for the typing, one to restore the selection), the note says so for that app, and the plan gets a warning note here.
+
+### 7.5 Never touching sensitive or paused fields
+
+Suggestions only ever exist for fields that passed PR #8's filters, but the apply step doesn't rely on that. At apply time, on the focused element **as it is now**:
+
+- Glim's **Pause** (tray) and, from 1d, the **pause hotkey**: Rust keeps its own copy of the paused flag (today Pause lives in the island's state only) and refuses while paused. Pausing also drops the kept paragraph (§7.2).
+- The **app** is on (§5), not on the **pause list** (password managers).
+- **Password field** (`IsPassword`): refuse.
+- **Payment and ID labels** (`is_sensitive_field`): refuse.
+- **Paused sites** in a browser (`page_urls` against the pause list, frames included): refuse.
+- **Read-only** content (`is_editable`): refuse.
+- The re-read paragraph **and the replacement** go through the card / SSN / IBAN / 12+ digit checks (`finish_reading`); either one hitting → refuse.
+- **Elevated apps** (running as administrator): Windows blocks a normal app's `SendInput` into them (UIPI). Detected up front where possible, and in any case caught by the read-back (nothing changed → "Glim can't type into apps running as administrator").
+
+Every refusal is silent in the target app (nothing typed, nothing selected — selection only happens after these gates pass) and gives one line in the island.
+
+### 7.6 What the user sees
+
+- Each suggestion row gets its replacements as buttons (up to three). Clicking one applies it; the row shows "Fixing…" for the few milliseconds it takes, then the list refreshes from the recheck.
+- **While the source field isn't focused** (the user is in another app; suggestions persist there since 1a), the buttons are disabled with "Click in the field first". Glim never switches apps for them.
+- **Apps not yet verified for fixes** show suggestions read-only, as in 1a (owner, 2026-10-11). Fixes are on in the 1b test matrix only: **Notepad, Word, Outlook classic, Chrome (Gmail)**. View-only until each is tested: Edge, new Outlook (`olk.exe`), and the chat apps (Slack, Teams, Discord, WhatsApp, Claude, ChatGPT, Grok). The list is in PROJECT_STATUS.
+- **Dismiss** on the list clears the suggestions (and the kept paragraph) until the text changes.
+- Refusals: "The text changed; rechecked." / "That field is paused." / "Glim can't type into apps running as administrator." Every new string gets its 9 translations.
+
+### 7.7 Fields without TextPattern
+
+Some fields give only ValuePattern (plain inputs in some apps): Glim can't select or type there safely. **Decided (owner, 2026-10-11): view-only, with a Copy button.** The suggestions show as usual; each replacement is a **Copy** button that puts that word on the clipboard **only when the user clicks it** (never automatically). Nothing is typed, and no paragraph is kept for these fields. The copied word goes into Windows' clipboard history like any copy.
+
+### 7.8 Tests and verification for 1b
+
+- **Unit tests** (pure Rust, a fake field behind a trait, no UIA): paragraph found once / zero / twice; an edit inside the paragraph refuses; an edit elsewhere doesn't; unit mismatch caught by the read-back; a stale check id refuses; a replacement with a newline or digits that look like a card is never offered; modifier held → wait then refuse; paused → refuse; the island can only send ids (a message with text is rejected); kept paragraph never in logs (source scan + sentinel).
+- **Read-only self-test in Notepad** (no keys typed): the list shows fix buttons for a Notepad field; with focus elsewhere they say "Click in the field first"; Dismiss clears the list.
+- **Typed self-test, Notepad only** (fresh file per run, as in 1a): apply "recieved" → "received", read back, Ctrl+Z restores it. **This sends real keystrokes**, so per CLAUDE.md it runs **only after the owner confirms in chat they're away from the keyboard**, with the screenshot check first.
+- **Owner test matrix:** Word, Outlook classic (body + subject), Gmail in Chrome, Notepad; each: apply, undo with one Ctrl+Z, apply after editing the paragraph (must refuse), apply from another app (button disabled), a password field and a paused site (no suggestions, no apply).
+- **Network:** unchanged (no new network code); re-checked with netstat over the process tree, as in 1a.
+
+### 7.9 Decisions (owner, 2026-10-11)
+
+The design was approved as written, with these answers:
+
+1. **Split:** 1b-apply first (this section), then the floating bubble (§7a) as its own PR.
+2. **No undo button in Glim.** The app's own Ctrl+Z is the undo.
+3. **ValuePattern-only fields:** suggestions view-only. Never copy automatically; a **Copy** button the user clicks is fine (§7.7).
+4. **Chat apps:** view-only until each one is tested; the list is kept in PROJECT_STATUS (§7.6).
+5. **The caret goes back** to where the user was typing (§7.3 step 8).
+6. **Privacy (added by the owner):** the kept paragraph is dropped when the suggestions are dismissed, when the user moves to different text, when Glim is paused, and after 10 minutes at most; the sensitive-data check runs before it is kept; a test for each (§7.2).
+7. **Testing:** unit tests and read-only checks first. The typed self-test runs in **Notepad only**, only after the owner says in chat that they're away from the keyboard. The owner tests Outlook, Word and Gmail by hand.
 
 ## 7a. The floating bubble at the field (1b, owner 2026-10-10)
 
@@ -175,7 +290,7 @@ A Grammarly-style marker where the user is typing, so suggestions don't need a t
 
 ## 9. Privacy
 
-- **Captured text stays in memory** for one check and is dropped. It is never logged, never stored, and has no history or cache. **Suggestions contain text too:** they get the same rule (in memory, panel and island only; never in glim.log or the results log).
+- **Captured text stays in memory** for one check and is dropped (from 1b, the checked paragraph is kept in memory while its suggestions show, so a fix can find it again: §7.2). It is never logged, never stored, and has no history or cache. **Suggestions contain text too:** they get the same rule (in memory, panel and island only; never in glim.log or the results log).
 - **Network:** Harper runs in-process. Model calls (1c) go only through `windows/src-tauri/src/net/mod.rs` (localhost only), with `keep_alive` so the model stays loaded while the assistant is on.
 - **Checked empirically, not trusted:** with 1a running, netstat over Glim's whole process tree (`glim.exe` and its `msedgewebview2.exe` children) during checks shows no connection. The existing guard test still forbids sockets outside `src/net/`.
 - **PR #8's filters run before the checker.** Their tests stay and new ones are added: a reading they drop never produces a suggestion.

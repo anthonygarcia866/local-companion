@@ -18,6 +18,8 @@
 // one line per field visited: app, control type, pattern, readable, char
 // count. docs/capture-results.md is written from it.
 
+#[cfg(windows)]
+pub mod fix;
 pub mod sensitive;
 #[cfg(windows)]
 pub mod uia;
@@ -46,6 +48,8 @@ pub struct CaptureMeta {
     pub sensitive: bool,
     /// Skipped because the app or the site is on the pause list.
     pub paused: bool,
+    /// On a web chat app (writing::apps::CHAT_SITES): suggestions view-only.
+    pub chat_site: bool,
     pub char_count: usize,
     /// Caret position in characters from the start, when the pattern gives it.
     pub caret: Option<usize>,
@@ -347,6 +351,7 @@ mod tests {
                 read_only: false,
                 sensitive: false,
                 paused: false,
+                chat_site: false,
                 char_count: SECRET.chars().count(),
                 caret: Some(4),
             },

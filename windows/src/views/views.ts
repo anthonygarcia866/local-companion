@@ -5,7 +5,7 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
-import { State, type AgentTask, type WritingSuggestion } from "../core/state";
+import { State, type AgentTask, type WritingFix, type WritingSuggestion } from "../core/state";
 import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
@@ -622,7 +622,7 @@ function buildNote(): ViewHost {
   };
 }
 
-// ── Writing suggestions (Phase 1a: read-only) ─────────────────────────────────
+// ── Writing suggestions (1a list, 1b fixes) ───────────────────────────────────
 
 /** Suggestions shown at once; Previous / Next page through the rest. */
 export const SUGGESTIONS_SHOWN = 3;
@@ -640,25 +640,57 @@ export function suggestionPage(total: number, page: number): { page: number; pag
 }
 
 /**
+ * The note under the list: "Fixing…" while a fix is on its way, the last
+ * click's outcome while it is fresh, otherwise what a click does here.
+ */
+export function suggestionNote(fix: WritingFix, result: { outcome: string; app: string } | null, busy: boolean): string {
+  if (busy) return t("Fixing…");
+  const app = result?.app || fix.app;
+  switch (result?.outcome) {
+    case "applied": return t("Fixed. Ctrl+Z in {app} undoes it.", { app });
+    case "copied": return t("Copied. Paste it with Ctrl+V.");
+    case "changed": return t("The text changed, so nothing was fixed. Checked again.");
+    case "away": return t("Click in the field first.");
+    case "paused": return t("Glim is paused.");
+    case "blocked": return t("Nothing was fixed: that field is protected.");
+    case "elevated": return t("Glim can't type into apps running as administrator.");
+    case "keys-held": return t("Release the keys you're holding, then try again.");
+    case "unsupported": return t("{app} didn't take the fix, so nothing changed.", { app });
+    case "not-clean": return t("That didn't apply cleanly. Press Ctrl+Z in {app} to undo it.", { app });
+    case "clipboard-busy": return t("Couldn't copy: another app is using the clipboard.");
+  }
+  switch (fix.mode) {
+    case "apply": return t("Click a fix to apply it. Ctrl+Z in {app} undoes it.", { app: fix.app });
+    case "away": return t("Click in the field first.");
+    case "copy": return t("Glim can't type in this field. Click a fix to copy it.");
+    default: return t("Suggestions only in {app} for now.", { app: fix.app });
+  }
+}
+
+/** How long "Fixing…" waits for Rust's answer before the buttons come back. */
+const FIX_TIMEOUT_MS = 3000;
+
+/**
  * The instant checker's suggestions for the focused field: the problem in a
  * little context, Harper's explanation (English: the checker is en-US only),
- * and its replacements. View only in 1a: nothing here acts on the app, and
- * nothing is logged.
+ * and its replacements. A replacement is a button where fixes are typed or
+ * copied (1b); a click sends only which list, row and replacement it was.
+ * Rust types or copies the checker's own words. Nothing here is logged.
  */
 export function buildSuggestions(): ViewHost {
   // The page being shown, and the list it belongs to: a new list (a new
-  // check) starts again at the first page, nearest the caret.
+  // check) starts again at the first page.
   let page = 0;
   let pageOf: WritingSuggestion[] | null = null;
   const title = h("div", { class: "title one-line" });
   const list = h("div", { class: "suggestion-list" });
   const range = h("span", { class: "suggestion-range" });
-  // The pager only turns pages: nothing here acts on the app.
   const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 16, { stroke: 2.6 }));
   const next = h("button", { class: "suggestion-page", title: tl("Next suggestions"), "aria-label": tl("Next suggestions"), onclick: () => turn(1) }, svg(ICONS.chevronRight, 16, { stroke: 2.6 }));
   const pages = h("div", { class: "suggestion-pages" }, prev, range, next);
-  const note = h("div", { class: "suggestion-more", text: tl("Fixes can be applied in a later version.") });
-  const pager = h("div", { class: "suggestion-pager" }, pages, note);
+  const note = h("div", { class: "suggestion-more", role: "status" });
+  const dismiss = h("button", { class: "suggestion-dismiss", title: tl("Dismiss suggestions"), "aria-label": tl("Dismiss suggestions"), onclick: () => void Bridge.writingDismiss() }, svg(ICONS.xmark, 12));
+  const pager = h("div", { class: "suggestion-pager" }, pages, note, dismiss);
   const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, pager)));
   const sync = () => {
     const items = State.writing;
@@ -672,20 +704,39 @@ export function buildSuggestions(): ViewHost {
       ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
       : t("Nothing to fix here.");
     clear(list);
-    for (const s of items.slice(at.from - 1, at.to)) list.append(suggestionRow(s));
+    items.slice(at.from - 1, at.to).forEach((s, i) => list.append(suggestionRow(s, at.from - 1 + i, pick)));
     pages.style.display = at.pages > 1 ? "" : "none";
     range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
     (prev as HTMLButtonElement).disabled = at.page === 0;
     (next as HTMLButtonElement).disabled = at.page === at.pages - 1;
+    note.textContent = suggestionNote(State.writingFix, State.writingResult, State.writingBusy);
   };
   const turn = (by: number) => {
     page += by;
     sync();
   };
+  // A replacement was clicked: row `index` of the whole list, replacement `choice`.
+  const pick = (index: number, choice: number) => {
+    const fix = State.writingFix;
+    if (State.writingBusy) return;
+    if (fix.mode === "apply") {
+      State.writingBusy = true;
+      State.writingResult = null;
+      sync();
+      void Bridge.writingFix(fix.checkId, index, choice);
+      setTimeout(() => {
+        if (!State.writingBusy) return;
+        State.writingBusy = false;
+        sync();
+      }, FIX_TIMEOUT_MS);
+    } else if (fix.mode === "copy") {
+      void Bridge.writingCopy(fix.checkId, index, choice);
+    }
+  };
   return { el, sync };
 }
 
-function suggestionRow(s: WritingSuggestion): HTMLElement {
+function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void): HTMLElement {
   const context = h(
     "div",
     { class: "suggestion-context" },
@@ -693,10 +744,25 @@ function suggestionRow(s: WritingSuggestion): HTMLElement {
     h("span", { class: "problem", text: s.problem }),
     h("span", { class: "ctx", text: s.after.replace(/\s+/g, " ") }),
   );
+  const mode = State.writingFix.mode;
   const fixes = h("div", { class: "suggestion-fixes" });
-  for (const r of s.replacements) {
-    fixes.append(h("span", { class: "fix", text: r === "" ? t("Remove it") : r }));
-  }
+  s.replacements.forEach((r, choice) => {
+    const label = r === "" ? t("Remove it") : r;
+    // View-only apps; and nothing to copy for a removal.
+    if (mode === "view" || (mode === "copy" && r === "")) {
+      fixes.append(h("span", { class: "fix", text: label }));
+      return;
+    }
+    const aria = r === "" ? t("Remove it") : mode === "copy" ? t("Copy “{fix}”", { fix: r }) : t("Replace with “{fix}”", { fix: r });
+    const button = h(
+      "button",
+      { class: mode === "copy" ? "fix fix-btn copy" : "fix fix-btn", type: "button", title: aria, "aria-label": aria, onclick: () => pick(index, choice) },
+      ...(mode === "copy" ? [svg(ICONS.copy, 11)] : []),
+      h("span", { text: label }),
+    ) as HTMLButtonElement;
+    button.disabled = mode === "away" || State.writingBusy;
+    fixes.append(button);
+  });
   return h("div", { class: "suggestion" }, context, h("div", { class: "suggestion-message", text: s.message }), fixes);
 }
 

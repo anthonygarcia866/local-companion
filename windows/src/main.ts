@@ -4,7 +4,7 @@ import "./style.css";
 import "./mascot/lantern.css";
 import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
-import { State, type Settings, type WritingSuggestion } from "./core/state";
+import { State, type Settings, type WritingFix, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -12,7 +12,7 @@ import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
-import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages } from "./i18n/i18n";
+import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t } from "./i18n/i18n";
 
 /** Shows the language Settings asks for ("" = the system's, when Glim has it). */
 function applyLanguage() {
@@ -55,6 +55,8 @@ async function main() {
 
   const setPaused = (on: boolean) => {
     State.paused = on;
+    // Rust stops reading fields, checking and typing fixes while paused.
+    void Bridge.writingSetPaused(on);
   };
 
   await onEvent<string>("tray", (what) => {
@@ -121,6 +123,18 @@ async function main() {
     send.click();
   });
 
+  // Dev sessions only: `glim.exe --dev-fix "<replacement>"` (see lib.rs) opens
+  // the list and clicks that fix button (DOM events inside this webview, like
+  // a mouse click on the non-activating island; nothing reaches the desktop).
+  await onEvent<string>("dev-fix", (fix) => {
+    island.alert("suggestions");
+    window.setTimeout(() => {
+      const label = t("Replace with “{fix}”", { fix });
+      const button = [...document.querySelectorAll<HTMLButtonElement>("button.fix-btn")].find((b) => b.getAttribute("aria-label") === label);
+      button?.click();
+    }, 600);
+  });
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     const previousMain = State.mainPillId;
@@ -143,12 +157,27 @@ async function main() {
   island.onWake = checkRecap;
   await onEvent<null>("recap-check", checkRecap);
   // The writing checker's suggestions for the focused field (Phase 1a).
-  await onEvent<{ items: WritingSuggestion[] }>("writing-suggestions", ({ items }) => {
+  await onEvent<{ items: WritingSuggestion[] } & WritingFix>("writing-suggestions", ({ items, checkId, mode, app }) => {
     const had = State.writing.length > 0;
     State.writing = items;
+    State.writingFix = { checkId, mode, app };
     presence.setWriting(items.length);
     // The list emptied while it was open: back to what the island shows.
-    if (had && items.length === 0 && State.view === "suggestions") State.view = State.defaultView();
+    // Not when it emptied because a fix just worked: the list stays to say so
+    // ("Fixed. Ctrl+Z in Notepad undoes it.").
+    if (had && items.length === 0 && State.view === "suggestions" && State.writingResult?.outcome !== "applied") State.view = State.defaultView();
+    State.notify();
+  });
+  // A fix or Copy click's outcome (a code; the island words it).
+  let resultTimer: ReturnType<typeof setTimeout> | undefined;
+  await onEvent<{ outcome: string; app: string }>("writing-fix", (result) => {
+    State.writingBusy = false;
+    State.writingResult = result;
+    clearTimeout(resultTimer);
+    resultTimer = setTimeout(() => {
+      State.writingResult = null;
+      State.notify();
+    }, 6000);
     State.notify();
   });
 

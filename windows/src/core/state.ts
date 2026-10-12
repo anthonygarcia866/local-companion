@@ -190,6 +190,21 @@ export interface WritingSuggestion {
   replacements: string[];
 }
 
+/**
+ * What clicking a replacement does (1b, src-tauri/src/writing): typed into
+ * the field ("apply"), copied on click ("copy", fields Glim can't type in),
+ * nothing ("view", apps not yet tested for fixes), or nothing until the user
+ * is back in that field ("away").
+ */
+export type WritingFixMode = "apply" | "copy" | "view" | "away";
+
+/** The list's check id (a click names it), its fix mode and the app's name. */
+export interface WritingFix {
+  checkId: number;
+  mode: WritingFixMode;
+  app: string;
+}
+
 class AppState {
   mode: IslandMode = "hidden";
   /** Where the island is docked on its display (Rust tells: "placement"). */
@@ -221,6 +236,11 @@ class AppState {
   pendingApproval: ApprovalInfo | null = null;
   /** The focused field's writing suggestions (Rust: "writing-suggestions"). */
   writing: WritingSuggestion[] = [];
+  writingFix: WritingFix = { checkId: 0, mode: "view", app: "" };
+  /** The last click's outcome (a code from Rust), shown for a few seconds. */
+  writingResult: { outcome: string; app: string } | null = null;
+  /** A fix is on its way: the buttons wait for the outcome. */
+  writingBusy = false;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 

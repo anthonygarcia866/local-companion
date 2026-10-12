@@ -2582,17 +2582,6 @@
    "ru": "Удалить",
    "id": "Hapus"
   },
-  "Fixes can be applied in a later version.": {
-   "zh-Hans": "之后的版本将可以直接应用修改。",
-   "hi": "सुधार लागू करना बाद के संस्करण में आएगा।",
-   "es": "Aplicar las correcciones llegará en una versión posterior.",
-   "ar": "سيصبح تطبيق التصحيحات ممكنًا في إصدار لاحق.",
-   "fr": "Appliquer les corrections arrivera dans une version ultérieure.",
-   "bn": "সংশোধন প্রয়োগ করা পরের সংস্করণে আসবে।",
-   "pt-BR": "Aplicar as correções chegará em uma versão futura.",
-   "ru": "Применять исправления можно будет в следующей версии.",
-   "id": "Menerapkan perbaikan akan hadir di versi berikutnya."
-  },
   "Previous suggestions": {
    "zh-Hans": "上一组建议",
    "hi": "पिछले सुझाव",
@@ -2625,6 +2614,204 @@
    "pt-BR": "{from}–{to} de {total}",
    "ru": "{from}–{to} из {total}",
    "id": "{from}–{to} dari {total}"
+  },
+  "Fixed. Ctrl+Z in {app} undoes it.": {
+   "zh-Hans": "已修正。在 {app} 中按 Ctrl+Z 可撤销。",
+   "hi": "ठीक कर दिया। {app} में Ctrl+Z से पूर्ववत करें।",
+   "es": "Corregido. Ctrl+Z en {app} lo deshace.",
+   "ar": "تم التصحيح. اضغط Ctrl+Z في {app} للتراجع.",
+   "fr": "Corrigé. Ctrl+Z dans {app} l'annule.",
+   "bn": "ঠিক করা হয়েছে। {app}-এ Ctrl+Z চাপলে আগের অবস্থায় ফিরবে।",
+   "pt-BR": "Corrigido. Ctrl+Z no {app} desfaz.",
+   "ru": "Исправлено. Ctrl+Z в {app} отменит это.",
+   "id": "Sudah diperbaiki. Ctrl+Z di {app} membatalkannya."
+  },
+  "Copied. Paste it with Ctrl+V.": {
+   "zh-Hans": "已复制。按 Ctrl+V 粘贴。",
+   "hi": "कॉपी हो गया। Ctrl+V से पेस्ट करें।",
+   "es": "Copiado. Pégalo con Ctrl+V.",
+   "ar": "تم النسخ. الصقه باستخدام Ctrl+V.",
+   "fr": "Copié. Collez-le avec Ctrl+V.",
+   "bn": "কপি হয়েছে। Ctrl+V দিয়ে পেস্ট করুন।",
+   "pt-BR": "Copiado. Cole com Ctrl+V.",
+   "ru": "Скопировано. Вставьте с помощью Ctrl+V.",
+   "id": "Disalin. Tempel dengan Ctrl+V."
+  },
+  "The text changed, so nothing was fixed. Checked again.": {
+   "zh-Hans": "文本已更改，因此未作修正。已重新检查。",
+   "hi": "टेक्स्ट बदल गया, इसलिए कुछ ठीक नहीं किया गया। फिर से जाँचा गया।",
+   "es": "El texto cambió, así que no se corrigió nada. Se volvió a revisar.",
+   "ar": "تغيّر النص، لذا لم يُصحَّح شيء. أُعيد الفحص.",
+   "fr": "Le texte a changé : rien n'a été corrigé. Nouvelle vérification faite.",
+   "bn": "লেখা বদলে গেছে, তাই কিছু ঠিক করা হয়নি। আবার পরীক্ষা করা হয়েছে।",
+   "pt-BR": "O texto mudou, então nada foi corrigido. Verificado de novo.",
+   "ru": "Текст изменился, поэтому ничего не исправлено. Проверено заново.",
+   "id": "Teksnya berubah, jadi tidak ada yang diperbaiki. Sudah diperiksa ulang."
+  },
+  "Click in the field first.": {
+   "zh-Hans": "请先点击该输入框。",
+   "hi": "पहले फ़ील्ड में क्लिक करें।",
+   "es": "Primero haz clic en el campo.",
+   "ar": "انقر في الحقل أولاً.",
+   "fr": "Cliquez d'abord dans le champ.",
+   "bn": "আগে ঘরটিতে ক্লিক করুন।",
+   "pt-BR": "Clique no campo primeiro.",
+   "ru": "Сначала щёлкните в поле.",
+   "id": "Klik di kolomnya dulu."
+  },
+  "Glim is paused.": {
+   "zh-Hans": "Glim 已暂停。",
+   "hi": "Glim रुका हुआ है।",
+   "es": "Glim está en pausa.",
+   "ar": "Glim متوقف مؤقتًا.",
+   "fr": "Glim est en pause.",
+   "bn": "Glim বিরতিতে আছে।",
+   "pt-BR": "O Glim está pausado.",
+   "ru": "Glim приостановлен.",
+   "id": "Glim dijeda."
+  },
+  "Nothing was fixed: that field is protected.": {
+   "zh-Hans": "未作修正：该输入框受保护。",
+   "hi": "कुछ ठीक नहीं किया गया: वह फ़ील्ड सुरक्षित है।",
+   "es": "No se corrigió nada: ese campo está protegido.",
+   "ar": "لم يُصحَّح شيء: هذا الحقل محمي.",
+   "fr": "Rien n'a été corrigé : ce champ est protégé.",
+   "bn": "কিছু ঠিক করা হয়নি: ঘরটি সুরক্ষিত।",
+   "pt-BR": "Nada foi corrigido: esse campo é protegido.",
+   "ru": "Ничего не исправлено: это поле защищено.",
+   "id": "Tidak ada yang diperbaiki: kolom itu dilindungi."
+  },
+  "Glim can't type into apps running as administrator.": {
+   "zh-Hans": "Glim 无法在以管理员身份运行的应用中输入。",
+   "hi": "Glim व्यवस्थापक के रूप में चल रहे ऐप्स में टाइप नहीं कर सकता।",
+   "es": "Glim no puede escribir en apps que se ejecutan como administrador.",
+   "ar": "لا يستطيع Glim الكتابة في التطبيقات التي تعمل كمسؤول.",
+   "fr": "Glim ne peut pas écrire dans les apps lancées en tant qu'administrateur.",
+   "bn": "প্রশাসক হিসেবে চলা অ্যাপে Glim টাইপ করতে পারে না।",
+   "pt-BR": "O Glim não consegue digitar em apps executados como administrador.",
+   "ru": "Glim не может печатать в приложениях, запущенных от имени администратора.",
+   "id": "Glim tidak bisa mengetik di aplikasi yang berjalan sebagai administrator."
+  },
+  "Release the keys you're holding, then try again.": {
+   "zh-Hans": "请松开按住的键，然后重试。",
+   "hi": "दबाई हुई कुंजियाँ छोड़ें, फिर दोबारा कोशिश करें।",
+   "es": "Suelta las teclas que estás pulsando y vuelve a intentarlo.",
+   "ar": "حرّر المفاتيح التي تضغطها، ثم حاول مرة أخرى.",
+   "fr": "Relâchez les touches enfoncées, puis réessayez.",
+   "bn": "চেপে রাখা কী-গুলো ছেড়ে দিন, তারপর আবার চেষ্টা করুন।",
+   "pt-BR": "Solte as teclas que está segurando e tente de novo.",
+   "ru": "Отпустите нажатые клавиши и попробуйте снова.",
+   "id": "Lepaskan tombol yang Anda tekan, lalu coba lagi."
+  },
+  "{app} didn't take the fix, so nothing changed.": {
+   "zh-Hans": "{app} 未接受此修正，因此没有任何改动。",
+   "hi": "{app} ने सुधार नहीं लिया, इसलिए कुछ नहीं बदला।",
+   "es": "{app} no aceptó la corrección, así que no cambió nada.",
+   "ar": "لم يقبل {app} التصحيح، لذا لم يتغيّر شيء.",
+   "fr": "{app} n'a pas pris la correction : rien n'a changé.",
+   "bn": "{app} সংশোধনটি নেয়নি, তাই কিছু বদলায়নি।",
+   "pt-BR": "O {app} não aceitou a correção, então nada mudou.",
+   "ru": "{app} не принял исправление, поэтому ничего не изменилось.",
+   "id": "{app} tidak menerima perbaikannya, jadi tidak ada yang berubah."
+  },
+  "That didn't apply cleanly. Press Ctrl+Z in {app} to undo it.": {
+   "zh-Hans": "修正未能完整应用。请在 {app} 中按 Ctrl+Z 撤销。",
+   "hi": "यह ठीक से लागू नहीं हुआ। पूर्ववत करने के लिए {app} में Ctrl+Z दबाएँ।",
+   "es": "No se aplicó bien. Pulsa Ctrl+Z en {app} para deshacerlo.",
+   "ar": "لم يُطبَّق ذلك بشكل سليم. اضغط Ctrl+Z في {app} للتراجع.",
+   "fr": "La correction ne s'est pas appliquée proprement. Appuyez sur Ctrl+Z dans {app} pour l'annuler.",
+   "bn": "এটি ঠিকভাবে প্রয়োগ হয়নি। আগের অবস্থায় ফিরতে {app}-এ Ctrl+Z চাপুন।",
+   "pt-BR": "Não foi aplicado corretamente. Pressione Ctrl+Z no {app} para desfazer.",
+   "ru": "Исправление применилось неточно. Нажмите Ctrl+Z в {app}, чтобы отменить.",
+   "id": "Perbaikan tidak diterapkan dengan benar. Tekan Ctrl+Z di {app} untuk membatalkannya."
+  },
+  "Couldn't copy: another app is using the clipboard.": {
+   "zh-Hans": "无法复制：另一个应用正在使用剪贴板。",
+   "hi": "कॉपी नहीं हो सका: कोई दूसरा ऐप क्लिपबोर्ड इस्तेमाल कर रहा है।",
+   "es": "No se pudo copiar: otra app está usando el portapapeles.",
+   "ar": "تعذّر النسخ: تطبيق آخر يستخدم الحافظة.",
+   "fr": "Copie impossible : une autre app utilise le presse-papiers.",
+   "bn": "কপি করা যায়নি: অন্য একটি অ্যাপ ক্লিপবোর্ড ব্যবহার করছে।",
+   "pt-BR": "Não foi possível copiar: outro app está usando a área de transferência.",
+   "ru": "Не удалось скопировать: буфер обмена занят другим приложением.",
+   "id": "Tidak bisa menyalin: aplikasi lain sedang memakai papan klip."
+  },
+  "Click a fix to apply it. Ctrl+Z in {app} undoes it.": {
+   "zh-Hans": "点击修正即可应用。在 {app} 中按 Ctrl+Z 可撤销。",
+   "hi": "लागू करने के लिए किसी सुधार पर क्लिक करें। {app} में Ctrl+Z से पूर्ववत करें।",
+   "es": "Haz clic en una corrección para aplicarla. Ctrl+Z en {app} la deshace.",
+   "ar": "انقر على تصحيح لتطبيقه. Ctrl+Z في {app} يتراجع عنه.",
+   "fr": "Cliquez sur une correction pour l'appliquer. Ctrl+Z dans {app} l'annule.",
+   "bn": "প্রয়োগ করতে একটি সংশোধনে ক্লিক করুন। {app}-এ Ctrl+Z চাপলে আগের অবস্থায় ফিরবে।",
+   "pt-BR": "Clique em uma correção para aplicá-la. Ctrl+Z no {app} desfaz.",
+   "ru": "Нажмите на исправление, чтобы применить его. Ctrl+Z в {app} отменит его.",
+   "id": "Klik perbaikan untuk menerapkannya. Ctrl+Z di {app} membatalkannya."
+  },
+  "Glim can't type in this field. Click a fix to copy it.": {
+   "zh-Hans": "Glim 无法在此输入框中输入。点击修正即可复制。",
+   "hi": "Glim इस फ़ील्ड में टाइप नहीं कर सकता। कॉपी करने के लिए किसी सुधार पर क्लिक करें।",
+   "es": "Glim no puede escribir en este campo. Haz clic en una corrección para copiarla.",
+   "ar": "لا يستطيع Glim الكتابة في هذا الحقل. انقر على تصحيح لنسخه.",
+   "fr": "Glim ne peut pas écrire dans ce champ. Cliquez sur une correction pour la copier.",
+   "bn": "Glim এই ঘরে টাইপ করতে পারে না। কপি করতে একটি সংশোধনে ক্লিক করুন।",
+   "pt-BR": "O Glim não consegue digitar neste campo. Clique em uma correção para copiá-la.",
+   "ru": "Glim не может печатать в этом поле. Нажмите на исправление, чтобы скопировать его.",
+   "id": "Glim tidak bisa mengetik di kolom ini. Klik perbaikan untuk menyalinnya."
+  },
+  "Suggestions only in {app} for now.": {
+   "zh-Hans": "目前在 {app} 中仅提供建议。",
+   "hi": "अभी {app} में केवल सुझाव मिलते हैं।",
+   "es": "Por ahora, en {app} solo hay sugerencias.",
+   "ar": "اقتراحات فقط في {app} حاليًا.",
+   "fr": "Suggestions seulement dans {app} pour l'instant.",
+   "bn": "আপাতত {app}-এ শুধু পরামর্শ দেখানো হয়।",
+   "pt-BR": "Por enquanto, só sugestões no {app}.",
+   "ru": "Пока в {app} только подсказки.",
+   "id": "Untuk saat ini hanya saran di {app}."
+  },
+  "Fixing…": {
+   "zh-Hans": "正在修正…",
+   "hi": "ठीक किया जा रहा है…",
+   "es": "Corrigiendo…",
+   "ar": "جارٍ التصحيح…",
+   "fr": "Correction…",
+   "bn": "ঠিক করা হচ্ছে…",
+   "pt-BR": "Corrigindo…",
+   "ru": "Исправление…",
+   "id": "Memperbaiki…"
+  },
+  "Replace with “{fix}”": {
+   "zh-Hans": "替换为“{fix}”",
+   "hi": "“{fix}” से बदलें",
+   "es": "Reemplazar por «{fix}»",
+   "ar": "استبدل بـ «{fix}»",
+   "fr": "Remplacer par « {fix} »",
+   "bn": "“{fix}” দিয়ে বদলান",
+   "pt-BR": "Substituir por “{fix}”",
+   "ru": "Заменить на «{fix}»",
+   "id": "Ganti dengan “{fix}”"
+  },
+  "Copy “{fix}”": {
+   "zh-Hans": "复制“{fix}”",
+   "hi": "“{fix}” कॉपी करें",
+   "es": "Copiar «{fix}»",
+   "ar": "انسخ «{fix}»",
+   "fr": "Copier « {fix} »",
+   "bn": "“{fix}” কপি করুন",
+   "pt-BR": "Copiar “{fix}”",
+   "ru": "Скопировать «{fix}»",
+   "id": "Salin “{fix}”"
+  },
+  "Dismiss suggestions": {
+   "zh-Hans": "关闭建议",
+   "hi": "सुझाव हटाएँ",
+   "es": "Descartar sugerencias",
+   "ar": "تجاهل الاقتراحات",
+   "fr": "Ignorer les suggestions",
+   "bn": "পরামর্শগুলো সরান",
+   "pt-BR": "Dispensar sugestões",
+   "ru": "Скрыть подсказки",
+   "id": "Tutup saran"
   }
  }
 }

@@ -43,6 +43,9 @@ windows = { version = "0.61", features = [
   "Win32_Security_Authorization",
   # "Open terminal": the relay's process tree leads to the session's window.
   "Win32_System_Diagnostics_ToolHelp",
+  # Copy buttons for fields Glim can't type in (capture/fix.rs): the clipboard.
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_System_Pipes",
   # Launch at startup (autostart.rs): the HKCU Run entry.
