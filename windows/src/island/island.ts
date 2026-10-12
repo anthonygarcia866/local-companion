@@ -156,7 +156,10 @@ export class Island {
   private closeApproval() {
     State.endApproval();
     this.fsm.pinned = false;
-    this.setView(State.defaultView());
+    // A request queued behind this one is the card now (State.endApproval).
+    const next = State.pendingApproval;
+    if (next) this.alert(next.questions ? "question" : "approval");
+    else this.setView(State.defaultView());
   }
 
   /**

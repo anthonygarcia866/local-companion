@@ -237,6 +237,12 @@ class AppState {
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
   pendingApproval: ApprovalInfo | null = null;
+  /**
+   * Requests that came while a card was up, oldest first. Each was acknowledged
+   * (its agent keeps waiting for Glim) and comes up in turn when the card
+   * before it ends; hooks.ts withdraws one whose turn ends or time runs out.
+   */
+  approvalQueue: ApprovalInfo[] = [];
   /** The focused field's writing suggestions (Rust: "writing-suggestions"). */
   writing: WritingSuggestion[] = [];
   writingFix: WritingFix = { checkId: 0, mode: "view", app: "" };
@@ -331,7 +337,30 @@ class AppState {
     if (previous && this.focusId === req.pillId && this.tasks.some((t) => t.id === previous)) {
       this.focusId = previous;
     }
+    // The next request in the queue is the card now (the island shows it:
+    // island.ts closeApproval, hooks.ts dropPendingCard).
+    const next = this.approvalQueue.shift();
+    if (next) {
+      this.beginApproval(next);
+      this.updateTask(next.pillId, next.questions ? "question" : "approval");
+    }
     this.notify();
+  }
+
+  /** A request waits behind the card on screen; its pill is badged meanwhile. */
+  queueApproval(info: ApprovalInfo) {
+    this.approvalQueue.push(info);
+    this.setPillBadge(info.pillId, "approval");
+    this.notify();
+  }
+
+  /** Takes the queued requests `drop` picks out of the queue, and returns them. */
+  withdrawQueued(drop: (r: ApprovalInfo) => boolean): ApprovalInfo[] {
+    const gone = this.approvalQueue.filter(drop);
+    if (gone.length === 0) return gone;
+    this.approvalQueue = this.approvalQueue.filter((r) => !drop(r));
+    this.notify();
+    return gone;
   }
 
   updateTask(id: string, state: BotStateName) {

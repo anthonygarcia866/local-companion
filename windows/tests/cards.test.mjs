@@ -47,3 +47,18 @@ test("a local chat pill's error card has no open button (nothing to open)", () =
 test("no card offers Open in n8n any more", () => {
   assert.doesNotMatch(read("src/views/views.ts"), /Open in n8n/);
 });
+
+test("an approval card says how many requests wait behind it", async () => {
+  const { buildApproval } = await import("../src/views/views.ts");
+  State.tasks = [task("integration_claude", "claudeCode")];
+  State.pendingApproval = { requestId: "r1", sessionId: "s1", pillId: "integration_claude", tool: "Bash", command: "Bash · ls" };
+  State.approvalQueue = [];
+  const card = buildApproval(new Proxy({}, { get: () => () => {} }));
+  card.sync();
+  assert.equal(card.el.find(".queued").length, 0);
+  State.approvalQueue = [{ ...State.pendingApproval, requestId: "r2" }, { ...State.pendingApproval, requestId: "r3" }];
+  card.sync();
+  assert.equal(card.el.find(".queued")[0].textContent, "2 more waiting");
+  State.pendingApproval = null;
+  State.approvalQueue = [];
+});

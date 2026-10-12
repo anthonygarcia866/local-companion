@@ -2889,6 +2889,17 @@
    "pt-BR": "Negar a permissão pendente",
    "ru": "Отклонить ожидающий запрос разрешения",
    "id": "Tolak izin yang menunggu"
+  },
+  "{count} more waiting": {
+   "zh-Hans": "还有 {count} 个在等待",
+   "hi": "{count} और प्रतीक्षा में",
+   "es": "{count} más en espera",
+   "ar": "{count} أخرى في الانتظار",
+   "fr": "{count} autre(s) en attente",
+   "bn": "আরও {count}টি অপেক্ষায়",
+   "pt-BR": "Mais {count} aguardando",
+   "ru": "Ещё в очереди: {count}",
+   "id": "{count} lagi menunggu"
   }
  }
 }

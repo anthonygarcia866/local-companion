@@ -402,7 +402,7 @@ function foldButton(actions: ViewActions): HTMLElement {
   );
 }
 
-function buildApproval(actions: ViewActions): ViewHost {
+export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
   const row = h("div", { class: "actions" });
@@ -427,7 +427,11 @@ function buildApproval(actions: ViewActions): ViewHost {
         shownAt = performance.now();
       }
       clear(who);
-      who.append(agentWho(State.focusTask, t("needs permission")));
+      const whoRow = agentWho(State.focusTask, t("needs permission"));
+      // Requests queued behind this one come up in turn (State.approvalQueue).
+      const waiting = State.approvalQueue.length;
+      if (waiting > 0) whoRow.append(h("span", { class: "queued", text: t("{count} more waiting", { count: String(waiting) }) }));
+      who.append(whoRow);
       // The whole point of approving here rather than in the terminal: this line
       // is the command, the file path or the URL being authorised, not just the
       // name of the tool asking.

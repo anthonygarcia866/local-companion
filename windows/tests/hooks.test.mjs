@@ -35,6 +35,7 @@ beforeEach(() => {
   State.paused = false;
   State.isPinned = false;
   State.pendingApproval = null;
+  State.approvalQueue = [];
   // Two other pills next to Claude Code's, to be behind.
   State.settings = { ...DEFAULT_SETTINGS, activeIntegrations: ["ai_ollama", "ai_lmstudio"] };
   State.loadIntegrationTasks();
@@ -527,13 +528,62 @@ test("a request from Claude Code in Cursor's terminal goes on the Cursor pill", 
   assert.equal(task().state, "idle");
 });
 
-test("a second request never replaces the card: it goes back to the terminal", () => {
+test("a second request never replaces the card: it waits in Glim's queue", () => {
   ask("r1");
-  ask("r2", { tool_name: "Bash", tool_input: { command: "ls" } });
+  ask("r2", { session_id: "s2", tool_name: "Bash", tool_input: { command: "ls" } });
+  // The card on screen is still the first request's.
   assert.equal(State.pendingApproval.requestId, "r1");
   assert.equal(State.pendingApproval.tool, "Write");
+  // The second is acknowledged (the relay keeps waiting for Glim), never declined.
+  assert.deepEqual(sent("approval_decline"), []);
+  assert.deepEqual(sent("approval_ack"), [{ requestId: "r1" }, { requestId: "r2" }]);
+  assert.deepEqual(State.approvalQueue.map((r) => r.requestId), ["r2"]);
+});
+
+test("answering the card brings the next queued request up, oldest first", () => {
+  ask("r1");
+  ask("r2", { session_id: "s2", tool_name: "Bash", tool_input: { command: "ls" } });
+  ask("r3", { session_id: "s3", tool_name: "Bash", tool_input: { command: "pwd" } });
+  State.endApproval();
+  assert.equal(State.pendingApproval.requestId, "r2");
+  assert.equal(State.pendingApproval.command, "Bash · ls");
+  assert.deepEqual(State.approvalQueue.map((r) => r.requestId), ["r3"]);
+  State.endApproval();
+  assert.equal(State.pendingApproval.requestId, "r3");
+  State.endApproval();
+  assert.equal(State.pendingApproval, null);
+  assert.deepEqual(sent("approval_decline"), []);
+});
+
+test("a card that times out or whose turn ends hands over to the next, which comes up", () => {
+  ask("r1", { session_id: "s1" });
+  seconds(30);
+  ask("r2", { session_id: "s2" });
+  asked = [];
+  // r1's turn ends in the terminal: its card goes, r2's comes up.
+  hook({ hook_event_name: "Stop", session_id: "s1" });
+  assert.equal(State.pendingApproval.requestId, "r2");
+  assert.ok(asked.includes("alert:approval"), asked.join());
+  // r2 keeps its own clock from its arrival, not from when it came up.
+  seconds(109);
+  assert.equal(State.pendingApproval?.requestId, "r2");
+  seconds(1.5);
+  assert.equal(State.pendingApproval, null);
+});
+
+test("a queued request is withdrawn when its turn ends or its time runs out", () => {
+  ask("r1", { session_id: "s1" });
+  ask("r2", { session_id: "s2" });
+  ask("r3", { session_id: "s3" });
+  // r2's turn ends while it waits: it leaves the queue and its relay is released.
+  hook({ hook_event_name: "UserPromptSubmit", session_id: "s2" });
+  assert.deepEqual(State.approvalQueue.map((r) => r.requestId), ["r3"]);
   assert.deepEqual(sent("approval_decline"), [{ requestId: "r2" }]);
-  assert.deepEqual(sent("approval_ack"), [{ requestId: "r1" }]);
+  assert.equal(State.pendingApproval.requestId, "r1");
+  // Nobody answers: after 110 s both are gone, nothing comes up late.
+  seconds(111);
+  assert.equal(State.pendingApproval, null);
+  assert.deepEqual(State.approvalQueue, []);
 });
 
 test("the same request arriving twice is acknowledged again, not declined", () => {
@@ -715,9 +765,11 @@ test("a declined permission request leaves the stop timer running", () => {
     { coucou_agent: "gemini" },
   );
   assert.equal(task("agent_gemini"), undefined);
-  // So is a second request while a card is already up.
+  // A second request while a card is up is queued, not declined: its pill
+  // waits for it rather than going idle.
   ask("r1");
   afterStop(() => ask("r2"));
-  assert.deepEqual(sent("approval_decline"), [{ requestId: "r1" }, { requestId: "r2" }]);
-  assert.equal(task().state, "idle");
+  assert.deepEqual(sent("approval_decline"), [{ requestId: "r1" }]);
+  assert.deepEqual(State.approvalQueue.map((r) => r.requestId), ["r2"]);
+  assert.equal(task().state, "approval");
 });

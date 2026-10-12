@@ -788,6 +788,14 @@ body {
   color: var(--ink);
 }
 
+/* "2 more waiting" on an approval card with requests queued behind it. */
+.who-row .queued {
+  margin-left: auto;
+  font: 400 11px var(--font);
+  color: var(--dim-3);
+  white-space: nowrap;
+}
+
 .code {
   font: 400 12px var(--mono);
   color: #e8e9ec;
