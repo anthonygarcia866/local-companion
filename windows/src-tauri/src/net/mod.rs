@@ -2,10 +2,11 @@
 // make an outbound request: nothing else imports the HTTP client (a test below
 // scans the sources and fails if anything does).
 //
-// Phase 0 allowlist: http(s) to `127.0.0.1` or `localhost`, any port. Anything
-// else (another host, a LAN address, a redirect that leaves this machine, a
-// system proxy) is refused before a socket is opened. Ollama and LM Studio are
-// the only callers (local_chat.rs).
+// The allowlist: http(s) to `127.0.0.1` or `localhost`, any port (Ollama and
+// LM Studio, local_chat.rs), and since 1c `api.anthropic.com`, https on 443
+// only (the Claude API, ai/claude.rs; docs/vision.md §3). Anything else
+// (another host, a LAN address, a redirect that changes host, a system proxy)
+// is refused before a socket is opened. Certificates are always checked.
 //
 // Every answer a server sends is read with a ceiling, so a misbehaving local
 // server cannot make the app hold an unbounded amount of memory.
@@ -68,6 +69,9 @@ pub fn normalise_server_url(raw: &str) -> Result<Url, String> {
     }
     if is_loopback_url(&url) {
         let _ = url.set_ip_host(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    } else {
+        // A model server is on this machine: the Anthropic host isn't one.
+        return Err(local_refusal(&host_for_log(&url)));
     }
     let mut path = url.path().trim_end_matches('/').to_string();
     for suffix in ["/api", "/v1"] {
@@ -90,30 +94,48 @@ pub fn join(base: &Url, tail: &str) -> String {
 
 // ── The allowlist ─────────────────────────────────────────────────────────────
 
-/// The only hosts a request may go to. Exact names: not `::1`, not other
-/// 127.x addresses, not `*.localhost`.
+/// The local hosts a request may go to, over http or https on any port.
+/// Exact names: not `::1`, not other 127.x addresses, not `*.localhost`.
 pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
+
+/// The one remote host (1c, docs/vision.md §3): the Claude API, https on
+/// port 443 only. Exact name: no other Anthropic host, no subdomain.
+pub const ANTHROPIC_HOST: &str = "api.anthropic.com";
 
 /// Why a request was refused, for the message and the log.
 pub fn refusal(url: &str) -> String {
+    tf("Blocked: Glim only connects to this computer and api.anthropic.com, not {url}.", &[("url", url)])
+}
+
+/// Why a model server's address was refused: those are on this machine only.
+pub fn local_refusal(url: &str) -> String {
     tf("Blocked: Glim only connects to this computer (127.0.0.1 or localhost), not {url}.", &[("url", url)])
 }
 
-/// Ok when `url` may be requested: http or https, no credentials, and a host
-/// on the allowlist. Every request and every redirect hop passes through here.
+/// Ok when `url` may be requested: no credentials, and either http(s) to a
+/// local host on the allowlist or https to the Anthropic host on port 443.
+/// Every request and every redirect hop passes through here.
 pub fn check(url: &Url) -> Result<(), String> {
-    let allowed = matches!(url.scheme(), "http" | "https")
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url
-            .host_str()
-            .map(|h| h.to_ascii_lowercase())
-            .is_some_and(|h| ALLOWED_HOSTS.contains(&h.as_str()));
-    if allowed {
+    let host = url.host_str().map(|h| h.to_ascii_lowercase());
+    let local = matches!(url.scheme(), "http" | "https") && host.as_deref().is_some_and(|h| ALLOWED_HOSTS.contains(&h));
+    // `Url` drops a default port, so `port()` is None for https on 443.
+    let anthropic = url.scheme() == "https" && host.as_deref() == Some(ANTHROPIC_HOST) && url.port().is_none_or(|p| p == 443);
+    if url.username().is_empty() && url.password().is_none() && (local || anthropic) {
         Ok(())
     } else {
         Err(refusal(&host_for_log(url)))
     }
+}
+
+/// A redirect hop from `origin` to `next`: `next` must pass `check`, and a
+/// request that started off this machine may not change host (the Anthropic
+/// API can't send Glim anywhere else, not even to localhost).
+pub fn hop_allowed(origin: &Url, next: &Url) -> Result<(), String> {
+    check(next)?;
+    if !is_loopback_url(origin) && origin.host_str() != next.host_str() {
+        return Err(refusal(&host_for_log(next)));
+    }
+    Ok(())
 }
 
 /// `check` for a URL as text.
@@ -126,17 +148,20 @@ pub fn check_str(raw: &str) -> Result<Url, String> {
 /// A request to `url`, or an error if the allowlist refuses it. The client:
 /// * never uses a proxy (a system proxy would carry the request off the machine);
 /// * resolves `localhost` to 127.0.0.1 itself, whatever the hosts file says;
-/// * follows a redirect only to another allowed address.
+/// * follows a redirect only to another allowed address (`hop_allowed`);
+/// * checks certificates (rustls and its bundled roots; nothing here may turn
+///   that off, a test checks the source).
 ///
 /// The returned builder can take headers and a body, but not a new URL.
 pub fn request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBuilder, String> {
     check(url)?;
+    let origin = url.clone();
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10).min(timeout))
         .timeout(timeout)
         .no_proxy()
         .resolve("localhost", SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-        .redirect(reqwest::redirect::Policy::custom(|attempt| match check(attempt.url()) {
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| match hop_allowed(&origin, attempt.url()) {
             Ok(()) if attempt.previous().len() < 5 => attempt.follow(),
             Ok(()) => attempt.stop(),
             Err(e) => attempt.error(e),
@@ -216,8 +241,10 @@ pub(crate) mod tests {
         assert_eq!(n("0.0.0.0:11434").unwrap(), "http://127.0.0.1:11434/");
         assert_eq!(n("http://[::1]:8000").unwrap(), "http://127.0.0.1:8000/");
         assert_eq!(n("http://127.0.0.1:1234/proxy/v1?x=1#y").unwrap(), "http://127.0.0.1:1234/proxy");
-        // Anything off this machine is refused at the door.
+        // Anything off this machine is refused at the door, Anthropic included:
+        // a model server's address is a local one.
         assert!(n("https://llm.example.com/proxy/v1").unwrap_err().starts_with("Blocked"));
+        assert!(n("https://api.anthropic.com").unwrap_err().contains("127.0.0.1 or localhost"));
         assert!(n("gpu-box.lan:8000").unwrap_err().starts_with("Blocked"));
         assert!(n("192.168.1.20:11434").unwrap_err().starts_with("Blocked"));
     }
@@ -323,6 +350,41 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_anthropic_api_is_allowed_only_over_https_on_443() {
+        for ok in ["https://api.anthropic.com/v1/messages", "https://API.Anthropic.com/v1/messages", "https://api.anthropic.com:443/v1/messages"] {
+            assert!(check_str(ok).is_ok(), "{ok}");
+        }
+        for no in [
+            "http://api.anthropic.com/v1/messages",
+            "https://api.anthropic.com:8443/v1/messages",
+            "http://api.anthropic.com:443/v1/messages",
+            "https://anthropic.com",
+            "https://console.anthropic.com",
+            "https://x.api.anthropic.com",
+            "https://api.anthropic.com.example.com",
+            "https://user:pw@api.anthropic.com",
+            "wss://api.anthropic.com",
+        ] {
+            let err = check_str(no).expect_err(no);
+            assert!(err.starts_with("Blocked"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_redirect_from_anthropic_may_not_change_host() {
+        let api = Url::parse("https://api.anthropic.com/v1/messages").unwrap();
+        let hop = |s: &str| hop_allowed(&api, &Url::parse(s).unwrap());
+        assert!(hop("https://api.anthropic.com/v1/other").is_ok());
+        for no in ["http://127.0.0.1:11434/", "https://localhost/", "https://example.com/", "http://api.anthropic.com/v1/messages"] {
+            assert!(hop(no).is_err(), "{no}");
+        }
+        // Local servers keep the old rule: any allowed local address.
+        let local = Url::parse("http://127.0.0.1:11434/").unwrap();
+        assert!(hop_allowed(&local, &Url::parse("http://localhost:11434/x").unwrap()).is_ok());
+        assert!(hop_allowed(&local, &Url::parse("https://example.com/").unwrap()).is_err());
+    }
+
+    #[test]
     fn a_request_to_an_external_host_is_refused_before_anything_is_sent() {
         let url = Url::parse("https://example.com").unwrap();
         let err = request(Method::GET, &url, Duration::from_secs(5)).err().expect("refused");
@@ -358,6 +420,28 @@ pub(crate) mod tests {
         std::env::remove_var("HTTP_PROXY");
         std::env::remove_var("ALL_PROXY");
         assert_eq!(body, b"direct");
+    }
+
+    /// Certificates are always checked: no source file may switch that off.
+    #[test]
+    fn nothing_turns_certificate_checks_off() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // Built with concat! so this file doesn't name them itself.
+        let forbidden = [concat!("danger_", "accept_invalid_certs"), concat!("danger_", "accept_invalid_hostnames"), concat!("tls_built_in_root_certs", "(false)")];
+        let mut stack = vec![src];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for word in forbidden {
+                        assert!(!text.contains(word), "{} uses {word}", path.display());
+                    }
+                }
+            }
+        }
     }
 
     /// The choke point is only a choke point if nothing goes around it: no

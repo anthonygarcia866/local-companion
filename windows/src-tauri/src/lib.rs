@@ -233,8 +233,11 @@ fn list_monitors(app: AppHandle) -> Vec<island::MonitorChoice> {
 /// allowlist), so the app never hands the browser an address off the machine.
 #[tauri::command]
 fn open_url(url: String) {
+    // Loopback only: the allowlist's Anthropic host is for Rust's API calls,
+    // not for pages.
     match net::check_str(&url) {
-        Ok(url) => platform::open_url(url.as_str()),
+        Ok(url) if net::is_loopback_url(&url) => platform::open_url(url.as_str()),
+        Ok(url) => log::line(net::local_refusal(&net::host_for_log(&url))),
         Err(err) => log::line(err),
     }
 }

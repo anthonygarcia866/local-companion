@@ -3054,6 +3054,17 @@
    "pt-BR": "Nada foi aplicado: nenhuma sugestão tem uma melhor opção clara. Escolha uma você mesmo.",
    "ru": "Ничего не применено: ни у одной подсказки нет очевидно лучшего варианта. Выберите сами.",
    "id": "Tidak ada yang diterapkan: tidak ada saran dengan opsi terbaik yang jelas. Pilih sendiri."
+  },
+  "Blocked: Glim only connects to this computer and api.anthropic.com, not {url}.": {
+   "zh-Hans": "已拦截：Glim 只连接本机和 api.anthropic.com，不连接 {url}。",
+   "hi": "रोका गया: Glim केवल इस कंप्यूटर और api.anthropic.com से जुड़ता है, {url} से नहीं।",
+   "es": "Bloqueado: Glim solo se conecta a este equipo y a api.anthropic.com, no a {url}.",
+   "ar": "محظور: يتصل Glim بهذا الكمبيوتر وبـ api.anthropic.com فقط، وليس بـ {url}.",
+   "fr": "Bloqué : Glim ne se connecte qu'à cet ordinateur et à api.anthropic.com, pas à {url}.",
+   "bn": "আটকানো হয়েছে: Glim শুধু এই কম্পিউটার আর api.anthropic.com-এ সংযোগ করে, {url}-এ নয়।",
+   "pt-BR": "Bloqueado: o Glim só se conecta a este computador e a api.anthropic.com, não a {url}.",
+   "ru": "Заблокировано: Glim подключается только к этому компьютеру и api.anthropic.com, но не к {url}.",
+   "id": "Diblokir: Glim hanya terhubung ke komputer ini dan api.anthropic.com, bukan ke {url}."
   }
  }
 }
