@@ -3065,6 +3065,83 @@
    "pt-BR": "Bloqueado: o Glim só se conecta a este computador e a api.anthropic.com, não a {url}.",
    "ru": "Заблокировано: Glim подключается только к этому компьютеру и api.anthropic.com, но не к {url}.",
    "id": "Diblokir: Glim hanya terhubung ke komputer ini dan api.anthropic.com, bukan ke {url}."
+  },
+  "Paste the API key first.": {
+   "zh-Hans": "请先粘贴 API 密钥。",
+   "hi": "पहले API कुंजी पेस्ट करें।",
+   "es": "Primero pega la clave de API.",
+   "ar": "الصق مفتاح API أولاً.",
+   "fr": "Collez d'abord la clé d'API.",
+   "bn": "আগে API কী পেস্ট করুন।",
+   "pt-BR": "Cole a chave de API primeiro.",
+   "ru": "Сначала вставьте API-ключ.",
+   "id": "Tempel kunci API terlebih dahulu."
+  },
+  "That doesn't look like an Anthropic API key (they start with sk-ant-).": {
+   "zh-Hans": "这看起来不像 Anthropic API 密钥（密钥以 sk-ant- 开头）。",
+   "hi": "यह Anthropic API कुंजी जैसी नहीं लगती (ये sk-ant- से शुरू होती हैं)।",
+   "es": "No parece una clave de API de Anthropic (empiezan por sk-ant-).",
+   "ar": "لا يبدو هذا مفتاح API من Anthropic (تبدأ المفاتيح بـ sk-ant-).",
+   "fr": "Cela ne ressemble pas à une clé d'API Anthropic (elles commencent par sk-ant-).",
+   "bn": "এটি Anthropic API কী বলে মনে হচ্ছে না (এগুলো sk-ant- দিয়ে শুরু হয়)।",
+   "pt-BR": "Isso não parece uma chave de API da Anthropic (elas começam com sk-ant-).",
+   "ru": "Это не похоже на API-ключ Anthropic (они начинаются с sk-ant-).",
+   "id": "Itu tidak tampak seperti kunci API Anthropic (diawali sk-ant-)."
+  },
+  "Windows couldn't read the API key: {error}": {
+   "zh-Hans": "Windows 无法读取 API 密钥：{error}",
+   "hi": "Windows API कुंजी नहीं पढ़ सका: {error}",
+   "es": "Windows no pudo leer la clave de API: {error}",
+   "ar": "تعذّر على Windows قراءة مفتاح API: {error}",
+   "fr": "Windows n'a pas pu lire la clé d'API : {error}",
+   "bn": "Windows API কী পড়তে পারেনি: {error}",
+   "pt-BR": "O Windows não conseguiu ler a chave de API: {error}",
+   "ru": "Windows не удалось прочитать API-ключ: {error}",
+   "id": "Windows tidak dapat membaca kunci API: {error}"
+  },
+  "Windows couldn't save the API key: {error}": {
+   "zh-Hans": "Windows 无法保存 API 密钥：{error}",
+   "hi": "Windows API कुंजी सहेज नहीं सका: {error}",
+   "es": "Windows no pudo guardar la clave de API: {error}",
+   "ar": "تعذّر على Windows حفظ مفتاح API: {error}",
+   "fr": "Windows n'a pas pu enregistrer la clé d'API : {error}",
+   "bn": "Windows API কী সংরক্ষণ করতে পারেনি: {error}",
+   "pt-BR": "O Windows não conseguiu salvar a chave de API: {error}",
+   "ru": "Windows не удалось сохранить API-ключ: {error}",
+   "id": "Windows tidak dapat menyimpan kunci API: {error}"
+  },
+  "Windows couldn't remove the API key: {error}": {
+   "zh-Hans": "Windows 无法删除 API 密钥：{error}",
+   "hi": "Windows API कुंजी हटा नहीं सका: {error}",
+   "es": "Windows no pudo quitar la clave de API: {error}",
+   "ar": "تعذّر على Windows إزالة مفتاح API: {error}",
+   "fr": "Windows n'a pas pu supprimer la clé d'API : {error}",
+   "bn": "Windows API কী সরাতে পারেনি: {error}",
+   "pt-BR": "O Windows não conseguiu remover a chave de API: {error}",
+   "ru": "Windows не удалось удалить API-ключ: {error}",
+   "id": "Windows tidak dapat menghapus kunci API: {error}"
+  },
+  "The saved API key is damaged. Remove it and save it again.": {
+   "zh-Hans": "保存的 API 密钥已损坏。请删除后重新保存。",
+   "hi": "सहेजी गई API कुंजी खराब है। इसे हटाकर फिर से सहेजें।",
+   "es": "La clave de API guardada está dañada. Quítala y guárdala de nuevo.",
+   "ar": "مفتاح API المحفوظ تالف. أزِله واحفظه من جديد.",
+   "fr": "La clé d'API enregistrée est endommagée. Supprimez-la et enregistrez-la à nouveau.",
+   "bn": "সংরক্ষিত API কী নষ্ট হয়ে গেছে। সরিয়ে আবার সংরক্ষণ করুন।",
+   "pt-BR": "A chave de API salva está corrompida. Remova-a e salve de novo.",
+   "ru": "Сохранённый API-ключ повреждён. Удалите его и сохраните заново.",
+   "id": "Kunci API yang tersimpan rusak. Hapus lalu simpan lagi."
+  },
+  "Saving an API key is only available on Windows for now.": {
+   "zh-Hans": "目前只有 Windows 版可以保存 API 密钥。",
+   "hi": "API कुंजी सहेजना अभी केवल Windows पर उपलब्ध है।",
+   "es": "Por ahora solo se puede guardar una clave de API en Windows.",
+   "ar": "حفظ مفتاح API متاح على Windows فقط حالياً.",
+   "fr": "L'enregistrement d'une clé d'API n'est disponible que sous Windows pour l'instant.",
+   "bn": "API কী সংরক্ষণ এখন শুধু Windows-এ পাওয়া যায়।",
+   "pt-BR": "Por enquanto, salvar uma chave de API só está disponível no Windows.",
+   "ru": "Сохранить API-ключ пока можно только в Windows.",
+   "id": "Menyimpan kunci API untuk saat ini hanya tersedia di Windows."
   }
  }
 }

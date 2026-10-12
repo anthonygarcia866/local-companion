@@ -1,6 +1,9 @@
 // Glim for Windows — app wiring and the commands the island calls.
 
 mod agent_hooks;
+// Wired into the app in 1c steps 5-6; the allow goes then.
+#[allow(dead_code)]
+mod ai;
 mod autostart;
 mod agents;
 mod capture;
