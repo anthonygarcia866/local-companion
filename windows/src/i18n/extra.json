@@ -2747,6 +2747,39 @@
    "ru": "Нажмите на исправление, чтобы применить его. Ctrl+Z в {app} отменит его.",
    "id": "Klik perbaikan untuk menerapkannya. Ctrl+Z di {app} membatalkannya."
   },
+  "Apply all": {
+   "zh-Hans": "全部应用",
+   "hi": "सभी लागू करें",
+   "es": "Aplicar todo",
+   "ar": "تطبيق الكل",
+   "fr": "Tout appliquer",
+   "bn": "সব প্রয়োগ করুন",
+   "pt-BR": "Aplicar tudo",
+   "ru": "Применить все",
+   "id": "Terapkan semua"
+  },
+  "Applies each suggestion's first option, last to first. Ctrl+Z undoes one fix per press.": {
+   "zh-Hans": "对每条建议应用第一个选项，从最后一条到第一条。每按一次 Ctrl+Z 撤销一处修正。",
+   "hi": "हर सुझाव का पहला विकल्प लागू करता है, आख़िरी से पहले तक। हर बार Ctrl+Z दबाने पर एक सुधार पूर्ववत होता है।",
+   "es": "Aplica la primera opción de cada sugerencia, de la última a la primera. Cada Ctrl+Z deshace una corrección.",
+   "ar": "يطبّق الخيار الأول لكل اقتراح، من الأخير إلى الأول. كل ضغطة على Ctrl+Z تتراجع عن تصحيح واحد.",
+   "fr": "Applique la première option de chaque suggestion, de la dernière à la première. Chaque Ctrl+Z annule une correction.",
+   "bn": "প্রতিটি পরামর্শের প্রথম বিকল্প প্রয়োগ করে, শেষ থেকে প্রথম পর্যন্ত। প্রতিবার Ctrl+Z চাপলে একটি সংশোধন বাতিল হয়।",
+   "pt-BR": "Aplica a primeira opção de cada sugestão, da última para a primeira. Cada Ctrl+Z desfaz uma correção.",
+   "ru": "Применяет первый вариант каждой подсказки, с последней до первой. Каждое нажатие Ctrl+Z отменяет одно исправление.",
+   "id": "Menerapkan opsi pertama setiap saran, dari yang terakhir ke yang pertama. Setiap Ctrl+Z membatalkan satu perbaikan."
+  },
+  "Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.": {
+   "zh-Hans": "已修正 {done}/{total} 处。在 {app} 中每按一次 Ctrl+Z 撤销一处。",
+   "hi": "{total} में से {done} ठीक किए। {app} में हर बार Ctrl+Z दबाने पर एक सुधार पूर्ववत होता है।",
+   "es": "Corregidas {done} de {total}. Cada Ctrl+Z en {app} deshace una.",
+   "ar": "تم تصحيح {done} من {total}. كل ضغطة على Ctrl+Z في {app} تتراجع عن تصحيح واحد.",
+   "fr": "{done} sur {total} corrigées. Chaque Ctrl+Z dans {app} en annule une.",
+   "bn": "{total}টির মধ্যে {done}টি ঠিক করা হয়েছে। {app}-এ প্রতিবার Ctrl+Z চাপলে একটি বাতিল হয়।",
+   "pt-BR": "{done} de {total} corrigidas. Cada Ctrl+Z no {app} desfaz uma.",
+   "ru": "Исправлено {done} из {total}. Каждое нажатие Ctrl+Z в {app} отменяет одно.",
+   "id": "{done} dari {total} diperbaiki. Setiap Ctrl+Z di {app} membatalkan satu."
+  },
   "Glim can't type in this field. Click a fix to copy it.": {
    "zh-Hans": "Glim 无法在此输入框中输入。点击修正即可复制。",
    "hi": "Glim इस फ़ील्ड में टाइप नहीं कर सकता। कॉपी करने के लिए किसी सुधार पर क्लिक करें।",

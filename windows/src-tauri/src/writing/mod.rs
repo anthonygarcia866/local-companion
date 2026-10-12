@@ -199,6 +199,9 @@ impl Outcome {
 pub struct FixResult {
     pub outcome: Outcome,
     pub app: String,
+    /// Apply all: how many fixes went in, of how many (both 0 for one fix).
+    pub done: usize,
+    pub total: usize,
 }
 
 /// The event the island hears a click's outcome on.
@@ -960,6 +963,7 @@ Anthony";
             let sig = &lib[at..at + lib[at..].find('{').unwrap()];
             assert_eq!(sig.trim_end(), format!("{cmd}check_id: u64, index: usize, choice: usize)"), "{sig}");
         }
+        assert!(lib.contains("fn writing_fix_all(check_id: u64) {"), "Apply all: the list id only");
         assert!(lib.contains("fn writing_dismiss() {"));
         assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
     }

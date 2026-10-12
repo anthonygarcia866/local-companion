@@ -2516,7 +2516,8 @@ html:not([data-presence="pill"]) #lantern-menu {
   white-space: nowrap;
 }
 
-button.fix-btn {
+button.fix-btn,
+button.apply-all {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2527,22 +2528,46 @@ button.fix-btn {
   cursor: pointer;
 }
 
-button.fix-btn:hover:not(:disabled) {
+button.fix-btn:hover:not(:disabled),
+button.apply-all:hover:not(:disabled) {
   background: rgba(242, 177, 76, 0.32);
 }
 
 button.fix-btn:focus-visible,
+button.apply-all:focus-visible,
 .suggestion-dismiss:focus-visible {
   outline: 2px solid #f2b14c;
   outline-offset: 1px;
 }
 
 /* "Click in the field first" (away) or a fix on its way. */
-button.fix-btn:disabled {
+button.fix-btn:disabled,
+button.apply-all:disabled {
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.45);
   cursor: default;
+}
+
+/* The title, with Apply all at its right. */
+.suggestion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.suggestion-head .title {
+  flex: 1;
+  min-width: 0;
+}
+
+button.apply-all {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font: 600 11.5px var(--font);
 }
 
 /* Dismiss: last in the pager row. */

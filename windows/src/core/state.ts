@@ -210,6 +210,17 @@ export interface WritingFix {
   app: string;
 }
 
+/**
+ * A click's outcome (a code from Rust). Apply all also says how many fixes
+ * went in, of how many (`total` 0 for a single fix).
+ */
+export interface WritingResult {
+  outcome: string;
+  app: string;
+  done?: number;
+  total?: number;
+}
+
 class AppState {
   mode: IslandMode = "hidden";
   /** Where the island is docked on its display (Rust tells: "placement"). */
@@ -249,7 +260,7 @@ class AppState {
   writing: WritingSuggestion[] = [];
   writingFix: WritingFix = { checkId: 0, mode: "view", app: "" };
   /** The last click's outcome (a code from Rust), shown for a few seconds. */
-  writingResult: { outcome: string; app: string } | null = null;
+  writingResult: WritingResult | null = null;
   /** A fix is on its way: the buttons wait for the outcome. */
   writingBusy = false;
   /** The pill that was in front when the card came up; it comes back after. */
