@@ -427,6 +427,42 @@ impl Session {
         })
     }
 
+    /// "Apply all": one job per suggestion, with its first replacement, from
+    /// the end of the paragraph backward, so the fixes still to come keep
+    /// their offsets. Each job carries the paragraph as the fixes before it in
+    /// this order will have left it, so `apply::run` re-verifies each one word
+    /// for word. A suggestion that overlaps one already taken, or whose
+    /// replacement Glim wouldn't offer, is left out. Only the list id comes
+    /// from the island.
+    pub fn jobs_all(&self, check_id: u64) -> Result<Vec<Job>, Outcome> {
+        if self.shown.items.is_empty() {
+            return Err(Outcome::Changed);
+        }
+        let mut order: Vec<usize> = (0..self.shown.items.len()).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.shown.items[i].start));
+        let mut jobs: Vec<Job> = Vec::new();
+        let mut paragraph: Option<String> = None;
+        let mut floor = usize::MAX;
+        for i in order {
+            let item = &self.shown.items[i];
+            if item.end > floor || !item.replacements.first().is_some_and(|r| offerable(r)) {
+                continue;
+            }
+            let mut job = self.job(check_id, i, 0)?;
+            if let Some(p) = &paragraph {
+                job.paragraph = p.clone();
+            }
+            let chars: Vec<char> = job.paragraph.chars().collect();
+            paragraph = Some(chars[..job.start].iter().collect::<String>() + &job.replacement + &chars[job.end..].iter().collect::<String>());
+            floor = item.start;
+            jobs.push(job);
+        }
+        if jobs.is_empty() {
+            return Err(Outcome::Changed);
+        }
+        Ok(jobs)
+    }
+
     /// The replacement to copy, for a Copy button (§7.7).
     pub fn copy_text(&self, check_id: u64, index: usize, choice: usize) -> Result<String, Outcome> {
         if check_id != self.shown.check_id {
@@ -720,6 +756,50 @@ mod tests {
         let job = s.job(got.check_id, 0, 0).unwrap();
         assert_eq!((job.paragraph.as_str(), job.start, job.end, job.replacement.as_str()), ("We recieved the payment.", 3, 11, "received"));
         assert_eq!(job.field_start, 8);
+    }
+
+    /// A field with three problems in its paragraph, checked in an Apply field.
+    fn checked_three() -> (Session, Suggestions) {
+        const THREE: &str = "Hi Sam,
+We recieved the payment tomorow, posible.
+Best regards,
+Anthony";
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(THREE), Some(12), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(THREE), Some(12), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        (s, got)
+    }
+
+    #[test]
+    fn apply_all_goes_from_the_end_backward_and_chains_the_paragraph() {
+        let (s, got) = checked_three();
+        let problems: Vec<&str> = got.items.iter().map(|i| i.problem.as_str()).collect();
+        assert_eq!(problems, ["recieved", "tomorow", "posible"]);
+        let jobs = s.jobs_all(got.check_id).unwrap();
+        let did: Vec<(usize, String)> = jobs.iter().map(|j| (j.start, j.replacement.clone())).collect();
+        // Last problem first; each start is before the one before it.
+        assert!(did.windows(2).all(|w| w[0].0 > w[1].0), "{did:?}");
+        assert_eq!(jobs.len(), 3);
+        // Each job sees the paragraph the later fixes left: re-verified word for word.
+        assert_eq!(jobs[0].paragraph, "We recieved the payment tomorow, posible.");
+        let after_first = format!("We recieved the payment tomorow, {}.", jobs[0].replacement);
+        assert_eq!(jobs[1].paragraph, after_first);
+        assert!(jobs[2].paragraph.contains(&jobs[1].replacement) && jobs[2].paragraph.starts_with("We recieved"));
+        // The words are the checker's first choice for each row.
+        for j in &jobs {
+            let item = got.items.iter().find(|i| i.start - 8 == j.start).unwrap();
+            assert_eq!(j.replacement, item.replacements[0]);
+        }
+    }
+
+    #[test]
+    fn apply_all_refuses_a_stale_list_and_works_only_in_apply_fields() {
+        let (s, got) = checked_three();
+        assert_eq!(s.jobs_all(got.check_id + 1).unwrap_err(), Outcome::Changed);
+        let (mut s, got, t) = checked();
+        feed(&mut s, false, None, None, FixMode::View, false, t + Duration::from_millis(300));
+        assert_eq!(s.jobs_all(got.check_id).unwrap_err(), Outcome::Away);
     }
 
     #[test]

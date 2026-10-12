@@ -189,6 +189,20 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
     Outcome::Applied
 }
 
+/// "Apply all": the jobs in order (Session::jobs_all: from the end of the
+/// paragraph backward), each through every step of `run`, stopping at the
+/// first that doesn't apply. Returns how many applied, and the outcome that
+/// stopped it (Applied when all did).
+pub fn run_all<F: Field>(f: &mut F, jobs: &[Job]) -> (usize, Outcome) {
+    for (done, job) in jobs.iter().enumerate() {
+        let outcome = run(f, job);
+        if outcome != Outcome::Applied {
+            return (done, outcome);
+        }
+    }
+    (jobs.len(), Outcome::Applied)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,5 +501,49 @@ mod tests {
         assert_eq!(run(&mut f, &j), Outcome::Applied);
         assert_eq!(f.typed, [""]);
         assert_eq!(f.text(), "We will the deposit it.");
+    }
+
+    const THREE: &str = "Hi Sam,
+We recieved the payment tomorow, posible.
+Best regards,
+Anthony";
+
+    /// The three jobs Session::jobs_all makes for THREE: back to front, each
+    /// on the paragraph the later fixes left.
+    fn three_jobs() -> Vec<Job> {
+        vec![
+            job("We recieved the payment tomorow, posible.", "posible", "possible", 8),
+            job("We recieved the payment tomorow, possible.", "tomorow", "tomorrow", 8),
+            job("We recieved the payment tomorrow, possible.", "recieved", "received", 8),
+        ]
+    }
+
+    #[test]
+    fn apply_all_types_every_fix_back_to_front_and_verifies_each() {
+        let mut f = Fake::new(THREE, "We");
+        let (done, outcome) = run_all(&mut f, &three_jobs());
+        assert_eq!((done, outcome), (3, Outcome::Applied));
+        assert_eq!(f.text(), "Hi Sam,
+We received the payment tomorrow, possible.
+Best regards,
+Anthony");
+        assert_eq!(f.typed, ["possible", "tomorrow", "received"]);
+    }
+
+    #[test]
+    fn apply_all_stops_at_the_first_fix_that_fails() {
+        // The user leaves the field after the first fix: two gates per fix pass, the third fails.
+        let mut f = Fake::new(THREE, "We");
+        f.gate = vec![Ok(()), Ok(()), Err(Outcome::Away)];
+        let (done, outcome) = run_all(&mut f, &three_jobs());
+        assert_eq!((done, outcome), (1, Outcome::Away));
+        assert_eq!(f.typed, ["possible"], "nothing after the failure");
+        // The text changed under it (an edit between fixes): the next is refused, not typed.
+        let mut f = Fake::new(THREE, "We");
+        let mut jobs = three_jobs();
+        jobs[1].paragraph = "We recieved the payment tomorow, possibly.".into();
+        let (done, outcome) = run_all(&mut f, &jobs);
+        assert_eq!((done, outcome), (1, Outcome::Changed));
+        assert_eq!(f.typed, ["possible"]);
     }
 }
