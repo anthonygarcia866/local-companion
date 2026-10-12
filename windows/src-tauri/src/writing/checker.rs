@@ -111,13 +111,14 @@ impl Checker {
                     .filter_map(|s| replacement(s, &problem))
                     .collect();
                 let kind = format!("{:?}", lint.lint_kind);
+                let message = message(&rule, &lint.message, &chars, end);
                 let entry = by_span.entry((start, end)).or_insert_with(|| {
-                    (lint.priority, Finding { start, end, kind: kind.clone(), message: lint.message.clone(), replacements: Vec::new() })
+                    (lint.priority, Finding { start, end, kind: kind.clone(), message: message.clone(), replacements: Vec::new() })
                 });
                 if lint.priority < entry.0 {
                     entry.0 = lint.priority;
                     entry.1.kind = kind;
-                    entry.1.message = lint.message.clone();
+                    entry.1.message = message;
                 }
                 for r in replacements {
                     if !entry.1.replacements.contains(&r) {
@@ -134,6 +135,24 @@ impl Checker {
             })
             .collect()
     }
+}
+
+/// Harper's message for a space before a sentence's final mark.
+const SPACE_AT_THE_END: &str = "Unnecessary space at the end of the sentence";
+
+/// The message to show for a lint. Harper's Spaces rule calls the space in
+/// "word ?" an "Unnecessary space at the end of the sentence." (2.11.0): it
+/// is the space before the mark, so say which mark.
+fn message(rule: &str, harper: &str, chars: &[char], end: usize) -> String {
+    if rule == "Spaces" && harper.starts_with(SPACE_AT_THE_END) {
+        match chars[end..].iter().find(|c| !c.is_whitespace()) {
+            Some('?') => return "Space before the question mark.".into(),
+            Some('!') => return "Space before the exclamation mark.".into(),
+            Some('.') => return "Space before the period.".into(),
+            _ => {}
+        }
+    }
+    harper.to_string()
 }
 
 /// The replacement text for one of Harper's edits, or None for one that only
@@ -318,9 +337,26 @@ mod tests {
         assert!(problems("Recieved your note.").iter().any(|p| p == "Recieved"));
     }
 
+    /// The owner, 2026-10-11: "word ?" said "space at the end of the
+    /// sentence"; it is the space before the question mark.
+    #[test]
+    fn a_space_before_the_mark_is_named_as_such() {
+        let said = |text: &str| check(text).into_iter().map(|f| (f.message, f.replacements)).collect::<Vec<_>>();
+        let only = |m: &str| vec![(m.to_string(), vec![String::new()])];
+        assert_eq!(said("Can you send it ?"), only("Space before the question mark."));
+        assert_eq!(said("Is it done ? Thanks."), only("Space before the question mark."));
+        assert_eq!(said("Really !"), only("Space before the exclamation mark."));
+        assert_eq!(said("Done ."), only("Space before the period."));
+        // Anything else is Harper's own message.
+        assert_eq!(message("Spaces", "Unnecessary space at the end of the sentence.", &['a', ' '], 2), "Unnecessary space at the end of the sentence.");
+        assert_eq!(message("Other", "Unnecessary space at the end of the sentence.", &[' ', '?'], 1), "Unnecessary space at the end of the sentence.");
+        assert_eq!(said("Wait , no."), only("Don't use a space before a comma."));
+    }
+
     #[test]
     fn formatting_a_finding_never_shows_its_words() {
         let f = Finding { start: 1, end: 2, kind: "Spelling".into(), message: "SENTINEL-msg".into(), replacements: vec!["SENTINEL-rep".into()] };
         assert!(!format!("{f:?}").contains("SENTINEL"));
     }
 }
+
