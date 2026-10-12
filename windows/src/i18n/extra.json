@@ -2878,6 +2878,17 @@
    "pt-BR": "Não pode trabalhar até o limite reiniciar.",
    "ru": "Не может работать, пока лимит не сбросится.",
    "id": "Tidak bisa bekerja sampai batasnya direset."
+  },
+  "Deny the waiting permission": {
+   "zh-Hans": "拒绝等待中的权限请求",
+   "hi": "प्रतीक्षारत अनुमति अस्वीकार करें",
+   "es": "Denegar el permiso pendiente",
+   "ar": "رفض الإذن المنتظر",
+   "fr": "Refuser l'autorisation en attente",
+   "bn": "অপেক্ষমাণ অনুমতি প্রত্যাখ্যান করুন",
+   "pt-BR": "Negar a permissão pendente",
+   "ru": "Отклонить ожидающий запрос разрешения",
+   "id": "Tolak izin yang menunggu"
   }
  }
 }

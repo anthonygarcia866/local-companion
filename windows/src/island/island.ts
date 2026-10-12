@@ -494,6 +494,15 @@ export class Island {
 
   /** The island takes the keyboard, so its own shortcuts work (Mac: makeKey).
    *  It gives it back when it closes, or when the chat is left. */
+  /** The global Deny key (shortcuts.ts): what the card's Deny button does. */
+  denyApproval() {
+    const req = State.pendingApproval;
+    if (!req || req.questions) return;
+    void Bridge.log(`decide deny (key) req=${req.requestId}`);
+    void Bridge.approvalDecision(req.requestId, "deny");
+    this.closeApproval();
+  }
+
   takeKeyboard() {
     void Bridge.focusWindow(true);
   }

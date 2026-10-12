@@ -22,6 +22,8 @@ export interface ShortcutHost {
   setPinned(on: boolean): void;
   /** Gives the island the keyboard, so the in-island keys work (Mac: makeKey). */
   takeKeyboard(): void;
+  /** Answers the waiting permission card with Deny, as its button does. */
+  denyApproval(): void;
 }
 
 function focusPill(host: ShortcutHost, id: string | null, open: boolean) {
@@ -92,6 +94,15 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
         true,
       );
       break;
+
+    // Deny only: a permission card is never allowed from a key (Allow is a
+    // click on the card). A question card has no Deny; nothing waiting, nothing to do.
+    case "denyApproval": {
+      const pending = State.pendingApproval;
+      if (pending && !pending.questions) host.denyApproval();
+      else host.emote("annoyed");
+      break;
+    }
 
     // muteToggle, wardrobeToggle, attachFrontWindow and desktopToggle aren't
     // in this version: Rust never registers them.

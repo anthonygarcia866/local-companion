@@ -438,9 +438,12 @@ function buildApproval(actions: ViewActions): ViewHost {
       if (rowKey === "built") return;
       rowKey = "built";
       clear(row);
+      // No key hints: Glim never takes the keyboard, so a bare Y or N would go
+      // to the app in front. Deny has a global key (Ctrl+Alt+Shift+N by
+      // default, Settings → Shortcuts); Allow is a click, always.
       row.append(
-        btn(tl("Deny"), "secondary", guarded("deny"), "N"),
-        btn(tl("Allow"), "primary", guarded("allow"), "Y"),
+        btn(tl("Deny"), "secondary", guarded("deny")),
+        btn(tl("Allow"), "primary", guarded("allow")),
       );
     },
   };
