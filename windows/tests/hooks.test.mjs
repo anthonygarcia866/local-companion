@@ -186,6 +186,31 @@ test("a failed stop shows the error view, or the error badge behind another pill
   assert.equal(task().pillBadge, "error");
 });
 
+test("a usage or spend limit is its own state, with the reset time, not an error", () => {
+  hook({
+    hook_event_name: "StopFailure", error: "rate_limit",
+    last_assistant_message: "You've hit your limit · resets 2pm (Mars/Olympus)",
+  });
+  assert.equal(task().state, "ratelimit");
+  assert.deepEqual(task().limit, { kind: "usage", resets: "2 PM (Mars/Olympus)", resetsAt: null });
+  assert.deepEqual(asked, ["alert:error"]);
+  assert.equal(task().pillBadge ?? null, null);
+  hook({ hook_event_name: "StopFailure", error: "billing_error", error_details: "usage limit reached — check plan" });
+  assert.equal(task().state, "ratelimit");
+  assert.equal(task().limit.kind, "spend");
+  assert.equal(task().limit.resets, null);
+  // Any other failure is still an error.
+  hook({ hook_event_name: "StopFailure", error: "server_error" });
+  assert.equal(task().state, "error");
+});
+
+test("a limit notification keeps its reset time too", () => {
+  hook({ hook_event_name: "Notification", message: "Claude usage limit reached. Your limit will reset at 5pm." });
+  assert.equal(task().state, "ratelimit");
+  assert.equal(task().limit.kind, "usage");
+  assert.equal(task().limit.resets, "5 PM");
+});
+
 test("the end of a session puts the pill back as it was", () => {
   hook({ hook_event_name: "PreToolUse", cwd: "/p/proj", tool_name: "Bash", tool_input: { command: "ls" } });
   hook({ hook_event_name: "SessionEnd", cwd: "/p/proj" });

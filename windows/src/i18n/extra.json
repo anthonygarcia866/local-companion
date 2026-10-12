@@ -2812,6 +2812,72 @@
    "pt-BR": "Dispensar sugestões",
    "ru": "Скрыть подсказки",
    "id": "Tutup saran"
+  },
+  "Usage limit": {
+   "zh-Hans": "用量已达上限",
+   "hi": "उपयोग सीमा",
+   "es": "Límite de uso",
+   "ar": "حدّ الاستخدام",
+   "fr": "Limite d'utilisation",
+   "bn": "ব্যবহারের সীমা",
+   "pt-BR": "Limite de uso",
+   "ru": "Лимит использования",
+   "id": "Batas penggunaan"
+  },
+  "Spend limit": {
+   "zh-Hans": "消费已达上限",
+   "hi": "खर्च सीमा",
+   "es": "Límite de gasto",
+   "ar": "حدّ الإنفاق",
+   "fr": "Limite de dépenses",
+   "bn": "খরচের সীমা",
+   "pt-BR": "Limite de gastos",
+   "ru": "Лимит расходов",
+   "id": "Batas pengeluaran"
+  },
+  "Usage limit, resets {time}": {
+   "zh-Hans": "用量已达上限，{time} 重置",
+   "hi": "उपयोग सीमा, {time} पर रीसेट",
+   "es": "Límite de uso, se restablece a las {time}",
+   "ar": "حدّ الاستخدام، يُعاد ضبطه {time}",
+   "fr": "Limite d'utilisation, réinitialisée à {time}",
+   "bn": "ব্যবহারের সীমা, {time}-এ রিসেট হবে",
+   "pt-BR": "Limite de uso, reinicia às {time}",
+   "ru": "Лимит использования, сброс в {time}",
+   "id": "Batas penggunaan, direset {time}"
+  },
+  "Spend limit, resets {time}": {
+   "zh-Hans": "消费已达上限，{time} 重置",
+   "hi": "खर्च सीमा, {time} पर रीसेट",
+   "es": "Límite de gasto, se restablece a las {time}",
+   "ar": "حدّ الإنفاق، يُعاد ضبطه {time}",
+   "fr": "Limite de dépenses, réinitialisée à {time}",
+   "bn": "খরচের সীমা, {time}-এ রিসেট হবে",
+   "pt-BR": "Limite de gastos, reinicia às {time}",
+   "ru": "Лимит расходов, сброс в {time}",
+   "id": "Batas pengeluaran, direset {time}"
+  },
+  "The limit has reset. Continue in the terminal.": {
+   "zh-Hans": "限额已重置。请在终端中继续。",
+   "hi": "सीमा रीसेट हो गई है। टर्मिनल में जारी रखें।",
+   "es": "El límite se ha restablecido. Continúa en la terminal.",
+   "ar": "أُعيد ضبط الحدّ. تابع في الطرفية.",
+   "fr": "La limite est réinitialisée. Continuez dans le terminal.",
+   "bn": "সীমা রিসেট হয়েছে। টার্মিনালে চালিয়ে যান।",
+   "pt-BR": "O limite foi reiniciado. Continue no terminal.",
+   "ru": "Лимит сброшен. Продолжите в терминале.",
+   "id": "Batas sudah direset. Lanjutkan di terminal."
+  },
+  "It can't work until the limit resets.": {
+   "zh-Hans": "在限额重置之前无法继续工作。",
+   "hi": "सीमा रीसेट होने तक यह काम नहीं कर सकता।",
+   "es": "No puede trabajar hasta que se restablezca el límite.",
+   "ar": "لا يمكنه العمل حتى يُعاد ضبط الحدّ.",
+   "fr": "Il ne peut pas travailler avant la réinitialisation de la limite.",
+   "bn": "সীমা রিসেট না হওয়া পর্যন্ত এটি কাজ করতে পারবে না।",
+   "pt-BR": "Não pode trabalhar até o limite reiniciar.",
+   "ru": "Не может работать, пока лимит не сбросится.",
+   "id": "Tidak bisa bekerja sampai batasnya direset."
   }
  }
 }

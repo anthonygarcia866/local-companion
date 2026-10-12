@@ -6,6 +6,7 @@ import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
 import { State, type AgentTask, type WritingFix, type WritingSuggestion } from "../core/state";
+import { limitHasReset, type AgentLimit } from "../core/limit";
 import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
@@ -557,20 +558,55 @@ export function errorOpenLabel(task: AgentTask | null): string | null {
   return task.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
 }
 
+/**
+ * The card's title for an agent stopped by a usage or spend limit: when it
+ * resets if Claude Code said so ("Usage limit, resets 2 PM"), and that it has
+ * reset once the time has passed.
+ */
+export function limitTitle(limit: AgentLimit, now: number): string {
+  if (limitHasReset(limit, now)) return t("The limit has reset. Continue in the terminal.");
+  const usage = limit.kind === "usage";
+  if (limit.resets) {
+    return usage
+      ? t("Usage limit, resets {time}", { time: limit.resets })
+      : t("Spend limit, resets {time}", { time: limit.resets });
+  }
+  return usage ? t("Usage limit") : t("Spend limit");
+}
+
 export function buildError(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title" });
   const detail = h("div", { class: "detail" });
+  const retry = btn(tl("Retry"), "primary", () => actions.setView(State.defaultView()));
   const open = btn(tl("Open terminal"), "secondary", () => actions.openTerminal());
-  const row = h("div", { class: "actions" },
-    btn(tl("Retry"), "primary", () => actions.setView(State.defaultView())),
-    open,
-  );
-  const el = h("div", { class: "view" }, card("red", stack(116, 16, who, title, detail, row)));
+  // A limit is not an error: no Retry (nothing can run before the reset), and
+  // OK to put the card away.
+  const ok = btn(tl("OK"), "secondary", () => actions.collapse());
+  const row = h("div", { class: "actions" }, retry, open, ok);
+  const box = card("red", stack(116, 16, who, title, detail, row));
+  const el = h("div", { class: "view" }, box);
   return {
     el,
     sync() {
       const task = State.focusTask;
+      const limit = task?.state === "ratelimit" ? task.limit ?? null : null;
+      box.style.setProperty("--wash", washRGBA(limit ? "amber" : "red"));
+      retry.style.display = limit ? "none" : "";
+      ok.style.display = limit ? "" : "none";
+      if (limit) {
+        clear(who);
+        who.append(agentWho(task, task?.source === "agent" ? t("Agent") : "Claude Code"));
+        title.textContent = limitTitle(limit, Date.now());
+        detail.textContent = t("It can't work until the limit resets.");
+        open.className = "btn primary";
+        const span = open.children[0] as HTMLElement;
+        const label = errorOpenLabel(task) ?? t("Open terminal");
+        if (span.textContent !== label) span.textContent = label;
+        open.style.display = errorOpenLabel(task) ? "" : "none";
+        return;
+      }
+      open.className = "btn secondary";
       clear(who);
       // agentWho already shows an agent's name: its label is just the kind.
       const whoLabel = task?.source === "n8n" ? "n8n" : task?.source === "agent" ? t("Agent") : "Claude Code";

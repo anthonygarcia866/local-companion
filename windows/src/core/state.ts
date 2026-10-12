@@ -11,6 +11,7 @@ import type { ProviderId } from "./providers";
 import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
+import type { AgentLimit } from "./limit";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -37,6 +38,8 @@ export interface AgentTask {
   sessionId?: string | null;
   /** Claude's final message after Stop, one line; cleared when a new turn starts. */
   finalLine?: string | null;
+  /** The usage or spend limit that stopped it; read only while `state` is "ratelimit". */
+  limit?: AgentLimit | null;
 }
 
 export interface ApprovalInfo {

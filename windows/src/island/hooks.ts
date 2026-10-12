@@ -12,6 +12,7 @@ import { pillDefinition } from "../core/pills";
 import { APPROVAL_AGENTS, agentColor, agentName, validateAgent } from "./agents";
 import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
+import { isLimitNotice, limitKind, parseLimit, type AgentLimit } from "../core/limit";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
 
@@ -66,6 +67,10 @@ interface HookPayload {
   platform?: string;
   /** "cursor" when Claude Code runs in Cursor's terminal (set by the relay). */
   term_editor?: string;
+  /** StopFailure: why the turn stopped ("rate_limit", "billing_error", "server_error"…). */
+  error?: string;
+  /** StopFailure: more about the error, as Claude Code wrote it. */
+  error_details?: string;
   /** StatusLine (the plan usage relay): Claude Code's 5-hour and weekly limits. */
   rate_limits?: unknown;
 }
@@ -200,6 +205,13 @@ function clearSession(id: string) {
   t.pillBadge = null;
   t.sessionId = null;
   t.finalLine = null;
+  t.limit = null;
+}
+
+/** The limit that stopped a pill's agent, for its card (state "ratelimit"). */
+function setLimit(id: string, limit: AgentLimit) {
+  const t = State.tasks.find((x) => x.id === id);
+  if (t) t.limit = limit;
 }
 
 /** The final message stays on the card until the next turn starts. */
@@ -370,9 +382,9 @@ function handleHook(island: Island, payload: HookPayload) {
 
     case "Notification": {
       const message = payload.message ?? "";
-      const lower = message.toLowerCase();
-      if (lower.includes("rate limit") || lower.includes("limite d")) {
+      if (isLimitNotice(message)) {
         supersedeStop();
+        setLimit(agentId, parseLimit("usage", [message], Date.now()));
         State.updateTask(agentId, "ratelimit");
       } else if (message.endsWith("?")) {
         supersedeStop();
@@ -420,12 +432,22 @@ function handleHook(island: Island, payload: HookPayload) {
       State.setPillBadge(agentId, null);
       break;
 
-    case "StopFailure":
+    case "StopFailure": {
       supersedeStop();
+      // A usage or spend limit is its own state, not an error: the amber card
+      // says when it resets, and offers no Retry before then.
+      const kind = limitKind(payload.error);
+      if (kind) {
+        setLimit(agentId, parseLimit(kind, [payload.last_assistant_message, payload.error_details, payload.message], Date.now()));
+        State.updateTask(agentId, "ratelimit");
+        if (focused && !State.pendingApproval) surface("error", true);
+        break;
+      }
       State.updateTask(agentId, "error");
       if (focused && !State.pendingApproval) surface("error", true);
       else State.setPillBadge(agentId, "error");
       break;
+    }
 
     case "SessionEnd":
       // Nothing left for the timer to do, and it must not outlive the session: a

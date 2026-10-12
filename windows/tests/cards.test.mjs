@@ -22,7 +22,7 @@ function errorCard(t) {
   State.setFocus(t.id);
   const view = buildError(actions);
   view.sync();
-  const buttons = view.el.find("button");
+  const buttons = view.el.find("button").filter((b) => b.style.display !== "none");
   return { view, calls, buttons, label: (b) => b.children[0].textContent };
 }
 
@@ -40,8 +40,8 @@ test("a Claude desktop session's error card opens Claude; other agents get Open 
 
 test("a local chat pill's error card has no open button (nothing to open)", () => {
   assert.equal(errorOpenLabel(task("local_ollama", "n8n")), null);
-  const { buttons } = errorCard(task("local_ollama", "n8n"));
-  assert.equal(buttons[1].style.display, "none");
+  const { buttons, label } = errorCard(task("local_ollama", "n8n"));
+  assert.deepEqual(buttons.map(label), ["Retry"]);
 });
 
 test("no card offers Open in n8n any more", () => {
