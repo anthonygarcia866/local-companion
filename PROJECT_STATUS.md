@@ -121,6 +121,13 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
   - **No one-key pause yet**, and the pause list is built in: both belong to Phase 1d's settings.
   - A dropped reading shows as "skipped (sensitive)", the same as a field skipped by its labels (kept as is, owner 2026-10-10). Neither the panel nor the results log can tell which, but they do show that a field was skipped.
 
+- **Claude Code hook installer only writes `~/.claude` (owner, 2026-10-12; not fixed).** `hooks.rs` hard-codes `home_dir()/.claude/settings.json`, so a Claude Code started with `CLAUDE_CONFIG_DIR` pointing elsewhere (the owner runs both `.claude` and `.claude2`) never reaches Glim: approvals in those sessions go to the terminal. On 2026-10-12 the owner copied Glim's hooks into `.claude2\settings.json` by hand (a backup exists) so PR #15's live tests could run. To do:
+  - Follow `CLAUDE_CONFIG_DIR` and install into **every** Claude config folder found (at least `~/.claude` and any `~/.claude*` folder holding a `settings.json`, plus the folder `CLAUDE_CONFIG_DIR` names), each through the same atomic, backed-up `config_file` write as today.
+  - Keep them in sync: a reinstall or an update of the hook command updates every folder; a folder that appears later is picked up.
+  - Show the connected folders in Settings (path, hooks present or not).
+  - Uninstall removes Glim's hooks from all of them, and nothing else.
+  - Tests with temp folders for each case; the owner's hand-copied `.claude2` hooks must be recognised as Glim's (no duplicates).
+
 - **Lantern-check CI flake (known issue, to fix later).** `npm run check:lantern` in `windows-ci.yml` fails now and then on GitHub's GPU-less runners: the aura's SVG blur (`feGaussianBlur`) isn't bit-stable, so a frame differs from the design by 1,307 pixels up to 32/255 on the same markup. The check re-renders a differing frame up to twice, which catches most of it, but on 2026-10-11 (PR #9's last run) one frame (`record/false/300/pop-record`) kept differing through both re-renders and failed the job; re-running the job passed. Workaround: `gh run rerun <id> --failed`. To fix later: compare the blurred aura with a tolerance (or mask it) while keeping exact comparison for everything else, and keep the mutation tests (a changed colour must still fail).
 
 - **Post-1b fixes (reported by the owner 2026-10-11; branch `post-1b-fixes`, one commit per item):**
