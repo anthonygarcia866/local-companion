@@ -55,12 +55,34 @@ struct Found<R> {
     at: usize,
 }
 
-/// Character indices of every occurrence of `needle` in `hay`.
+/// Curly quotes read as straight ones. Outlook and Word turn a typed ' or "
+/// into ’ or “” as it lands (AutoFormat as you type; live 2026-10-12, Apply
+/// all stopped after typing "possible's"), and a quote typed earlier may
+/// already be curly. One character for one, so offsets don't move.
+fn plain_quote(c: char) -> char {
+    match c {
+        '\u{2018}' | '\u{2019}' => '\'',
+        '\u{201C}' | '\u{201D}' => '"',
+        c => c,
+    }
+}
+
+fn plain_quotes(s: &str) -> String {
+    s.chars().map(plain_quote).collect()
+}
+
+/// The same text, but for the kind of quote marks.
+fn same(a: &str, b: &str) -> bool {
+    a.chars().map(plain_quote).eq(b.chars().map(plain_quote))
+}
+
+/// Character indices of every occurrence of `needle` in `hay` (quotes either way).
 fn occurrences(hay: &str, needle: &str) -> Vec<usize> {
     if needle.is_empty() {
         return Vec::new();
     }
-    hay.match_indices(needle).map(|(byte, _)| hay[..byte].chars().count()).collect()
+    let (hay, needle) = (plain_quotes(hay), plain_quotes(needle));
+    hay.match_indices(&needle).map(|(byte, _)| hay[..byte].chars().count()).collect()
 }
 
 /// Finds `paragraph` by its content: in the caret's paragraph if it is there
@@ -83,10 +105,10 @@ fn locate<F: Field>(f: &mut F, paragraph: &str, field_start: usize) -> Option<Fo
 }
 
 /// `len` characters at `from` in the found range, read back: Some only if the
-/// app's range holds exactly `expect`.
+/// app's range holds exactly `expect` (but for the kind of quote marks).
 fn checked_sub<F: Field>(f: &mut F, found: &Found<F::Range>, from: usize, len: usize, expect: &str) -> Option<F::Range> {
     let r = f.sub(&found.scope, found.at + from, len)?;
-    (f.text(&r).as_deref() == Some(expect)).then_some(r)
+    f.text(&r).is_some_and(|t| same(&t, expect)).then_some(r)
 }
 
 /// Where the caret goes after the span `start..end` became `new_len`
@@ -146,7 +168,7 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
             place_caret(f, &found, &job.paragraph, c);
         }
     };
-    if !f.select(&target) || f.selection().as_deref() != Some(problem.as_str()) {
+    if !f.select(&target) || !f.selection().is_some_and(|t| same(&t, &problem)) {
         undo_select(f);
         return Outcome::Unsupported;
     }
@@ -492,6 +514,26 @@ mod tests {
         f.lands = Some("RECEIVED!!".into());
         assert_eq!(run(&mut f, &fix()), Outcome::NotClean);
         assert_eq!(f.typed, ["received"], "typed once, never again, no undo sent");
+    }
+
+    /// Found live in Outlook (2026-10-12): AutoFormat turned the typed
+    /// "possible's" into "possible’s", the read-back failed, and Apply all
+    /// stopped. A quote the app curls is still the fix that was asked for.
+    #[test]
+    fn a_quote_the_app_curls_as_it_lands_still_reads_back() {
+        let p = "We rreceive the payment tomorrow, possibleeee";
+        let mut f = Fake::new(p, "possibleeee");
+        f.lands = Some("possible\u{2019}s".into());
+        assert_eq!(run(&mut f, &job(p, "possibleeee", "possible's", 0)), Outcome::Applied);
+        // Apply all's next job expects "possible's" in the paragraph, and finds it.
+        f.lands = None;
+        let j = job("We rreceive the payment tomorrow, possible's", "rreceive", "receive", 0);
+        assert_eq!(run(&mut f, &j), Outcome::Applied);
+        assert_eq!(f.text(), "We receive the payment tomorrow, possible\u{2019}s");
+        // A different word is still not clean.
+        let mut f = Fake::new(DOC, "payment");
+        f.lands = Some("recei\u{2019}ed".into());
+        assert_eq!(run(&mut f, &fix()), Outcome::NotClean);
     }
 
     #[test]

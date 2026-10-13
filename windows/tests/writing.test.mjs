@@ -242,10 +242,15 @@ test("Apply all shows only where fixes are typed, for two or more, and is off aw
 test("after Apply all the note says how many went in, that Ctrl+Z undoes one per press, and why it stopped", () => {
   const fix = { checkId: 1, mode: "apply", app: "Word" };
   assert.equal(suggestionNote(fix, { outcome: "applied", app: "Outlook", done: 3, total: 3 }, false), "Fixed 3 of 3. Ctrl+Z in Outlook undoes one fix per press.");
-  assert.equal(suggestionNote(fix, { outcome: "away", app: "Outlook", done: 2, total: 3 }, false), "Fixed 2 of 3. Ctrl+Z in Outlook undoes one fix per press. Click in the field first.");
-  assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Word", done: 1, total: 3 }, false), "Fixed 1 of 3. Ctrl+Z in Word undoes one fix per press. That didn't apply cleanly. Press Ctrl+Z in Word to undo it.");
-  // Nothing went in: just why.
-  assert.equal(suggestionNote(fix, { outcome: "changed", app: "Word", done: 0, total: 3 }, false), "The text changed, so nothing was fixed. Checked again.");
+  assert.equal(suggestionNote(fix, { outcome: "away", app: "Outlook", done: 2, total: 3 }, false), "Fixed 2 of 3. Ctrl+Z in Outlook undoes one fix per press. It stopped because the cursor left the field.");
+  assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Word", done: 1, total: 3 }, false), "Fixed 1 of 3. Ctrl+Z in Word undoes one fix per press. It stopped because Word changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.");
+  // Nothing went in: the count, and why (live in Outlook, 2026-10-12: the note gave no reason).
+  assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Outlook", done: 0, total: 2 }, false), "Fixed 0 of 2. It stopped because Outlook changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.");
+  assert.equal(suggestionNote(fix, { outcome: "changed", app: "Word", done: 0, total: 3 }, false), "Fixed 0 of 3. It stopped because the text changed after the check. Checked again.");
+  // Every way it can stop has its own reason.
+  for (const outcome of ["changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean"]) {
+    assert.match(suggestionNote(fix, { outcome, app: "Word", done: 1, total: 2 }, false), /It stopped because /, outcome);
+  }
   // A single fix's answer has no counts.
   assert.equal(suggestionNote(fix, { outcome: "applied", app: "Word", done: 0, total: 0 }, false), "Fixed. Ctrl+Z in Word undoes it.");
   // Rust sends the counts (writing::FixResult).

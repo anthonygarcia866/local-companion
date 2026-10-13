@@ -2933,6 +2933,105 @@
    "pt-BR": "Mais {count} aguardando",
    "ru": "Ещё в очереди: {count}",
    "id": "{count} lagi menunggu"
+  },
+  "Fixed {done} of {total}.": {
+   "zh-Hans": "已修正 {total} 处中的 {done} 处。",
+   "hi": "{total} में से {done} ठीक किए गए।",
+   "es": "Corregidos {done} de {total}.",
+   "ar": "تم إصلاح {done} من {total}.",
+   "fr": "{done} sur {total} corrigé(s).",
+   "bn": "{total}টির মধ্যে {done}টি ঠিক করা হয়েছে।",
+   "pt-BR": "{done} de {total} corrigidos.",
+   "ru": "Исправлено {done} из {total}.",
+   "id": "{done} dari {total} diperbaiki."
+  },
+  "It stopped because the text changed after the check. Checked again.": {
+   "zh-Hans": "已停止：检查后文本发生了变化。已重新检查。",
+   "hi": "यह रुक गया क्योंकि जाँच के बाद टेक्स्ट बदल गया। फिर से जाँचा गया।",
+   "es": "Se detuvo porque el texto cambió después de la revisión. Se revisó de nuevo.",
+   "ar": "توقف لأن النص تغيّر بعد الفحص. تم الفحص من جديد.",
+   "fr": "Arrêté car le texte a changé après la vérification. Vérifié à nouveau.",
+   "bn": "থেমে গেছে কারণ পরীক্ষার পরে লেখা বদলে গেছে। আবার পরীক্ষা করা হয়েছে।",
+   "pt-BR": "Parou porque o texto mudou depois da verificação. Verificado de novo.",
+   "ru": "Остановлено: после проверки текст изменился. Проверено заново.",
+   "id": "Berhenti karena teks berubah setelah diperiksa. Sudah diperiksa ulang."
+  },
+  "It stopped because the cursor left the field.": {
+   "zh-Hans": "已停止：光标离开了输入框。",
+   "hi": "यह रुक गया क्योंकि कर्सर फ़ील्ड से बाहर चला गया।",
+   "es": "Se detuvo porque el cursor salió del campo.",
+   "ar": "توقف لأن المؤشر غادر الحقل.",
+   "fr": "Arrêté car le curseur a quitté le champ.",
+   "bn": "থেমে গেছে কারণ কার্সর ফিল্ড থেকে সরে গেছে।",
+   "pt-BR": "Parou porque o cursor saiu do campo.",
+   "ru": "Остановлено: курсор покинул поле.",
+   "id": "Berhenti karena kursor keluar dari kolom."
+  },
+  "It stopped because Glim was paused.": {
+   "zh-Hans": "已停止：Glim 已暂停。",
+   "hi": "यह रुक गया क्योंकि Glim रोका गया था।",
+   "es": "Se detuvo porque Glim estaba en pausa.",
+   "ar": "توقف لأن Glim كان متوقفًا مؤقتًا.",
+   "fr": "Arrêté car Glim était en pause.",
+   "bn": "থেমে গেছে কারণ Glim বিরতিতে ছিল।",
+   "pt-BR": "Parou porque o Glim estava pausado.",
+   "ru": "Остановлено: Glim на паузе.",
+   "id": "Berhenti karena Glim sedang dijeda."
+  },
+  "It stopped because that field is protected.": {
+   "zh-Hans": "已停止：该输入框受保护。",
+   "hi": "यह रुक गया क्योंकि वह फ़ील्ड सुरक्षित है।",
+   "es": "Se detuvo porque ese campo está protegido.",
+   "ar": "توقف لأن هذا الحقل محمي.",
+   "fr": "Arrêté car ce champ est protégé.",
+   "bn": "থেমে গেছে কারণ ফিল্ডটি সুরক্ষিত।",
+   "pt-BR": "Parou porque esse campo é protegido.",
+   "ru": "Остановлено: это поле защищено.",
+   "id": "Berhenti karena kolom itu dilindungi."
+  },
+  "It stopped because {app} runs as administrator, and Glim can't type there.": {
+   "zh-Hans": "已停止：{app} 以管理员身份运行，Glim 无法在其中输入。",
+   "hi": "यह रुक गया क्योंकि {app} एडमिनिस्ट्रेटर के रूप में चल रहा है, और Glim वहाँ टाइप नहीं कर सकता।",
+   "es": "Se detuvo porque {app} se ejecuta como administrador y Glim no puede escribir ahí.",
+   "ar": "توقف لأن {app} يعمل كمسؤول، ولا يستطيع Glim الكتابة فيه.",
+   "fr": "Arrêté car {app} s'exécute en administrateur, et Glim ne peut pas y taper.",
+   "bn": "থেমে গেছে কারণ {app} অ্যাডমিনিস্ট্রেটর হিসেবে চলছে, আর Glim সেখানে টাইপ করতে পারে না।",
+   "pt-BR": "Parou porque o {app} está sendo executado como administrador, e o Glim não pode digitar nele.",
+   "ru": "Остановлено: {app} запущено от имени администратора, и Glim не может в нём печатать.",
+   "id": "Berhenti karena {app} berjalan sebagai administrator, dan Glim tidak bisa mengetik di sana."
+  },
+  "It stopped because a key was held down. Release it and try again.": {
+   "zh-Hans": "已停止：有按键被按住。松开后再试一次。",
+   "hi": "यह रुक गया क्योंकि कोई कुंजी दबी हुई थी। उसे छोड़कर फिर से कोशिश करें।",
+   "es": "Se detuvo porque había una tecla pulsada. Suéltala y vuelve a intentarlo.",
+   "ar": "توقف لأن مفتاحًا كان مضغوطًا. حرّره وحاول مرة أخرى.",
+   "fr": "Arrêté car une touche était enfoncée. Relâchez-la et réessayez.",
+   "bn": "থেমে গেছে কারণ একটি কী চেপে ধরা ছিল। ছেড়ে দিয়ে আবার চেষ্টা করুন।",
+   "pt-BR": "Parou porque uma tecla estava pressionada. Solte-a e tente de novo.",
+   "ru": "Остановлено: была зажата клавиша. Отпустите её и попробуйте снова.",
+   "id": "Berhenti karena ada tombol yang ditahan. Lepaskan lalu coba lagi."
+  },
+  "It stopped because {app} didn't take the next fix, so nothing more changed.": {
+   "zh-Hans": "已停止：{app} 没有接受下一处修正，因此没有其他更改。",
+   "hi": "यह रुक गया क्योंकि {app} ने अगला सुधार नहीं लिया, इसलिए और कुछ नहीं बदला।",
+   "es": "Se detuvo porque {app} no aceptó la siguiente corrección, así que no cambió nada más.",
+   "ar": "توقف لأن {app} لم يقبل الإصلاح التالي، فلم يتغير شيء آخر.",
+   "fr": "Arrêté car {app} n'a pas accepté la correction suivante : rien d'autre n'a changé.",
+   "bn": "থেমে গেছে কারণ {app} পরের সংশোধনটি নেয়নি, তাই আর কিছু বদলায়নি।",
+   "pt-BR": "Parou porque o {app} não aceitou a próxima correção, então nada mais mudou.",
+   "ru": "Остановлено: {app} не принял следующее исправление, больше ничего не изменилось.",
+   "id": "Berhenti karena {app} tidak menerima perbaikan berikutnya, jadi tidak ada lagi yang berubah."
+  },
+  "It stopped because {app} changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.": {
+   "zh-Hans": "已停止：{app} 在输入下一处修正时改动了它（它的自动更正，或文本扩展工具）。请检查该词：按 Ctrl+Z 可撤销。",
+   "hi": "यह रुक गया क्योंकि अगला सुधार टाइप होते समय {app} ने उसे बदल दिया (उसका ऑटोकरेक्ट, या कोई टेक्स्ट एक्सपैंडर)। उस शब्द को जाँचें: Ctrl+Z उसे पूर्ववत करता है।",
+   "es": "Se detuvo porque {app} cambió la siguiente corrección al escribirse (su autocorrección o un expansor de texto). Revisa esa palabra: Ctrl+Z la deshace.",
+   "ar": "توقف لأن {app} غيّر الإصلاح التالي أثناء كتابته (التصحيح التلقائي فيه، أو أداة توسيع نص). راجع تلك الكلمة: Ctrl+Z يتراجع عنها.",
+   "fr": "Arrêté car {app} a modifié la correction suivante pendant la frappe (sa correction automatique, ou un outil d'expansion de texte). Vérifiez ce mot : Ctrl+Z l'annule.",
+   "bn": "থেমে গেছে কারণ পরের সংশোধনটি টাইপ হওয়ার সময় {app} সেটি বদলে দিয়েছে (তার অটোকারেক্ট, বা কোনো টেক্সট এক্সপ্যান্ডার)। শব্দটি দেখে নিন: Ctrl+Z সেটি ফিরিয়ে দেয়।",
+   "pt-BR": "Parou porque o {app} alterou a próxima correção enquanto era digitada (a correção automática dele, ou um expansor de texto). Confira essa palavra: Ctrl+Z desfaz.",
+   "ru": "Остановлено: {app} изменил следующее исправление при вводе (своя автозамена или расширитель текста). Проверьте это слово: Ctrl+Z отменяет его.",
+   "id": "Berhenti karena {app} mengubah perbaikan berikutnya saat diketik (koreksi otomatisnya, atau text expander). Periksa kata itu: Ctrl+Z membatalkannya."
   }
  }
 }

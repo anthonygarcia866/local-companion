@@ -707,11 +707,29 @@ export function suggestionPage(total: number, page: number): { page: number; pag
 export function suggestionNote(fix: WritingFix, result: WritingResult | null, busy: boolean): string {
   if (busy) return t("Fixing…");
   const app = result?.app || fix.app;
-  if (result?.total && result.done) {
-    const fixed = t("Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.", { done: result.done, total: result.total, app });
-    return result.outcome === "applied" ? fixed : `${fixed} ${outcomeNote(result.outcome, app)}`;
+  if (result?.total) {
+    const counts = { done: result.done ?? 0, total: result.total, app };
+    const fixed = counts.done > 0
+      ? t("Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.", counts)
+      : t("Fixed {done} of {total}.", counts);
+    return result.outcome === "applied" ? fixed : `${fixed} ${stopNote(result.outcome, app)}`;
   }
   return outcomeNote(result?.outcome, app) ?? modeNote(fix);
+}
+
+/** Why Apply all stopped, in plain words (owner, 2026-10-12). */
+function stopNote(outcome: string, app: string): string {
+  switch (outcome) {
+    case "changed": return t("It stopped because the text changed after the check. Checked again.");
+    case "away": return t("It stopped because the cursor left the field.");
+    case "paused": return t("It stopped because Glim was paused.");
+    case "blocked": return t("It stopped because that field is protected.");
+    case "elevated": return t("It stopped because {app} runs as administrator, and Glim can't type there.", { app });
+    case "keys-held": return t("It stopped because a key was held down. Release it and try again.");
+    case "unsupported": return t("It stopped because {app} didn't take the next fix, so nothing more changed.", { app });
+    case "not-clean": return t("It stopped because {app} changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.", { app });
+  }
+  return outcomeNote(outcome, app) ?? "";
 }
 
 /** A click's outcome in words; undefined for none. */
