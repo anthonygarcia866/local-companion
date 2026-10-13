@@ -344,7 +344,7 @@ The owner is no longer prioritizing local-only AI. Full statement: `docs/vision.
 
 ## 13. 1c design: the Claude API rewrite (2026-10-12)
 
-Follows `docs/vision.md` §2–3 and §12 above. Branch `phase-1c-rewrite`, stacked on `post-1b-fixes` (PR #15). Where this section and an older one disagree (§1 item 6 says `s-think`, §2's 1c row lists "clearer"), this section wins.
+Follows `docs/vision.md` §2–3 and §12 above. Branch `phase-1c-rewrite`, stacked on `post-1b-fixes` (PR #15). **Built 2026-10-12** (steps 1–6 below, one commit each). Not yet run against the real API or in the installed app. Where this section and an older one disagree (§1 item 6 says `s-think`, §2's 1c row lists "clearer"), this section wins.
 
 ### 13.1 What the user sees
 
