@@ -2221,17 +2221,6 @@
    "ru": "Glim подключается только к этому компьютеру (127.0.0.1 или localhost).",
    "id": "Glim hanya terhubung ke komputer ini (127.0.0.1 atau localhost)."
   },
-  "No telemetry. Glim only ever connects to this computer (127.0.0.1 or localhost).": {
-   "zh-Hans": "没有遥测。Glim 只会连接到这台电脑（127.0.0.1 或 localhost）。",
-   "hi": "कोई टेलीमेट्री नहीं। Glim केवल इसी कंप्यूटर (127.0.0.1 या localhost) से ही जुड़ता है।",
-   "es": "Sin telemetría. Glim solo se conecta a este equipo (127.0.0.1 o localhost).",
-   "ar": "لا قياس عن بُعد. لا يتصل Glim إلا بهذا الحاسوب (127.0.0.1 أو localhost).",
-   "fr": "Aucune télémétrie. Glim ne se connecte jamais qu'à cet ordinateur (127.0.0.1 ou localhost).",
-   "bn": "কোনো টেলিমেট্রি নেই। Glim কেবল এই কম্পিউটারের সাথেই সংযোগ করে (127.0.0.1 বা localhost)।",
-   "pt-BR": "Sem telemetria. O Glim só se conecta a este computador (127.0.0.1 ou localhost).",
-   "ru": "Без телеметрии. Glim подключается только к этому компьютеру (127.0.0.1 или localhost).",
-   "id": "Tanpa telemetri. Glim hanya pernah terhubung ke komputer ini (127.0.0.1 atau localhost)."
-  },
   "Blocked: Glim only connects to this computer (127.0.0.1 or localhost), not {url}.": {
    "zh-Hans": "已阻止：Glim 只连接到这台电脑（127.0.0.1 或 localhost），不会连接 {url}。",
    "hi": "रोका गया: Glim केवल इसी कंप्यूटर (127.0.0.1 या localhost) से जुड़ता है, {url} से नहीं।",
@@ -3549,6 +3538,215 @@
    "pt-BR": "Reescrever…",
    "ru": "Переписать…",
    "id": "Tulis ulang…"
+  },
+  "{input} / {output} per million tokens": {
+   "zh-Hans": "每百万 token {input} / {output}",
+   "hi": "{input} / {output} प्रति दस लाख टोकन",
+   "es": "{input} / {output} por millón de tokens",
+   "ar": "{input} / {output} لكل مليون رمز",
+   "fr": "{input} / {output} par million de jetons",
+   "bn": "প্রতি দশ লাখ টোকেনে {input} / {output}",
+   "pt-BR": "{input} / {output} por milhão de tokens",
+   "ru": "{input} / {output} за миллион токенов",
+   "id": "{input} / {output} per sejuta token"
+  },
+  "This month: {cost} ({count})": {
+   "zh-Hans": "本月：{cost}（{count}）",
+   "hi": "इस महीने: {cost} ({count})",
+   "es": "Este mes: {cost} ({count})",
+   "ar": "هذا الشهر: {cost} ({count})",
+   "fr": "Ce mois-ci : {cost} ({count})",
+   "bn": "এই মাসে: {cost} ({count})",
+   "pt-BR": "Este mês: {cost} ({count})",
+   "ru": "В этом месяце: {cost} ({count})",
+   "id": "Bulan ini: {cost} ({count})"
+  },
+  "AI (Claude API)": {
+   "zh-Hans": "AI（Claude API）",
+   "hi": "AI (Claude API)",
+   "es": "IA (Claude API)",
+   "ar": "الذكاء الاصطناعي (Claude API)",
+   "fr": "IA (Claude API)",
+   "bn": "AI (Claude API)",
+   "pt-BR": "IA (Claude API)",
+   "ru": "ИИ (Claude API)",
+   "id": "AI (Claude API)"
+  },
+  "Rewrites go to Anthropic's Claude API, only when you click a tone in the Rewrite card. Your API key stays in Windows Credential Manager.": {
+   "zh-Hans": "只有在你点击改写卡片中的某种语气时，改写才会发送到 Anthropic 的 Claude API。你的 API 密钥保存在 Windows 凭据管理器中。",
+   "hi": "दोबारा लिखने के अनुरोध Anthropic के Claude API को तभी जाते हैं जब आप Rewrite कार्ड में कोई लहजा क्लिक करते हैं। आपकी API कुंजी Windows Credential Manager में रहती है।",
+   "es": "Las reescrituras van a la Claude API de Anthropic solo cuando haces clic en un tono de la tarjeta Reescribir. Tu clave de API se queda en el Administrador de credenciales de Windows.",
+   "ar": "تُرسل طلبات إعادة الصياغة إلى Claude API من Anthropic فقط عندما تنقر نبرةً في بطاقة إعادة الصياغة. يبقى مفتاح API في مدير بيانات الاعتماد في Windows.",
+   "fr": "Les réécritures partent vers l'API Claude d'Anthropic seulement quand vous cliquez sur un ton dans la carte Réécrire. Votre clé d'API reste dans le Gestionnaire d'identification Windows.",
+   "bn": "আপনি Rewrite কার্ডে কোনো সুর ক্লিক করলেই কেবল আবার লেখার অনুরোধ Anthropic-এর Claude API-তে যায়। আপনার API কী Windows Credential Manager-এ থাকে।",
+   "pt-BR": "As reescritas vão para a Claude API da Anthropic só quando você clica em um tom no cartão Reescrever. Sua chave de API fica no Gerenciador de Credenciais do Windows.",
+   "ru": "Тексты уходят в Claude API от Anthropic, только когда вы выбираете тон в карточке переписывания. API-ключ хранится в диспетчере учётных данных Windows.",
+   "id": "Tulis ulang dikirim ke Claude API milik Anthropic hanya saat Anda mengeklik sebuah nada di kartu Tulis ulang. Kunci API Anda tetap di Credential Manager Windows."
+  },
+  "Claude API (default)": {
+   "zh-Hans": "Claude API（默认）",
+   "hi": "Claude API (डिफ़ॉल्ट)",
+   "es": "Claude API (predeterminado)",
+   "ar": "Claude API (افتراضي)",
+   "fr": "Claude API (par défaut)",
+   "bn": "Claude API (ডিফল্ট)",
+   "pt-BR": "Claude API (padrão)",
+   "ru": "Claude API (по умолчанию)",
+   "id": "Claude API (bawaan)"
+  },
+  "Local model (not built yet)": {
+   "zh-Hans": "本地模型（尚未支持）",
+   "hi": "लोकल मॉडल (अभी बना नहीं)",
+   "es": "Modelo local (aún no disponible)",
+   "ar": "نموذج محلي (غير متاح بعد)",
+   "fr": "Modèle local (pas encore disponible)",
+   "bn": "লোকাল মডেল (এখনো তৈরি হয়নি)",
+   "pt-BR": "Modelo local (ainda não pronto)",
+   "ru": "Локальная модель (пока не сделано)",
+   "id": "Model lokal (belum tersedia)"
+  },
+  "Brain": {
+   "zh-Hans": "大脑",
+   "hi": "दिमाग",
+   "es": "Cerebro",
+   "ar": "العقل",
+   "fr": "Cerveau",
+   "bn": "মস্তিষ্ক",
+   "pt-BR": "Cérebro",
+   "ru": "Мозг",
+   "id": "Otak"
+  },
+  "Remove": {
+   "zh-Hans": "删除",
+   "hi": "हटाएँ",
+   "es": "Quitar",
+   "ar": "إزالة",
+   "fr": "Supprimer",
+   "bn": "সরান",
+   "pt-BR": "Remover",
+   "ru": "Удалить",
+   "id": "Hapus"
+  },
+  "API key": {
+   "zh-Hans": "API 密钥",
+   "hi": "API कुंजी",
+   "es": "Clave de API",
+   "ar": "مفتاح API",
+   "fr": "Clé d'API",
+   "bn": "API কী",
+   "pt-BR": "Chave de API",
+   "ru": "API-ключ",
+   "id": "Kunci API"
+  },
+  "Save key": {
+   "zh-Hans": "保存密钥",
+   "hi": "कुंजी सहेजें",
+   "es": "Guardar clave",
+   "ar": "حفظ المفتاح",
+   "fr": "Enregistrer la clé",
+   "bn": "কী সংরক্ষণ করুন",
+   "pt-BR": "Salvar chave",
+   "ru": "Сохранить ключ",
+   "id": "Simpan kunci"
+  },
+  "default": {
+   "zh-Hans": "默认",
+   "hi": "डिफ़ॉल्ट",
+   "es": "predeterminado",
+   "ar": "افتراضي",
+   "fr": "par défaut",
+   "bn": "ডিফল্ট",
+   "pt-BR": "padrão",
+   "ru": "по умолчанию",
+   "id": "bawaan"
+  },
+  "No cap": {
+   "zh-Hans": "无上限",
+   "hi": "कोई सीमा नहीं",
+   "es": "Sin límite",
+   "ar": "بلا حد",
+   "fr": "Aucun plafond",
+   "bn": "কোনো সীমা নেই",
+   "pt-BR": "Sem limite",
+   "ru": "Без лимита",
+   "id": "Tanpa batas"
+  },
+  "Monthly cap ($)": {
+   "zh-Hans": "每月上限（$）",
+   "hi": "मासिक सीमा ($)",
+   "es": "Límite mensual ($)",
+   "ar": "الحد الشهري ($)",
+   "fr": "Plafond mensuel ($)",
+   "bn": "মাসিক সীমা ($)",
+   "pt-BR": "Limite mensal ($)",
+   "ru": "Месячный лимит ($)",
+   "id": "Batas bulanan ($)"
+  },
+  "Get a key at console.anthropic.com → API Keys, then paste it here.": {
+   "zh-Hans": "在 console.anthropic.com → API Keys 获取密钥，然后粘贴到这里。",
+   "hi": "console.anthropic.com → API Keys से कुंजी लें, फिर यहाँ पेस्ट करें।",
+   "es": "Consigue una clave en console.anthropic.com → API Keys y pégala aquí.",
+   "ar": "احصل على مفتاح من console.anthropic.com ← API Keys، ثم الصقه هنا.",
+   "fr": "Obtenez une clé sur console.anthropic.com → API Keys, puis collez-la ici.",
+   "bn": "console.anthropic.com → API Keys থেকে একটি কী নিন, তারপর এখানে পেস্ট করুন।",
+   "pt-BR": "Obtenha uma chave em console.anthropic.com → API Keys e cole aqui.",
+   "ru": "Получите ключ на console.anthropic.com → API Keys и вставьте его сюда.",
+   "id": "Dapatkan kunci di console.anthropic.com → API Keys, lalu tempel di sini."
+  },
+  "Spend": {
+   "zh-Hans": "支出",
+   "hi": "खर्च",
+   "es": "Gasto",
+   "ar": "الإنفاق",
+   "fr": "Dépenses",
+   "bn": "খরচ",
+   "pt-BR": "Gastos",
+   "ru": "Расходы",
+   "id": "Pengeluaran"
+  },
+  "The cap is reached: nothing more is sent this month.": {
+   "zh-Hans": "已达到上限：本月不会再发送任何内容。",
+   "hi": "सीमा पूरी हो गई: इस महीने और कुछ नहीं भेजा जाएगा।",
+   "es": "Se alcanzó el límite: no se enviará nada más este mes.",
+   "ar": "تم بلوغ الحد: لن يُرسل شيء آخر هذا الشهر.",
+   "fr": "Plafond atteint : plus rien n'est envoyé ce mois-ci.",
+   "bn": "সীমা পূর্ণ: এই মাসে আর কিছু পাঠানো হবে না।",
+   "pt-BR": "Limite atingido: nada mais será enviado este mês.",
+   "ru": "Лимит достигнут: до конца месяца ничего не отправляется.",
+   "id": "Batas tercapai: tidak ada lagi yang dikirim bulan ini."
+  },
+  "Glim's own estimate from token counts. Your Anthropic Console bill is the real number.": {
+   "zh-Hans": "这是 Glim 根据 token 数量做的估算。以你在 Anthropic Console 中的账单为准。",
+   "hi": "यह Glim का टोकन गिनती से अपना अनुमान है। असली रकम आपके Anthropic Console बिल में है।",
+   "es": "Estimación propia de Glim a partir de los tokens. La cifra real es la factura de tu Anthropic Console.",
+   "ar": "تقدير Glim الخاص من عدد الرموز. الرقم الحقيقي هو فاتورتك في Anthropic Console.",
+   "fr": "Estimation de Glim d'après le nombre de jetons. Le vrai montant est votre facture dans la Console Anthropic.",
+   "bn": "টোকেন গুনে Glim-এর নিজস্ব অনুমান। আসল পরিমাণ আপনার Anthropic Console বিলে।",
+   "pt-BR": "Estimativa do próprio Glim pela contagem de tokens. O valor real é a fatura no Anthropic Console.",
+   "ru": "Это оценка Glim по числу токенов. Точная сумма — в счёте Anthropic Console.",
+   "id": "Perkiraan Glim sendiri dari jumlah token. Angka sebenarnya ada di tagihan Anthropic Console Anda."
+  },
+  "{count} requests": {
+   "zh-Hans": {"other": "{count} 次请求"},
+   "hi": {"one": "{count} अनुरोध", "other": "{count} अनुरोध"},
+   "es": {"one": "{count} solicitud", "other": "{count} solicitudes"},
+   "ar": {"zero": "{count} طلب", "one": "طلب واحد", "two": "طلبان", "few": "{count} طلبات", "many": "{count} طلبًا", "other": "{count} طلب"},
+   "fr": {"one": "{count} requête", "other": "{count} requêtes"},
+   "bn": {"one": "{count}টি অনুরোধ", "other": "{count}টি অনুরোধ"},
+   "pt-BR": {"one": "{count} solicitação", "other": "{count} solicitações"},
+   "ru": {"one": "{count} запрос", "few": "{count} запроса", "many": "{count} запросов", "other": "{count} запроса"},
+   "id": {"other": "{count} permintaan"}
+  },
+  "No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com.": {
+   "zh-Hans": "无遥测。Glim 只连接本机；当你要求改写时，也会连接 api.anthropic.com。",
+   "hi": "कोई टेलीमेट्री नहीं। Glim केवल इस कंप्यूटर से जुड़ता है, और जब आप दोबारा लिखवाते हैं तब api.anthropic.com से।",
+   "es": "Sin telemetría. Glim solo se conecta a este equipo y, cuando pides una reescritura, a api.anthropic.com.",
+   "ar": "لا قياس عن بُعد. يتصل Glim بهذا الكمبيوتر فقط، وبـ api.anthropic.com عندما تطلب إعادة صياغة.",
+   "fr": "Aucune télémétrie. Glim ne se connecte qu'à cet ordinateur et, quand vous demandez une réécriture, à api.anthropic.com.",
+   "bn": "কোনো টেলিমেট্রি নেই। Glim শুধু এই কম্পিউটারে সংযোগ করে, আর আপনি আবার লেখাতে চাইলে api.anthropic.com-এ।",
+   "pt-BR": "Sem telemetria. O Glim só se conecta a este computador e, quando você pede uma reescrita, a api.anthropic.com.",
+   "ru": "Без телеметрии. Glim подключается только к этому компьютеру и, когда вы просите переписать текст, к api.anthropic.com.",
+   "id": "Tanpa telemetri. Glim hanya terhubung ke komputer ini dan, saat Anda meminta tulis ulang, ke api.anthropic.com."
   }
  }
 }

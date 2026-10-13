@@ -1,8 +1,6 @@
 // Glim for Windows — app wiring and the commands the island calls.
 
 mod agent_hooks;
-// Wired into the app in 1c steps 5-6; the allow goes then.
-#[allow(dead_code)]
 mod ai;
 mod autostart;
 mod agents;
@@ -545,6 +543,63 @@ fn writing_copy(check_id: u64, index: usize, choice: usize) {
     let _ = (check_id, index, choice);
 }
 
+// ── Settings → AI (1c) ────────────────────────────────────────────────────────
+// The key comes in once, on Save, and goes straight to Credential Manager;
+// Settings only ever gets back {set, hint}. Nothing here logs it.
+
+#[tauri::command]
+fn ai_key_status() -> Result<ai::key::KeyStatus, String> {
+    ai::key::status(&ai::key::vault())
+}
+
+#[tauri::command]
+fn ai_key_save(key: String) -> Result<ai::key::KeyStatus, String> {
+    let saved = ai::key::save(&ai::key::vault(), &key);
+    log::line(if saved.is_ok() { "ai: API key saved" } else { "ai: API key not saved" });
+    saved
+}
+
+#[tauri::command]
+fn ai_key_remove() -> Result<ai::key::KeyStatus, String> {
+    let removed = ai::key::remove(&ai::key::vault());
+    if removed.is_ok() {
+        log::line("ai: API key removed");
+    }
+    removed
+}
+
+/// This month's spend estimate, and the cap, for Settings.
+#[tauri::command]
+fn ai_spend() -> ai::spend::SpendView {
+    let spent = ai::spend::current(&ai::spend::path(), &ai::spend::month_now());
+    ai::spend::view(&spent, ai::rewrite::config().cap_usd)
+}
+
+/// The models Settings offers, with their prices ($ per million tokens).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiModel {
+    id: &'static str,
+    name: &'static str,
+    input_usd_per_mtok: f64,
+    output_usd_per_mtok: f64,
+    prices_checked: &'static str,
+}
+
+#[tauri::command]
+fn ai_models() -> Vec<AiModel> {
+    ai::claude::MODELS
+        .iter()
+        .map(|m| AiModel {
+            id: m.id,
+            name: m.name,
+            input_usd_per_mtok: m.input_nanos as f64 / 1000.0,
+            output_usd_per_mtok: m.output_nanos as f64 / 1000.0,
+            prices_checked: ai::claude::PRICES_CHECKED,
+        })
+        .collect()
+}
+
 // ── The rewrite (1c): the island's clicks ─────────────────────────────────────
 // Ids only, as for fixes: a tone id, or which rewrite. The paragraph is the
 // capture thread's own, and so is the rewrite's text.
@@ -907,6 +962,11 @@ pub fn run() {
             writing_fix,
             writing_fix_all,
             writing_rewrite,
+            ai_key_status,
+            ai_key_save,
+            ai_key_remove,
+            ai_spend,
+            ai_models,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

@@ -120,6 +120,13 @@ export const Bridge = {
 
   // ── Claude Code hooks ─────────────────────────────────────────────────────
   hooksStatus: () => call<HookStatus>("hooks_status"),
+  // Settings → AI (1c). The key goes to Rust once, on Save; only {set, hint}
+  // ever comes back. Errors are Rust's words (never the key).
+  aiKeyStatus: () => call<AiKeyStatus>("ai_key_status"),
+  aiKeySave: (key: string) => callOrThrow<AiKeyStatus>("ai_key_save", { key }),
+  aiKeyRemove: () => callOrThrow<AiKeyStatus>("ai_key_remove"),
+  aiSpend: () => call<AiSpend>("ai_spend"),
+  aiModels: () => call<AiModel[]>("ai_models"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */
@@ -268,6 +275,30 @@ export interface DroppedFile {
   name: string;
   path: string;
   size: number;
+}
+
+/** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+export interface AiKeyStatus {
+  set: boolean;
+  hint: string;
+}
+
+/** This month's Claude API spend, Glim's own estimate (ai/spend.rs). */
+export interface AiSpend {
+  month: string;
+  usd: number;
+  requests: number;
+  capUsd: number;
+  atCap: boolean;
+}
+
+/** A model Settings offers (ai/claude.rs MODELS), $ per million tokens. */
+export interface AiModel {
+  id: string;
+  name: string;
+  inputUsdPerMtok: number;
+  outputUsdPerMtok: number;
+  pricesChecked: string;
 }
 
 export interface HookStatus {
