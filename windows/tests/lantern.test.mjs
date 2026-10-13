@@ -141,8 +141,9 @@ test("every island state maps to one of the design's states", () => {
 // passes, and nowhere else.
 
 const SHOWS_RESERVED = {
-  // The dev-only `--mascot-state` switch (GLIM_DEV=1) previews any state.
-  "src/island/island.ts": ["dev-preview"],
+  // The dev-only `--mascot-state` switch (GLIM_DEV=1) previews any state;
+  // s-delegate while a rewrite is on its way to the Claude API (1c).
+  "src/island/island.ts": ["dev-preview", "api-request"],
   // The recording indicator (visibility modes): what stays on screen in every
   // mode, Hidden and fullscreen included, while the screen is being recorded.
   "src/island/presence.ts": ["screen-recording"],

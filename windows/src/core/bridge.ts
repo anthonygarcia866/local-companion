@@ -101,6 +101,13 @@ export const Bridge = {
   writingFixAll: (checkId: number) => call<void>("writing_fix_all", { checkId }),
   /** A Copy button (fields Glim can't type in). */
   writingCopy: (checkId: number, index: number, choice: number) => call<void>("writing_copy", { checkId, index, choice }),
+  // The rewrite (1c): a tone id, or which rewrite; never text.
+  /** A tone on the Rewrite card: sends the paragraph to the Claude API. */
+  writingRewrite: (tone: string) => call<void>("writing_rewrite", { tone }),
+  /** "Use this": types rewrite `id` in (1b's apply path). */
+  writingRewriteApply: (id: number) => call<void>("writing_rewrite_apply", { id }),
+  writingRewriteCopy: (id: number) => call<void>("writing_rewrite_copy", { id }),
+  writingRewriteDismiss: () => call<void>("writing_rewrite_dismiss"),
   /** Dismiss: the list goes until the text changes. */
   writingDismiss: () => call<void>("writing_dismiss"),
   /** The tray's Pause: Rust stops reading, checking and typing. */

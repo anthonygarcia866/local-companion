@@ -234,6 +234,28 @@ export interface WritingResult {
   skipped?: number;
 }
 
+/** The Rewrite card's state (1c): see core/rewrite.ts. */
+export interface RewriteState {
+  /** choose a tone → sending → done (the rewrite) or failed (a code). */
+  phase: "choose" | "sending" | "done" | "failed";
+  /** Rust's id for the rewrite; 0 until Rust has taken the request. */
+  id: number;
+  tone: string;
+  text: string;
+  mode: WritingFixMode;
+  app: string;
+  /** Glim would type it: "Use this". Otherwise Copy only. */
+  offerable: boolean;
+  model: string;
+  costUsd: number;
+  code: string;
+  retryAfter: number | null;
+  /** What "Use this" or "Copy" did (a writing outcome code), "" before. */
+  outcome: string;
+  /** "Use this" or "Copy" is on its way. */
+  busy: boolean;
+}
+
 class AppState {
   mode: IslandMode = "hidden";
   /** Where the island is docked on its display (Rust tells: "placement"). */
@@ -276,6 +298,8 @@ class AppState {
   writingResult: WritingResult | null = null;
   /** A fix is on its way: the buttons wait for the outcome. */
   writingBusy = false;
+  /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
+  rewrite: RewriteState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 

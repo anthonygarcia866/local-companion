@@ -96,6 +96,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         (screen_changed, autostart_changed, shortcuts_changed)
     };
     let settings = shared.settings.lock().unwrap().clone();
+    ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -544,6 +545,46 @@ fn writing_copy(check_id: u64, index: usize, choice: usize) {
     let _ = (check_id, index, choice);
 }
 
+// ── The rewrite (1c): the island's clicks ─────────────────────────────────────
+// Ids only, as for fixes: a tone id, or which rewrite. The paragraph is the
+// capture thread's own, and so is the rewrite's text.
+
+/// A tone on the Rewrite card: the paragraph the caret is in goes to the
+/// Claude API (docs/phase1-plan.md §13). The click is the user's request.
+#[tauri::command]
+fn writing_rewrite(tone: String) {
+    let Some(tone) = ai::claude::Tone::from_id(&tone) else { return };
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Rewrite { tone });
+    #[cfg(not(windows))]
+    let _ = tone;
+}
+
+/// "Use this": types rewrite `id` in through 1b's apply path.
+#[tauri::command]
+fn writing_rewrite_apply(id: u64) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::RewriteApply { id });
+    #[cfg(not(windows))]
+    let _ = id;
+}
+
+/// Copy for rewrite `id`.
+#[tauri::command]
+fn writing_rewrite_copy(id: u64) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::RewriteCopy { id });
+    #[cfg(not(windows))]
+    let _ = id;
+}
+
+/// The Rewrite card closed: its rewrite and paragraph go.
+#[tauri::command]
+fn writing_rewrite_dismiss() {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::RewriteDismiss);
+}
+
 /// Dismiss: the list and its kept paragraph go until the text changes.
 #[tauri::command]
 fn writing_dismiss() {
@@ -772,6 +813,7 @@ pub fn run() {
     platform::prepare_environment();
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
+    ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
     let gate = Arc::new(PollGate::new());
 
     let mut builder = tauri::Builder::default()
@@ -864,6 +906,10 @@ pub fn run() {
             log_line,
             writing_fix,
             writing_fix_all,
+            writing_rewrite,
+            writing_rewrite_apply,
+            writing_rewrite_copy,
+            writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
             writing_set_paused,

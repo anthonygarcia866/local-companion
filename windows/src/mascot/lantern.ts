@@ -30,12 +30,17 @@ export type LanternState = (typeof LANTERN_STATES)[number];
  */
 export const RESERVED_LANTERN_STATES = {
   record: "screen-recording",
-  delegate: "phase3-delegation",
+  // Data leaving the machine: the Claude API calls from 1c on (island.ts,
+  // while a rewrite is on its way), and Phase 3 delegation later.
+  delegate: "api-request",
 } as const;
 export type ReservedLanternState = keyof typeof RESERVED_LANTERN_STATES;
 /** s-record, for the recording indicator (island/presence.ts), which shows it
  *  through `showReserved` with the "screen-recording" owner. */
 export const RECORDING_STATE = "record" satisfies ReservedLanternState;
+/** s-delegate, for text on its way to the Claude API (island/island.ts, 1c),
+ *  shown through `showReserved` with the "api-request" owner. */
+export const DELEGATE_STATE = "delegate" satisfies ReservedLanternState;
 /** Every state an app state may map to. */
 export type AppLanternState = Exclude<LanternState, ReservedLanternState>;
 
@@ -210,7 +215,7 @@ export class Lantern {
 
   /**
    * Shows a reserved state, for its owner only: `record` for screen recording,
-   * `delegate` for Phase 3 delegation, either for the dev preview switch
+   * `delegate` for data going to the Claude API, either for the dev preview switch
    * (`--mascot-state`). tests/lantern.test.mjs fails on any other caller.
    */
   showReserved<S extends ReservedLanternState>(state: S, owner: (typeof RESERVED_LANTERN_STATES)[S] | "dev-preview") {

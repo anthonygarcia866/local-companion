@@ -5,3 +5,4 @@
 pub mod key;
 pub mod claude;
 pub mod spend;
+pub mod rewrite;

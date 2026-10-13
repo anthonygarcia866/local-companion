@@ -74,11 +74,11 @@ pub const ACTIONS: &[ActionDef] = &[
     // highlight with it. Ctrl+Alt+Shift+Space is unassigned in Word (and so in
     // Outlook's editor) and was free system-wide when checked (2026-10-10).
     action("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
-    // Phase 1's rewrite of the selected text: reserved, shown and rebindable in
-    // Settings, registered once Phase 1 lands. Not Ctrl+Alt+G, the planned key:
-    // Word's "next Editor suggestion", and held by another app on the owner's
-    // machine. See PROJECT_STATUS.md (hotkeys).
-    action("rewrite", "Ctrl+Alt+Shift+R", true, false),
+    // 1c: opens the island's Rewrite card for the paragraph the caret is in
+    // (nothing is sent until a tone is clicked; docs/phase1-plan.md §13). Not
+    // Ctrl+Alt+G, the first planned key: Word's "next Editor suggestion", and
+    // held by another app on the owner's machine. See PROJECT_STATUS.md (hotkeys).
+    action("rewrite", "Ctrl+Alt+Shift+R", true, true),
     // Glim's own: denies the waiting permission card, from any app (the card's
     // old Y/N hints never worked: Glim doesn't take the keyboard). Allow has no
     // key on purpose: it is a click on the card, always. N for No; Shift keeps
@@ -469,7 +469,7 @@ mod tests {
     fn the_actions_not_ported_yet_are_reserved_not_registered() {
         let plan = plan(&Bindings::new(), never);
         for (def, outcome) in plan {
-            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle" | "rewrite");
+            let reserved = matches!(def.id, "attachFrontWindow" | "muteToggle" | "desktopToggle" | "wardrobeToggle");
             assert_eq!(def.ported, !reserved);
             match outcome {
                 Ok(_) => assert!(def.ported && def.enabled_by_default, "{}", def.id),
