@@ -92,3 +92,20 @@ test("Rewrite tones: a select per kind of app, and a tone of its own for one app
   assert.deepEqual(settings.rewriteTones, { "OUTLOOK.EXE": "shorter", chat: "friendlier", "slack.exe": "formal" });
   assert.equal(saves, 2);
 });
+
+test("Strictness: one global level, full by default, stored as its id", () => {
+  const settings = { ...DEFAULT_SETTINGS, writingApps: {}, rewriteTones: {} };
+  assert.equal(settings.checkerStrictness, "full");
+  let saves = 0;
+  const el = writingSection({ settings: () => settings, save: async () => { saves++; } }, KNOWN, DEFAULTS);
+  const select = el.find("select").find((s) => s.getAttribute("data-role") === "strictness");
+  assert.deepEqual(select.find("option").map((o) => o.getAttribute("value")), ["spelling", "standard", "full"]);
+  assert.equal(select.value, "full");
+  select.value = "spelling";
+  select.fire("change");
+  assert.equal(settings.checkerStrictness, "spelling");
+  select.value = "loud";
+  select.fire("change");
+  assert.equal(settings.checkerStrictness, "full", "anything else is full");
+  assert.equal(saves, 2);
+});

@@ -652,7 +652,7 @@ impl Session {
     fn check(&mut self, p: &Paragraph, rules: Rules) -> Suggestions {
         let checker = self.checker.get_or_insert_with(Checker::new);
         let t = Instant::now();
-        let findings = checker.check(&p.text, rules);
+        let findings = checker.check_at(&p.text, rules, prefs::get().strictness);
         self.times.push(t.elapsed().as_micros());
         self.lengths.push(p.text.chars().count());
         let chars: Vec<char> = p.text.chars().collect();

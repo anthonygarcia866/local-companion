@@ -19,6 +19,8 @@ pub struct Prefs {
     /// Settings → Writing → Rewrite tones (§14.3): a tone id by category id
     /// or lowercase exe, only where it differs from the built-in defaults.
     pub tones: BTreeMap<String, String>,
+    /// Settings → Writing → Strictness (§14.4).
+    pub strictness: super::checker::Strictness,
 }
 
 impl Prefs {
@@ -27,6 +29,7 @@ impl Prefs {
             apps: app_switches(&s.writing_apps),
             asked: s.writing_apps_asked.iter().map(|(exe, d)| (exe.to_ascii_lowercase(), d.clone())).collect(),
             tones: s.rewrite_tones.iter().map(|(k, t)| (k.to_ascii_lowercase(), t.clone())).collect(),
+            strictness: super::checker::Strictness::from_id(&s.checker_strictness),
         }
     }
 }

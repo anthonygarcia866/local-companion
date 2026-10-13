@@ -88,6 +88,9 @@ pub struct Settings {
     /// category ("email", "documents", "chat", "other") or by exe, only
     /// where it differs from writing::tones' defaults.
     pub rewrite_tones: BTreeMap<String, String>,
+    /// Settings → Writing → Strictness (§14.4): "spelling", "standard" or
+    /// "full" (the default); anything else reads as "full".
+    pub checker_strictness: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -136,6 +139,7 @@ impl Default for Settings {
             writing_apps: BTreeMap::new(),
             writing_apps_asked: BTreeMap::new(),
             rewrite_tones: BTreeMap::new(),
+            checker_strictness: "full".into(),
         }
     }
 }
@@ -414,7 +418,8 @@ mod tests {
   "aiMonthlyCapUsd": 7.5,
   "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
   "writingAppsAsked": { "WordPad.exe": "2026-10-12" },
-  "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" }
+  "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" },
+  "checkerStrictness": "standard"
 }"##;
 
     fn custom() -> Value {
@@ -530,6 +535,7 @@ mod tests {
     fn a_file_from_before_1d_has_every_app_at_its_default() {
         let loaded = parse(br#"{"screen":"active"}"#).unwrap();
         assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty() && loaded.rewrite_tones.is_empty());
+        assert_eq!(loaded.checker_strictness, "full");
         // Not a map of strings: the switches fall back, and nothing else does.
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
@@ -840,6 +846,7 @@ mod tests {
                 "writingApps",
                 "writingAppsAsked",
                 "rewriteTones",
+                "checkerStrictness",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

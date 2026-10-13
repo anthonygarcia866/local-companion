@@ -3989,6 +3989,61 @@
    "pt-BR": "Para um app",
    "ru": "Для одного приложения",
    "id": "Untuk satu aplikasi"
+  },
+  "Strictness": {
+   "zh-Hans": "严格程度",
+   "hi": "सख़्ती",
+   "es": "Rigor",
+   "ar": "الصرامة",
+   "fr": "Exigence",
+   "bn": "কঠোরতা",
+   "pt-BR": "Rigor",
+   "ru": "Строгость",
+   "id": "Ketelitian"
+  },
+  "Spelling only": {
+   "zh-Hans": "仅拼写",
+   "hi": "केवल वर्तनी",
+   "es": "Solo ortografía",
+   "ar": "الإملاء فقط",
+   "fr": "Orthographe seulement",
+   "bn": "শুধু বানান",
+   "pt-BR": "Só ortografia",
+   "ru": "Только орфография",
+   "id": "Hanya ejaan"
+  },
+  "Standard: spelling, grammar, word choice, punctuation": {
+   "zh-Hans": "标准：拼写、语法、用词、标点",
+   "hi": "मानक: वर्तनी, व्याकरण, शब्द चयन, विराम चिह्न",
+   "es": "Estándar: ortografía, gramática, elección de palabras, puntuación",
+   "ar": "قياسي: الإملاء والقواعد واختيار الكلمات وعلامات الترقيم",
+   "fr": "Standard : orthographe, grammaire, choix des mots, ponctuation",
+   "bn": "সাধারণ: বানান, ব্যাকরণ, শব্দচয়ন, যতিচিহ্ন",
+   "pt-BR": "Padrão: ortografia, gramática, escolha de palavras, pontuação",
+   "ru": "Обычная: орфография, грамматика, выбор слов, пунктуация",
+   "id": "Standar: ejaan, tata bahasa, pilihan kata, tanda baca"
+  },
+  "Full (default): everything Glim checks": {
+   "zh-Hans": "完整（默认）：Glim 检查的所有内容",
+   "hi": "पूर्ण (डिफ़ॉल्ट): Glim जो कुछ भी जाँचता है",
+   "es": "Completo (predeterminado): todo lo que revisa Glim",
+   "ar": "كامل (افتراضي): كل ما يدققه Glim",
+   "fr": "Complet (par défaut) : tout ce que Glim vérifie",
+   "bn": "সম্পূর্ণ (ডিফল্ট): Glim যা কিছু যাচাই করে",
+   "pt-BR": "Completo (padrão): tudo o que o Glim revisa",
+   "ru": "Полная (по умолчанию): всё, что проверяет Glim",
+   "id": "Lengkap (bawaan): semua yang diperiksa Glim"
+  },
+  "One level for every app. Chat apps keep their relaxed rules on top.": {
+   "zh-Hans": "所有应用使用同一级别。聊天应用在此之上仍保持宽松规则。",
+   "hi": "हर ऐप के लिए एक ही स्तर। चैट ऐप ऊपर से अपने ढीले नियम बनाए रखते हैं।",
+   "es": "Un solo nivel para todas las apps. Las apps de chat mantienen además sus reglas relajadas.",
+   "ar": "مستوى واحد لكل التطبيقات. تحتفظ تطبيقات الدردشة بقواعدها المخففة فوق ذلك.",
+   "fr": "Un seul niveau pour toutes les apps. Les apps de chat gardent en plus leurs règles assouplies.",
+   "bn": "সব অ্যাপের জন্য একটিই স্তর। চ্যাট অ্যাপ এর ওপর তাদের শিথিল নিয়ম রাখে।",
+   "pt-BR": "Um só nível para todos os apps. Os apps de chat mantêm, além disso, as regras mais leves.",
+   "ru": "Один уровень для всех приложений. В чатах поверх него действуют облегчённые правила.",
+   "id": "Satu tingkat untuk semua aplikasi. Aplikasi obrolan tetap memakai aturan longgarnya di atasnya."
   }
  }
 }

@@ -162,6 +162,8 @@ export interface Settings {
   writingAppsAsked?: Record<string, string>;
   /** Settings → Writing → Rewrite tones (1d): a tone id by category or exe, only where it differs. */
   rewriteTones: Record<string, string>;
+  /** Settings → Writing → Strictness (1d): "spelling", "standard" or "full". */
+  checkerStrictness: "spelling" | "standard" | "full";
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -187,6 +189,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiMonthlyCapUsd: 0,
   writingApps: {},
   rewriteTones: {},
+  checkerStrictness: "full",
 };
 
 type Listener = () => void;

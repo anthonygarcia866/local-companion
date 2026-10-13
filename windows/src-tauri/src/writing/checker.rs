@@ -67,6 +67,59 @@ fn chat_word(problem: &str) -> bool {
     CHAT_WORDS.contains(&w.as_str())
 }
 
+/// Settings → Writing → Strictness (1d, docs/phase1-plan.md §14.4): one
+/// global level. A level only takes findings away; chat rules still apply on
+/// top.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Strictness {
+    /// Spelling and repeated words ("the the").
+    Spelling,
+    /// Spelling, plus grammar, agreement, word choice and punctuation.
+    Standard,
+    /// Everything Harper's curated set offers (today's behaviour).
+    #[default]
+    Full,
+}
+
+impl Strictness {
+    /// From `checkerStrictness` in settings.json; anything else is Full.
+    pub fn from_id(id: &str) -> Strictness {
+        match id {
+            "spelling" => Strictness::Spelling,
+            "standard" => Strictness::Standard,
+            _ => Strictness::Full,
+        }
+    }
+}
+
+/// The lowest level that shows a kind of finding. Every kind Harper 2.11.0
+/// has is listed with no catch-all, so a Harper update that adds one fails
+/// to build here instead of slipping in unsorted.
+pub fn level_of(kind: LintKind) -> Strictness {
+    match kind {
+        LintKind::Spelling | LintKind::Repetition => Strictness::Spelling,
+        LintKind::Agreement
+        | LintKind::BoundaryError
+        | LintKind::Capitalization
+        | LintKind::Eggcorn
+        | LintKind::Formatting
+        | LintKind::Grammar
+        | LintKind::Malapropism
+        | LintKind::Punctuation
+        | LintKind::Typo
+        | LintKind::Usage
+        | LintKind::WordChoice
+        | LintKind::WordOrder => Strictness::Standard,
+        LintKind::Enhancement
+        | LintKind::Miscellaneous
+        | LintKind::Nonstandard
+        | LintKind::Readability
+        | LintKind::Redundancy
+        | LintKind::Regionalism
+        | LintKind::Style => Strictness::Full,
+    }
+}
+
 /// Checked once at setup to warm Harper's caches; never shown.
 const WARM_UP: &str = "Hi Sarah, I wanted to folow up on the the lease. Their going to send the payment tomorrow, and we will deposit it on Monday.";
 
@@ -90,6 +143,11 @@ impl Checker {
     }
 
     pub fn check(&mut self, paragraph: &str, rules: Rules) -> Vec<Finding> {
+        self.check_at(paragraph, rules, Strictness::Full)
+    }
+
+    /// `check`, keeping only the findings `level` shows.
+    pub fn check_at(&mut self, paragraph: &str, rules: Rules, level: Strictness) -> Vec<Finding> {
         let chars: Vec<char> = paragraph.chars().collect();
         let doc = Document::new_plain_english_curated(paragraph);
         // Lints on the same span become one finding: the most important
@@ -98,7 +156,7 @@ impl Checker {
         for (rule, lints) in self.group.organized_lints(&doc) {
             for lint in lints {
                 let (start, end) = (lint.span.start, lint.span.end.min(chars.len()));
-                if start >= end || lint.message.starts_with(INITIALISM_MESSAGE) {
+                if start >= end || lint.message.starts_with(INITIALISM_MESSAGE) || level_of(lint.lint_kind) > level {
                     continue;
                 }
                 if rule == "SpellCheck" && !worth_spelling(&chars, start, end) {
@@ -459,6 +517,55 @@ mod tests {
         assert_eq!(message("Spaces", "Unnecessary space at the end of the sentence.", &['a', ' '], 2), "Unnecessary space at the end of the sentence.");
         assert_eq!(message("Other", "Unnecessary space at the end of the sentence.", &[' ', '?'], 1), "Unnecessary space at the end of the sentence.");
         assert_eq!(said("Wait , no."), only("Don't use a space before a comma."));
+    }
+
+    fn problems_at(text: &str, level: Strictness) -> Vec<String> {
+        let chars: Vec<char> = text.chars().collect();
+        CHECKER.with(|c| c.borrow_mut().check_at(text, Rules::Full, level)).iter().map(|f| chars[f.start..f.end].iter().collect()).collect()
+    }
+
+    /// §14.4: each level gives what it says, and only takes findings away.
+    #[test]
+    fn strictness_levels_keep_only_their_findings() {
+        let text = "Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok?";
+        let spelling = problems_at(text, Strictness::Spelling);
+        let standard = problems_at(text, Strictness::Standard);
+        let full = problems_at(text, Strictness::Full);
+        for p in ["recieved", "the the"] {
+            assert!(spelling.iter().any(|f| f == p), "{p} in {spelling:?}");
+        }
+        assert!(!spelling.iter().any(|f| f == "Their" || f.trim() == ","), "{spelling:?}");
+        assert!(standard.iter().any(|f| f == "Their"), "grammar at Standard: {standard:?}");
+        assert!(spelling.len() < standard.len() && standard.len() <= full.len(), "{spelling:?} {standard:?} {full:?}");
+        for f in &spelling {
+            assert!(standard.contains(f) && full.contains(f), "{f}");
+        }
+        assert_eq!(full, problems(text), "Full is what the checker did before 1d");
+        // Chat rules still apply on top.
+        let chars: Vec<char> = "u coming tmrw? i recieved it".chars().collect();
+        let chat: Vec<String> = CHECKER
+            .with(|c| c.borrow_mut().check_at("u coming tmrw? i recieved it", Rules::Chat, Strictness::Standard))
+            .iter()
+            .map(|f| chars[f.start..f.end].iter().collect())
+            .collect();
+        assert_eq!(chat, ["recieved"]);
+    }
+
+    #[test]
+    fn every_harper_kind_has_a_level_and_settings_ids_read_right() {
+        use LintKind::*;
+        let all = [
+            Agreement, BoundaryError, Capitalization, Eggcorn, Enhancement, Formatting, Grammar, Malapropism,
+            Miscellaneous, Nonstandard, Punctuation, Readability, Redundancy, Regionalism, Repetition, Spelling, Style,
+            Typo, Usage, WordChoice, WordOrder,
+        ];
+        let at = |l: Strictness| all.iter().filter(|k| level_of(**k) == l).count();
+        assert_eq!((at(Strictness::Spelling), at(Strictness::Standard), at(Strictness::Full)), (2, 12, 7));
+        assert_eq!(Strictness::from_id("spelling"), Strictness::Spelling);
+        assert_eq!(Strictness::from_id("standard"), Strictness::Standard);
+        assert_eq!(Strictness::from_id("full"), Strictness::Full);
+        assert_eq!(Strictness::from_id("loud"), Strictness::Full);
+        assert_eq!(Strictness::default(), Strictness::Full);
     }
 
     #[test]

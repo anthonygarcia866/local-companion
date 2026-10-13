@@ -54,6 +54,17 @@ export function answeredApps(map: Record<string, string>, known: KnownApp[]): st
     .sort((a, b) => a.localeCompare(b));
 }
 
+/** The strictness levels, quietest first (src-tauri/src/writing/checker.rs). */
+export const STRICTNESS = ["spelling", "standard", "full"] as const;
+
+export function strictnessLabel(level: string): string {
+  switch (level) {
+    case "spelling": return t("Spelling only");
+    case "standard": return t("Standard: spelling, grammar, word choice, punctuation");
+    default: return t("Full (default): everything Glim checks");
+  }
+}
+
 /** A category's name in Settings → Writing → Rewrite tones. */
 export function categoryLabel(id: string): string {
   switch (id) {
@@ -91,6 +102,16 @@ const shortName = (exe: string) => exe.replace(/\.exe$/i, "");
 export function writingSection(host: WritingHost, known: KnownApp[], toneDefaults: [string, string][] = []): HTMLElement {
   const apps = h("div", { class: "pill-group" });
   const tones = h("div", { class: "pill-group" });
+
+  const strictness = h("select", { "data-role": "strictness" }) as HTMLSelectElement;
+  for (const level of STRICTNESS) strictness.append(h("option", { value: level, text: strictnessLabel(level) }));
+  strictness.value = (STRICTNESS as readonly string[]).includes(host.settings().checkerStrictness) ? host.settings().checkerStrictness : "full";
+  strictness.addEventListener("change", () => {
+    const v = strictness.value;
+    host.settings().checkerStrictness = v === "spelling" || v === "standard" ? v : "full";
+    void host.save();
+  });
+  const strictnessRow = h("div", { class: "row" }, h("label", { text: t("Strictness") }), strictness);
 
   function toneSelect(value: string, withDefault: boolean, onChange: (tone: string) => void): HTMLSelectElement {
     const select = h("select", {}) as HTMLSelectElement;
@@ -184,6 +205,8 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     h("h2", {}, h("span", { text: t("Writing") })),
     h("div", { class: "hint", text: t("The apps Glim checks your writing in. Password managers and paused apps are never read, whatever their switch says.") }),
     apps,
+    strictnessRow,
+    h("div", { class: "hint", text: t("One level for every app. Chat apps keep their relaxed rules on top.") }),
     tones,
   );
 }
