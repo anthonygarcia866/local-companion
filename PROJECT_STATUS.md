@@ -83,7 +83,7 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 
 ### Network choke point
 - **Location:** `windows/src-tauri/src/net/mod.rs`. `net::request(method, url, timeout)` is the only way to build an outbound request; it checks `net::check` first.
-- **Allowlist:** `net::ALLOWED_HOSTS = ["127.0.0.1", "localhost"]`, any port, http/https, no credentials in the URL. **Planned for 1c:** `api.anthropic.com`, https on 443 only (`docs/vision.md` §3). Redirects are re-checked hop by hop, proxies are never used, and `localhost` is resolved to 127.0.0.1 by the client itself.
+- **Allowlist:** `net::ALLOWED_HOSTS = ["127.0.0.1", "localhost"]`, any port, http/https, no credentials in the URL. **Since 1c:** `api.anthropic.com` (`net::ANTHROPIC_HOST`, exact name, no subdomain), https on 443 only (`docs/vision.md` §3). Redirects are re-checked hop by hop, proxies are never used, and `localhost` is resolved to 127.0.0.1 by the client itself.
 - **Guard test:** `net::tests::no_other_module_can_reach_the_network` fails if any Rust file outside `src/net/` names `reqwest` or a socket type. Mutation-checked: adding a `reqwest::get` line to `tray.rs` makes it fail.
 - **Webview side:** CSP `connect-src ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*`, and WebView2 launched with background networking off and a resolver rule that fails every host name except `localhost` (`BROWSER_ARGS` in `lib.rs`, `additionalBrowserArgs` in `tauri.conf.json`; a test keeps them identical).
 
@@ -354,7 +354,7 @@ Branch `phase-0b-capture`. Results and the Phase 1 plan: `docs/capture-results.m
 
 ## Removed in Phase 0a
 - **Network paths:** Anthropic Messages API (`api.anthropic.com`, with web search), OpenAI / Google AI / OpenRouter (`openai_compat.rs`), the "any OpenAI-compatible server" option that could point anywhere; GitHub, Stripe, Vercel, Notion, Resend, Cal.com and n8n pollers (`integrations.rs`, `github.rs`); the Codex plan pill, which spawned `codex app-server` (it asks OpenAI for the limits); the domain-directory display-name lookup (`GetUserNameExW`); "open in browser" for arbitrary URLs (now loopback only). No updater existed upstream; none was added.
-- **Secrets:** `secrets.rs` and the `keyring` crate (Windows Credential Manager / Secret Service). Glim stores no keys.
+- **Secrets:** `secrets.rs` and the `keyring` crate (Windows Credential Manager / Secret Service). Glim stored no keys until 1c, which stores one, the Anthropic API key, through the `windows` crate (see the 1c section).
 - **Upstream assets:** all 29 WAVs, the Xcode asset catalogs (Coucou icons), `docs/media/`, `design/`, `windows/screenshots/`, upstream's website pages; the Mochi drawing code in the Windows app (engine face/hands/outfits, the greeting's Mochi, the drop animation's mailbox Mochi, the recap image's Mochi), the wardrobe (outfits), sounds and their settings, the mute and wardrobe shortcuts (now reserved, never registered).
 
 ## Claude Code integration
