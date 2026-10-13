@@ -5,7 +5,8 @@
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
-import { State, type AgentTask, type WritingFix, type WritingSuggestion } from "../core/state";
+import { State, type AgentTask, type WritingFix, type WritingResult, type WritingSuggestion } from "../core/state";
+import { limitHasReset, type AgentLimit } from "../core/limit";
 import { showsSwitcher, washRGBA, type IslandViewName, type Wash } from "../core/layout";
 import { createMiniLantern, pruneMiniLanterns } from "../mascot/minis";
 import { buildPrompt } from "./chat";
@@ -401,7 +402,7 @@ function foldButton(actions: ViewActions): HTMLElement {
   );
 }
 
-function buildApproval(actions: ViewActions): ViewHost {
+export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
   const row = h("div", { class: "actions" });
@@ -426,7 +427,11 @@ function buildApproval(actions: ViewActions): ViewHost {
         shownAt = performance.now();
       }
       clear(who);
-      who.append(agentWho(State.focusTask, t("needs permission")));
+      const whoRow = agentWho(State.focusTask, t("needs permission"));
+      // Requests queued behind this one come up in turn (State.approvalQueue).
+      const waiting = State.approvalQueue.length;
+      if (waiting > 0) whoRow.append(h("span", { class: "queued", text: t("{count} more waiting", { count: String(waiting) }) }));
+      who.append(whoRow);
       // The whole point of approving here rather than in the terminal: this line
       // is the command, the file path or the URL being authorised, not just the
       // name of the tool asking.
@@ -437,9 +442,12 @@ function buildApproval(actions: ViewActions): ViewHost {
       if (rowKey === "built") return;
       rowKey = "built";
       clear(row);
+      // No key hints: Glim never takes the keyboard, so a bare Y or N would go
+      // to the app in front. Deny has a global key (Ctrl+Alt+Shift+N by
+      // default, Settings → Shortcuts); Allow is a click, always.
       row.append(
-        btn(tl("Deny"), "secondary", guarded("deny"), "N"),
-        btn(tl("Allow"), "primary", guarded("allow"), "Y"),
+        btn(tl("Deny"), "secondary", guarded("deny")),
+        btn(tl("Allow"), "primary", guarded("allow")),
       );
     },
   };
@@ -546,25 +554,76 @@ function buildQuestion(actions: ViewActions): ViewHost {
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
-function buildError(actions: ViewActions): ViewHost {
+/**
+ * What the error card's second button opens for this task, or null for none:
+ * the session's terminal window (Open terminal, the same target as the
+ * finished card), the Claude desktop app for its sessions, and nothing for
+ * the local chat pills (source "n8n"), which have no window to go to.
+ */
+export function errorOpenLabel(task: AgentTask | null): string | null {
+  if (!task || task.source === "n8n") return null;
+  return task.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
+}
+
+/**
+ * The card's title for an agent stopped by a usage or spend limit: when it
+ * resets if Claude Code said so ("Usage limit, resets 2 PM"), and that it has
+ * reset once the time has passed.
+ */
+export function limitTitle(limit: AgentLimit, now: number): string {
+  if (limitHasReset(limit, now)) return t("The limit has reset. Continue in the terminal.");
+  const usage = limit.kind === "usage";
+  if (limit.resets) {
+    return usage
+      ? t("Usage limit, resets {time}", { time: limit.resets })
+      : t("Spend limit, resets {time}", { time: limit.resets });
+  }
+  return usage ? t("Usage limit") : t("Spend limit");
+}
+
+export function buildError(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title" });
   const detail = h("div", { class: "detail" });
-  const row = h("div", { class: "actions" },
-    btn(tl("Retry"), "primary", () => actions.setView(State.defaultView())),
-    btn(tl("Open in n8n"), "secondary", () => actions.openUrl("")),
-  );
-  const el = h("div", { class: "view" }, card("red", stack(116, 16, who, title, detail, row)));
+  const retry = btn(tl("Retry"), "primary", () => actions.setView(State.defaultView()));
+  const open = btn(tl("Open terminal"), "secondary", () => actions.openTerminal());
+  // A limit is not an error: no Retry (nothing can run before the reset), and
+  // OK to put the card away.
+  const ok = btn(tl("OK"), "secondary", () => actions.collapse());
+  const row = h("div", { class: "actions" }, retry, open, ok);
+  const box = card("red", stack(116, 16, who, title, detail, row));
+  const el = h("div", { class: "view" }, box);
   return {
     el,
     sync() {
       const task = State.focusTask;
+      const limit = task?.state === "ratelimit" ? task.limit ?? null : null;
+      box.style.setProperty("--wash", washRGBA(limit ? "amber" : "red"));
+      retry.style.display = limit ? "none" : "";
+      ok.style.display = limit ? "" : "none";
+      if (limit) {
+        clear(who);
+        who.append(agentWho(task, task?.source === "agent" ? t("Agent") : "Claude Code"));
+        title.textContent = limitTitle(limit, Date.now());
+        detail.textContent = t("It can't work until the limit resets.");
+        open.className = "btn primary";
+        const span = open.children[0] as HTMLElement;
+        const label = errorOpenLabel(task) ?? t("Open terminal");
+        if (span.textContent !== label) span.textContent = label;
+        open.style.display = errorOpenLabel(task) ? "" : "none";
+        return;
+      }
+      open.className = "btn secondary";
       clear(who);
       // agentWho already shows an agent's name: its label is just the kind.
       const whoLabel = task?.source === "n8n" ? "n8n" : task?.source === "agent" ? t("Agent") : "Claude Code";
       who.append(agentWho(task, whoLabel));
       title.textContent = task?.source === "n8n" ? t("Workflow stopped.") : t("Session stopped on an error.");
       detail.textContent = (task && lastTextStep(task.steps)) ?? t("No detail available.");
+      const label = errorOpenLabel(task);
+      open.style.display = label ? "" : "none";
+      const span = open.children[0] as HTMLElement;
+      if (label && span.textContent !== label) span.textContent = label;
     },
   };
 }
@@ -641,12 +700,42 @@ export function suggestionPage(total: number, page: number): { page: number; pag
 
 /**
  * The note under the list: "Fixing…" while a fix is on its way, the last
- * click's outcome while it is fresh, otherwise what a click does here.
+ * click's outcome while it is fresh, otherwise what a click does here. After
+ * Apply all: how many went in ("Fixed 2 of 3"), that Ctrl+Z takes back one
+ * per press, and why it stopped if it did.
  */
-export function suggestionNote(fix: WritingFix, result: { outcome: string; app: string } | null, busy: boolean): string {
+export function suggestionNote(fix: WritingFix, result: WritingResult | null, busy: boolean): string {
   if (busy) return t("Fixing…");
   const app = result?.app || fix.app;
-  switch (result?.outcome) {
+  if (result?.total) {
+    const counts = { done: result.done ?? 0, total: result.total, app };
+    const fixed = counts.done > 0
+      ? t("Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.", counts)
+      : t("Fixed {done} of {total}.", counts);
+    const left = result.skipped ? ` ${t("Left {skipped} for you to pick: the best option isn't clear.", { skipped: result.skipped })}` : "";
+    return result.outcome === "applied" ? `${fixed}${left}` : `${fixed}${left} ${stopNote(result.outcome, app)}`;
+  }
+  return outcomeNote(result?.outcome, app) ?? modeNote(fix);
+}
+
+/** Why Apply all stopped, in plain words (owner, 2026-10-12). */
+function stopNote(outcome: string, app: string): string {
+  switch (outcome) {
+    case "changed": return t("It stopped because the text changed after the check. Checked again.");
+    case "away": return t("It stopped because the cursor left the field.");
+    case "paused": return t("It stopped because Glim was paused.");
+    case "blocked": return t("It stopped because that field is protected.");
+    case "elevated": return t("It stopped because {app} runs as administrator, and Glim can't type there.", { app });
+    case "keys-held": return t("It stopped because a key was held down. Release it and try again.");
+    case "unsupported": return t("It stopped because {app} didn't take the next fix, so nothing more changed.", { app });
+    case "not-clean": return t("It stopped because {app} changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.", { app });
+  }
+  return outcomeNote(outcome, app) ?? "";
+}
+
+/** A click's outcome in words; undefined for none. */
+function outcomeNote(outcome: string | undefined, app: string): string | undefined {
+  switch (outcome) {
     case "applied": return t("Fixed. Ctrl+Z in {app} undoes it.", { app });
     case "copied": return t("Copied. Paste it with Ctrl+V.");
     case "changed": return t("The text changed, so nothing was fixed. Checked again.");
@@ -657,8 +746,14 @@ export function suggestionNote(fix: WritingFix, result: { outcome: string; app: 
     case "keys-held": return t("Release the keys you're holding, then try again.");
     case "unsupported": return t("{app} didn't take the fix, so nothing changed.", { app });
     case "not-clean": return t("That didn't apply cleanly. Press Ctrl+Z in {app} to undo it.", { app });
+    case "unclear": return t("Nothing was applied: no suggestion has a clearly best option. Pick one yourself.");
     case "clipboard-busy": return t("Couldn't copy: another app is using the clipboard.");
   }
+  return undefined;
+}
+
+/** What a click does in this field. */
+function modeNote(fix: WritingFix): string {
   switch (fix.mode) {
     case "apply": return t("Click a fix to apply it. Ctrl+Z in {app} undoes it.", { app: fix.app });
     case "away": return t("Click in the field first.");
@@ -667,7 +762,8 @@ export function suggestionNote(fix: WritingFix, result: { outcome: string; app: 
   }
 }
 
-/** How long "Fixing…" waits for Rust's answer before the buttons come back. */
+/** How long "Fixing…" waits for Rust's answer before the buttons come back
+ * (per fix: Apply all waits this long for each). */
 const FIX_TIMEOUT_MS = 3000;
 
 /**
@@ -683,6 +779,10 @@ export function buildSuggestions(): ViewHost {
   let page = 0;
   let pageOf: WritingSuggestion[] | null = null;
   const title = h("div", { class: "title one-line" });
+  // Apply all: each row's first replacement, typed by Rust last to first.
+  const allTip = tl("Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.");
+  const applyAll = h("button", { class: "apply-all", type: "button", title: allTip, "aria-label": allTip, text: tl("Apply all"), onclick: () => fixAll() }) as HTMLButtonElement;
+  const head = h("div", { class: "suggestion-head" }, title, applyAll);
   const list = h("div", { class: "suggestion-list" });
   const range = h("span", { class: "suggestion-range" });
   const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 16, { stroke: 2.6 }));
@@ -691,7 +791,7 @@ export function buildSuggestions(): ViewHost {
   const note = h("div", { class: "suggestion-more", role: "status" });
   const dismiss = h("button", { class: "suggestion-dismiss", title: tl("Dismiss suggestions"), "aria-label": tl("Dismiss suggestions"), onclick: () => void Bridge.writingDismiss() }, svg(ICONS.xmark, 12));
   const pager = h("div", { class: "suggestion-pager" }, pages, note, dismiss);
-  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, list, pager)));
+  const el = h("div", { class: "view" }, card(null, stack(98, 16, head, list, pager)));
   const sync = () => {
     const items = State.writing;
     if (items !== pageOf) {
@@ -710,25 +810,39 @@ export function buildSuggestions(): ViewHost {
     (prev as HTMLButtonElement).disabled = at.page === 0;
     (next as HTMLButtonElement).disabled = at.page === at.pages - 1;
     note.textContent = suggestionNote(State.writingFix, State.writingResult, State.writingBusy);
+    // Where fixes are typed, and only for two or more.
+    const mode = State.writingFix.mode;
+    applyAll.style.display = (mode === "apply" || mode === "away") && items.length > 1 ? "" : "none";
+    applyAll.disabled = mode === "away" || State.writingBusy;
   };
   const turn = (by: number) => {
     page += by;
     sync();
+  };
+  // "Fixing…" until Rust answers, or until `fixes` fixes' time runs out.
+  const wait = (fixes: number) => {
+    State.writingBusy = true;
+    State.writingResult = null;
+    sync();
+    setTimeout(() => {
+      if (!State.writingBusy) return;
+      State.writingBusy = false;
+      sync();
+    }, FIX_TIMEOUT_MS * fixes);
+  };
+  const fixAll = () => {
+    const fix = State.writingFix;
+    if (State.writingBusy || fix.mode !== "apply") return;
+    wait(State.writing.length);
+    void Bridge.writingFixAll(fix.checkId);
   };
   // A replacement was clicked: row `index` of the whole list, replacement `choice`.
   const pick = (index: number, choice: number) => {
     const fix = State.writingFix;
     if (State.writingBusy) return;
     if (fix.mode === "apply") {
-      State.writingBusy = true;
-      State.writingResult = null;
-      sync();
+      wait(1);
       void Bridge.writingFix(fix.checkId, index, choice);
-      setTimeout(() => {
-        if (!State.writingBusy) return;
-        State.writingBusy = false;
-        sync();
-      }, FIX_TIMEOUT_MS);
     } else if (fix.mode === "copy") {
       void Bridge.writingCopy(fix.checkId, index, choice);
     }

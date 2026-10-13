@@ -24,6 +24,7 @@ import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
 import { LanternMenu } from "./menu";
+import { startsBarDrag } from "./drag";
 import {
   LANTERN_DRAWN_BOTTOM,
   LANTERN_DRAWN_TOP,
@@ -124,6 +125,12 @@ export class Island {
    *  drags the pill to another dock (Rust moves the window); a release
    *  before that opens the island. */
   private dockPress: { x: number; y: number } | null = null;
+  /** Where a press on the open island's top bar started: past DRAG_THRESHOLD
+   *  it drags Glim to another dock, like the lantern (drag.ts). */
+  private barPress: { x: number; y: number } | null = null;
+  /** A drag just ended: the click it would fire is swallowed, so a drag
+   *  never presses whatever button ends up under the cursor. */
+  private swallowClick = false;
 
   /** Drop sequence bookkeeping: last tick played, and whether the ✓ has fired. */
   private uploadTens = 0;
@@ -149,7 +156,10 @@ export class Island {
   private closeApproval() {
     State.endApproval();
     this.fsm.pinned = false;
-    this.setView(State.defaultView());
+    // A request queued behind this one is the card now (State.endApproval).
+    const next = State.pendingApproval;
+    if (next) this.alert(next.questions ? "question" : "approval");
+    else this.setView(State.defaultView());
   }
 
   /**
@@ -487,6 +497,15 @@ export class Island {
 
   /** The island takes the keyboard, so its own shortcuts work (Mac: makeKey).
    *  It gives it back when it closes, or when the chat is left. */
+  /** The global Deny key (shortcuts.ts): what the card's Deny button does. */
+  denyApproval() {
+    const req = State.pendingApproval;
+    if (!req || req.questions) return;
+    void Bridge.log(`decide deny (key) req=${req.requestId}`);
+    void Bridge.approvalDecision(req.requestId, "deny");
+    this.closeApproval();
+  }
+
   takeKeyboard() {
     void Bridge.focusWindow(true);
   }
@@ -731,6 +750,7 @@ export class Island {
 
     this.islandEl.addEventListener("mousedown", (e) => {
       State.lastActivity = performance.now();
+      this.swallowClick = false;
       if (State.mode !== "expanded") {
         // The closed pill: a press may become a drag to another dock; a
         // release before that opens the island (see mouseup below).
@@ -742,6 +762,11 @@ export class Island {
       // A press on Mochi may become a drag out to the desktop.
       if (e.button === 0 && this.isBotHit(e.clientX, e.clientY)) {
         this.botPress = { x: e.clientX, y: e.clientY };
+      } else if (startsBarDrag(e.button, e.clientY - this.islandRect().y, e.target)) {
+        // The top bar moves Glim too, whatever card is showing. No text
+        // selection starts from it.
+        this.barPress = { x: e.clientX, y: e.clientY };
+        e.preventDefault();
       }
       if (this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
@@ -771,6 +796,16 @@ export class Island {
         // Rust moves the window with the cursor from here and snaps it to the
         // nearest dock on release; the page only hears the new dock.
         this.dockPress = null;
+        this.swallowClick = true;
+        void Bridge.dockDragStart();
+        return;
+      }
+      const bar = this.barPress;
+      if (bar && !(e.buttons & 1)) this.barPress = null;
+      else if (bar && Math.hypot(e.clientX - bar.x, e.clientY - bar.y) > DRAG_THRESHOLD) {
+        this.barPress = null;
+        this.swallowClick = true;
+        this.cancelBotHover();
         void Bridge.dockDragStart();
         return;
       }
@@ -788,9 +823,20 @@ export class Island {
       // to the nearest dock on release, as for the closed pill. (Upstream
       // carried its character out onto the desktop here; Glim doesn't.)
       this.cancelBotHover();
+      this.swallowClick = true;
       void Bridge.dockDragStart();
     });
+    // The click that ends a drag lands on whatever is under the cursor once
+    // the window has moved: never let it press a button (capture phase, so
+    // no handler sees it).
+    window.addEventListener("click", (e) => {
+      if (!this.swallowClick) return;
+      this.swallowClick = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }, true);
     window.addEventListener("mouseup", (e) => {
+      this.barPress = null;
       if (this.dockPress) {
         this.dockPress = null;
         this.fsm.click();

@@ -4,7 +4,7 @@ import "./style.css";
 import "./mascot/lantern.css";
 import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
-import { State, type Settings, type WritingFix, type WritingSuggestion } from "./core/state";
+import { State, type Settings, type WritingFix, type WritingResult, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -170,7 +170,7 @@ async function main() {
   });
   // A fix or Copy click's outcome (a code; the island words it).
   let resultTimer: ReturnType<typeof setTimeout> | undefined;
-  await onEvent<{ outcome: string; app: string }>("writing-fix", (result) => {
+  await onEvent<WritingResult>("writing-fix", (result) => {
     State.writingBusy = false;
     State.writingResult = result;
     clearTimeout(resultTimer);

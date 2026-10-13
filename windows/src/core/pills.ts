@@ -111,8 +111,17 @@ export const MAX_DECLARED = 4;
 export const HOST_OS: HostOs =
   typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent ?? "") ? "windows" : "linux";
 
+/**
+ * Joins a Claude Code pill's id to a session's, for a session that runs while
+ * another one has that pill: `integration_claude~bbbb2222` (hooks.ts). Such a
+ * pill is made for its session and goes when the session ends.
+ */
+export const SESSION_PILL_SEP = "~";
+
+/** The catalog pill a pill id stands for: itself, or the pill a session pill was made from. */
 export function pillDefinition(id: string): PillDefinition | undefined {
-  return PILL_CATALOG.find((p) => p.id === id);
+  const base = id.includes(SESSION_PILL_SEP) ? id.slice(0, id.indexOf(SESSION_PILL_SEP)) : id;
+  return PILL_CATALOG.find((p) => p.id === base);
 }
 
 function offeredOn(def: PillDefinition, os: HostOs): boolean {

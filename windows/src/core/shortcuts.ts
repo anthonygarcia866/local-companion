@@ -31,6 +31,7 @@ export const SHORTCUT_TEXT = {
   wardrobeToggle: N_("Open the wardrobe"),
   cycleVisibility: N_("Show Glim as pill, ember or hidden"),
   rewrite: N_("Rewrite the selected text"),
+  denyApproval: N_("Deny the waiting permission"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -58,7 +59,8 @@ export type ShortcutId =
   | "wardrobeToggle"
   // Glim's own, after the Mac ones.
   | "cycleVisibility"
-  | "rewrite";
+  | "rewrite"
+  | "denyApproval";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -91,6 +93,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
   // Phase 1: shown and rebindable in Settings, not registered yet.
   def("rewrite", "Ctrl+Alt+Shift+R", true, false),
+  // Denies the waiting permission card from any app. Allow has no key: a click only.
+  def("denyApproval", "Ctrl+Alt+Shift+N", true, true),
 ];
 
 export interface Binding {

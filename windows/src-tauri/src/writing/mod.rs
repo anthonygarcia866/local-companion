@@ -45,6 +45,9 @@ pub struct Suggestion {
     pub kind: String,
     pub message: String,
     pub replacements: Vec<String>,
+    /// The first replacement is clearly the best (checker::rank): Apply all
+    /// skips the others.
+    pub clear: bool,
 }
 
 impl std::fmt::Debug for Suggestion {
@@ -171,6 +174,8 @@ pub enum Outcome {
     Unsupported,
     /// Typed, but the read-back doesn't match: the user is told to undo.
     NotClean,
+    /// Apply all: no suggestion's first option is clearly the best.
+    Unclear,
     /// The clipboard was busy.
     ClipboardBusy,
 }
@@ -188,6 +193,7 @@ impl Outcome {
             Outcome::KeysHeld => "keys-held",
             Outcome::Unsupported => "unsupported",
             Outcome::NotClean => "not-clean",
+            Outcome::Unclear => "unclear",
             Outcome::ClipboardBusy => "clipboard-busy",
         }
     }
@@ -199,6 +205,12 @@ impl Outcome {
 pub struct FixResult {
     pub outcome: Outcome,
     pub app: String,
+    /// Apply all: how many fixes went in, of how many (both 0 for one fix).
+    pub done: usize,
+    pub total: usize,
+    /// Apply all: suggestions left to the user, their first option not
+    /// clearly the best.
+    pub skipped: usize,
 }
 
 /// The event the island hears a click's outcome on.
@@ -427,6 +439,48 @@ impl Session {
         })
     }
 
+    /// "Apply all": one job per suggestion, with its first replacement, from
+    /// the end of the paragraph backward, so the fixes still to come keep
+    /// their offsets. Each job carries the paragraph as the fixes before it in
+    /// this order will have left it, so `apply::run` re-verifies each one word
+    /// for word. A suggestion that overlaps one already taken, or whose
+    /// replacement Glim wouldn't offer, is left out; one whose first option
+    /// isn't clearly the best is left to the user and counted. Only the list
+    /// id comes from the island.
+    pub fn jobs_all(&self, check_id: u64) -> Result<(Vec<Job>, usize), Outcome> {
+        if self.shown.items.is_empty() {
+            return Err(Outcome::Changed);
+        }
+        let mut order: Vec<usize> = (0..self.shown.items.len()).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(self.shown.items[i].start));
+        let mut jobs: Vec<Job> = Vec::new();
+        let mut paragraph: Option<String> = None;
+        let mut floor = usize::MAX;
+        let mut skipped = 0;
+        for i in order {
+            let item = &self.shown.items[i];
+            if item.end > floor || !item.replacements.first().is_some_and(|r| offerable(r)) {
+                continue;
+            }
+            if !item.clear {
+                skipped += 1;
+                continue;
+            }
+            let mut job = self.job(check_id, i, 0)?;
+            if let Some(p) = &paragraph {
+                job.paragraph = p.clone();
+            }
+            let chars: Vec<char> = job.paragraph.chars().collect();
+            paragraph = Some(chars[..job.start].iter().collect::<String>() + &job.replacement + &chars[job.end..].iter().collect::<String>());
+            floor = item.start;
+            jobs.push(job);
+        }
+        if jobs.is_empty() {
+            return Err(if skipped > 0 { Outcome::Unclear } else { Outcome::Changed });
+        }
+        Ok((jobs, skipped))
+    }
+
     /// The replacement to copy, for a Copy button (§7.7).
     pub fn copy_text(&self, check_id: u64, index: usize, choice: usize) -> Result<String, Outcome> {
         if check_id != self.shown.check_id {
@@ -525,11 +579,33 @@ impl Session {
     }
 }
 
+/// Up to CONTEXT_CHARS characters before and after `start..end`, cut only
+/// between words: a word the cut would split is left out ("…tomorrow, p"
+/// live in Outlook, 2026-10-12).
+fn context(chars: &[char], start: usize, end: usize) -> (String, String) {
+    let mut from = start.saturating_sub(CONTEXT_CHARS);
+    if from > 0 && !chars[from - 1].is_whitespace() {
+        // Mid-word: start after the next space, if there is one before the problem.
+        match chars[from..start].iter().position(|c| c.is_whitespace()) {
+            Some(i) => from += i + 1,
+            None => from = start,
+        }
+    }
+    let mut to = (end + CONTEXT_CHARS).min(chars.len());
+    if to < chars.len() && !chars[to].is_whitespace() {
+        // Mid-word: end at the last space, if there is one after the problem.
+        match chars[end..to].iter().rposition(|c| c.is_whitespace()) {
+            Some(i) => to = end + i,
+            None => to = end,
+        }
+    }
+    (chars[from..start].iter().collect(), chars[end..to].iter().collect())
+}
+
 fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
     let s: String = chars[f.start..f.end].iter().collect();
     let replacements = f.replacements.iter().filter(|r| offerable(r)).cloned().collect();
-    let before: String = chars[f.start.saturating_sub(CONTEXT_CHARS)..f.start].iter().collect();
-    let after: String = chars[f.end..(f.end + CONTEXT_CHARS).min(chars.len())].iter().collect();
+    let (before, after) = context(chars, f.start, f.end);
     Suggestion {
         start: offset + f.start,
         end: offset + f.end,
@@ -539,6 +615,7 @@ fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
         kind: f.kind.clone(),
         message: f.message.clone(),
         replacements,
+        clear: f.clear,
     }
 }
 
@@ -691,6 +768,29 @@ mod tests {
         assert_eq!(item.replacements[0], "received");
     }
 
+    /// Live in Outlook (2026-10-12): the context after "rreceive" ended
+    /// "…tomorrow, p". It is cut between words only.
+    #[test]
+    fn context_is_cut_between_words_only() {
+        let chars: Vec<char> = "We rreceive the payment tomorrow, possibleeee".chars().collect();
+        let at = |w: &str| {
+            let s: String = chars.iter().collect();
+            let start = s[..s.find(w).unwrap()].chars().count();
+            (start, start + w.chars().count())
+        };
+        let (s, e) = at("rreceive");
+        assert_eq!(context(&chars, s, e), ("We ".into(), " the payment tomorrow,".into()));
+        let (s, e) = at("possibleeee");
+        assert_eq!(context(&chars, s, e), ("the payment tomorrow, ".into(), "".into()));
+        // Short enough: nothing is cut.
+        let short: Vec<char> = "We recieved it.".chars().collect();
+        assert_eq!(context(&short, 3, 11), ("We ".into(), " it.".into()));
+        // One word longer than the window on either side: left out, never split.
+        let long: Vec<char> = "Pneumonoultramicroscopicsilicovolcanoconiosis teh Pneumonoultramicroscopicsilicovolcanoconiosis".chars().collect();
+        let s = long.iter().position(|&c| c == ' ').unwrap() + 1;
+        assert_eq!(context(&long, s, s + 3), ("".into(), "".into()));
+    }
+
     // ── 1b: what is kept for a fix, and when it is dropped (§7.2) ────────────
 
     /// A field where fixes are typed: one reading per step.
@@ -720,6 +820,70 @@ mod tests {
         let job = s.job(got.check_id, 0, 0).unwrap();
         assert_eq!((job.paragraph.as_str(), job.start, job.end, job.replacement.as_str()), ("We recieved the payment.", 3, 11, "received"));
         assert_eq!(job.field_start, 8);
+    }
+
+    /// A field with three problems in its paragraph, checked in an Apply field.
+    fn checked_three() -> (Session, Suggestions) {
+        const THREE: &str = "Hi Sam,
+We recieved the payment tomorow, posible.
+Best regards,
+Anthony";
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(THREE), Some(12), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(THREE), Some(12), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        (s, got)
+    }
+
+    #[test]
+    fn apply_all_goes_from_the_end_backward_and_chains_the_paragraph() {
+        let (s, got) = checked_three();
+        let problems: Vec<&str> = got.items.iter().map(|i| i.problem.as_str()).collect();
+        assert_eq!(problems, ["recieved", "tomorow", "posible"]);
+        let (jobs, skipped) = s.jobs_all(got.check_id).unwrap();
+        assert_eq!(skipped, 0);
+        let did: Vec<(usize, String)> = jobs.iter().map(|j| (j.start, j.replacement.clone())).collect();
+        // Last problem first; each start is before the one before it.
+        assert!(did.windows(2).all(|w| w[0].0 > w[1].0), "{did:?}");
+        assert_eq!(jobs.len(), 3);
+        // Each job sees the paragraph the later fixes left: re-verified word for word.
+        assert_eq!(jobs[0].paragraph, "We recieved the payment tomorow, posible.");
+        let after_first = format!("We recieved the payment tomorow, {}.", jobs[0].replacement);
+        assert_eq!(jobs[1].paragraph, after_first);
+        assert!(jobs[2].paragraph.contains(&jobs[1].replacement) && jobs[2].paragraph.starts_with("We recieved"));
+        // The words are the checker's first choice for each row.
+        for j in &jobs {
+            let item = got.items.iter().find(|i| i.start - 8 == j.start).unwrap();
+            assert_eq!(j.replacement, item.replacements[0]);
+        }
+    }
+
+    /// Owner, 2026-10-12: Apply all skips a suggestion whose first option
+    /// isn't clearly the best, and says how many it left.
+    #[test]
+    fn apply_all_leaves_unclear_suggestions_to_the_user() {
+        let (mut s, got) = checked_three();
+        assert!(got.items.iter().all(|i| i.clear), "plain misspellings are clear");
+        s.shown.items[1].clear = false; // "tomorow"
+        let (jobs, skipped) = s.jobs_all(got.check_id).unwrap();
+        assert_eq!(skipped, 1);
+        let fixed: Vec<&str> = jobs.iter().map(|j| j.replacement.as_str()).collect();
+        assert_eq!(fixed, ["possible", "received"]);
+        // The skipped word is left as typed in the paragraph the next fix expects.
+        assert_eq!(jobs[1].paragraph, "We recieved the payment tomorow, possible.");
+        for item in &mut s.shown.items {
+            item.clear = false;
+        }
+        assert_eq!(s.jobs_all(got.check_id).unwrap_err(), Outcome::Unclear);
+    }
+
+    #[test]
+    fn apply_all_refuses_a_stale_list_and_works_only_in_apply_fields() {
+        let (s, got) = checked_three();
+        assert_eq!(s.jobs_all(got.check_id + 1).unwrap_err(), Outcome::Changed);
+        let (mut s, got, t) = checked();
+        feed(&mut s, false, None, None, FixMode::View, false, t + Duration::from_millis(300));
+        assert_eq!(s.jobs_all(got.check_id).unwrap_err(), Outcome::Away);
     }
 
     #[test]
@@ -880,6 +1044,7 @@ mod tests {
             let sig = &lib[at..at + lib[at..].find('{').unwrap()];
             assert_eq!(sig.trim_end(), format!("{cmd}check_id: u64, index: usize, choice: usize)"), "{sig}");
         }
+        assert!(lib.contains("fn writing_fix_all(check_id: u64) {"), "Apply all: the list id only");
         assert!(lib.contains("fn writing_dismiss() {"));
         assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
     }
@@ -892,7 +1057,7 @@ mod tests {
 
     #[test]
     fn formatting_suggestions_never_shows_their_words() {
-        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()] }] };
+        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
         let shown = format!("{s:?} {:?} {:#?}", s.items[0], s);
         assert!(!shown.contains("SENTINEL"), "{shown}");
     }

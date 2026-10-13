@@ -114,9 +114,10 @@ test("the suggestion list sends ids only and never logs", () => {
   for (const banned of ["addEventListener", "console.", "keydown", "localStorage"]) {
     assert.ok(!section.includes(banned), `the suggestion list uses ${banned}`);
   }
-  // Its only calls to Rust: a fix, a copy, dismiss; with ids, never words.
+  // Its only calls to Rust: a fix, Apply all, a copy, dismiss; with ids, never words.
   assert.deepEqual(section.match(/Bridge\.\w+\([^)]*\)/g), [
     "Bridge.writingDismiss()",
+    "Bridge.writingFixAll(fix.checkId)",
     "Bridge.writingFix(fix.checkId, index, choice)",
     "Bridge.writingCopy(fix.checkId, index, choice)",
   ]);
@@ -206,6 +207,58 @@ test("every outcome Rust can send has its own note", () => {
   for (const code of ["applied", "copied", "changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean", "clipboard-busy"]) {
     assert.ok(rust.includes(`=> "${code}",`), code);
   }
+});
+
+test("Apply all: one click sends the list id only, says it uses each first option, and waits for every fix", () => {
+  const view = listIn("apply");
+  const all = view.el.find(".apply-all")[0];
+  assert.equal(all.style.display, "");
+  assert.equal(all.textContent, "Apply all");
+  assert.equal(all.getAttribute("title"), "Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.");
+  const n = sent("writing_fix_all").length;
+  all.fire("click");
+  assert.deepEqual(sent("writing_fix_all").slice(n), [{ checkId: 41 }]);
+  assert.equal(State.writingBusy, true);
+  assert.equal(view.el.find(".suggestion-more")[0].textContent, "Fixing…");
+  assert.ok(view.el.find(".apply-all")[0].disabled && fixButtons(view).every((b) => b.disabled));
+  all.fire("click");
+  assert.equal(sent("writing_fix_all").length, n + 1, "a second click sends nothing");
+  State.writingBusy = false;
+});
+
+test("Apply all shows only where fixes are typed, for two or more, and is off away from the field", () => {
+  for (const [mode, shown, off] of [["apply", true, false], ["away", true, true], ["copy", false, false], ["view", false, false]]) {
+    const all = listIn(mode).el.find(".apply-all")[0];
+    assert.equal(all.style.display === "", shown, mode);
+    if (shown) assert.equal(all.disabled, off, mode);
+  }
+  State.writing = [item("one")];
+  State.writingFix = { checkId: 41, mode: "apply", app: "Word" };
+  const view = buildSuggestions();
+  view.sync();
+  assert.equal(view.el.find(".apply-all")[0].style.display, "none", "one suggestion: its own button is enough");
+});
+
+test("after Apply all the note says how many went in, that Ctrl+Z undoes one per press, and why it stopped", () => {
+  const fix = { checkId: 1, mode: "apply", app: "Word" };
+  assert.equal(suggestionNote(fix, { outcome: "applied", app: "Outlook", done: 3, total: 3 }, false), "Fixed 3 of 3. Ctrl+Z in Outlook undoes one fix per press.");
+  assert.equal(suggestionNote(fix, { outcome: "away", app: "Outlook", done: 2, total: 3 }, false), "Fixed 2 of 3. Ctrl+Z in Outlook undoes one fix per press. It stopped because the cursor left the field.");
+  assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Word", done: 1, total: 3 }, false), "Fixed 1 of 3. Ctrl+Z in Word undoes one fix per press. It stopped because Word changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.");
+  // Nothing went in: the count, and why (live in Outlook, 2026-10-12: the note gave no reason).
+  assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Outlook", done: 0, total: 2 }, false), "Fixed 0 of 2. It stopped because Outlook changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.");
+  assert.equal(suggestionNote(fix, { outcome: "changed", app: "Word", done: 0, total: 3 }, false), "Fixed 0 of 3. It stopped because the text changed after the check. Checked again.");
+  // Suggestions whose best option isn't clear are left to the user, and counted.
+  assert.equal(suggestionNote(fix, { outcome: "applied", app: "Outlook", done: 1, total: 1, skipped: 1 }, false), "Fixed 1 of 1. Ctrl+Z in Outlook undoes one fix per press. Left 1 for you to pick: the best option isn't clear.");
+  assert.equal(suggestionNote(fix, { outcome: "unclear", app: "Outlook", done: 0, total: 0, skipped: 0 }, false), "Nothing was applied: no suggestion has a clearly best option. Pick one yourself.");
+  // Every way it can stop has its own reason.
+  for (const outcome of ["changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean"]) {
+    assert.match(suggestionNote(fix, { outcome, app: "Word", done: 1, total: 2 }, false), /It stopped because /, outcome);
+  }
+  // A single fix's answer has no counts.
+  assert.equal(suggestionNote(fix, { outcome: "applied", app: "Word", done: 0, total: 0 }, false), "Fixed. Ctrl+Z in Word undoes it.");
+  // Rust sends the counts (writing::FixResult).
+  const rust = read("src-tauri/src/writing/mod.rs");
+  assert.match(rust, /pub done: usize,\r?\n\s+pub total: usize,/);
 });
 
 test("Rust's answer clears Fixing… and shows the outcome; Pause reaches Rust", () => {

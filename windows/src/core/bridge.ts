@@ -97,6 +97,8 @@ export const Bridge = {
   // words, never text from here.
   /** A fix button: replacement `choice` of row `index` of list `checkId`. */
   writingFix: (checkId: number, index: number, choice: number) => call<void>("writing_fix", { checkId, index, choice }),
+  /** Apply all: every row of list `checkId`, each with its first replacement. */
+  writingFixAll: (checkId: number) => call<void>("writing_fix_all", { checkId }),
   /** A Copy button (fields Glim can't type in). */
   writingCopy: (checkId: number, index: number, choice: number) => call<void>("writing_copy", { checkId, index, choice }),
   /** Dismiss: the list goes until the text changes. */

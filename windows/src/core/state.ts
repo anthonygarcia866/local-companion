@@ -11,6 +11,7 @@ import type { ProviderId } from "./providers";
 import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
+import type { AgentLimit } from "./limit";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -35,8 +36,12 @@ export interface AgentTask {
   sessionCwd?: string | null;
   /** Claude Code's session, so "Open terminal" can find the window it runs in. */
   sessionId?: string | null;
+  /** When its session last sent an event (epoch ms): a pill whose session went quiet can be taken over. */
+  lastEventAt?: number;
   /** Claude's final message after Stop, one line; cleared when a new turn starts. */
   finalLine?: string | null;
+  /** The usage or spend limit that stopped it; read only while `state` is "ratelimit". */
+  limit?: AgentLimit | null;
 }
 
 export interface ApprovalInfo {
@@ -188,6 +193,8 @@ export interface WritingSuggestion {
   message: string;
   /** "" means "remove it". */
   replacements: string[];
+  /** The first replacement is clearly the best: Apply all takes it. */
+  clear: boolean;
 }
 
 /**
@@ -203,6 +210,19 @@ export interface WritingFix {
   checkId: number;
   mode: WritingFixMode;
   app: string;
+}
+
+/**
+ * A click's outcome (a code from Rust). Apply all also says how many fixes
+ * went in, of how many (`total` 0 for a single fix).
+ */
+export interface WritingResult {
+  outcome: string;
+  app: string;
+  done?: number;
+  total?: number;
+  /** Apply all: suggestions left to the user, their best option not clear. */
+  skipped?: number;
 }
 
 class AppState {
@@ -234,11 +254,17 @@ class AppState {
   searchResult: SearchResult | null = null;
   chatHistory: ChatMessage[] = [];
   pendingApproval: ApprovalInfo | null = null;
+  /**
+   * Requests that came while a card was up, oldest first. Each was acknowledged
+   * (its agent keeps waiting for Glim) and comes up in turn when the card
+   * before it ends; hooks.ts withdraws one whose turn ends or time runs out.
+   */
+  approvalQueue: ApprovalInfo[] = [];
   /** The focused field's writing suggestions (Rust: "writing-suggestions"). */
   writing: WritingSuggestion[] = [];
   writingFix: WritingFix = { checkId: 0, mode: "view", app: "" };
   /** The last click's outcome (a code from Rust), shown for a few seconds. */
-  writingResult: { outcome: string; app: string } | null = null;
+  writingResult: WritingResult | null = null;
   /** A fix is on its way: the buttons wait for the outcome. */
   writingBusy = false;
   /** The pill that was in front when the card came up; it comes back after. */
@@ -328,7 +354,30 @@ class AppState {
     if (previous && this.focusId === req.pillId && this.tasks.some((t) => t.id === previous)) {
       this.focusId = previous;
     }
+    // The next request in the queue is the card now (the island shows it:
+    // island.ts closeApproval, hooks.ts dropPendingCard).
+    const next = this.approvalQueue.shift();
+    if (next) {
+      this.beginApproval(next);
+      this.updateTask(next.pillId, next.questions ? "question" : "approval");
+    }
     this.notify();
+  }
+
+  /** A request waits behind the card on screen; its pill is badged meanwhile. */
+  queueApproval(info: ApprovalInfo) {
+    this.approvalQueue.push(info);
+    this.setPillBadge(info.pillId, "approval");
+    this.notify();
+  }
+
+  /** Takes the queued requests `drop` picks out of the queue, and returns them. */
+  withdrawQueued(drop: (r: ApprovalInfo) => boolean): ApprovalInfo[] {
+    const gone = this.approvalQueue.filter(drop);
+    if (gone.length === 0) return gone;
+    this.approvalQueue = this.approvalQueue.filter((r) => !drop(r));
+    this.notify();
+    return gone;
   }
 
   updateTask(id: string, state: BotStateName) {
@@ -477,6 +526,8 @@ class AppState {
       const def = pillDefinition(id);
       if (!def) return null;
       t = taskFor(def, this.settings.pillColors, name);
+      // A session pill (hooks.ts) is its catalog pill's, under its own id.
+      t.id = id;
       this.insertAfterMain(t);
     }
     t.name = name;

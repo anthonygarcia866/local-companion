@@ -519,6 +519,16 @@ fn writing_fix(check_id: u64, index: usize, choice: usize) {
     let _ = (check_id, index, choice);
 }
 
+/// Apply all: every suggestion's first replacement, last to first, each
+/// re-verified; stops at the first that doesn't apply.
+#[tauri::command]
+fn writing_fix_all(check_id: u64) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::FixAll { check_id });
+    #[cfg(not(windows))]
+    let _ = check_id;
+}
+
 /// A Copy button (fields Glim can't type in, §7.7): only on the user's click.
 #[tauri::command]
 fn writing_copy(check_id: u64, index: usize, choice: usize) {
@@ -847,6 +857,7 @@ pub fn run() {
             approval_decline,
             log_line,
             writing_fix,
+            writing_fix_all,
             writing_copy,
             writing_dismiss,
             writing_set_paused,
