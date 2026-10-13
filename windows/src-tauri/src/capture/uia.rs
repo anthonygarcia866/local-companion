@@ -171,6 +171,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let (mut events, mut polls, mut by_event, mut by_poll) = (0u32, 0u32, 0u32, 0u32);
     let mut apps: Vec<String> = Vec::new();
     let mut report_at = std::time::Instant::now() + REPORT_EVERY;
+    // The writing settings in force (1d): a change drops what the checker
+    // shows and keeps, and the next reading starts afresh.
+    let mut prefs_version = crate::writing::prefs::version();
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -340,6 +343,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             (events, polls, by_event, by_poll) = (0, 0, 0, 0);
             apps.clear();
             report_at = std::time::Instant::now() + REPORT_EVERY;
+        }
+        if crate::writing::prefs::version() != prefs_version {
+            prefs_version = crate::writing::prefs::version();
+            writer.settings_changed(send_list);
+            fix_field = None;
+            last_field = None;
+            rewrite_field = None;
         }
         // Paused: nothing is read at all, and the checker drops what it kept.
         if crate::writing::paused() {

@@ -95,6 +95,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     };
     let settings = shared.settings.lock().unwrap().clone();
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -586,6 +587,12 @@ struct AiModel {
     prices_checked: &'static str,
 }
 
+/// The apps Settings → Writing → Apps lists (1d): the built-in ones.
+#[tauri::command]
+fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
+    writing::apps::known()
+}
+
 #[tauri::command]
 fn ai_models() -> Vec<AiModel> {
     ai::claude::MODELS
@@ -869,6 +876,7 @@ pub fn run() {
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     let gate = Arc::new(PollGate::new());
 
     let mut builder = tauri::Builder::default()
@@ -967,6 +975,7 @@ pub fn run() {
             ai_key_remove,
             ai_spend,
             ai_models,
+            writing_known_apps,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

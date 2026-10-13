@@ -3747,6 +3747,61 @@
    "pt-BR": "Sem telemetria. O Glim só se conecta a este computador e, quando você pede uma reescrita, a api.anthropic.com.",
    "ru": "Без телеметрии. Glim подключается только к этому компьютеру и, когда вы просите переписать текст, к api.anthropic.com.",
    "id": "Tanpa telemetri. Glim hanya terhubung ke komputer ini dan, saat Anda meminta tulis ulang, ke api.anthropic.com."
+  },
+  "Writing": {
+   "zh-Hans": "写作",
+   "hi": "लेखन",
+   "es": "Escritura",
+   "ar": "الكتابة",
+   "fr": "Écriture",
+   "bn": "লেখা",
+   "pt-BR": "Escrita",
+   "ru": "Текст",
+   "id": "Penulisan"
+  },
+  "Apps": {
+   "zh-Hans": "应用",
+   "hi": "ऐप्स",
+   "es": "Apps",
+   "ar": "التطبيقات",
+   "fr": "Apps",
+   "bn": "অ্যাপ",
+   "pt-BR": "Apps",
+   "ru": "Приложения",
+   "id": "Aplikasi"
+  },
+  "chat rules": {
+   "zh-Hans": "聊天规则",
+   "hi": "चैट नियम",
+   "es": "reglas de chat",
+   "ar": "قواعد الدردشة",
+   "fr": "règles de chat",
+   "bn": "চ্যাট নিয়ম",
+   "pt-BR": "regras de chat",
+   "ru": "правила чата",
+   "id": "aturan obrolan"
+  },
+  "suggestions only": {
+   "zh-Hans": "仅建议",
+   "hi": "केवल सुझाव",
+   "es": "solo sugerencias",
+   "ar": "اقتراحات فقط",
+   "fr": "suggestions seulement",
+   "bn": "শুধু পরামর্শ",
+   "pt-BR": "só sugestões",
+   "ru": "только подсказки",
+   "id": "hanya saran"
+  },
+  "The apps Glim checks your writing in. Password managers and paused apps are never read, whatever their switch says.": {
+   "zh-Hans": "Glim 检查你写作的应用。无论开关如何，密码管理器和已暂停的应用都不会被读取。",
+   "hi": "वे ऐप जिनमें Glim आपका लेखन जाँचता है। पासवर्ड मैनेजर और रोके गए ऐप कभी नहीं पढ़े जाते, उनका स्विच कुछ भी कहे।",
+   "es": "Las apps en las que Glim revisa lo que escribes. Los gestores de contraseñas y las apps en pausa nunca se leen, diga lo que diga su interruptor.",
+   "ar": "التطبيقات التي يدقق فيها Glim كتابتك. لا تُقرأ مديرات كلمات المرور والتطبيقات الموقوفة أبدًا، أيًّا كان مفتاحها.",
+   "fr": "Les apps où Glim vérifie ce que vous écrivez. Les gestionnaires de mots de passe et les apps en pause ne sont jamais lus, quel que soit leur interrupteur.",
+   "bn": "যে অ্যাপগুলোতে Glim আপনার লেখা যাচাই করে। পাসওয়ার্ড ম্যানেজার ও বিরতি দেওয়া অ্যাপ কখনো পড়া হয় না, তাদের সুইচ যা-ই বলুক।",
+   "pt-BR": "Os apps em que o Glim revisa o que você escreve. Gerenciadores de senhas e apps pausados nunca são lidos, seja qual for a chave deles.",
+   "ru": "Приложения, в которых Glim проверяет ваш текст. Менеджеры паролей и приостановленные приложения никогда не читаются, что бы ни говорил их переключатель.",
+   "id": "Aplikasi tempat Glim memeriksa tulisan Anda. Pengelola kata sandi dan aplikasi yang dijeda tidak pernah dibaca, apa pun sakelarnya."
   }
  }
 }

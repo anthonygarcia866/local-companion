@@ -14,6 +14,7 @@
 pub mod apply;
 pub mod apps;
 pub mod checker;
+pub mod prefs;
 pub mod text;
 
 use serde::Serialize;
@@ -456,6 +457,17 @@ impl Session {
         } else {
             self.refresh(&mut emit);
         }
+    }
+
+    /// The writing settings changed (an app switched off, 1d): everything
+    /// shown, kept or remembered goes, and the field is looked at afresh.
+    pub fn settings_changed(&mut self, mut emit: impl FnMut(&Suggestions)) {
+        self.kept = None;
+        self.current = None;
+        self.rewrite = None;
+        self.dismissed = None;
+        self.debounce.reset();
+        self.show(Suggestions::default(), FixMode::View, &mut emit);
     }
 
     /// Dismissed from the island: nothing shown or kept until the text changes.

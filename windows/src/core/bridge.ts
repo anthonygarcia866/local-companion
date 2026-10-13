@@ -31,6 +31,17 @@ export interface BootInfo {
   cursorPoll: boolean;
 }
 
+/** A built-in app of the writing checker (src-tauri/src/writing/apps.rs). */
+export interface KnownApp {
+  exe: string;
+  name: string;
+  defaultOn: boolean;
+  /** Relaxed chat rules. */
+  chat: boolean;
+  /** Fixes are typed (else suggestions only). */
+  fixes: boolean;
+}
+
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
   /** The system's languages as the webview sees them, for Rust's own texts (i18n.rs). */
@@ -127,6 +138,8 @@ export const Bridge = {
   aiKeyRemove: () => callOrThrow<AiKeyStatus>("ai_key_remove"),
   aiSpend: () => call<AiSpend>("ai_spend"),
   aiModels: () => call<AiModel[]>("ai_models"),
+  /** The built-in apps of Settings → Writing → Apps (1d). */
+  writingKnownApps: () => call<KnownApp[]>("writing_known_apps"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

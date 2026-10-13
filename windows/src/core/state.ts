@@ -155,6 +155,8 @@ export interface Settings {
   aiModel: string;
   /** Monthly cap on Glim's API spend estimate, in US dollars; 0 = none. */
   aiMonthlyCapUsd: number;
+  /** Settings → Writing → Apps (1d): "on" / "off" by exe, only where it differs from the default. */
+  writingApps: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -178,6 +180,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiBrain: "claude",
   aiModel: "claude-haiku-5-5",
   aiMonthlyCapUsd: 0,
+  writingApps: {},
 };
 
 type Listener = () => void;

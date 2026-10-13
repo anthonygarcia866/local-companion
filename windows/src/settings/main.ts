@@ -19,6 +19,7 @@ import {
 import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
+import { writingSection } from "./writing";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import {
@@ -1003,6 +1004,7 @@ async function render() {
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
   const ai = await aiSection({ settings: () => settings, save });
+  const writing = writingSection({ settings: () => settings, save }, (await Bridge.writingKnownApps()) ?? []);
 
   declaredViews.length = 0;
   localRedraw = null;
@@ -1013,6 +1015,7 @@ async function render() {
     claudeSection(status),
     agentsSection(agents),
     planSection(status),
+    writing,
     ai,
     localSection(),
     activePillsSection(connected),

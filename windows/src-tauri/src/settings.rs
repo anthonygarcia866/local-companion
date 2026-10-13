@@ -76,6 +76,10 @@ pub struct Settings {
     /// The monthly cap on Glim's API spend estimate, in US dollars; 0 = none
     /// (ai/spend.rs).
     pub ai_monthly_cap_usd: f64,
+    /// Settings → Writing → Apps (1d, docs/phase1-plan.md §14.1): "on" or
+    /// "off" by exe, only where it differs from writing::apps' defaults. Any
+    /// other value reads as the default.
+    pub writing_apps: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -121,6 +125,7 @@ impl Default for Settings {
             ai_brain: "claude".into(),
             ai_model: crate::ai::claude::DEFAULT_MODEL.into(),
             ai_monthly_cap_usd: 0.0,
+            writing_apps: BTreeMap::new(),
         }
     }
 }
@@ -396,7 +401,8 @@ mod tests {
   "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } },
   "aiBrain": "local",
   "aiModel": "claude-sonnet-5-5",
-  "aiMonthlyCapUsd": 7.5
+  "aiMonthlyCapUsd": 7.5,
+  "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" }
 }"##;
 
     fn custom() -> Value {
@@ -506,6 +512,16 @@ mod tests {
         // No key ever goes in here.
         let json = serde_json::to_string(&Settings::default()).unwrap().to_lowercase();
         assert!(!json.contains("apikey") && !json.contains("sk-ant"), "{json}");
+    }
+
+    #[test]
+    fn a_file_from_before_1d_has_every_app_at_its_default() {
+        let loaded = parse(br#"{"screen":"active"}"#).unwrap();
+        assert!(loaded.writing_apps.is_empty());
+        // Not a map of strings: the switches fall back, and nothing else does.
+        let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
+        assert!(loaded.writing_apps.is_empty());
+        assert_eq!(loaded.screen, "cursor");
     }
 
     #[test]
@@ -809,6 +825,7 @@ mod tests {
                 "aiBrain",
                 "aiModel",
                 "aiMonthlyCapUsd",
+                "writingApps",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
