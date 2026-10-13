@@ -2517,7 +2517,8 @@ html:not([data-presence="pill"]) #lantern-menu {
 }
 
 button.fix-btn,
-button.apply-all {
+button.apply-all,
+button.rewrite-open {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2529,12 +2530,14 @@ button.apply-all {
 }
 
 button.fix-btn:hover:not(:disabled),
-button.apply-all:hover:not(:disabled) {
+button.apply-all:hover:not(:disabled),
+button.rewrite-open:hover:not(:disabled) {
   background: rgba(242, 177, 76, 0.32);
 }
 
 button.fix-btn:focus-visible,
 button.apply-all:focus-visible,
+button.rewrite-open:focus-visible,
 .suggestion-dismiss:focus-visible {
   outline: 2px solid #f2b14c;
   outline-offset: 1px;
@@ -2542,7 +2545,8 @@ button.apply-all:focus-visible,
 
 /* "Click in the field first" (away) or a fix on its way. */
 button.fix-btn:disabled,
-button.apply-all:disabled {
+button.apply-all:disabled,
+button.rewrite-open:disabled {
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.45);
@@ -2562,12 +2566,58 @@ button.apply-all:disabled {
   min-width: 0;
 }
 
-button.apply-all {
+button.apply-all,
+button.rewrite-open {
   flex: none;
   height: 24px;
   padding: 0 10px;
   border-radius: 7px;
   font: 600 11.5px var(--font);
+}
+
+/* The Rewrite card (1c). */
+.rewrite-body {
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.rewrite-tones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+button.rewrite-tone {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font: 600 12px var(--font);
+}
+
+/* The rewrite itself: up to five lines, then it scrolls. */
+.rewrite-text {
+  font: 400 12.5px/1.45 var(--font);
+  color: rgba(255, 255, 255, 0.92);
+  max-height: 92px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rewrite-why {
+  white-space: normal;
+}
+
+.rewrite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.rewrite-again {
+  color: #8e939c;
+  font-size: 11.5px;
 }
 
 /* Dismiss: last in the pager row. */

@@ -22,7 +22,8 @@ export type IslandViewName =
   | "note"
   | "settings"
   | "recap"
-  | "suggestions";
+  | "suggestions"
+  | "rewrite";
 
 export type BotStateName =
   | "idle"
@@ -174,6 +175,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // buttons). At 212 the
   // third row and the pager were cut off, and the window can't scroll.
   suggestions: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // The Rewrite card (1c, views.ts buildRewrite): the title, the rewritten
+  // paragraph (up to ~5 lines, scrolls past that) and a row of buttons.
+  rewrite: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually

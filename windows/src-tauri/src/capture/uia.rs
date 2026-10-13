@@ -71,6 +71,16 @@ pub enum Request {
     FixAll { check_id: u64 },
     /// Dismiss the list.
     Dismiss,
+    /// 1c: rewrite the paragraph the caret is in, in this tone (a click).
+    Rewrite { tone: crate::ai::claude::Tone },
+    /// 1c: the API's answer for rewrite `id` (from the async runtime).
+    RewriteDone { id: u64, reply: crate::ai::claude::Reply, elapsed: std::time::Duration },
+    /// 1c: "Use this": type rewrite `id` in, through 1b's apply path.
+    RewriteApply { id: u64 },
+    /// 1c: copy rewrite `id`.
+    RewriteCopy { id: u64 },
+    /// 1c: the Rewrite card was closed.
+    RewriteDismiss,
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -136,6 +146,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // The field whose paragraph the checker keeps for a fix (1b): its element,
     // its process, and the list's check id.
     let mut fix_field: Option<(IUIAutomationElement, u32)> = None;
+    // The last field the checker read text from, and the one a rewrite (1c)
+    // was asked in: "Use this" types only there.
+    let mut last_field: Option<(IUIAutomationElement, u32)> = None;
+    let mut rewrite_field: Option<(IUIAutomationElement, u32)> = None;
+    let send_rewrite = |e: crate::ai::rewrite::RewriteEvent| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::rewrite::EVENT, &e);
+    };
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
     };
@@ -213,6 +230,94 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         writer.dismiss(send_list);
                         fix_field = None;
                     }
+                    Request::Rewrite { tone } => {
+                        use crate::ai::{claude, key, rewrite, spend};
+                        let config = rewrite::config();
+                        let saved = key::load(&key::vault());
+                        let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
+                        let spent = spend::current(&spend::path(), &spend::month_now());
+                        let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
+                            .map_err(String::from)
+                            .and_then(|()| writer.rewrite_begin(std::time::Instant::now()).map_err(|_| "no-paragraph".to_string()));
+                        match (begun, saved) {
+                            (Ok(src), Ok(Some(api_key))) => {
+                                rewrite_field = last_field.clone();
+                                send_rewrite(rewrite::RewriteEvent::sending(src.id, tone, config.model));
+                                let (id, model, paragraph) = (src.id, config.model, src.paragraph);
+                                tauri::async_runtime::spawn(async move {
+                                    let started = std::time::Instant::now();
+                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                        Ok(base) => claude::rewrite(&base, &api_key, model, tone, &paragraph).await,
+                                        Err(_) => claude::Reply { result: Err(claude::Failure::Network), usage: None },
+                                    };
+                                    request(Request::RewriteDone { id, reply, elapsed: started.elapsed() });
+                                });
+                            }
+                            (Err(code), _) => {
+                                crate::log::line(format!("rewrite: not sent ({code})"));
+                                send_rewrite(rewrite::RewriteEvent::failed(0, code));
+                            }
+                            // precheck passed, so the key was there a moment ago.
+                            (Ok(src), _) => {
+                                writer.rewrite_clear();
+                                send_rewrite(rewrite::RewriteEvent::failed(src.id, "no-key"));
+                            }
+                        }
+                    }
+                    Request::RewriteDone { id, reply, elapsed } => {
+                        use crate::ai::{claude, rewrite, spend};
+                        crate::log::line(claude::log_line(&reply, elapsed));
+                        if let Some(usage) = &reply.usage {
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
+                                crate::log::line(format!("rewrite: could not record the spend: {err}"));
+                            }
+                        }
+                        let shown = match &reply.result {
+                            Ok(text) => writer.rewrite_answer(id, text.clone()),
+                            Err(_) => {
+                                if writer.rewrite_is(id) {
+                                    writer.rewrite_clear();
+                                }
+                                None
+                            }
+                        };
+                        send_rewrite(rewrite::RewriteEvent::answered(id, &reply, shown.as_ref()));
+                    }
+                    Request::RewriteApply { id } => {
+                        let outcome = match writer.rewrite_job(id) {
+                            Err(o) => o,
+                            Ok(_) if crate::writing::paused() => Outcome::Paused,
+                            Ok(job) => match &rewrite_field {
+                                Some((element, pid)) => {
+                                    let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                    crate::writing::apply::run(&mut field, &job)
+                                }
+                                None => Outcome::Away,
+                            },
+                        };
+                        let name = writer.rewrite_app();
+                        crate::log::line(format!("writing: rewrite {} ({name})", outcome.code()));
+                        if outcome == Outcome::Applied {
+                            // The paragraph changed: checked again at once.
+                            writer.rewrite_clear();
+                            writer.after_fix();
+                            rewrite_field = None;
+                            fix_field = None;
+                        }
+                        send_rewrite(crate::ai::rewrite::RewriteEvent::result(id, outcome, name));
+                    }
+                    Request::RewriteCopy { id } => {
+                        let outcome = match writer.rewrite_copy(id) {
+                            Ok(t) if super::fix::copy_to_clipboard(&t) => Outcome::Copied,
+                            Ok(_) => Outcome::ClipboardBusy,
+                            Err(o) => o,
+                        };
+                        send_rewrite(crate::ai::rewrite::RewriteEvent::result(id, outcome, writer.rewrite_app()));
+                    }
+                    Request::RewriteDismiss => {
+                        writer.rewrite_clear();
+                        rewrite_field = None;
+                    }
                     Request::Wake => {}
                 }
                 "request"
@@ -284,6 +389,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
+        if checked.is_some() {
+            last_field = Some((element.clone(), pid as u32));
+        }
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }

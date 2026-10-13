@@ -30,7 +30,7 @@ export const SHORTCUT_TEXT = {
   desktopToggle: N_("Send Glim to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
   cycleVisibility: N_("Show Glim as pill, ember or hidden"),
-  rewrite: N_("Rewrite the selected text"),
+  rewrite: N_("Rewrite the paragraph you're writing"),
   denyApproval: N_("Deny the waiting permission"),
   island: {
     nextPrev: N_("Next or previous pill"),
@@ -73,8 +73,9 @@ export interface ShortcutDef {
 const def = (id: ShortcutId, defaultKeys: string, enabledByDefault: boolean, ported: boolean): ShortcutDef =>
   ({ id, defaultKeys, enabledByDefault, ported });
 
-/** Not working yet, but listed in Settings so its key can be picked now. */
-export const PLANNED_SHORTCUTS: ReadonlySet<ShortcutId> = new Set(["rewrite"]);
+/** Not working yet, but listed in Settings so its key can be picked now
+ *  (none since 1c registered the rewrite key). */
+export const PLANNED_SHORTCUTS: ReadonlySet<ShortcutId> = new Set<ShortcutId>();
 
 /** Same order and defaults as ACTIONS in src-tauri/src/shortcuts.rs. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
@@ -91,8 +92,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("wardrobeToggle", "Ctrl+Alt+G", true, false),
   // Glim's own: Normal → Ember → Hidden. Rust runs it (it has to reach a hidden window).
   def("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
-  // Phase 1: shown and rebindable in Settings, not registered yet.
-  def("rewrite", "Ctrl+Alt+Shift+R", true, false),
+  // 1c: opens the Rewrite card (nothing is sent until a tone is clicked).
+  def("rewrite", "Ctrl+Alt+Shift+R", true, true),
   // Denies the waiting permission card from any app. Allow has no key: a click only.
   def("denyApproval", "Ctrl+Alt+Shift+N", true, true),
 ];

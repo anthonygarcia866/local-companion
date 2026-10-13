@@ -341,3 +341,112 @@ The owner is no longer prioritizing local-only AI. Full statement: `docs/vision.
 1. **The rewrite hotkey counts as the owner's request** to send that paragraph to the API. The result still shows as a suggestion and is typed in only when the owner clicks it (1b's apply path).
 2. **`s-delegate` shows while text is going to the API.** The rule changed in CLAUDE.md, the design file's header and PROJECT_STATUS. The code side changes in the 1c PR: `RESERVED_LANTERN_STATES.delegate`'s owner (now `"phase3-delegation"`) and the allowed callers in `tests/lantern.test.mjs` (`SHOWS_RESERVED`).
 3. **CLAUDE.md's network rule** now matches `docs/vision.md`: localhost + `api.anthropic.com`, through `net/mod.rs`.
+
+## 13. 1c design: the Claude API rewrite (2026-10-12)
+
+Follows `docs/vision.md` §2–3 and §12 above. Branch `phase-1c-rewrite`, stacked on `post-1b-fixes` (PR #15). **Built 2026-10-12** (steps 1–6 below, one commit each). Not yet run against the real API or in the installed app. Where this section and an older one disagree (§1 item 6 says `s-think`, §2's 1c row lists "clearer"), this section wins.
+
+### 13.1 What the user sees
+
+1. The caret is in a paragraph of an app the checker is on (Outlook, Word, Gmail, Notepad…).
+2. **Ctrl+Alt+Shift+R**, or the **Rewrite** button on the island's suggestion card, opens the **Rewrite card** in the island with four tones: **Friendlier**, **More formal**, **Shorter**, **Fix grammar**. Nothing has been sent yet. The island never takes focus, so the caret stays in the field.
+3. **Clicking a tone is the request to send** (§12 decision 1: the user's own action). That one paragraph goes to the Claude API, the same paragraph the checker uses (signature and quoted text left out). The lantern is in **`s-delegate`** from the moment the request leaves until the answer is in (vision §3). The card says "Rewriting with Claude…".
+4. The answer is shown **as a suggestion**: the rewritten paragraph, with **Use this** (fields where fixes are typed), **Copy** (fields Glim can't type in) or plain text (view-only apps), and **Dismiss**. Under it: the model and this request's estimated cost.
+5. **Use this** types it in through 1b's apply path (§7.3), unchanged. Only the rewrite's id goes from the island to Rust. Rust re-verifies that the field still holds the paragraph as it was sent, replaces the whole paragraph, and reads it back. Ctrl+Z in the app undoes it. If the paragraph changed in the meantime, nothing is typed ("The text changed…").
+6. If nothing can be sent, the card says why instead: no API key (Settings → AI), the monthly cap is reached, Glim is paused, there is no paragraph here, the paragraph is over 2,000 characters, it looks like a card, SSN or IBAN, or the brain is set to the local model (not built yet, see 13.8).
+
+**Hotkey decision:** the hotkey opens the card and the tone click sends. That is one click more than §12 decision 1 allows (the hotkey alone could send with a default tone). **Owner, 2026-10-12: keep it.** The hotkey opens the tone card; with 1d's default tones, a second press while the card is open sends the default (§14.3 on `docs/phase-1d-plan`).
+
+### 13.2 The API request (checked against Anthropic's docs 2026-10-12)
+
+Sources: platform.claude.com `about-claude/models/overview`, `about-claude/pricing` and `api/errors`, read 2026-10-12. None of these values come from memory.
+
+| Setting | Model ID | Input $/MTok | Output $/MTok | Note |
+|---|---|---|---|---|
+| **Haiku 5.5 (default)** | `claude-haiku-5-5` | 0.10 | 0.50 | For prompts up to 100,000 tokens; above that, 0.50 / 2.50. A rewrite is far below. |
+| Sonnet 5.5 | `claude-sonnet-5-5` | 2.00 | 10.00 | |
+| Opus 5.5 | `claude-opus-5-5` | 4.00 | 20.00 | |
+
+- **Endpoint:** `POST https://api.anthropic.com/v1/messages`, with headers `x-api-key`, `anthropic-version: 2023-06-01` and `content-type: application/json`. Rust calls it directly (there is no official Rust SDK), only through `net::request`.
+- **Body:**
+  - `model`, `max_tokens: 2048` and `output_config: {effort: "low"}` (fast and cheap; all three models think adaptively and accept `low`).
+  - A fixed `system` prompt: rewrite only the text in the tags; keep names, numbers, dates, addresses and facts exactly; return one paragraph of plain text with no line breaks, no quotes and no preamble; if nothing needs changing, return the text as it is.
+  - One user message holding the tone instruction and the paragraph inside `<text>` tags.
+  - Left out: `thinking` (the models' default is used), streaming (a paragraph comes back in one piece), tools, and prompt caching (the prompt is under the minimum cacheable size).
+- **Answer:**
+  - The text is the `text` blocks of `content`, joined and trimmed.
+  - `stop_reason` `end_turn` is a result, `max_tokens` means "too long to rewrite", and `refusal` means "Claude declined to rewrite this".
+  - An answer with line breaks or control characters, or one the card/SSN/IBAN scan flags, is shown with Copy only and never typed (`writing::offerable`).
+- **Cost:** `usage.input_tokens × input price + usage.output_tokens × output price`, at the prices of the model the response names, in micro-dollars. Thinking tokens are billed as output and are already in `output_tokens`.
+- **Errors**, by status and `error.type`:
+  - 401 `authentication_error`: Anthropic refused the API key.
+  - 402 `billing_error`: a billing problem on the Anthropic account.
+  - 403 `permission_error`.
+  - 413: the request is too large.
+  - 429 `rate_limit_error`: shows the wait from `retry-after` when there is one. A spend-cap 429 has none.
+  - 500 `api_error`, 504 `timeout_error`.
+  - 529 `overloaded_error`: "Claude is busy, try again".
+  - Network and TLS failures.
+
+  Only the status and `error.type` are logged. **There are no automatic retries:** each try costs money, and the user can click again.
+- **Not used yet: server-side refusal fallbacks** (`fallbacks`). Haiku has none. On Sonnet and Opus a fallback re-runs the request on another model, so the cost estimate would have to use that model's prices. **Owner, 2026-10-12: off.**
+- **Timeout:** 20 s for the whole request, 10 s to connect. Plan §2's target is about 4.5 s; it gets measured with the owner's key, not in tests.
+
+### 13.3 The brain setting
+
+- `settings.json` gains `aiBrain`: `"claude"` (default) or `"local"`. It can be switched at any time, with no rebuild.
+- `"local"` is the offline fallback: gemma3 through Ollama, on localhost through `net::request`. **Nothing is built for it in this PR** (§12.6: not before the Claude path works). With it selected, the Rewrite card says "Rewrite with the local model isn't built yet. Choose Claude API in Settings."
+- `aiModel` (default `claude-haiku-5-5`) picks the model for 1c. Later tasks get their own settings.
+
+### 13.4 The API key: Windows Credential Manager
+
+- **Storage:** a **generic credential**, target `Glim/AnthropicApiKey`, persistence `LOCAL_MACHINE` (this user on this PC, never roamed). It goes through the `windows` crate's `CredWriteW` / `CredReadW` / `CredDeleteW` (feature `Win32_Security_Credentials`), with no new crate. **This adds credential storage back on purpose** (Phase 0a removed the `keyring` crate), and the PR says so.
+- **Entering it:** Settings sends the key to Rust once, when the user saves it (`ai_key_set`). That is the only time it passes through a webview. From then on Settings gets only `{set, hint}`, where the hint is `sk-ant-…` plus the last 4 characters. **Remove** deletes the credential.
+- **Reading it:** only the network call reads it, just before sending. It is held in a type whose `Debug` prints nothing. It is never logged, and never written to `settings.json`, the log or any event. A source test checks that nothing logs it.
+- **Tests:** the store is a small trait with an in-memory fake, so tests never touch the real Credential Manager. One `#[ignore]` test does a real write, read and delete for a manual run.
+
+### 13.5 Monthly spend and the cap
+
+- **What is stored:** `spend.json` in Glim's config folder holds `{month: "2026-10", micros, requests, inputTokens, outputTokens}`, by local time. Only numbers, never text. A new month starts again at zero.
+- **The cap:** `aiMonthlyCapUsd` in `settings.json`, where 0 means no cap.
+  - Before a request is sent, if this month's estimate is already at or over the cap, nothing is sent. The card says "Monthly cap of $X reached; nothing more is sent this month."
+  - The check runs before each request, so the cap can be passed by at most one rewrite's cost (about $0.0005 on Haiku).
+- **Settings shows this month's spend**, with the note "Glim's own estimate from token counts. Your Anthropic Console bill is the real number." The Console has its own hard spend limit, and setting one there is recommended too.
+
+### 13.6 The network checkpoint change (`net/mod.rs`)
+
+- **Hosts:** `ALLOWED_HOSTS` stays loopback only, with any scheme and port as today. The new `ANTHROPIC_HOST = "api.anthropic.com"` is allowed **only with `https` on port 443** (no explicit port, or 443). There is no other Anthropic host and no wildcard, so `x.api.anthropic.com`, `api.anthropic.com.evil.com`, `http://` and `:8443` are all refused.
+- **Redirects:** every hop passes `check` as before. In addition, a hop from a non-loopback origin may not change host, so Anthropic can't redirect anywhere else, not even to localhost.
+- **TLS:** rustls with its bundled roots, with certificate checks on. A source test forbids `danger_accept_invalid_certs` and `danger_accept_invalid_hostnames`.
+- **Unchanged:** proxies are never used, and the guard test (no sockets or `reqwest` outside `src/net/`) stays as it is.
+- **Tests use a fake local server.** The client takes the base URL as a parameter: `https://api.anthropic.com` in the app, `http://127.0.0.1:<port>` in tests. **No test calls the real API.**
+- **Empirical check (owner's live test):** a request to another host is refused, and during a rewrite netstat over `glim.exe` and its `msedgewebview2.exe` children shows only loopback and Anthropic's addresses.
+
+### 13.7 Before anything is sent, and while it is
+
+- **Where the paragraph comes from:** a field that already passed the payment-field label check and PR #8's text scan.
+- **The scan just before sending:** the serialized request body is scanned again with `capture::sensitive::contains_sensitive_number`, immediately before `net::request`. A hit sends nothing ("Not sent: this looks like it has a card, SSN or bank number in it.").
+- **Only on a click:** a request can only start from the tone click, an island command that carries the tone id and nothing else. Rust takes the paragraph from its own capture state, never text from a webview.
+- **Logs:** lines such as `rewrite: ok claude-haiku-5-5 in=212 out=187 $0.000115 1.9s`, `rewrite: refused (cap)` or `rewrite: error 529 overloaded_error`. Never request or response text, never the key.
+- **`s-delegate`:** the rewrite view shows it through `showReserved("delegate", "api-request")`. `RESERVED_LANTERN_STATES.delegate`'s owner becomes `"api-request"`, and `SHOWS_RESERVED` in `tests/lantern.test.mjs` gains that one file.
+
+### 13.8 Build steps (one commit each), and what is not in 1c
+
+1. `net/mod.rs`: the Anthropic host (https/443), the redirect rule, the TLS source test.
+2. Credential storage (`ai/key.rs`): the trait, Credential Manager, the fake.
+3. The API client (`ai/claude.rs`): request building, answer and error parsing, cost, and the pre-send scan, tested against a fake local server.
+4. Spend tracking and the cap (`ai/spend.rs`).
+5. The rewrite flow:
+   - the capture thread keeps the current paragraph;
+   - `Request::Rewrite{tone}` and `RewriteApply{id}`;
+   - the island's Rewrite card and `s-delegate`;
+   - the hotkey registered (`rewrite` becomes ported).
+6. Settings → AI: brain, key (masked, with Remove), model, cap, this month's spend.
+
+**Not in 1c (later, or on the owner's word):**
+- rewriting a **selection**: paragraph only for now, since reading the selection needs UIA `GetSelection`, a separate change;
+- the **local brain**;
+- a default tone, or one-key send;
+- streaming;
+- refusal fallbacks;
+- the measured ≤4.5 s target, which needs the owner's key.

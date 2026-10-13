@@ -14,6 +14,8 @@ import { buildChoose, buildUpload, buildUploading } from "./upload";
 import { pillCard } from "./pill-card";
 import { pillDefinition, sessionSubtitle } from "../core/pills";
 import { PlanCard, buildPlanPill, claudePillVisible, planCardOpen } from "./usage";
+import { buildRewrite } from "./rewrite";
+import { chooseTone } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
@@ -52,7 +54,7 @@ export interface ViewHost {
 
 // ── Shared pieces ─────────────────────────────────────────────────────────────
 
-function card(wash: Wash, ...children: (Node | string)[]): HTMLElement {
+export function card(wash: Wash, ...children: (Node | string)[]): HTMLElement {
   const el = h("div", { class: wash ? "card wash" : "card" }, ...children);
   if (wash) el.style.setProperty("--wash", washRGBA(wash));
   return el;
@@ -82,7 +84,7 @@ function agentWho(task: AgentTask | null, label: string): HTMLElement {
   return row;
 }
 
-function stack(padLeft: number, padRight: number, ...children: Node[]): HTMLElement {
+export function stack(padLeft: number, padRight: number, ...children: Node[]): HTMLElement {
   const el = h("div", { class: "stack" }, ...children);
   el.style.padding = `4px ${padRight}px 4px ${padLeft}px`;
   return el;
@@ -734,7 +736,7 @@ function stopNote(outcome: string, app: string): string {
 }
 
 /** A click's outcome in words; undefined for none. */
-function outcomeNote(outcome: string | undefined, app: string): string | undefined {
+export function outcomeNote(outcome: string | undefined, app: string): string | undefined {
   switch (outcome) {
     case "applied": return t("Fixed. Ctrl+Z in {app} undoes it.", { app });
     case "copied": return t("Copied. Paste it with Ctrl+V.");
@@ -773,7 +775,7 @@ const FIX_TIMEOUT_MS = 3000;
  * copied (1b); a click sends only which list, row and replacement it was.
  * Rust types or copies the checker's own words. Nothing here is logged.
  */
-export function buildSuggestions(): ViewHost {
+export function buildSuggestions(actions?: ViewActions): ViewHost {
   // The page being shown, and the list it belongs to: a new list (a new
   // check) starts again at the first page.
   let page = 0;
@@ -782,7 +784,14 @@ export function buildSuggestions(): ViewHost {
   // Apply all: each row's first replacement, typed by Rust last to first.
   const allTip = tl("Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.");
   const applyAll = h("button", { class: "apply-all", type: "button", title: allTip, "aria-label": allTip, text: tl("Apply all"), onclick: () => fixAll() }) as HTMLButtonElement;
-  const head = h("div", { class: "suggestion-head" }, title, applyAll);
+  // 1c: the Rewrite card for this paragraph (nothing is sent until a tone is picked).
+  const rewriteTip = tl("Rewrite this paragraph with Claude (Ctrl+Alt+Shift+R)");
+  const rewrite = h("button", { class: "rewrite-open", type: "button", title: rewriteTip, "aria-label": rewriteTip, text: tl("Rewrite…"), onclick: () => openRewrite() });
+  const openRewrite = () => {
+    State.rewrite = chooseTone();
+    actions?.setView("rewrite");
+  };
+  const head = h("div", { class: "suggestion-head" }, title, rewrite, applyAll);
   const list = h("div", { class: "suggestion-list" });
   const range = h("span", { class: "suggestion-range" });
   const prev = h("button", { class: "suggestion-page", title: tl("Previous suggestions"), "aria-label": tl("Previous suggestions"), onclick: () => turn(-1) }, svg(ICONS.chevronLeft, 16, { stroke: 2.6 }));
@@ -964,7 +973,8 @@ export function buildViews(
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   map.set("recap", buildRecap(actions));
-  map.set("suggestions", buildSuggestions());
+  map.set("suggestions", buildSuggestions(actions));
+  map.set("rewrite", buildRewrite(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));

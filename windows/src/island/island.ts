@@ -11,6 +11,7 @@ import {
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
+import { sendingToApi } from "../core/rewrite";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -33,6 +34,7 @@ import {
   IGNITE_MS,
   Lantern,
   isReservedLanternState,
+  DELEGATE_STATE,
   lanternStateFor,
   withWritingSuggestions,
   type LanternState,
@@ -1130,6 +1132,9 @@ export class Island {
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
+    // Text is on its way to the Claude API (1c): the reserved state for data
+    // leaving the machine (docs/vision.md §3).
+    else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else {
       const writing = State.writing.length;
       this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));

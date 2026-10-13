@@ -1,7 +1,8 @@
 // Settings window — the place where anything that writes to disk is confirmed:
-// the agents' hooks, the plan usage relay, the local model servers, the pills
-// and the general preferences. There are no API keys: Glim only ever talks to
-// this computer (src-tauri/src/net/).
+// the agents' hooks, the plan usage relay, the AI settings (1c: the Anthropic
+// key, kept in Windows Credential Manager, see ./ai.ts), the local model
+// servers, the pills and the general preferences. Glim talks only to this
+// computer and api.anthropic.com (src-tauri/src/net/).
 
 import "./settings.css";
 import { Bridge, onEvent, type HookPreview, type HookStatus, type ShortcutsReport } from "../core/bridge";
@@ -17,6 +18,7 @@ import {
 } from "../core/pills";
 import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
+import { aiSection } from "./ai";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import {
@@ -1000,6 +1002,7 @@ async function render() {
   // A main pill this build can run, and no pill declared twice.
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
+  const ai = await aiSection({ settings: () => settings, save });
 
   declaredViews.length = 0;
   localRedraw = null;
@@ -1010,13 +1013,14 @@ async function render() {
     claudeSection(status),
     agentsSection(agents),
     planSection(status),
+    ai,
     localSection(),
     activePillsSection(connected),
     generalSection(),
     shortcutsSection(shortcutReport),
     h("div", {
       class: "hint",
-      text: t("No telemetry. Glim only ever connects to this computer (127.0.0.1 or localhost)."),
+      text: t("No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com."),
     }),
   );
 }

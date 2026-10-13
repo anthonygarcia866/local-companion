@@ -78,14 +78,15 @@ test("the defaults are the same on both sides of the bridge", () => {
 
 // testEnabledByDefault
 test("only the island toggle is off by default; the four not in this version are reserved", () => {
-  // Mute and the wardrobe went with upstream's sounds and outfits.
-  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle", "rewrite"];
+  // Mute and the wardrobe went with upstream's sounds and outfits. The rewrite
+  // key is registered since 1c.
+  const reserved = ["attachFrontWindow", "muteToggle", "desktopToggle", "wardrobeToggle"];
   for (const d of SHORTCUTS) {
     assert.equal(d.enabledByDefault, d.id !== "toggleIsland", d.id);
     assert.equal(d.ported, !reserved.includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "denyApproval",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "rewrite", "denyApproval",
   ]);
 });
 

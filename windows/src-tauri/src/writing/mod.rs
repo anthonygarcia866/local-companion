@@ -301,6 +301,53 @@ pub struct Session {
     times: Vec<u128>,
     /// Paragraph lengths checked since the last report, in characters.
     lengths: Vec<usize>,
+    /// The paragraph the caret is in now, in a field the checker is on: what
+    /// a rewrite (1c) would send. Memory only, replaced on every reading.
+    current: Option<Current>,
+    /// The rewrite asked for or shown (1c): one at a time.
+    rewrite: Option<RewriteKept>,
+}
+
+/// The focused field's paragraph, for a rewrite.
+struct Current {
+    text: String,
+    start: usize,
+    mode: FixMode,
+    app: String,
+}
+
+/// A rewrite on its way or shown: the paragraph as it was sent (so applying
+/// it re-verifies the field word for word, as a fix does) and the answer.
+struct RewriteKept {
+    id: u64,
+    paragraph: String,
+    start: usize,
+    mode: FixMode,
+    app: String,
+    text: Option<String>,
+    at: Instant,
+}
+
+/// A rewrite about to be sent: its id and the paragraph.
+pub struct RewriteSource {
+    pub id: u64,
+    pub paragraph: String,
+}
+
+impl std::fmt::Debug for RewriteSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RewriteSource").field("id", &self.id).field("chars", &self.paragraph.chars().count()).finish()
+    }
+}
+
+/// A rewrite's answer as the island shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RewriteShown {
+    pub mode: FixMode,
+    pub app: String,
+    /// Glim would type it (writing::offerable): one paragraph of printable
+    /// text that doesn't look like a card, an SSN or an IBAN.
+    pub offerable: bool,
 }
 
 /// One reading, as the writing checker sees it.
@@ -341,6 +388,8 @@ impl Session {
         // Paused: nothing is checked, kept or shown.
         if r.paused {
             self.kept = None;
+            self.current = None;
+            self.rewrite = None;
             self.debounce.reset();
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
@@ -364,6 +413,7 @@ impl Session {
         let Some(text) = r.text else {
             self.debounce.reset();
             self.kept = None;
+            self.current = None;
             self.refresh(&mut emit);
             return;
         };
@@ -372,9 +422,14 @@ impl Session {
         let Some(paragraph) = paragraph_to_check(text, r.caret) else {
             self.debounce.reset();
             self.kept = None;
+            self.current = None;
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         };
+        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, mode: r.mode, app: r.app.to_string() });
+        if self.rewrite.as_ref().is_some_and(|w| now.duration_since(w.at) >= KEEP_FOR) {
+            self.rewrite = None;
+        }
         let key = key_of(&paragraph);
         // Another paragraph, or this one edited: different text.
         if self.kept.as_ref().is_some_and(|k| k.key != key) {
@@ -479,6 +534,73 @@ impl Session {
             return Err(if skipped > 0 { Outcome::Unclear } else { Outcome::Changed });
         }
         Ok((jobs, skipped))
+    }
+
+    // ── 1c: the rewrite (docs/phase1-plan.md §13) ────────────────────────────
+
+    /// A tone was clicked: the paragraph the caret is in goes out, under a
+    /// new id. Away when there is none (no field, a blank line, an app the
+    /// checker is off for). A rewrite already on its way or shown is replaced.
+    pub fn rewrite_begin(&mut self, now: Instant) -> Result<RewriteSource, Outcome> {
+        let c = self.current.as_ref().ok_or(Outcome::Away)?;
+        if c.text.trim().is_empty() {
+            return Err(Outcome::Away);
+        }
+        self.next_id += 1;
+        let id = self.next_id;
+        self.rewrite = Some(RewriteKept { id, paragraph: c.text.clone(), start: c.start, mode: c.mode, app: c.app.clone(), text: None, at: now });
+        Ok(RewriteSource { id, paragraph: c.text.clone() })
+    }
+
+    /// The answer for rewrite `id` came back. None when that rewrite is no
+    /// longer the one shown (dismissed, or another asked for since).
+    pub fn rewrite_answer(&mut self, id: u64, text: String) -> Option<RewriteShown> {
+        let w = self.rewrite.as_mut().filter(|w| w.id == id && w.text.is_none())?;
+        let shown = RewriteShown { mode: w.mode, app: w.app.clone(), offerable: offerable(&text) };
+        w.text = Some(text);
+        Some(shown)
+    }
+
+    /// Whether `id` is the rewrite on its way or shown.
+    pub fn rewrite_is(&self, id: u64) -> bool {
+        self.rewrite.as_ref().is_some_and(|w| w.id == id)
+    }
+
+    /// "Use this": the whole paragraph, as it was sent, replaced by the
+    /// rewrite, through 1b's apply path (apply::run re-verifies the field).
+    pub fn rewrite_job(&self, id: u64) -> Result<Job, Outcome> {
+        let w = self.rewrite.as_ref().filter(|w| w.id == id).ok_or(Outcome::Changed)?;
+        let text = w.text.as_ref().ok_or(Outcome::Changed)?;
+        match w.mode {
+            FixMode::Apply => {}
+            FixMode::Away => return Err(Outcome::Away),
+            FixMode::View | FixMode::Copy => return Err(Outcome::Blocked),
+        }
+        if !offerable(text) {
+            return Err(Outcome::Blocked);
+        }
+        Ok(Job { paragraph: w.paragraph.clone(), field_start: w.start, start: 0, end: w.paragraph.chars().count(), replacement: text.clone(), app: w.app.clone() })
+    }
+
+    /// The rewrite's text for its Copy button (fields Glim can't type in, or
+    /// an answer Glim wouldn't type).
+    pub fn rewrite_copy(&self, id: u64) -> Result<String, Outcome> {
+        let w = self.rewrite.as_ref().filter(|w| w.id == id).ok_or(Outcome::Changed)?;
+        let text = w.text.clone().ok_or(Outcome::Changed)?;
+        if crate::capture::sensitive::contains_sensitive_number(&text) {
+            return Err(Outcome::Blocked);
+        }
+        Ok(text)
+    }
+
+    /// The app's name for the rewrite's notes.
+    pub fn rewrite_app(&self) -> String {
+        self.rewrite.as_ref().map(|w| w.app.clone()).unwrap_or_default()
+    }
+
+    /// Dismissed, applied or failed: the rewrite and its paragraph go.
+    pub fn rewrite_clear(&mut self) {
+        self.rewrite = None;
     }
 
     /// The replacement to copy, for a Copy button (§7.7).
@@ -886,6 +1008,93 @@ Anthony";
         assert_eq!(s.jobs_all(got.check_id).unwrap_err(), Outcome::Away);
     }
 
+    // ── 1c: the rewrite ──────────────────────────────────────────────────────
+
+    /// A clean paragraph (no suggestions) in a field of `mode`.
+    fn in_field(mode: FixMode, text: &str) -> (Session, Instant) {
+        let mut s = Session::default();
+        let t = Instant::now();
+        feed(&mut s, true, Some(text), Some(3), mode, false, t);
+        (s, t)
+    }
+
+    #[test]
+    fn a_rewrite_sends_the_paragraph_the_caret_is_in_even_with_nothing_to_fix() {
+        let text = "Hi Sam,
+Thanks for the update on the lease.
+Best regards,
+Anthony";
+        let (mut s, t) = in_field(FixMode::Apply, text);
+        assert!(s.kept.is_none(), "no suggestions, nothing kept for a fix");
+        // Caret at 3: the greeting line is a paragraph of its own.
+        let src = s.rewrite_begin(t).unwrap();
+        assert_eq!(src.paragraph, "Hi Sam,");
+        assert!(!format!("{src:?}").contains("Sam"));
+        // In the body line instead.
+        feed(&mut s, true, Some(text), Some(15), FixMode::Apply, false, t);
+        let src = s.rewrite_begin(t).unwrap();
+        assert_eq!(src.paragraph, "Thanks for the update on the lease.");
+        let shown = s.rewrite_answer(src.id, "Thank you for the update on the lease.".into()).unwrap();
+        assert_eq!((shown.mode, shown.app.as_str(), shown.offerable), (FixMode::Apply, "Notepad", true));
+        let job = s.rewrite_job(src.id).unwrap();
+        assert_eq!((job.paragraph.as_str(), job.field_start, job.start, job.end), ("Thanks for the update on the lease.", 8, 0, 35));
+        assert_eq!(job.replacement, "Thank you for the update on the lease.");
+    }
+
+    #[test]
+    fn nothing_to_rewrite_away_from_a_checked_field_or_while_paused() {
+        let mut s = Session::default();
+        assert_eq!(s.rewrite_begin(Instant::now()).unwrap_err(), Outcome::Away);
+        let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
+        // Focus went to an app the checker is off for.
+        feed(&mut s, false, None, None, FixMode::View, false, t);
+        assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Away);
+        let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
+        let src = s.rewrite_begin(t).unwrap();
+        feed(&mut s, true, Some("We will send it."), Some(3), FixMode::Apply, true, t);
+        assert!(!s.rewrite_is(src.id), "Pause drops the rewrite");
+        assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Away);
+    }
+
+    #[test]
+    fn only_the_latest_rewrite_counts_and_only_where_fixes_are_typed() {
+        let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
+        let first = s.rewrite_begin(t).unwrap();
+        let second = s.rewrite_begin(t).unwrap();
+        assert!(s.rewrite_answer(first.id, "x".into()).is_none(), "an older answer is dropped");
+        assert_eq!(s.rewrite_job(first.id).unwrap_err(), Outcome::Changed);
+        // Not answered yet: nothing to type.
+        assert_eq!(s.rewrite_job(second.id).unwrap_err(), Outcome::Changed);
+        s.rewrite_answer(second.id, "We'll send it.".into()).unwrap();
+        assert!(s.rewrite_answer(second.id, "again".into()).is_none(), "answered once");
+        assert!(s.rewrite_job(second.id).is_ok());
+        s.rewrite_clear();
+        assert_eq!(s.rewrite_job(second.id).unwrap_err(), Outcome::Changed);
+        // A Copy field: the text can be copied, never typed.
+        let (mut s, t) = in_field(FixMode::Copy, "We will send it.");
+        let src = s.rewrite_begin(t).unwrap();
+        s.rewrite_answer(src.id, "We'll send it.".into()).unwrap();
+        assert_eq!(s.rewrite_job(src.id).unwrap_err(), Outcome::Blocked);
+        assert_eq!(s.rewrite_copy(src.id).unwrap(), "We'll send it.");
+        // A view-only app: shown, not typed.
+        let (mut s, t) = in_field(FixMode::View, "We will send it.");
+        let src = s.rewrite_begin(t).unwrap();
+        assert_eq!(s.rewrite_answer(src.id, "We'll send it.".into()).unwrap().mode, FixMode::View);
+        assert_eq!(s.rewrite_job(src.id).unwrap_err(), Outcome::Blocked);
+    }
+
+    #[test]
+    fn an_answer_glim_would_not_type_is_never_typed() {
+        for (answer, copy) in [("Line one.
+Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
+            let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
+            let src = s.rewrite_begin(t).unwrap();
+            assert!(!s.rewrite_answer(src.id, answer.into()).unwrap().offerable);
+            assert_eq!(s.rewrite_job(src.id).unwrap_err(), Outcome::Blocked);
+            assert_eq!(s.rewrite_copy(src.id).is_ok(), copy, "{answer}");
+        }
+    }
+
     #[test]
     fn a_stale_list_or_a_bad_index_is_refused() {
         let (s, got, _) = checked();
@@ -1045,6 +1254,12 @@ Anthony";
             assert_eq!(sig.trim_end(), format!("{cmd}check_id: u64, index: usize, choice: usize)"), "{sig}");
         }
         assert!(lib.contains("fn writing_fix_all(check_id: u64) {"), "Apply all: the list id only");
+        // The rewrite (1c): a tone id or a rewrite id, never text.
+        assert!(lib.contains("fn writing_rewrite(tone: String) {"));
+        assert!(lib.contains("let Some(tone) = ai::claude::Tone::from_id(&tone) else { return };"));
+        for cmd in ["fn writing_rewrite_apply(id: u64) {", "fn writing_rewrite_copy(id: u64) {", "fn writing_rewrite_dismiss() {"] {
+            assert!(lib.contains(cmd), "{cmd}");
+        }
         assert!(lib.contains("fn writing_dismiss() {"));
         assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
     }

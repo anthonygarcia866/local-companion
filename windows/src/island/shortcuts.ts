@@ -10,6 +10,7 @@ import { Bridge, onEvent } from "../core/bridge";
 import type { BotEmoteName, IslandViewName } from "../core/layout";
 import { cyclePill, islandKeyAction, pillByNumber, type IslandKeyAction } from "../core/shortcuts";
 import { State } from "../core/state";
+import { chooseTone } from "../core/rewrite";
 
 const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
 
@@ -103,6 +104,15 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
       else host.emote("annoyed");
       break;
     }
+
+    // 1c: the Rewrite card, for the paragraph the caret is in. Nothing is sent
+    // until a tone is clicked; the island doesn't take the keyboard, so the
+    // caret stays in the field.
+    case "rewrite":
+      resume();
+      State.rewrite = chooseTone();
+      host.alert("rewrite");
+      break;
 
     // muteToggle, wardrobeToggle, attachFrontWindow and desktopToggle aren't
     // in this version: Rust never registers them.

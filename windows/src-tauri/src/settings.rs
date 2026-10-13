@@ -1,5 +1,6 @@
 // Preferences, stored as plain JSON in settings.json under platform::config_dir().
-// No secret ever lands here, and the app stores no API keys at all.
+// No secret ever lands here: the one API key (1c) is in Windows Credential
+// Manager (ai/key.rs), never in this file.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -65,6 +66,16 @@ pub struct Settings {
     /// The character on the desktop: whether it lives there, and its spot. Owned by
     /// the Rust side (desktop.rs) — what a webview sends back is ignored.
     pub desktop_mochi: DesktopMochiPref,
+    /// 1c's brain (docs/phase1-plan.md §13.3): "claude" (the Claude API, the
+    /// default) or "local" (Ollama; not built yet). Anything else reads as
+    /// "claude".
+    pub ai_brain: String,
+    /// The Claude model for 1c's rewrite (ai/claude.rs MODELS); one Glim
+    /// doesn't list reads as the default.
+    pub ai_model: String,
+    /// The monthly cap on Glim's API spend estimate, in US dollars; 0 = none
+    /// (ai/spend.rs).
+    pub ai_monthly_cap_usd: f64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -107,6 +118,9 @@ impl Default for Settings {
             pill_colors: BTreeMap::new(),
             language: String::new(),
             desktop_mochi: DesktopMochiPref::default(),
+            ai_brain: "claude".into(),
+            ai_model: crate::ai::claude::DEFAULT_MODEL.into(),
+            ai_monthly_cap_usd: 0.0,
         }
     }
 }
@@ -379,7 +393,10 @@ mod tests {
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
   "pillColors": { "integration_claude": "#2DD4BF" },
   "language": "pt-BR",
-  "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } }
+  "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } },
+  "aiBrain": "local",
+  "aiModel": "claude-sonnet-5-5",
+  "aiMonthlyCapUsd": 7.5
 }"##;
 
     fn custom() -> Value {
@@ -478,6 +495,17 @@ mod tests {
         }
         let bytes = serde_json::to_vec(&object).unwrap();
         assert_eq!(shown(&parse(&bytes).unwrap()), custom());
+    }
+
+    #[test]
+    fn a_file_from_before_1c_gets_the_claude_brain_haiku_and_no_cap() {
+        let loaded = parse(br#"{"screen":"active"}"#).unwrap();
+        assert_eq!((loaded.ai_brain.as_str(), loaded.ai_model.as_str(), loaded.ai_monthly_cap_usd), ("claude", "claude-haiku-5-5", 0.0));
+        let loaded = parse(br#"{"aiBrain":"local","aiModel":"claude-opus-5-5","aiMonthlyCapUsd":12.5}"#).unwrap();
+        assert_eq!((loaded.ai_brain.as_str(), loaded.ai_model.as_str(), loaded.ai_monthly_cap_usd), ("local", "claude-opus-5-5", 12.5));
+        // No key ever goes in here.
+        let json = serde_json::to_string(&Settings::default()).unwrap().to_lowercase();
+        assert!(!json.contains("apikey") && !json.contains("sk-ant"), "{json}");
     }
 
     #[test]
@@ -778,6 +806,9 @@ mod tests {
                 "pillColors",
                 "language",
                 "desktopMochi",
+                "aiBrain",
+                "aiModel",
+                "aiMonthlyCapUsd",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

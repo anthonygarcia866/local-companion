@@ -6,6 +6,7 @@ import { isDock } from "./core/layout";
 import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings, type WritingFix, type WritingResult, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
+import { nextRewrite, type RewriteEvent } from "./core/rewrite";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
@@ -178,6 +179,13 @@ async function main() {
       State.writingResult = null;
       State.notify();
     }, 6000);
+    State.notify();
+  });
+
+  // The Rewrite card (1c): Rust's answer to a tone click, and what "Use
+  // this" or "Copy" did. Stored and redrawn, nothing else.
+  await onEvent<RewriteEvent>("writing-rewrite", (e) => {
+    State.rewrite = nextRewrite(State.rewrite, e);
     State.notify();
   });
 
