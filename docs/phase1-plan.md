@@ -355,7 +355,7 @@ Follows `docs/vision.md` §2–3 and §12 above. Branch `phase-1c-rewrite`, stac
 5. **Use this** types it in through 1b's apply path (§7.3), unchanged. Only the rewrite's id goes from the island to Rust. Rust re-verifies that the field still holds the paragraph as it was sent, replaces the whole paragraph, and reads it back. Ctrl+Z in the app undoes it. If the paragraph changed in the meantime, nothing is typed ("The text changed…").
 6. If nothing can be sent, the card says why instead: no API key (Settings → AI), the monthly cap is reached, Glim is paused, there is no paragraph here, the paragraph is over 2,000 characters, it looks like a card, SSN or IBAN, or the brain is set to the local model (not built yet, see 13.8).
 
-**Hotkey decision:** the hotkey opens the card and the tone click sends. That is one click more than §12 decision 1 allows (the hotkey alone could send with a default tone). A "default tone, send on the hotkey" option belongs with 1d's default-tone setting. **Owner: say if you want the one-key version now.**
+**Hotkey decision:** the hotkey opens the card and the tone click sends. That is one click more than §12 decision 1 allows (the hotkey alone could send with a default tone). **Owner, 2026-10-12: keep it.** The hotkey opens the tone card; with 1d's default tones, a second press while the card is open sends the default (§14.3 on `docs/phase-1d-plan`).
 
 ### 13.2 The API request (checked against Anthropic's docs 2026-10-12)
 
@@ -389,7 +389,7 @@ Sources: platform.claude.com `about-claude/models/overview`, `about-claude/prici
   - Network and TLS failures.
 
   Only the status and `error.type` are logged. **There are no automatic retries:** each try costs money, and the user can click again.
-- **Not used yet: server-side refusal fallbacks** (`fallbacks`). Haiku has none. On Sonnet and Opus a fallback re-runs the request on another model, so the cost estimate would have to use that model's prices. **Owner: on or off for Sonnet/Opus?**
+- **Not used yet: server-side refusal fallbacks** (`fallbacks`). Haiku has none. On Sonnet and Opus a fallback re-runs the request on another model, so the cost estimate would have to use that model's prices. **Owner, 2026-10-12: off.**
 - **Timeout:** 20 s for the whole request, 10 s to connect. Plan §2's target is about 4.5 s; it gets measured with the owner's key, not in tests.
 
 ### 13.3 The brain setting
