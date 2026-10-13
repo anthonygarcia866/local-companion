@@ -324,8 +324,9 @@ pub fn is_browser(exe: &str) -> bool {
     BROWSERS.iter().any(|b| b.eq_ignore_ascii_case(exe))
 }
 
-/// Apps and sites Glim never captures in. Built in for now; Phase 1d's
-/// settings make both lists editable.
+/// Apps and sites Glim never captures in: the built-in password managers
+/// and payment sites (locked), plus the user's own entries from Settings →
+/// Privacy (1d, docs/phase1-plan.md §14.5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PauseList {
     /// Executable names, any case.
@@ -336,14 +337,14 @@ pub struct PauseList {
 }
 
 /// Password managers.
-const PAUSED_APPS: [&str; 12] = [
+pub const PAUSED_APPS: [&str; 12] = [
     "1Password.exe", "Bitwarden.exe", "KeePass.exe", "KeePassXC.exe", "Dashlane.exe", "LastPass.exe",
     "NordPass.exe", "Enpass.exe", "RoboForm.exe", "Proton Pass.exe", "KeeperPasswordManager.exe",
     "CredentialUIBroker.exe",
 ];
 
 /// Checkout, payment and banking sites, and checkout pages anywhere.
-const PAUSED_SITES: [&str; 33] = [
+pub const PAUSED_SITES: [&str; 33] = [
     "paypal.com", "checkout.stripe.com", "js.stripe.com", "pay.google.com", "payments.google.com",
     "pay.amazon.com", "amazon.com/gp/buy", "squareup.com/checkout", "venmo.com", "cash.app", "wise.com",
     "zelle.com", "chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "capitalone.com",
@@ -362,6 +363,15 @@ impl Default for PauseList {
 }
 
 impl PauseList {
+    /// The built-ins plus the user's entries. An entry that doesn't pass
+    /// `user_app` / `user_site` (a hand-edited settings.json) is left out.
+    pub fn with_user(apps: &[String], sites: &[String]) -> PauseList {
+        let mut list = PauseList::default();
+        list.apps.extend(apps.iter().filter_map(|a| user_app(a).ok()));
+        list.sites.extend(sites.iter().filter_map(|s| user_site(s).ok()));
+        list
+    }
+
     pub fn pauses_app(&self, exe: &str) -> bool {
         self.apps.iter().any(|a| a.eq_ignore_ascii_case(exe))
     }
@@ -388,6 +398,82 @@ pub fn url_on_sites<S: AsRef<str>>(url: &str, sites: &[S]) -> bool {
         let host_ok = host == site_host || host.ends_with(&format!(".{site_host}"));
         host_ok && (site_path.is_empty() || path.trim_start_matches('/').starts_with(site_path))
     })
+}
+
+/// A pause entry the user typed for an app: the executable's file name,
+/// trimmed, or why it is refused ("empty", "not-exe", "bad-name",
+/// "built-in"). The same rules as src/core/pause.ts (tests/fixtures).
+pub fn user_app(entry: &str) -> Result<String, &'static str> {
+    let e = entry.trim();
+    if e.is_empty() {
+        return Err("empty");
+    }
+    let stem = e.len().checked_sub(4).and_then(|n| e.get(..n)).unwrap_or("");
+    if !e.to_ascii_lowercase().ends_with(".exe") || stem.trim().is_empty() {
+        return Err("not-exe");
+    }
+    if e.chars().count() > 128 || e.chars().any(|c| c.is_control() || matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')) {
+        return Err("bad-name");
+    }
+    if PAUSED_APPS.iter().any(|a| a.eq_ignore_ascii_case(e)) {
+        return Err("built-in");
+    }
+    Ok(e.to_string())
+}
+
+/// A pause entry the user typed for a site, in the forms the built-ins use
+/// ("example.com", "example.com/path", "*/segment"), lower-cased, without
+/// "https://" or a trailing "/"; or why it is refused ("empty", "bad-site",
+/// "bad-host", "bad-path", "bad-segment", "built-in").
+pub fn user_site(entry: &str) -> Result<String, &'static str> {
+    let mut e = entry.trim().to_ascii_lowercase();
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = e.strip_prefix(scheme) {
+            e = rest.to_string();
+        }
+    }
+    let e = e.trim_end_matches('/');
+    if e.is_empty() {
+        return Err("empty");
+    }
+    if e.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '?' | '#' | '@' | ':' | '\\')) {
+        return Err("bad-site");
+    }
+    let (host, path) = e.split_once('/').unwrap_or((e, ""));
+    let word = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '%'));
+    let site = if host == "*" {
+        if !word(path) {
+            return Err("bad-segment");
+        }
+        format!("*/{path}")
+    } else if e.starts_with('*') {
+        return Err("bad-segment");
+    } else {
+        let labels: Vec<&str> = host.split('.').collect();
+        let label_ok = |l: &&str| {
+            !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        };
+        let tld_ok = labels.last().is_some_and(|t| t.len() >= 2 && t.chars().all(|c| c.is_ascii_alphabetic()));
+        if labels.len() < 2 || !labels.iter().all(label_ok) || !tld_ok {
+            return Err("bad-host");
+        }
+        if !path.is_empty() && !path.split('/').all(word) {
+            return Err("bad-path");
+        }
+        if path.is_empty() { host.to_string() } else { format!("{host}/{path}") }
+    };
+    if PAUSED_SITES.contains(&site.as_str()) {
+        return Err("built-in");
+    }
+    // The last look: a page on the entry must be paused by it.
+    let sample = match site.strip_prefix("*/") {
+        Some(seg) => format!("https://example.com/{seg}/"),
+        None => format!("https://{site}/"),
+    };
+    if !url_on_sites(&sample, &[site.as_str()]) {
+        return Err("bad-site");
+    }
+    Ok(site)
 }
 
 /// (lower-case host, path) of an http or https URL.
@@ -604,6 +690,46 @@ mod tests {
         ] {
             assert!(!p.pauses_url(url), "wrongly paused: {url}");
         }
+    }
+
+    /// tests/fixtures/pause-entries.json, shared with src/core/pause.ts.
+    #[test]
+    fn user_pause_entries_are_checked_as_the_fixture_says() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../tests/fixtures/pause-entries.json")).unwrap();
+        for case in fixture["apps"].as_array().unwrap() {
+            let input = case["in"].as_str().unwrap();
+            let got = user_app(input);
+            match case["out"].as_str() {
+                Some(out) => assert_eq!(got, Ok(out.to_string()), "{input:?}"),
+                None => assert_eq!(got, Err(case["reason"].as_str().unwrap()), "{input:?}"),
+            }
+        }
+        for case in fixture["sites"].as_array().unwrap() {
+            let input = case["in"].as_str().unwrap();
+            let got = user_site(input);
+            let Some(out) = case["out"].as_str() else {
+                assert_eq!(got, Err(case["reason"].as_str().unwrap()), "{input:?}");
+                continue;
+            };
+            assert_eq!(got, Ok(out.to_string()), "{input:?}");
+            let list = PauseList::with_user(&[], &[input.to_string()]);
+            for url in case["pauses"].as_array().unwrap() {
+                assert!(list.pauses_url(url.as_str().unwrap()), "{out} should pause {url}");
+            }
+            for url in case["not"].as_array().unwrap() {
+                assert!(!list.pauses_url(url.as_str().unwrap()), "{out} should not pause {url}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_users_entries_add_to_the_built_ins_which_stay() {
+        let list = PauseList::with_user(&["Quicken.exe".into(), "not an exe".into()], &["portal.example.com".into(), "bad host".into()]);
+        assert!(list.pauses_app("QUICKEN.EXE") && list.pauses_app("KeePass.exe"));
+        assert!(!list.pauses_app("not an exe"));
+        assert!(list.pauses_url("https://portal.example.com/x") && list.pauses_url("https://www.paypal.com/"));
+        assert_eq!(list.apps.len(), PAUSED_APPS.len() + 1);
+        assert_eq!(list.sites.len(), PAUSED_SITES.len() + 1);
     }
 
     #[test]

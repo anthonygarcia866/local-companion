@@ -134,8 +134,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // Glim's own process tree (glim.exe and its msedgewebview2.exe children):
     // nothing in it is ever read (super::OwnGuard).
     let mut guard = super::OwnGuard::default();
-    // Apps and sites never captured in (built in until Phase 1d's settings).
-    let pause = PauseList::default();
+    // Apps and sites never captured in: the built-ins and the user's own
+    // (1d), rebuilt whenever the settings change.
+    let prefs = crate::writing::prefs::get();
+    let mut pause = PauseList::with_user(&prefs.pause_apps, &prefs.pause_sites);
     // The writing checker: the field's text stays in this thread.
     let mut writer = crate::writing::Session::default();
     let results = results_path();
@@ -348,6 +350,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         if crate::writing::prefs::version() != prefs_version {
             prefs_version = crate::writing::prefs::version();
+            let prefs = crate::writing::prefs::get();
+            pause = PauseList::with_user(&prefs.pause_apps, &prefs.pause_sites);
             writer.settings_changed(send_list);
             fix_field = None;
             last_field = None;

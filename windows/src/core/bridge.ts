@@ -31,6 +31,12 @@ export interface BootInfo {
   cursorPoll: boolean;
 }
 
+/** The built-in pause entries, locked (src-tauri/src/capture/sensitive.rs). */
+export interface PauseBuiltins {
+  apps: string[];
+  sites: string[];
+}
+
 /** A built-in app of the writing checker (src-tauri/src/writing/apps.rs). */
 export interface KnownApp {
   exe: string;
@@ -140,6 +146,8 @@ export const Bridge = {
   aiModels: () => call<AiModel[]>("ai_models"),
   /** The built-in apps of Settings → Writing → Apps (1d). */
   writingKnownApps: () => call<KnownApp[]>("writing_known_apps"),
+  /** The built-in paused apps and sites, for Settings → Privacy (1d). */
+  writingPauseBuiltins: () => call<PauseBuiltins>("writing_pause_builtins"),
   /** The Rewrite card's default tone for the field being written in (1d). */
   writingRewriteDefault: () => call<string>("writing_rewrite_default"),
   /** Each category's built-in tone: [category, tone] (1d). */

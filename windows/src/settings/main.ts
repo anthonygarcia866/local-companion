@@ -20,6 +20,7 @@ import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
 import { writingSection } from "./writing";
+import { privacySection } from "./privacy";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import {
@@ -1006,6 +1007,7 @@ async function render() {
   const ai = await aiSection({ settings: () => settings, save });
   const knownApps = (await Bridge.writingKnownApps()) ?? [];
   const toneDefaults = (await Bridge.writingToneDefaults()) ?? [];
+  const pauseBuiltins = (await Bridge.writingPauseBuiltins()) ?? { apps: [], sites: [] };
 
   declaredViews.length = 0;
   localRedraw = null;
@@ -1019,6 +1021,7 @@ async function render() {
     planSection(status),
     writing,
     ai,
+    privacySection({ settings: () => settings, save }, pauseBuiltins),
     localSection(),
     activePillsSection(connected),
     generalSection(),

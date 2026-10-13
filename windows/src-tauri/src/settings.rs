@@ -91,6 +91,10 @@ pub struct Settings {
     /// Settings → Writing → Strictness (§14.4): "spelling", "standard" or
     /// "full" (the default); anything else reads as "full".
     pub checker_strictness: String,
+    /// Settings → Privacy → Paused apps and sites (§14.5): the user's own
+    /// entries only; the built-in ones stay in code (capture::sensitive).
+    pub pause_apps: Vec<String>,
+    pub pause_sites: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -140,6 +144,8 @@ impl Default for Settings {
             writing_apps_asked: BTreeMap::new(),
             rewrite_tones: BTreeMap::new(),
             checker_strictness: "full".into(),
+            pause_apps: Vec::new(),
+            pause_sites: Vec::new(),
         }
     }
 }
@@ -419,7 +425,9 @@ mod tests {
   "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
   "writingAppsAsked": { "WordPad.exe": "2026-10-12" },
   "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" },
-  "checkerStrictness": "standard"
+  "checkerStrictness": "standard",
+  "pauseApps": ["Quicken.exe"],
+  "pauseSites": ["portal.example.com", "*/invoice"]
 }"##;
 
     fn custom() -> Value {
@@ -536,6 +544,7 @@ mod tests {
         let loaded = parse(br#"{"screen":"active"}"#).unwrap();
         assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty() && loaded.rewrite_tones.is_empty());
         assert_eq!(loaded.checker_strictness, "full");
+        assert!(loaded.pause_apps.is_empty() && loaded.pause_sites.is_empty());
         // Not a map of strings: the switches fall back, and nothing else does.
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
@@ -847,6 +856,8 @@ mod tests {
                 "writingAppsAsked",
                 "rewriteTones",
                 "checkerStrictness",
+                "pauseApps",
+                "pauseSites",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

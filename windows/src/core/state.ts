@@ -164,6 +164,9 @@ export interface Settings {
   rewriteTones: Record<string, string>;
   /** Settings → Writing → Strictness (1d): "spelling", "standard" or "full". */
   checkerStrictness: "spelling" | "standard" | "full";
+  /** Settings → Privacy (1d): the user's own paused apps (exe names) and sites. */
+  pauseApps: string[];
+  pauseSites: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -190,6 +193,8 @@ export const DEFAULT_SETTINGS: Settings = {
   writingApps: {},
   rewriteTones: {},
   checkerStrictness: "full",
+  pauseApps: [],
+  pauseSites: [],
 };
 
 type Listener = () => void;

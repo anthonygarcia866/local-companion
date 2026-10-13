@@ -4044,6 +4044,171 @@
    "pt-BR": "Um só nível para todos os apps. Os apps de chat mantêm, além disso, as regras mais leves.",
    "ru": "Один уровень для всех приложений. В чатах поверх него действуют облегчённые правила.",
    "id": "Satu tingkat untuk semua aplikasi. Aplikasi obrolan tetap memakai aturan longgarnya di atasnya."
+  },
+  "Privacy": {
+   "zh-Hans": "隐私",
+   "hi": "गोपनीयता",
+   "es": "Privacidad",
+   "ar": "الخصوصية",
+   "fr": "Confidentialité",
+   "bn": "গোপনীয়তা",
+   "pt-BR": "Privacidade",
+   "ru": "Конфиденциальность",
+   "id": "Privasi"
+  },
+  "Paused apps": {
+   "zh-Hans": "已暂停的应用",
+   "hi": "रोके गए ऐप",
+   "es": "Apps en pausa",
+   "ar": "التطبيقات الموقوفة",
+   "fr": "Apps en pause",
+   "bn": "বিরতি দেওয়া অ্যাপ",
+   "pt-BR": "Apps pausados",
+   "ru": "Приостановленные приложения",
+   "id": "Aplikasi yang dijeda"
+  },
+  "Paused sites": {
+   "zh-Hans": "已暂停的网站",
+   "hi": "रोकी गई साइटें",
+   "es": "Sitios en pausa",
+   "ar": "المواقع الموقوفة",
+   "fr": "Sites en pause",
+   "bn": "বিরতি দেওয়া সাইট",
+   "pt-BR": "Sites pausados",
+   "ru": "Приостановленные сайты",
+   "id": "Situs yang dijeda"
+  },
+  "Built in, always paused:": {
+   "zh-Hans": "内置，始终暂停：",
+   "hi": "अंतर्निहित, हमेशा रुके हुए:",
+   "es": "Integrados, siempre en pausa:",
+   "ar": "مدمجة، موقوفة دائمًا:",
+   "fr": "Intégrés, toujours en pause :",
+   "bn": "অন্তর্নির্মিত, সবসময় বিরতিতে:",
+   "pt-BR": "Embutidos, sempre pausados:",
+   "ru": "Встроенные, всегда приостановлены:",
+   "id": "Bawaan, selalu dijeda:"
+  },
+  "Type an app or a site first.": {
+   "zh-Hans": "请先输入应用或网站。",
+   "hi": "पहले कोई ऐप या साइट लिखें।",
+   "es": "Escribe primero una app o un sitio.",
+   "ar": "اكتب تطبيقًا أو موقعًا أولًا.",
+   "fr": "Tapez d'abord une app ou un site.",
+   "bn": "আগে একটি অ্যাপ বা সাইট লিখুন।",
+   "pt-BR": "Digite um app ou um site primeiro.",
+   "ru": "Сначала введите приложение или сайт.",
+   "id": "Ketik aplikasi atau situs terlebih dahulu."
+  },
+  "An app is its program's file name, ending in .exe (Quicken.exe).": {
+   "zh-Hans": "应用是其程序的文件名，以 .exe 结尾（Quicken.exe）。",
+   "hi": "ऐप उसके प्रोग्राम की फ़ाइल का नाम है, जो .exe पर खत्म होता है (Quicken.exe)।",
+   "es": "Una app es el nombre de archivo de su programa, terminado en .exe (Quicken.exe).",
+   "ar": "التطبيق هو اسم ملف برنامجه، وينتهي بـ ‎.exe (Quicken.exe).",
+   "fr": "Une app, c'est le nom de fichier de son programme, terminé par .exe (Quicken.exe).",
+   "bn": "অ্যাপ হলো তার প্রোগ্রামের ফাইলের নাম, যা .exe দিয়ে শেষ হয় (Quicken.exe)।",
+   "pt-BR": "Um app é o nome do arquivo do programa, terminado em .exe (Quicken.exe).",
+   "ru": "Приложение — это имя файла программы с окончанием .exe (Quicken.exe).",
+   "id": "Aplikasi adalah nama file programnya, berakhiran .exe (Quicken.exe)."
+  },
+  "Just the file name, without a folder.": {
+   "zh-Hans": "只需文件名，不要包含文件夹。",
+   "hi": "सिर्फ़ फ़ाइल का नाम, फ़ोल्डर के बिना।",
+   "es": "Solo el nombre del archivo, sin carpeta.",
+   "ar": "اسم الملف فقط، دون مجلد.",
+   "fr": "Juste le nom du fichier, sans dossier.",
+   "bn": "শুধু ফাইলের নাম, ফোল্ডার ছাড়া।",
+   "pt-BR": "Só o nome do arquivo, sem pasta.",
+   "ru": "Только имя файла, без папки.",
+   "id": "Cukup nama file, tanpa folder."
+  },
+  "Already paused: it's built in.": {
+   "zh-Hans": "已暂停：这是内置项。",
+   "hi": "पहले से रुका हुआ: यह अंतर्निहित है।",
+   "es": "Ya está en pausa: viene integrado.",
+   "ar": "موقوف بالفعل: إنه مدمج.",
+   "fr": "Déjà en pause : il est intégré.",
+   "bn": "আগে থেকেই বিরতিতে: এটি অন্তর্নির্মিত।",
+   "pt-BR": "Já está pausado: é embutido.",
+   "ru": "Уже приостановлено: это встроенная запись.",
+   "id": "Sudah dijeda: ini bawaan."
+  },
+  "That isn't a site's address (example.com).": {
+   "zh-Hans": "这不是网站地址（example.com）。",
+   "hi": "यह किसी साइट का पता नहीं है (example.com)।",
+   "es": "Eso no es la dirección de un sitio (example.com).",
+   "ar": "هذا ليس عنوان موقع (example.com).",
+   "fr": "Ce n'est pas l'adresse d'un site (example.com).",
+   "bn": "এটি কোনো সাইটের ঠিকানা নয় (example.com)।",
+   "pt-BR": "Isso não é o endereço de um site (example.com).",
+   "ru": "Это не адрес сайта (example.com).",
+   "id": "Itu bukan alamat situs (example.com)."
+  },
+  "That page path can't be matched.": {
+   "zh-Hans": "无法匹配该页面路径。",
+   "hi": "उस पेज पथ का मिलान नहीं हो सकता।",
+   "es": "Esa ruta de página no se puede comparar.",
+   "ar": "لا يمكن مطابقة مسار الصفحة هذا.",
+   "fr": "Ce chemin de page ne peut pas être reconnu.",
+   "bn": "ওই পৃষ্ঠার পথ মেলানো যায় না।",
+   "pt-BR": "Esse caminho de página não pode ser reconhecido.",
+   "ru": "Этот путь страницы нельзя сопоставить.",
+   "id": "Jalur halaman itu tidak bisa dicocokkan."
+  },
+  "Use */word to pause any page with that word in its path.": {
+   "zh-Hans": "使用 */词语 暂停路径中含有该词的任何页面。",
+   "hi": "जिस पेज के पथ में वह शब्द हो उसे रोकने के लिए */word लिखें।",
+   "es": "Usa */palabra para pausar cualquier página con esa palabra en su ruta.",
+   "ar": "استخدم ‎*/word لإيقاف أي صفحة تحتوي هذه الكلمة في مسارها.",
+   "fr": "Utilisez */mot pour mettre en pause toute page dont le chemin contient ce mot.",
+   "bn": "পথে ওই শব্দ থাকা যেকোনো পৃষ্ঠা বিরতি দিতে */word লিখুন।",
+   "pt-BR": "Use */palavra para pausar qualquer página com essa palavra no caminho.",
+   "ru": "Используйте */слово, чтобы приостановить любую страницу с этим словом в пути.",
+   "id": "Gunakan */kata untuk menjeda halaman mana pun yang jalurnya memuat kata itu."
+  },
+  "A site is example.com, example.com/path or */word, without ? # @ or a port.": {
+   "zh-Hans": "网站的写法为 example.com、example.com/path 或 */word，不含 ? # @ 或端口。",
+   "hi": "साइट example.com, example.com/path या */word होती है, ? # @ या पोर्ट के बिना।",
+   "es": "Un sitio es example.com, example.com/ruta o */palabra, sin ? # @ ni puerto.",
+   "ar": "الموقع هو example.com أو example.com/path أو ‎*/word، دون ? # @ أو منفذ.",
+   "fr": "Un site, c'est example.com, example.com/chemin ou */mot, sans ? # @ ni port.",
+   "bn": "সাইট হলো example.com, example.com/path বা */word, ? # @ বা পোর্ট ছাড়া।",
+   "pt-BR": "Um site é example.com, example.com/caminho ou */palavra, sem ? # @ nem porta.",
+   "ru": "Сайт — это example.com, example.com/путь или */слово, без ? # @ и порта.",
+   "id": "Situs berupa example.com, example.com/jalur, atau */kata, tanpa ? # @ atau port."
+  },
+  "Glim never reads fields in these apps or on these sites: nothing is checked, kept or rewritten there.": {
+   "zh-Hans": "Glim 从不读取这些应用或网站中的字段：那里不会检查、保留或改写任何内容。",
+   "hi": "Glim इन ऐप्स या साइटों के फ़ील्ड कभी नहीं पढ़ता: वहाँ कुछ भी जाँचा, रखा या फिर से लिखा नहीं जाता।",
+   "es": "Glim nunca lee campos en estas apps ni en estos sitios: ahí no se revisa, guarda ni reescribe nada.",
+   "ar": "لا يقرأ Glim الحقول في هذه التطبيقات أو المواقع أبدًا: لا يُدقق شيء هناك ولا يُحفظ ولا يُعاد صياغته.",
+   "fr": "Glim ne lit jamais les champs de ces apps ni de ces sites : rien n'y est vérifié, gardé ni réécrit.",
+   "bn": "Glim এই অ্যাপ বা সাইটের ফিল্ড কখনো পড়ে না: সেখানে কিছুই যাচাই, রাখা বা পুনর্লিখন করা হয় না।",
+   "pt-BR": "O Glim nunca lê campos nesses apps ou sites: nada é revisado, guardado ou reescrito ali.",
+   "ru": "Glim никогда не читает поля в этих приложениях и на этих сайтах: там ничего не проверяется, не сохраняется и не переписывается.",
+   "id": "Glim tidak pernah membaca kolom di aplikasi atau situs ini: tidak ada yang diperiksa, disimpan, atau ditulis ulang di sana."
+  },
+  "Glim keeps nothing you write: only these settings, the API spend numbers, and your API key in Windows Credential Manager.": {
+   "zh-Hans": "Glim 不保留你写的任何内容：只保留这些设置、API 花费数字，以及存放在 Windows 凭据管理器中的 API 密钥。",
+   "hi": "Glim आपका लिखा कुछ नहीं रखता: सिर्फ़ ये सेटिंग्स, API खर्च के आँकड़े, और Windows Credential Manager में आपकी API कुंजी।",
+   "es": "Glim no guarda nada de lo que escribes: solo estos ajustes, las cifras de gasto de la API y tu clave de API en el Administrador de credenciales de Windows.",
+   "ar": "لا يحتفظ Glim بأي شيء تكتبه: فقط هذه الإعدادات وأرقام إنفاق الواجهة البرمجية ومفتاح API في مدير بيانات الاعتماد في Windows.",
+   "fr": "Glim ne garde rien de ce que vous écrivez : seulement ces réglages, les chiffres de dépense de l'API et votre clé d'API dans le Gestionnaire d'identification Windows.",
+   "bn": "Glim আপনার লেখা কিছুই রাখে না: শুধু এই সেটিংস, API খরচের সংখ্যা, আর Windows Credential Manager-এ আপনার API কী।",
+   "pt-BR": "O Glim não guarda nada do que você escreve: só estas configurações, os números de gasto da API e sua chave de API no Gerenciador de Credenciais do Windows.",
+   "ru": "Glim не хранит ничего из того, что вы пишете: только эти настройки, цифры расходов на API и ваш ключ API в диспетчере учётных данных Windows.",
+   "id": "Glim tidak menyimpan apa pun yang Anda tulis: hanya pengaturan ini, angka biaya API, dan kunci API Anda di Windows Credential Manager."
+  },
+  "Network: this computer only, plus api.anthropic.com when you ask for a rewrite.": {
+   "zh-Hans": "网络：仅限这台电脑，以及你请求改写时的 api.anthropic.com。",
+   "hi": "नेटवर्क: केवल यह कंप्यूटर, और जब आप पुनर्लेखन माँगते हैं तब api.anthropic.com।",
+   "es": "Red: solo este equipo, más api.anthropic.com cuando pides una reescritura.",
+   "ar": "الشبكة: هذا الكمبيوتر فقط، إضافةً إلى api.anthropic.com عندما تطلب إعادة صياغة.",
+   "fr": "Réseau : cet ordinateur seulement, plus api.anthropic.com quand vous demandez une réécriture.",
+   "bn": "নেটওয়ার্ক: শুধু এই কম্পিউটার, আর আপনি পুনর্লিখন চাইলে api.anthropic.com।",
+   "pt-BR": "Rede: só este computador, mais api.anthropic.com quando você pede uma reescrita.",
+   "ru": "Сеть: только этот компьютер, плюс api.anthropic.com, когда вы просите переписать текст.",
+   "id": "Jaringan: hanya komputer ini, ditambah api.anthropic.com saat Anda meminta tulis ulang."
   }
  }
 }

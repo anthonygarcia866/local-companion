@@ -654,6 +654,18 @@ fn writing_tone_defaults() -> Vec<(&'static str, &'static str)> {
     writing::tones::Category::ALL.iter().map(|c| (c.id(), c.builtin().id())).collect()
 }
 
+/// The built-in pause entries (locked), for Settings → Privacy (1d, §14.5).
+#[derive(serde::Serialize)]
+struct PauseBuiltins {
+    apps: Vec<&'static str>,
+    sites: Vec<&'static str>,
+}
+
+#[tauri::command]
+fn writing_pause_builtins() -> PauseBuiltins {
+    PauseBuiltins { apps: capture::sensitive::PAUSED_APPS.to_vec(), sites: capture::sensitive::PAUSED_SITES.to_vec() }
+}
+
 /// The apps Settings → Writing → Apps lists (1d): the built-in ones.
 #[tauri::command]
 fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
@@ -1043,6 +1055,7 @@ pub fn run() {
             ai_spend,
             ai_models,
             writing_known_apps,
+            writing_pause_builtins,
             writing_rewrite_default,
             writing_tone_defaults,
             writing_ask_shown,

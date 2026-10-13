@@ -21,6 +21,10 @@ pub struct Prefs {
     pub tones: BTreeMap<String, String>,
     /// Settings → Writing → Strictness (§14.4).
     pub strictness: super::checker::Strictness,
+    /// Settings → Privacy → Paused apps and sites (§14.5): the user's own
+    /// entries, on top of the built-in ones.
+    pub pause_apps: Vec<String>,
+    pub pause_sites: Vec<String>,
 }
 
 impl Prefs {
@@ -30,6 +34,8 @@ impl Prefs {
             asked: s.writing_apps_asked.iter().map(|(exe, d)| (exe.to_ascii_lowercase(), d.clone())).collect(),
             tones: s.rewrite_tones.iter().map(|(k, t)| (k.to_ascii_lowercase(), t.clone())).collect(),
             strictness: super::checker::Strictness::from_id(&s.checker_strictness),
+            pause_apps: s.pause_apps.clone(),
+            pause_sites: s.pause_sites.clone(),
         }
     }
 }
