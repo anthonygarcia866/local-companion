@@ -19,7 +19,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
-import { tn } from "../i18n/i18n";
+import { t, tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -37,6 +37,7 @@ import {
   DELEGATE_STATE,
   lanternStateFor,
   withWritingSuggestions,
+  withPause,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -72,6 +73,8 @@ export class Island {
   private countdown!: HTMLElement;
   /** The writing suggestions' count on the pill. */
   private writingBadge!: HTMLElement;
+  /** "❚❚" by the lantern while the writing features are paused (1d). */
+  private pauseBadge!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -259,6 +262,7 @@ export class Island {
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
     this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
+    this.pauseBadge = h("div", { id: "pause-badge", role: "status", style: "display:none", text: "❚❚" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -293,6 +297,7 @@ export class Island {
       this.miniGrid,
       this.countdown,
       this.writingBadge,
+      this.pauseBadge,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -516,7 +521,6 @@ export class Island {
 
   private onDragDrop(e: { type: string; paths?: string[] }) {
     if (e.type !== "over") void Bridge.log(`drag ${e.type} ${e.paths?.length ?? 0} file(s)`);
-    if (State.paused) return;
     switch (e.type) {
       case "enter":
       case "over": {
@@ -1139,7 +1143,7 @@ export class Island {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
       const suggest = writing + (State.writingAsk ? 1 : 0);
-      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest));
+      this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
       const badge = this.writingBadge;
@@ -1151,6 +1155,16 @@ export class Island {
         badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
         badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
         badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+      // Paused (1d): the pause badge where the count goes, so it's clear the
+      // writing help is off even while an agent's state has the lantern.
+      const pause = this.pauseBadge;
+      const paused = State.paused && State.mode !== "hidden" && !State.mochiOnDesktop;
+      pause.style.display = paused ? "" : "none";
+      if (paused) {
+        pause.setAttribute("aria-label", t("Writing help paused"));
+        pause.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        pause.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
       }
     }
   }

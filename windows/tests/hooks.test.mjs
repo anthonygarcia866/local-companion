@@ -52,21 +52,18 @@ afterEach(() => {
 
 // ── Paused ────────────────────────────────────────────────────────────────────
 
-test("a paused island hands a permission request straight back to the terminal", () => {
+// Pause stops the writing features only (1d, docs/phase1-plan.md §14.6).
+test("a permission request that comes while paused shows in Glim, not back in the terminal", () => {
   State.paused = true;
   hook({ hook_event_name: "PermissionRequest", request_id: "r1", tool_name: "Bash" });
-  assert.deepEqual(sent("approval_decline"), [{ requestId: "r1" }]);
-  assert.deepEqual(sent("approval_ack"), []);
-  assert.equal(State.pendingApproval, null);
-  assert.equal(task().state, "idle");
+  assert.deepEqual(sent("approval_decline"), []);
+  assert.notEqual(State.pendingApproval, null);
 });
 
-test("a paused island ignores every other event", () => {
+test("sessions carry on while paused", () => {
   State.paused = true;
   hook({ hook_event_name: "SessionStart", cwd: "C:\\Users\\me\\proj" });
-  assert.equal(task().name, "VS Code");
-  assert.deepEqual(asked, []);
-  assert.deepEqual(calls, []);
+  assert.equal(task().name, "proj");
 });
 
 // ── Session and work events ───────────────────────────────────────────────────

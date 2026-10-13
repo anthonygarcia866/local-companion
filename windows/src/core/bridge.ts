@@ -127,8 +127,6 @@ export const Bridge = {
   writingRewriteDismiss: () => call<void>("writing_rewrite_dismiss"),
   /** Dismiss: the list goes until the text changes. */
   writingDismiss: () => call<void>("writing_dismiss"),
-  /** The tray's Pause: Rust stops reading, checking and typing. */
-  writingSetPaused: (paused: boolean) => call<void>("writing_set_paused", { paused }),
 
   openSettingsWindow: () => call<void>("open_settings_window"),
 

@@ -57,6 +57,8 @@ export class PresenceModel {
   writing = 0;
   /** "Check writing in [app]?" is waiting (1d): the ember shows "?". */
   ask = false;
+  /** The writing features are paused (1d): the ember goes grey, with "❚❚". */
+  paused = false;
   /** The ember was clicked to see the suggestions: the pill is out for that
    *  only, and Ember comes back when the island closes. */
   peeking = false;
@@ -109,7 +111,8 @@ export class PresenceModel {
 /** The ember's look with writing suggestions: brighter, with a count (no
  *  bounce). Nine and up show "9+": the window is 28 px. A question waiting
  *  (1d's "Check writing in [app]?") shows "?" instead of the count. */
-export function emberWriting(count: number, ask = false): { lit: boolean; badge: string } {
+export function emberWriting(count: number, ask = false, paused = false): { lit: boolean; badge: string } {
+  if (paused) return { lit: false, badge: "❚❚" };
   if (ask) return { lit: true, badge: "?" };
   if (count <= 0) return { lit: false, badge: "" };
   return { lit: true, badge: count > 9 ? "9+" : String(count) };
@@ -197,6 +200,13 @@ export class PresenceView {
     this.drawWriting();
   }
 
+  /** Pause on or off (1d). */
+  setPaused(on: boolean) {
+    if (this.model.paused === on) return;
+    this.model.paused = on;
+    this.drawWriting();
+  }
+
   /** A "Check writing in [app]?" question is waiting, or no longer. */
   setAsk(on: boolean) {
     if (this.model.ask === on) return;
@@ -205,14 +215,17 @@ export class PresenceView {
   }
 
   private drawWriting() {
-    const { lit, badge } = emberWriting(this.model.writing, this.model.ask);
-    const shown = lit && this.model.kind === "ember";
-    this.el.classList.toggle("lit", shown);
+    const { lit, badge } = emberWriting(this.model.writing, this.model.ask, this.model.paused);
+    const ember = this.model.kind === "ember";
+    const shown = (lit || this.model.paused) && ember;
+    this.el.classList.toggle("lit", lit && ember);
+    this.el.classList.toggle("paused", this.model.paused && ember);
     this.badge.textContent = badge;
     this.badge.hidden = !shown;
     this.el.setAttribute(
       "aria-label",
       !shown ? "Glim"
+        : this.model.paused ? `Glim: ${t("Writing help paused")}`
         : this.model.ask ? `Glim: ${t("Glim has a question")}`
         : `Glim: ${tn("{count} writing suggestion", "{count} writing suggestions", this.model.writing)}`,
     );

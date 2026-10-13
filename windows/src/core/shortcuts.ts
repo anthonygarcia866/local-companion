@@ -32,6 +32,7 @@ export const SHORTCUT_TEXT = {
   cycleVisibility: N_("Show Glim as pill, ember or hidden"),
   rewrite: N_("Rewrite the paragraph you're writing"),
   denyApproval: N_("Deny the waiting permission"),
+  pauseToggle: N_("Pause or resume writing help"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -60,7 +61,8 @@ export type ShortcutId =
   // Glim's own, after the Mac ones.
   | "cycleVisibility"
   | "rewrite"
-  | "denyApproval";
+  | "denyApproval"
+  | "pauseToggle";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -96,6 +98,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("rewrite", "Ctrl+Alt+Shift+R", true, true),
   // Denies the waiting permission card from any app. Allow has no key: a click only.
   def("denyApproval", "Ctrl+Alt+Shift+N", true, true),
+  // 1d: pauses and resumes the writing features. Rust runs it (any app, any mode).
+  def("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
 ];
 
 export interface Binding {

@@ -1,4 +1,5 @@
-// Notification-area icon: Open, Weekly recap, Settings, Pause, Quit Glim.
+// Notification-area icon: Open, Weekly recap, Settings, Pause (Resume while
+// paused, 1d), Quit Glim.
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -38,6 +39,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "settings" => crate::show_settings_window(app),
+            // Pause is Rust's (pause.rs): the island hears the result.
+            "pause" => crate::pause::toggle(app),
             id => {
                 // The way back from Hidden (and Ember): opening Glim from the
                 // tray brings the pill back first.
@@ -56,10 +59,42 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The Pause item's label: "Resume" while paused.
+fn label_for(label: &'static str, paused: bool) -> &'static str {
+    if label == ITEMS[3].1 && paused {
+        n_("Resume")
+    } else {
+        label
+    }
+}
+
 /// Relabels the menu in the current language.
 pub fn retitle(app: &AppHandle) {
     let Some(items) = app.try_state::<Items>() else { return };
+    let paused = crate::writing::paused();
     for (label, item) in &items.0 {
-        let _ = item.set_text(t(label));
+        let _ = item.set_text(t(label_for(label, paused)));
+    }
+}
+
+/// Pause changed: the menu says Resume, and the icon's tooltip "Glim
+/// (paused)", which is all that shows in Hidden mode.
+pub fn show_paused(app: &AppHandle, paused: bool) {
+    retitle(app);
+    if let Some(tray) = app.tray_by_id("glim") {
+        let tip = if paused { t("Glim (paused)") } else { "Glim".to_string() };
+        let _ = tray.set_tooltip(Some(tip));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pause_item_reads_resume_while_paused() {
+        assert_eq!(label_for("Pause", true), "Resume");
+        assert_eq!(label_for("Pause", false), "Pause");
+        assert_eq!(label_for("Open Glim", true), "Open Glim");
     }
 }

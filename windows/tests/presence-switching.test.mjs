@@ -92,6 +92,6 @@ test("the ember's click is wired to restore", () => {
   const src = readFileSync(new URL("../src/island/presence.ts", import.meta.url), "utf8");
   assert.match(src, /this\.el\.addEventListener\("click", \(\) => \{\s+if \(gesture\.click\(\)\) this\.model\.restore\(\);/);
   const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-  assert.match(main, /new PresenceView\(\{\s+showPill: \(\) => \{ if \(!State\.paused\) island\.reveal\(\); \},\s+(?:\/\/[^\n]*\s+)?openSuggestions: \(\) => island\.setView\(State\.lanternView\(\) \?\? "suggestions"\),\s+\}\)/);
+  assert.match(main, /new PresenceView\(\{\s+showPill: \(\) => island\.reveal\(\),\s+(?:\/\/[^\n]*\s+)?openSuggestions: \(\) => island\.setView\(State\.lanternView\(\) \?\? "suggestions"\),\s+\}\)/);
   assert.match(main, /island\.onClosed = \(\) => presence\.model\.islandClosed\(\);/);
 });

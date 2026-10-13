@@ -84,6 +84,10 @@ pub const ACTIONS: &[ActionDef] = &[
     // key on purpose: it is a click on the card, always. N for No; Shift keeps
     // it off the AltGr layer like Glim's other keys.
     action("denyApproval", "Ctrl+Alt+Shift+N", true, true),
+    // 1d: pauses and resumes the writing features (pause.rs), from any app,
+    // with the island in any mode, so it is handled here in Rust. Free
+    // system-wide when probed with RegisterHotKey (2026-10-13).
+    action("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -292,11 +296,24 @@ pub fn on_cycle_visibility(f: impl Fn() + Send + Sync + 'static) {
     let _ = CYCLE_VISIBILITY.set(Box::new(f));
 }
 
+/// What the pause key runs (set up in lib.rs).
+static PAUSE_TOGGLE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_pause_toggle(f: impl Fn() + Send + Sync + 'static) {
+    let _ = PAUSE_TOGGLE.set(Box::new(f));
+}
+
 /// Hands an action to the island; the visibility cycle runs here.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
     if action == "cycleVisibility" {
         if let Some(f) = CYCLE_VISIBILITY.get() {
+            f();
+        }
+        return;
+    }
+    if action == "pauseToggle" {
+        if let Some(f) = PAUSE_TOGGLE.get() {
             f();
         }
         return;
@@ -424,10 +441,20 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 3] = ["cycleVisibility", "rewrite", "denyApproval"];
+    const GLIM_IDS: [&str; 4] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None
+    }
+
+    /// 1d: the pause key is Glim's own and reachable from the command line
+    /// (`glim --shortcut pauseToggle`), the dev self-test's way in.
+    #[test]
+    fn the_pause_key_is_registered_by_default_and_reachable_from_the_command_line() {
+        let def = find("pauseToggle").unwrap();
+        assert_eq!((def.default_keys, def.enabled_by_default, def.ported), ("Ctrl+Alt+Shift+P", true, true));
+        let args: Vec<String> = ["glim.exe", "--shortcut", "pauseToggle"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(from_args(&args), Some("pauseToggle"));
     }
 
     // testDefaultsExhaustive

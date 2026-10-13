@@ -2382,6 +2382,19 @@ html[data-presence="hidden"] :is(#island, #wake-strip) {
   display: none;
 }
 
+/* Paused (1d): the ember goes grey, with "❚❚". */
+#ember.paused .ember-dot {
+  background: radial-gradient(circle at 50% 45%, #e6e8eb 0%, #a3a8b0 55%, #6f747c 100%);
+  box-shadow: 0 0 4px 1px rgba(163, 168, 176, 0.6);
+  animation: none;
+}
+
+#ember.paused .ember-count {
+  background: #8a8f98;
+  color: #16181c;
+  font-size: 6px;
+}
+
 @keyframes ember-breathe {
   0%, 100% { opacity: 0.8; }
   50% { opacity: 1; }
@@ -2448,6 +2461,22 @@ html:not([data-presence="pill"]) #lantern-menu {
 /* ── Writing suggestions (Phase 1a) ─────────────────────────────────────── */
 
 /* The count on the pill, at the lantern's top right. */
+/* The writing features are paused (1d): a grey "❚❚" where the count goes. */
+#pause-badge {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #8a8f98;
+  color: #16181c;
+  font: 700 7px/15px var(--font);
+  letter-spacing: -0.5px;
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 #writing-count {
   position: absolute;
   min-width: 15px;

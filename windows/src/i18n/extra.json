@@ -4209,6 +4209,50 @@
    "pt-BR": "Rede: só este computador, mais api.anthropic.com quando você pede uma reescrita.",
    "ru": "Сеть: только этот компьютер, плюс api.anthropic.com, когда вы просите переписать текст.",
    "id": "Jaringan: hanya komputer ini, ditambah api.anthropic.com saat Anda meminta tulis ulang."
+  },
+  "Pause or resume writing help": {
+   "zh-Hans": "暂停或恢复写作帮助",
+   "hi": "लेखन सहायता रोकें या फिर शुरू करें",
+   "es": "Pausar o reanudar la ayuda de escritura",
+   "ar": "إيقاف مساعدة الكتابة مؤقتًا أو استئنافها",
+   "fr": "Mettre en pause ou reprendre l'aide à l'écriture",
+   "bn": "লেখার সহায়তা বিরতি বা আবার চালু করুন",
+   "pt-BR": "Pausar ou retomar a ajuda na escrita",
+   "ru": "Приостановить или возобновить помощь с текстом",
+   "id": "Jeda atau lanjutkan bantuan menulis"
+  },
+  "Writing help paused": {
+   "zh-Hans": "写作帮助已暂停",
+   "hi": "लेखन सहायता रुकी हुई है",
+   "es": "Ayuda de escritura en pausa",
+   "ar": "مساعدة الكتابة موقوفة مؤقتًا",
+   "fr": "Aide à l'écriture en pause",
+   "bn": "লেখার সহায়তা বিরতিতে",
+   "pt-BR": "Ajuda na escrita pausada",
+   "ru": "Помощь с текстом приостановлена",
+   "id": "Bantuan menulis dijeda"
+  },
+  "Resume": {
+   "zh-Hans": "恢复",
+   "hi": "फिर शुरू करें",
+   "es": "Reanudar",
+   "ar": "استئناف",
+   "fr": "Reprendre",
+   "bn": "আবার চালু করুন",
+   "pt-BR": "Retomar",
+   "ru": "Возобновить",
+   "id": "Lanjutkan"
+  },
+  "Glim (paused)": {
+   "zh-Hans": "Glim（已暂停）",
+   "hi": "Glim (रुका हुआ)",
+   "es": "Glim (en pausa)",
+   "ar": "Glim (موقوف مؤقتًا)",
+   "fr": "Glim (en pause)",
+   "bn": "Glim (বিরতিতে)",
+   "pt-BR": "Glim (pausado)",
+   "ru": "Glim (приостановлен)",
+   "id": "Glim (dijeda)"
   }
  }
 }

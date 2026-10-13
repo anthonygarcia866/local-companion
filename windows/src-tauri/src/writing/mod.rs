@@ -1275,7 +1275,10 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
             assert!(lib.contains(cmd), "{cmd}");
         }
         assert!(lib.contains("fn writing_dismiss() {"));
-        assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
+        // Pause is Rust's own since 1d (pause.rs): the island has no command for it.
+        assert!(!lib.contains("fn writing_set_paused("));
+        // The one-time prompt's answer: the app's exe and a word, nothing else.
+        assert!(lib.contains("fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer: String) {"));
     }
 
     #[test]

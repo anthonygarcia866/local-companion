@@ -23,6 +23,7 @@ mod session_window;
 mod settings;
 mod shortcuts;
 mod placement;
+mod pause;
 mod presence;
 mod tray;
 #[cfg(windows)]
@@ -733,14 +734,6 @@ fn writing_dismiss() {
     capture::uia::request(capture::uia::Request::Dismiss);
 }
 
-/// The tray's Pause, from the island: nothing is read, checked, kept or typed.
-#[tauri::command]
-fn writing_set_paused(paused: bool) {
-    writing::set_paused(paused);
-    #[cfg(windows)]
-    capture::uia::request(capture::uia::Request::Wake);
-}
-
 // ── Global shortcuts ──────────────────────────────────────────────────────────
 
 /// How each global shortcut went: registered, taken by another app, and so on.
@@ -1065,7 +1058,6 @@ pub fn run() {
             writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
-            writing_set_paused,
             chat_send,
             chat_models,
             local_connect,
@@ -1140,6 +1132,9 @@ pub fn run() {
             // The visibility hotkey works in Rust: it has to reach a hidden window.
             let cycle_handle = handle.clone();
             shortcuts::on_cycle_visibility(move || presence::cycle(&cycle_handle));
+            // So does the pause key (1d): it works with the island hidden.
+            let pause_handle = handle.clone();
+            shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

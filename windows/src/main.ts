@@ -29,13 +29,15 @@ async function main() {
   const island = new Island(root);
   // Pill: the compact island on screen (it may have been folded or paused).
   const presence = new PresenceView({
-    showPill: () => { if (!State.paused) island.reveal(); },
+    showPill: () => island.reveal(),
     // The ember's click with suggestions waiting: straight to the list.
     openSuggestions: () => island.setView(State.lanternView() ?? "suggestions"),
   });
   // A peek from the ember ends when the island closes: back to the ember.
   island.onClosed = () => presence.model.islandClosed();
   root.append(presence.el);
+
+  const askHost = { setView: (v: Parameters<typeof island.setView>[0]) => island.setView(v), collapse: () => island.collapse() };
 
   const boot = await Bridge.boot();
   if (boot) {
@@ -56,30 +58,27 @@ async function main() {
   await onEvent<{ x: number; y: number }>("cursor", ({ x, y }) => island.onCursor(x, y));
   await onEvent<boolean>("pointer-inside", (inside) => island.setPointerInside(inside));
 
-  const setPaused = (on: boolean) => {
+  // Pause (1d, §14.6) is Rust's: the tray's Pause / Resume and the pause key
+  // (pause.rs). It stops the writing features only; Glim stays where it is,
+  // greyed with a pause badge, and agents carry on.
+  await onEvent<boolean>("paused", (on) => {
     State.paused = on;
-    // Rust stops reading fields, checking and typing fixes while paused.
-    void Bridge.writingSetPaused(on);
-  };
+    presence.setPaused(on);
+    // A question about an app waits for another day.
+    if (on && State.writingAsk) answerAsk("later", askHost);
+    State.notify();
+  });
 
   await onEvent<string>("tray", (what) => {
     switch (what) {
       case "settings":
-        setPaused(false);
         island.alert("settings");
         break;
       case "open":
-        setPaused(false);
         island.alert(State.defaultView());
         break;
       case "recap":
-        setPaused(false);
         void Recap.open(island);
-        break;
-      case "pause":
-        setPaused(!State.paused);
-        if (State.paused) island.fsm.forceHidden();
-        else island.reveal();
         break;
     }
   });
@@ -152,7 +151,8 @@ async function main() {
 
   registerHookHandlers(island);
   void refreshConfigured();
-  registerShortcutHandlers(island, () => setPaused(false));
+  // Opening Glim from a key no longer lifts Pause: only Resume or the pause key do (1d).
+  registerShortcutHandlers(island, () => {});
 
   // Monday recap: app start (ignite over), an agent starting work, waking up.
   const checkRecap = () => void Recap.check(island);
@@ -194,7 +194,6 @@ async function main() {
   // "Check writing in [app]?" (1d, §14.2): Rust asks after 2 s in a field of
   // an app on neither list. Seen now, in the ember, behind an approval card,
   // or not at all (Hidden, fullscreen): see core/ask.ts.
-  const askHost = { setView: (v: Parameters<typeof island.setView>[0]) => island.setView(v), collapse: () => island.collapse() };
   State.subscribe(() => presence.setAsk(State.writingAsk !== null));
   await onEvent<WritingAsk>("writing-ask", (ask) => {
     const where = askPlacement({
