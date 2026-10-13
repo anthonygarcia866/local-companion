@@ -140,6 +140,10 @@ export const Bridge = {
   aiModels: () => call<AiModel[]>("ai_models"),
   /** The built-in apps of Settings → Writing → Apps (1d). */
   writingKnownApps: () => call<KnownApp[]>("writing_known_apps"),
+  /** The Rewrite card's default tone for the field being written in (1d). */
+  writingRewriteDefault: () => call<string>("writing_rewrite_default"),
+  /** Each category's built-in tone: [category, tone] (1d). */
+  writingToneDefaults: () => call<[string, string][]>("writing_tone_defaults"),
   /** "Check writing in [app]?" is in sight (or queued): asked today (1d). */
   writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
   /** Its answer: "yes", "later" or "never". */

@@ -160,6 +160,8 @@ export interface Settings {
   writingApps: Record<string, string>;
   /** When each app on neither list was last asked about ("YYYY-MM-DD" by exe). Rust's. */
   writingAppsAsked?: Record<string, string>;
+  /** Settings → Writing → Rewrite tones (1d): a tone id by category or exe, only where it differs. */
+  rewriteTones: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -184,6 +186,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiModel: "claude-haiku-5-5",
   aiMonthlyCapUsd: 0,
   writingApps: {},
+  rewriteTones: {},
 };
 
 type Listener = () => void;
@@ -260,6 +263,9 @@ export interface RewriteState {
   outcome: string;
   /** "Use this" or "Copy" is on its way. */
   busy: boolean;
+  /** The field's default tone (1d, §14.3): first and highlighted; a second
+   *  press of the hotkey sends it. "" until Rust says. */
+  defaultTone: string;
 }
 
 class AppState {

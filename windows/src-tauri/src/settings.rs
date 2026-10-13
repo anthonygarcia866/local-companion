@@ -84,6 +84,10 @@ pub struct Settings {
     /// neither list was last asked about, by exe. Nothing else: no title, no
     /// text. Yes and Never remove the app's entry.
     pub writing_apps_asked: BTreeMap<String, String>,
+    /// Settings → Writing → Rewrite tones (§14.3): a tone id ("formal"…) by
+    /// category ("email", "documents", "chat", "other") or by exe, only
+    /// where it differs from writing::tones' defaults.
+    pub rewrite_tones: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -131,6 +135,7 @@ impl Default for Settings {
             ai_monthly_cap_usd: 0.0,
             writing_apps: BTreeMap::new(),
             writing_apps_asked: BTreeMap::new(),
+            rewrite_tones: BTreeMap::new(),
         }
     }
 }
@@ -408,7 +413,8 @@ mod tests {
   "aiModel": "claude-sonnet-5-5",
   "aiMonthlyCapUsd": 7.5,
   "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
-  "writingAppsAsked": { "WordPad.exe": "2026-10-12" }
+  "writingAppsAsked": { "WordPad.exe": "2026-10-12" },
+  "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" }
 }"##;
 
     fn custom() -> Value {
@@ -523,7 +529,7 @@ mod tests {
     #[test]
     fn a_file_from_before_1d_has_every_app_at_its_default() {
         let loaded = parse(br#"{"screen":"active"}"#).unwrap();
-        assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty());
+        assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty() && loaded.rewrite_tones.is_empty());
         // Not a map of strings: the switches fall back, and nothing else does.
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
@@ -833,6 +839,7 @@ mod tests {
                 "aiMonthlyCapUsd",
                 "writingApps",
                 "writingAppsAsked",
+                "rewriteTones",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

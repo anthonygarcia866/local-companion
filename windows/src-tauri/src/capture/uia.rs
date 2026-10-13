@@ -371,6 +371,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         let reading = read(&uia, &element, pid, &pause, dev);
         let ask = reading.ask;
+        let mail_site = reading.mail_site;
         let mut capture = reading.capture;
         capture.via = via.into();
         let same = current
@@ -410,6 +411,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
         if checked.is_some() {
             last_field = Some((element.clone(), pid as u32));
+            let cat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site);
+            crate::writing::tones::set_focus(&capture.meta.app, cat);
         }
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
@@ -474,11 +477,14 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
         return Capture { meta, window_title, excerpt: None, via: String::new() }.into();
     }
 
+    let mail_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::tones::MAIL_SITES));
     let (pattern, text, caret) = read_text(element);
     meta.pattern = pattern.into();
     // Card numbers, SSNs and IBANs in the text are caught here, before the
     // reading goes anywhere.
-    finish(meta, window_title, text, caret)
+    let mut reading = finish(meta, window_title, text, caret);
+    reading.mail_site = mail_site;
+    reading
 }
 
 /// The field's labels from UI Automation, never its text.

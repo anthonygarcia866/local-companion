@@ -642,6 +642,18 @@ fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer
     });
 }
 
+/// The Rewrite card's default tone for the field being written in (1d, §14.3).
+#[tauri::command]
+fn writing_rewrite_default() -> &'static str {
+    writing::tones::current_default().id()
+}
+
+/// Each category's built-in tone, for Settings → Writing → Rewrite tones.
+#[tauri::command]
+fn writing_tone_defaults() -> Vec<(&'static str, &'static str)> {
+    writing::tones::Category::ALL.iter().map(|c| (c.id(), c.builtin().id())).collect()
+}
+
 /// The apps Settings → Writing → Apps lists (1d): the built-in ones.
 #[tauri::command]
 fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
@@ -1031,6 +1043,8 @@ pub fn run() {
             ai_spend,
             ai_models,
             writing_known_apps,
+            writing_rewrite_default,
+            writing_tone_defaults,
             writing_ask_shown,
             writing_ask_answer,
             writing_rewrite_apply,

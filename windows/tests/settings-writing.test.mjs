@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { writingSection, appOn, switchApp, answeredApps } = await import("../src/settings/writing.ts");
+const { writingSection, appOn, switchApp, answeredApps, setTone, categoryTone } = await import("../src/settings/writing.ts");
 const { DEFAULT_SETTINGS } = await import("../src/core/state.ts");
 
 const KNOWN = [
@@ -48,4 +48,47 @@ test("the list is the built-in apps, then the answered ones", () => {
   switches[2].fire("click");
   assert.deepEqual(settings.writingApps, { "Acrobat.exe": "off", "WINWORD.EXE": "off", "Code.exe": "on" });
   assert.equal(saves, 1);
+});
+
+const DEFAULTS = [["email", "formal"], ["documents", "formal"], ["chat", "casual"], ["other", "grammar"]];
+
+test("a category's tone is stored only when it differs from the built-in one", () => {
+  assert.deepEqual(setTone({}, "email", "formal", "formal"), {});
+  assert.deepEqual(setTone({}, "email", "shorter", "formal"), { email: "shorter" });
+  assert.deepEqual(setTone({ email: "shorter" }, "email", "formal", "formal"), {});
+  assert.deepEqual(setTone({ "OUTLOOK.EXE": "casual" }, "outlook.exe", "", null), {}, "an app's own tone removed");
+  assert.deepEqual(setTone({}, "OUTLOOK.EXE", "casual", null), { "OUTLOOK.EXE": "casual" });
+  assert.equal(categoryTone({ chat: "pirate" }, "chat", "casual"), "casual", "an unknown tone reads as the built-in one");
+  assert.equal(categoryTone({ chat: "friendlier" }, "chat", "casual"), "friendlier");
+});
+
+test("Rewrite tones: a select per kind of app, and a tone of its own for one app", () => {
+  const settings = { ...DEFAULT_SETTINGS, writingApps: {}, rewriteTones: { "OUTLOOK.EXE": "shorter" } };
+  let saves = 0;
+  const known = [...KNOWN, { exe: "OUTLOOK.EXE", name: "Outlook", defaultOn: true, chat: false, fixes: true }];
+  const el = writingSection({ settings: () => settings, save: async () => { saves++; } }, known, DEFAULTS);
+  const selects = el.find("select");
+  const byCat = (id) => selects.find((s) => s.getAttribute("data-category") === id);
+  assert.deepEqual(DEFAULTS.map(([id]) => byCat(id).value), ["formal", "formal", "casual", "grammar"]);
+  assert.ok(el.textContent.includes("Chat apps and chat sites"));
+  // Casual is offered.
+  assert.ok(byCat("chat").find("option").some((o) => o.getAttribute("value") === "casual"));
+
+  const chat = byCat("chat");
+  chat.value = "friendlier";
+  chat.fire("change");
+  assert.deepEqual(settings.rewriteTones, { "OUTLOOK.EXE": "shorter", chat: "friendlier" });
+
+  // Outlook has its own; the add row offers the other apps the checker is on in.
+  const own = el.find("select").find((s) => s.getAttribute("data-exe") === "OUTLOOK.EXE");
+  assert.equal(own.value, "shorter");
+  const app = el.find("select").find((s) => s.getAttribute("data-role") === "tone-app");
+  const options = app.find("option").map((o) => o.getAttribute("value"));
+  assert.deepEqual(options, ["WINWORD.EXE", "slack.exe"], "on apps only, not Outlook again, not VS Code (off)");
+  app.value = "slack.exe";
+  const pick = el.find("select").find((s) => s.getAttribute("data-role") === "tone-pick");
+  pick.value = "formal";
+  el.find("button").find((b) => b.textContent === "Add").fire("click");
+  assert.deepEqual(settings.rewriteTones, { "OUTLOOK.EXE": "shorter", chat: "friendlier", "slack.exe": "formal" });
+  assert.equal(saves, 2);
 });

@@ -3868,6 +3868,127 @@
    "pt-BR": "O Glim tem uma pergunta",
    "ru": "У Glim есть вопрос",
    "id": "Glim punya pertanyaan"
+  },
+  "Casual": {
+   "zh-Hans": "随意",
+   "hi": "अनौपचारिक",
+   "es": "Informal",
+   "ar": "عفوي",
+   "fr": "Décontracté",
+   "bn": "সহজ ভঙ্গি",
+   "pt-BR": "Descontraído",
+   "ru": "Непринуждённо",
+   "id": "Santai"
+  },
+  "Sends this paragraph to Claude. Press the shortcut again for {tone}. Nothing is typed until you click Use this.": {
+   "zh-Hans": "将此段落发送给 Claude。再按一次快捷键即使用“{tone}”。在你点击“使用此内容”之前不会输入任何内容。",
+   "hi": "यह अनुच्छेद Claude को भेजता है। {tone} के लिए शॉर्टकट फिर से दबाएँ। जब तक आप 'इसे इस्तेमाल करें' पर क्लिक नहीं करते, कुछ भी टाइप नहीं होता।",
+   "es": "Envía este párrafo a Claude. Pulsa el atajo otra vez para {tone}. No se escribe nada hasta que hagas clic en Usar esto.",
+   "ar": "يرسل هذه الفقرة إلى Claude. اضغط الاختصار مرة أخرى لـ {tone}. لا يُكتب شيء حتى تنقر على «استخدم هذا».",
+   "fr": "Envoie ce paragraphe à Claude. Appuyez de nouveau sur le raccourci pour {tone}. Rien n'est tapé tant que vous ne cliquez pas sur Utiliser ceci.",
+   "bn": "এই অনুচ্ছেদটি Claude-এ পাঠায়। {tone}-এর জন্য শর্টকাটটি আবার চাপুন। আপনি 'এটি ব্যবহার করুন' ক্লিক না করা পর্যন্ত কিছুই টাইপ হয় না।",
+   "pt-BR": "Envia este parágrafo ao Claude. Pressione o atalho de novo para {tone}. Nada é digitado até você clicar em Usar isto.",
+   "ru": "Отправляет этот абзац Claude. Нажмите сочетание ещё раз для варианта «{tone}». Ничего не вводится, пока вы не нажмёте «Использовать».",
+   "id": "Mengirim paragraf ini ke Claude. Tekan pintasan sekali lagi untuk {tone}. Tidak ada yang diketik sampai Anda mengeklik Gunakan ini."
+  },
+  "Email (Outlook, Gmail)": {
+   "zh-Hans": "电子邮件（Outlook、Gmail）",
+   "hi": "ईमेल (Outlook, Gmail)",
+   "es": "Correo (Outlook, Gmail)",
+   "ar": "البريد (Outlook، Gmail)",
+   "fr": "E-mail (Outlook, Gmail)",
+   "bn": "ইমেল (Outlook, Gmail)",
+   "pt-BR": "E-mail (Outlook, Gmail)",
+   "ru": "Почта (Outlook, Gmail)",
+   "id": "Email (Outlook, Gmail)"
+  },
+  "Documents (Word)": {
+   "zh-Hans": "文档（Word）",
+   "hi": "दस्तावेज़ (Word)",
+   "es": "Documentos (Word)",
+   "ar": "المستندات (Word)",
+   "fr": "Documents (Word)",
+   "bn": "নথি (Word)",
+   "pt-BR": "Documentos (Word)",
+   "ru": "Документы (Word)",
+   "id": "Dokumen (Word)"
+  },
+  "Chat apps and chat sites": {
+   "zh-Hans": "聊天应用和聊天网站",
+   "hi": "चैट ऐप और चैट साइटें",
+   "es": "Apps y sitios de chat",
+   "ar": "تطبيقات ومواقع الدردشة",
+   "fr": "Apps et sites de chat",
+   "bn": "চ্যাট অ্যাপ ও চ্যাট সাইট",
+   "pt-BR": "Apps e sites de chat",
+   "ru": "Чаты: приложения и сайты",
+   "id": "Aplikasi dan situs obrolan"
+  },
+  "Everything else": {
+   "zh-Hans": "其他所有",
+   "hi": "बाकी सब",
+   "es": "Todo lo demás",
+   "ar": "كل ما عدا ذلك",
+   "fr": "Tout le reste",
+   "bn": "বাকি সব",
+   "pt-BR": "Todo o resto",
+   "ru": "Всё остальное",
+   "id": "Lainnya"
+  },
+  "Its kind's tone": {
+   "zh-Hans": "按其类别的语气",
+   "hi": "उसकी श्रेणी का लहजा",
+   "es": "El tono de su tipo",
+   "ar": "نبرة فئته",
+   "fr": "Le ton de sa catégorie",
+   "bn": "এর ধরনের সুর",
+   "pt-BR": "O tom do tipo dele",
+   "ru": "Тон его категории",
+   "id": "Nada jenisnya"
+  },
+  "Rewrite tones": {
+   "zh-Hans": "改写语气",
+   "hi": "पुनर्लेखन लहजे",
+   "es": "Tonos de reescritura",
+   "ar": "نبرات إعادة الصياغة",
+   "fr": "Tons de réécriture",
+   "bn": "পুনর্লিখনের সুর",
+   "pt-BR": "Tons de reescrita",
+   "ru": "Тон переписывания",
+   "id": "Nada tulis ulang"
+  },
+  "The tone that comes first on the Rewrite card. Pressing the rewrite shortcut a second time sends it.": {
+   "zh-Hans": "在改写卡片上排在第一位的语气。再按一次改写快捷键即可发送。",
+   "hi": "पुनर्लेखन कार्ड पर सबसे पहले आने वाला लहजा। पुनर्लेखन शॉर्टकट दूसरी बार दबाने से यह भेजा जाता है।",
+   "es": "El tono que aparece primero en la tarjeta de reescritura. Pulsar el atajo de reescritura por segunda vez lo envía.",
+   "ar": "النبرة التي تأتي أولًا في بطاقة إعادة الصياغة. الضغط على اختصار إعادة الصياغة مرة ثانية يرسلها.",
+   "fr": "Le ton qui vient en premier sur la carte Réécrire. Appuyer une deuxième fois sur le raccourci de réécriture l'envoie.",
+   "bn": "পুনর্লিখন কার্ডে যে সুরটি প্রথমে আসে। পুনর্লিখন শর্টকাটটি দ্বিতীয়বার চাপলে সেটি পাঠানো হয়।",
+   "pt-BR": "O tom que aparece primeiro no cartão de reescrita. Pressionar o atalho de reescrita uma segunda vez o envia.",
+   "ru": "Тон, который стоит первым в карточке переписывания. Повторное нажатие сочетания отправляет его.",
+   "id": "Nada yang muncul pertama di kartu Tulis ulang. Menekan pintasan tulis ulang untuk kedua kalinya mengirimkannya."
+  },
+  "Add": {
+   "zh-Hans": "添加",
+   "hi": "जोड़ें",
+   "es": "Añadir",
+   "ar": "إضافة",
+   "fr": "Ajouter",
+   "bn": "যোগ করুন",
+   "pt-BR": "Adicionar",
+   "ru": "Добавить",
+   "id": "Tambah"
+  },
+  "For one app": {
+   "zh-Hans": "针对单个应用",
+   "hi": "एक ऐप के लिए",
+   "es": "Para una app",
+   "ar": "لتطبيق واحد",
+   "fr": "Pour une app",
+   "bn": "একটি অ্যাপের জন্য",
+   "pt-BR": "Para um app",
+   "ru": "Для одного приложения",
+   "id": "Untuk satu aplikasi"
   }
  }
 }

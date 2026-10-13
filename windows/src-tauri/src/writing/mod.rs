@@ -17,6 +17,7 @@ pub mod ask;
 pub mod checker;
 pub mod prefs;
 pub mod text;
+pub mod tones;
 
 use serde::Serialize;
 use std::time::{Duration, Instant};

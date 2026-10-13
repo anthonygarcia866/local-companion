@@ -16,7 +16,7 @@ import { pillDefinition, sessionSubtitle } from "../core/pills";
 import { PlanCard, buildPlanPill, claudePillVisible, planCardOpen } from "./usage";
 import { buildRewrite } from "./rewrite";
 import { buildAsk } from "./ask";
-import { chooseTone } from "../core/rewrite";
+import { openToneCard } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
@@ -789,7 +789,7 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   const rewriteTip = tl("Rewrite this paragraph with Claude (Ctrl+Alt+Shift+R)");
   const rewrite = h("button", { class: "rewrite-open", type: "button", title: rewriteTip, "aria-label": rewriteTip, text: tl("Rewrite…"), onclick: () => openRewrite() });
   const openRewrite = () => {
-    State.rewrite = chooseTone();
+    openToneCard();
     actions?.setView("rewrite");
   };
   const head = h("div", { class: "suggestion-head" }, title, rewrite, applyAll);
