@@ -127,7 +127,7 @@ In browsers, PR #8's paused sites still apply on top of "on".
 
 **Chat apps get relaxed rules** (owner, 2026-10-10; `writing::apps::CHAT`, `checker::Rules::Chat`): Slack, Teams, Discord, WhatsApp, Claude, ChatGPT and Grok skip every Capitalization-kind lint (sentence starts, lowercase "i", the all-caps "canonical spelling" of "u", "btw", "omg") and any finding on a common chat word (`CHAT_WORDS`: lol, idk, tmrw, ok, tho, i'm …). Real misspellings are still found. Outlook, Word, browsers and Notepad keep the full rules.
 
-**Apps on neither list are off** (owner, 2026-10-10). From 1d on, the first time the user types in one, the island asks once: "Check writing in [app]?" with **Yes** / **Not now** / **Never**. Yes and Never are kept per app in settings; Not now asks again next session. In 1a they simply stay off.
+**Apps on neither list are off** (owner, 2026-10-10). From 1d on, the first time the user types in one, the island asks once: "Check writing in [app]?" with **Yes** / **Not now** / **Never**. Yes and Never are kept per app in settings; Not now asks again next session (**changed 2026-10-12:** at most once a day per app, see §14.2). In 1a they simply stay off.
 
 **Payment and ID data:** PR 1a's first commit narrows PR #8's 12-digit rule. Digits split by spaces or dashes count only when grouped like a card being typed (4-4-4, 4-4-4-4, Amex 4-6-x), so unit lists such as "Units 101 102 103 104" in AppFolio notes are read. An unbroken run of 12+ digits is still dropped.
 
@@ -283,6 +283,8 @@ A Grammarly-style marker where the user is typing, so suggestions don't need a t
 - To check in 1b: per-monitor DPI, fields inside browser pages (bounds in screen pixels), multi-line fields where the caret's rectangle is the better anchor, and that the bubble never covers the text being typed.
 
 ## 8. Settings (1d) and Windows' own suggestions
+
+> ⚠️ **2026-10-12:** the 1d design is now §14, which replaces this section where they disagree (pause look, strictness levels, the underline overlay parked).
 
 - **Per-app on/off**, the default rewrite tone, and strictness (Harper rule groups).
 - **The pause list** from PR #8, made editable.
@@ -450,3 +452,185 @@ Sources: platform.claude.com `about-claude/models/overview`, `about-claude/prici
 - streaming;
 - refusal fallbacks;
 - the measured ≤4.5 s target, which needs the owner's key.
+
+## 14. 1d design: settings, pause, and what comes after (2026-10-12)
+
+Status: **design approved by the owner (2026-10-12, answers in 14.11), no code yet.** It extends §5 (which apps are on) and §8 (settings), and replaces them where they disagree. Written on `main`, where 1c is not merged yet: the rewrite tone setting (14.3) needs 1c (§13, branch `phase-1c-rewrite`) first.
+
+**Order:** 1d is built after PR #15 (post-1b fixes) and the 1c PR are merged, as one PR with one commit per item, like the others.
+
+### 14.1 Per-app on/off
+
+**Settings → Writing → Apps.** One row per app Glim knows, each with a switch:
+
+- **The defaults** are today's `writing::apps` lists (§5):
+  - **On:** Outlook classic and new, Word, Chrome, Edge, Notepad, and the chat apps.
+  - **Off:** editors and terminals.
+  - Each row shows its app name, its executable (`WINWORD.EXE`), and a tag: "chat rules" for chat apps, and "suggestions only" for apps where fixes aren't typed yet (`FIXES`).
+- **Apps the user answered** (14.2) are listed under the built-in ones, with the same switch.
+- **Not on this list:** password managers and the other paused apps. They live in the pause list (14.5), which overrides everything: a paused app is never read, whatever its switch says.
+- **Storage:** `settings.json` gets `writingApps: { "<exe>": "on" | "off" }`, holding only what differs from the defaults. An exe matches in any case, as today. Unknown values read as the default.
+- **Rust** reads the switches through the same `apps::enabled(exe)` call the capture thread uses now, so turning an app off takes effect at the next reading (300 ms). Turning one off also drops its suggestions and its kept paragraph, the same as moving to another app.
+- **View-only vs fixes stays code, not a setting.** An app gets fix buttons only after it has been tested (owner, 2026-10-11). Settings doesn't offer a "type fixes" switch.
+
+### 14.2 The one-time "Check writing in [app]?" prompt
+
+For apps on **neither** list (§5: off by default, ask once).
+
+- **When it appears:**
+  - The user has been in an **editable text field** of such an app for **2 seconds** (UI Automation's editable signals, which capture already reads).
+  - **No text is read before Yes.** Capture reads only the exe name and the control type for these apps, exactly as today (`SKIPPED_OFF`). Asking doesn't change what is read.
+  - It asks **at most once a day per app** (**decision 8**), and **never** for:
+    - Glim itself;
+    - paused apps;
+    - apps on the off list;
+    - Windows' own shell: `explorer.exe`, `SearchHost.exe`, `StartMenuExperienceHost.exe`, `ShellExperienceHost.exe`, `LockApp.exe`, `TextInputHost.exe`. This is a short built-in "never ask" list, kept in code.
+  - It doesn't appear while an approval or question card is up (it waits behind it), in **Hidden** mode, or behind a fullscreen app. The app stays off until the next time the user types there with Glim visible, or until they turn it on in Settings.
+- **What it looks like:** a small island card, "Check writing in **Acrobat**?", with **Yes**, **Not now** and **Never**. The lantern pops once (`s-suggest`, no count). In **Ember**, the ember shows a "?" badge instead of a count; clicking it opens the card.
+  - The island never takes focus, so the user can keep typing and answer later.
+  - The card closes by itself after 30 s, which counts as "Not now".
+- **The answers:**
+  - **Yes:** `writingApps[exe] = "on"`, with the full rules (not chat rules). Checking starts at the next reading. Fixes stay view-only: a newly added app is untested.
+  - **Never:** `writingApps[exe] = "off"`, and it is never asked again. It shows in Settings → Apps, where it can be switched on.
+  - **Not now** (**decision 8**): the app stays off, and it asks again the next day at the earliest, never more than once a day per app, restarts included. To survive a restart, `settings.json` keeps `writingAppsAsked: { "<exe>": "<YYYY-MM-DD>" }`, the local date of the last ask, and nothing else (no window title, no text). "Next day" means a later local date. Yes and Never remove the app's entry.
+- **The app's name:** the executable's FileDescription ("Adobe Acrobat"), falling back to the file name without ".exe". Only the name is shown or stored, never a window title.
+
+### 14.3 Default rewrite tone per app (needs 1c)
+
+- **Settings → Writing → Rewrite** gets a default tone for each category, and one per app on top. Proposed defaults (owner's examples):
+
+  | Category | Default tone |
+  |---|---|
+  | Email: Outlook classic and new, Gmail (Chrome or Edge on `mail.google.com`) | More formal |
+  | Documents: Word | More formal |
+  | Chat apps and chat sites (`CHAT`, `CHAT_SITES`) | Casual (**decision 3**) |
+  | Everything else (Notepad, other browser pages) | Fix grammar |
+
+- **What a default does:** the app's default tone is **first and highlighted** on the Rewrite card. **The first press of Ctrl+Alt+Shift+R opens the tone card; pressing it again while the card is open sends the default tone** (owner, 2026-10-12, settling §13's decision 1). That gives a keyboard-only path, and every request is still started by an explicit action. §13's other open question is settled the same day: **refusal fallbacks stay off.**
+- **The fifth tone, Casual** (**decision 3**): 1d adds **Casual** to 1c's four tones (Friendlier, More formal, Shorter, Fix grammar). It is the default for chat apps and chat sites. It needs its own prompt instruction in the rewrite module, a tone id, a card button and its 9 translations.
+- **Storage:** `rewriteTones: { "<category or exe>": "<tone id>" }`, holding only what differs from the defaults.
+
+### 14.4 Checker strictness
+
+- **Settings → Writing → Strictness**, one global setting with three levels:
+
+  | Level | What Harper checks |
+  |---|---|
+  | **Spelling only** | Spelling and repeated words ("the the"). |
+  | **Standard** | Spelling, plus grammar, agreement, word choice and punctuation. |
+  | **Full** (default, today's behaviour) | Everything Harper's curated set offers, except the rules Glim already switches off (`DISABLED_RULES`), and except initialisms. |
+
+- **Chat apps keep their relaxed rules on top** (no capitalization, no chat words), whatever the level. A level can only make the checker quieter, never louder than Full.
+- **How it's built:** by Harper's `LintKind` (the `kind` each finding already carries), in `checker.rs`. A test lists every `LintKind` that Harper 2.11.0 has and the level it belongs to, so a Harper update that adds a kind fails the test instead of slipping in unsorted. The exact kind-to-level table is set at build time from that list.
+- **Global, not per app** (**decision 5**, decided): one setting is easy to understand, and the chat relaxation already covers the app that differs most. A per-app override could come later without changing the storage (`checkerStrictness: "spelling" | "standard" | "full"`).
+
+### 14.5 The editable pause list
+
+**Settings → Privacy → Paused apps and sites.** It builds on PR #8's `PauseList`.
+
+- **Built-in entries:** the 12 password managers and the 33 payment, banking and checkout sites. They are shown with a lock and **can't be removed or switched off** (**decision 4**, decided: locked). They are the safety net for card and bank data, and the Phase 3 memory policy relies on them.
+- **The user's entries:** added and removed freely.
+  - **Apps:** type an executable name (`Quicken.exe`), validated as a file name ending in `.exe`.
+  - **Sites:** the same forms as now: `example.com` (the host and its subdomains), `example.com/path` (only under that path), `*/segment` (any page with that path segment).
+  - Each entry is checked as it is typed against a list of sample URLs, and a malformed one is refused with the reason.
+- **Storage:** `pauseApps: string[]` and `pauseSites: string[]` in `settings.json`, the user's entries only. The built-ins stay in code, and Rust always uses built-ins plus the user's entries.
+- **Live:** the capture thread rebuilds its `PauseList` whenever settings change. A newly paused app drops its suggestions and kept paragraph at the next reading.
+- **Not in 1d:** a one-click "Pause in this app" from the lantern menu. The menu is full (303 of 308 px, see "Quitting Glim" in PROJECT_STATUS); it needs a layout change first.
+
+### 14.6 One-key pause: Ctrl+Alt+Shift+P
+
+- **The key:** a new Glim action, `pauseToggle`, default **Ctrl+Alt+Shift+P**. It is registered, conflict-checked against the installed keyboard layouts, shown and rebindable in Settings → Shortcuts, and listed in the startup `shortcuts:` log line, like the others.
+  - **Before the PR:** probe that it is free on this machine (`RegisterHotKey`, then release it) and check Word's key table (`FindKey`), as was done for the others.
+  - It is handled in **Rust**, like the visibility cycle, so it works with the island hidden.
+- **What pause stops** (the same as the tray's Pause today): reading fields, checking, keeping paragraphs, typing fixes, and rewrites. Rust's `writing::set_paused` is already the switch, and the island and Rust stay in step.
+- **What it does to agents** (**decision 2**). Decided: **pause stops the writing features only; agents are not paused.** Their pills and approval cards keep working, because a Claude Code session waiting on the owner shouldn't be cut off by "not now" for writing.
+  - **Fix included in 1d:** today an approval request that arrives while paused goes back to the terminal. In 1d it **shows in Glim** as usual. This applies to the tray's Pause too, since both use the same pause.
+- **The paused look** (**decision 1**). Decided: **Glim stays where it is, greyed, with a pause badge, instead of hiding** (today the tray's Pause hides the island):
+  - **Normal:** the pill stays, the lantern is in **`s-paused`** (grey, flame out), and a small **pause badge** ("❚❚", grey) sits where the count badge goes. The badge tells it apart from an agent's rate limit, which also uses `s-paused`. The badge is HTML next to the lantern, like the count, so the mascot is not redrawn. The count and the suggestions go while paused.
+  - **Ember:** the ember goes grey, with the same small badge.
+  - **Hidden:** nothing shows. The tray icon's tooltip says "Glim (paused)".
+  - **The tray menu** item reads **Resume** while paused.
+  - **Agent states still win the lantern** while paused (approval, working, error), because agents aren't paused. The pause badge stays on, so it's still clear writing is off.
+- **Pressing the key again** resumes. The lantern pops once, back to its normal state, and the field is checked again at once.
+- **Across restarts** (**decision 6**). Decided: **pause is forgotten.** Glim always starts unpaused, since a forgotten pause would silently turn the checker off for days. Nothing about pause is stored.
+
+### 14.7 The floating bubble and the underline overlay (decision 7)
+
+- **The bubble (§7a)** is the mini lantern with a count next to the text field. Decided: **its own PR (call it 1e), right after 1d, not inside it.**
+  - It is a new always-on-top, non-activating window that follows another app's field every 300 ms, placed from UI Automation bounding rectangles.
+  - That brings per-monitor DPI, browser-page coordinates, multi-line caret anchoring, fullscreen and covered-field cases. None of it is settings work, and each needs its own live test in Outlook, Word and Gmail.
+  - Kept apart, 1d can merge on a settings review, and a bubble placement bug can't hold settings back.
+  - The bubble PR adds one setting: Settings → Writing → "Show the bubble next to the text field", on by default once tested.
+- **The underline overlay (§8)** is click-through squiggles under each problem. Decided: **parked; revisit after the bubble ships.**
+  - It needs the bounding rectangle of every problem's text range, which Chrome and Word report unreliably (the 1b work found ranges that don't read back cleanly).
+  - It has to be redrawn on every scroll and resize, and a misplaced underline is worse than none.
+  - The bubble gives most of the value (seeing there's something to fix, right where you type) at a fraction of the risk. If the bubble's placement proves solid in all three apps, the overlay can reuse it.
+- **Windows' own text suggestions (§8)** belong to onboarding, not 1d: the "turn off Windows' text suggestions?" hint. They are listed here so they aren't forgotten.
+
+### 14.8 Settings layout
+
+Settings gets a **Writing** section and a **Privacy** section:
+
+- **Writing:**
+  - Apps (14.1);
+  - Strictness (14.4);
+  - Rewrite tones (14.3);
+  - the AI section from 1c (brain, key, model, cap, spend) stays its own section after Writing.
+- **Privacy:**
+  - Paused apps and sites (14.5);
+  - one line on what Glim keeps (nothing but settings, spend numbers and the key in Credential Manager);
+  - the network line.
+- **Shortcuts** gains Pause.
+- **Every new string** gets its 9 translations, as usual.
+
+### 14.9 Done when
+
+- [ ] Each app's switch takes effect within one reading (≤ 300 ms after the setting is saved), and an app switched off drops its suggestions and kept paragraph.
+- [ ] An app on neither list is asked about at most once a day (restarts included), after 2 s in an editable field, with no text read before Yes. Yes, Never and Not now each do what 14.2 says, and nothing asks in the shell apps, paused apps, Hidden or fullscreen.
+- [ ] The default tone is first and highlighted on the Rewrite card; the first Ctrl+Alt+Shift+R opens the card and a second sends the default (once 1c is merged). Casual is a fifth tone and the chat default.
+- [ ] The three strictness levels give the findings 14.4 says. Every Harper `LintKind` is assigned, and chat rules still apply on top.
+- [ ] User pause entries are added, validated and removed, and take effect live. Built-in entries can't be removed.
+- [ ] Ctrl+Alt+Shift+P pauses and resumes from any app with Glim in any mode. The paused look shows in Normal and Ember, and the tray says Resume. If the key can't be registered, Settings → Shortcuts says so.
+- [ ] Nothing is read, checked, kept, typed or sent while paused (tested on the Rust side, like 1b's Pause test).
+- [ ] While paused, agent pills and approval cards keep working, and an approval request that arrives while paused shows in Glim instead of going back to the terminal. Glim starts unpaused after a restart.
+- [ ] No new network access, no new crate, and no text in any log.
+- [ ] Tests pass (`cargo test --workspace`, `npm test`, `tsc`). The release build is installed and launched, and the owner's live test (`docs/manual-tests.md`, the 1d sections) passes.
+
+### 14.10 Test plan
+
+- **Rust unit tests:**
+  - `apps::enabled` with overrides (a default-on app turned off, a default-off app turned on, an answered app, case-insensitive exe names);
+  - a settings change that drops the kept paragraph;
+  - the never-ask list;
+  - strictness: one sample sentence per level, plus the `LintKind` coverage test;
+  - `PauseList` from built-ins plus user entries, with validation of user entries (good and bad apps and sites);
+  - the pause key's action handled in Rust;
+  - nothing read or sent while paused (extends 1b's test);
+  - an approval request while paused is shown, not sent back to the terminal;
+  - "Not now" asks again only on a later local date, across a restart;
+  - the Casual tone's request (its instruction, and that it is the chat default).
+- **Front-end tests (fake DOM):**
+  - the prompt card's three buttons send only the app id and the answer;
+  - Not now saves only the date, and isn't asked again the same day;
+  - the card waits behind an approval;
+  - the Settings app list draws defaults plus overrides;
+  - pause entries add, refuse and remove;
+  - the paused badge and tray label;
+  - the default tone is first, and a second press sends it;
+  - every new string translated.
+- **Settings file tests:** older `settings.json` files load with the new fields at their defaults; the key list test gets the new keys.
+- **Self-test without the owner's keyboard** (only when the owner says they're away): Notepad renamed `glimtest.exe` stands in for an unknown app. The prompt appears; Yes turns checking on (count 2 for the usual sentence); Never keeps it off after a restart. The pause key, sent through the dev shortcut switch, gives a paused pill and no count.
+- **Owner's live test:** `docs/manual-tests.md`, the 1d sections (to be added when 1d is built): per-app switches in Outlook, Word and Gmail, the prompt in a new app (Acrobat or WordPad), the tones, strictness on a sample paragraph, a user pause entry, and the pause key from Word with the island in each mode.
+
+### 14.11 Decisions (owner, 2026-10-12)
+
+1. **Pause look:** stay on screen, greyed, with a pause badge (14.6).
+2. **Pause and agents:** pause stops the writing features only; agent pills and approval cards keep working. Also fix: approval requests that arrive while paused show in Glim instead of going back to the terminal (14.6).
+3. **Casual:** add a fifth tone, **Casual**, and make it the chat-app default (14.3).
+4. **Built-in pause entries:** locked (14.5).
+5. **Strictness:** one global setting (14.4).
+6. **Pause across restarts:** forgotten; Glim starts unpaused (14.6).
+7. **Bubble:** its own PR (1e) after 1d; the underline overlay is parked (14.7).
+8. **"Not now":** ask again the next day at the earliest, never more than once a day per app (14.2). This replaces §5's "ask again next session".
+
+**Also settled for 1c (§13's open questions):** the hotkey opens the tone card, and a second press sends the default tone (14.3); refusal fallbacks stay off.
