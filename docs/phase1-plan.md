@@ -455,7 +455,7 @@ Sources: platform.claude.com `about-claude/models/overview`, `about-claude/prici
 
 ## 14. 1d design: settings, pause, and what comes after (2026-10-12)
 
-Status: **design approved by the owner (2026-10-12, answers in 14.11), no code yet.** It extends §5 (which apps are on) and §8 (settings), and replaces them where they disagree. Written on `main`, where 1c is not merged yet: the rewrite tone setting (14.3) needs 1c (§13, branch `phase-1c-rewrite`) first.
+Status: **built 2026-10-13 on branch `phase-1d`** (one commit per item: 14.1 apps, 14.2 the prompt, 14.3 tones, 14.4 strictness, 14.5 pause list, 14.6 pause key), waiting for the owner's live test (`docs/manual-tests.md` §16–21). Design approved 2026-10-12 (answers in 14.11). It extends §5 (which apps are on) and §8 (settings), and replaces them where they disagree. Written on `main`, where 1c is not merged yet: the rewrite tone setting (14.3) needs 1c (§13, branch `phase-1c-rewrite`) first.
 
 **Order:** 1d is built after PR #15 (post-1b fixes) and the 1c PR are merged, as one PR with one commit per item, like the others.
 
