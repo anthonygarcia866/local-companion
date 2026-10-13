@@ -45,6 +45,9 @@ pub struct Suggestion {
     pub kind: String,
     pub message: String,
     pub replacements: Vec<String>,
+    /// The first replacement is clearly the best (checker::rank): Apply all
+    /// skips the others.
+    pub clear: bool,
 }
 
 impl std::fmt::Debug for Suggestion {
@@ -171,6 +174,8 @@ pub enum Outcome {
     Unsupported,
     /// Typed, but the read-back doesn't match: the user is told to undo.
     NotClean,
+    /// Apply all: no suggestion's first option is clearly the best.
+    Unclear,
     /// The clipboard was busy.
     ClipboardBusy,
 }
@@ -188,6 +193,7 @@ impl Outcome {
             Outcome::KeysHeld => "keys-held",
             Outcome::Unsupported => "unsupported",
             Outcome::NotClean => "not-clean",
+            Outcome::Unclear => "unclear",
             Outcome::ClipboardBusy => "clipboard-busy",
         }
     }
@@ -202,6 +208,9 @@ pub struct FixResult {
     /// Apply all: how many fixes went in, of how many (both 0 for one fix).
     pub done: usize,
     pub total: usize,
+    /// Apply all: suggestions left to the user, their first option not
+    /// clearly the best.
+    pub skipped: usize,
 }
 
 /// The event the island hears a click's outcome on.
@@ -435,9 +444,10 @@ impl Session {
     /// their offsets. Each job carries the paragraph as the fixes before it in
     /// this order will have left it, so `apply::run` re-verifies each one word
     /// for word. A suggestion that overlaps one already taken, or whose
-    /// replacement Glim wouldn't offer, is left out. Only the list id comes
-    /// from the island.
-    pub fn jobs_all(&self, check_id: u64) -> Result<Vec<Job>, Outcome> {
+    /// replacement Glim wouldn't offer, is left out; one whose first option
+    /// isn't clearly the best is left to the user and counted. Only the list
+    /// id comes from the island.
+    pub fn jobs_all(&self, check_id: u64) -> Result<(Vec<Job>, usize), Outcome> {
         if self.shown.items.is_empty() {
             return Err(Outcome::Changed);
         }
@@ -446,9 +456,14 @@ impl Session {
         let mut jobs: Vec<Job> = Vec::new();
         let mut paragraph: Option<String> = None;
         let mut floor = usize::MAX;
+        let mut skipped = 0;
         for i in order {
             let item = &self.shown.items[i];
             if item.end > floor || !item.replacements.first().is_some_and(|r| offerable(r)) {
+                continue;
+            }
+            if !item.clear {
+                skipped += 1;
                 continue;
             }
             let mut job = self.job(check_id, i, 0)?;
@@ -461,9 +476,9 @@ impl Session {
             jobs.push(job);
         }
         if jobs.is_empty() {
-            return Err(Outcome::Changed);
+            return Err(if skipped > 0 { Outcome::Unclear } else { Outcome::Changed });
         }
-        Ok(jobs)
+        Ok((jobs, skipped))
     }
 
     /// The replacement to copy, for a Copy button (§7.7).
@@ -600,6 +615,7 @@ fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
         kind: f.kind.clone(),
         message: f.message.clone(),
         replacements,
+        clear: f.clear,
     }
 }
 
@@ -824,7 +840,8 @@ Anthony";
         let (s, got) = checked_three();
         let problems: Vec<&str> = got.items.iter().map(|i| i.problem.as_str()).collect();
         assert_eq!(problems, ["recieved", "tomorow", "posible"]);
-        let jobs = s.jobs_all(got.check_id).unwrap();
+        let (jobs, skipped) = s.jobs_all(got.check_id).unwrap();
+        assert_eq!(skipped, 0);
         let did: Vec<(usize, String)> = jobs.iter().map(|j| (j.start, j.replacement.clone())).collect();
         // Last problem first; each start is before the one before it.
         assert!(did.windows(2).all(|w| w[0].0 > w[1].0), "{did:?}");
@@ -839,6 +856,25 @@ Anthony";
             let item = got.items.iter().find(|i| i.start - 8 == j.start).unwrap();
             assert_eq!(j.replacement, item.replacements[0]);
         }
+    }
+
+    /// Owner, 2026-10-12: Apply all skips a suggestion whose first option
+    /// isn't clearly the best, and says how many it left.
+    #[test]
+    fn apply_all_leaves_unclear_suggestions_to_the_user() {
+        let (mut s, got) = checked_three();
+        assert!(got.items.iter().all(|i| i.clear), "plain misspellings are clear");
+        s.shown.items[1].clear = false; // "tomorow"
+        let (jobs, skipped) = s.jobs_all(got.check_id).unwrap();
+        assert_eq!(skipped, 1);
+        let fixed: Vec<&str> = jobs.iter().map(|j| j.replacement.as_str()).collect();
+        assert_eq!(fixed, ["possible", "received"]);
+        // The skipped word is left as typed in the paragraph the next fix expects.
+        assert_eq!(jobs[1].paragraph, "We recieved the payment tomorow, possible.");
+        for item in &mut s.shown.items {
+            item.clear = false;
+        }
+        assert_eq!(s.jobs_all(got.check_id).unwrap_err(), Outcome::Unclear);
     }
 
     #[test]
@@ -1021,7 +1057,7 @@ Anthony";
 
     #[test]
     fn formatting_suggestions_never_shows_their_words() {
-        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()] }] };
+        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
         let shown = format!("{s:?} {:?} {:#?}", s.items[0], s);
         assert!(!shown.contains("SENTINEL"), "{shown}");
     }

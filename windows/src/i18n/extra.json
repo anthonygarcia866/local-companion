@@ -2758,16 +2758,16 @@
    "ru": "Применить все",
    "id": "Terapkan semua"
   },
-  "Applies each suggestion's first option, last to first. Ctrl+Z undoes one fix per press.": {
-   "zh-Hans": "对每条建议应用第一个选项，从最后一条到第一条。每按一次 Ctrl+Z 撤销一处修正。",
-   "hi": "हर सुझाव का पहला विकल्प लागू करता है, आख़िरी से पहले तक। हर बार Ctrl+Z दबाने पर एक सुधार पूर्ववत होता है।",
-   "es": "Aplica la primera opción de cada sugerencia, de la última a la primera. Cada Ctrl+Z deshace una corrección.",
-   "ar": "يطبّق الخيار الأول لكل اقتراح، من الأخير إلى الأول. كل ضغطة على Ctrl+Z تتراجع عن تصحيح واحد.",
-   "fr": "Applique la première option de chaque suggestion, de la dernière à la première. Chaque Ctrl+Z annule une correction.",
-   "bn": "প্রতিটি পরামর্শের প্রথম বিকল্প প্রয়োগ করে, শেষ থেকে প্রথম পর্যন্ত। প্রতিবার Ctrl+Z চাপলে একটি সংশোধন বাতিল হয়।",
-   "pt-BR": "Aplica a primeira opção de cada sugestão, da última para a primeira. Cada Ctrl+Z desfaz uma correção.",
-   "ru": "Применяет первый вариант каждой подсказки, с последней до первой. Каждое нажатие Ctrl+Z отменяет одно исправление.",
-   "id": "Menerapkan opsi pertama setiap saran, dari yang terakhir ke yang pertama. Setiap Ctrl+Z membatalkan satu perbaikan."
+  "Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.": {
+   "zh-Hans": "对每条建议应用第一个选项，从最后一条到第一条，并跳过最佳选项不明确的建议。每按一次 Ctrl+Z 撤销一处修正。",
+   "hi": "हर सुझाव का पहला विकल्प लागू करता है, आख़िरी से पहले तक, और जिनका सबसे अच्छा विकल्प साफ़ नहीं है उन्हें छोड़ देता है। हर बार Ctrl+Z दबाने पर एक सुधार पूर्ववत होता है।",
+   "es": "Aplica la primera opción de cada sugerencia, de la última a la primera, y omite las que no tienen una mejor opción clara. Cada Ctrl+Z deshace una corrección.",
+   "ar": "يطبّق الخيار الأول لكل اقتراح، من الأخير إلى الأول، ويتخطى أي اقتراح لا يكون أفضل خياراته واضحًا. كل ضغطة على Ctrl+Z تتراجع عن تصحيح واحد.",
+   "fr": "Applique la première option de chaque suggestion, de la dernière à la première, et passe celles dont la meilleure option n'est pas claire. Chaque Ctrl+Z annule une correction.",
+   "bn": "প্রতিটি পরামর্শের প্রথম বিকল্প প্রয়োগ করে, শেষ থেকে প্রথম পর্যন্ত, আর যেগুলোর সেরা বিকল্প স্পষ্ট নয় সেগুলো বাদ দেয়। প্রতিবার Ctrl+Z চাপলে একটি সংশোধন বাতিল হয়।",
+   "pt-BR": "Aplica a primeira opção de cada sugestão, da última para a primeira, e pula as que não têm uma melhor opção clara. Cada Ctrl+Z desfaz uma correção.",
+   "ru": "Применяет первый вариант каждой подсказки, с последней до первой, и пропускает те, где лучший вариант неочевиден. Каждое нажатие Ctrl+Z отменяет одно исправление.",
+   "id": "Menerapkan opsi pertama setiap saran, dari yang terakhir ke yang pertama, dan melewati saran yang opsi terbaiknya tidak jelas. Setiap Ctrl+Z membatalkan satu perbaikan."
   },
   "Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.": {
    "zh-Hans": "已修正 {done}/{total} 处。在 {app} 中每按一次 Ctrl+Z 撤销一处。",
@@ -3032,6 +3032,28 @@
    "pt-BR": "Parou porque o {app} alterou a próxima correção enquanto era digitada (a correção automática dele, ou um expansor de texto). Confira essa palavra: Ctrl+Z desfaz.",
    "ru": "Остановлено: {app} изменил следующее исправление при вводе (своя автозамена или расширитель текста). Проверьте это слово: Ctrl+Z отменяет его.",
    "id": "Berhenti karena {app} mengubah perbaikan berikutnya saat diketik (koreksi otomatisnya, atau text expander). Periksa kata itu: Ctrl+Z membatalkannya."
+  },
+  "Left {skipped} for you to pick: the best option isn't clear.": {
+   "zh-Hans": "留下 {skipped} 处由你选择：最佳选项不明确。",
+   "hi": "{skipped} आपके चुनने के लिए छोड़े गए: सबसे अच्छा विकल्प साफ़ नहीं है।",
+   "es": "Quedan {skipped} para que elijas tú: la mejor opción no está clara.",
+   "ar": "تُرك {skipped} لتختار بنفسك: أفضل خيار غير واضح.",
+   "fr": "{skipped} laissé(s) à votre choix : la meilleure option n'est pas claire.",
+   "bn": "{skipped}টি আপনার বেছে নেওয়ার জন্য রাখা হয়েছে: সেরা বিকল্পটি স্পষ্ট নয়।",
+   "pt-BR": "{skipped} ficaram para você escolher: a melhor opção não está clara.",
+   "ru": "Оставлено вам на выбор: {skipped}. Лучший вариант неочевиден.",
+   "id": "{skipped} dibiarkan untuk Anda pilih: opsi terbaiknya tidak jelas."
+  },
+  "Nothing was applied: no suggestion has a clearly best option. Pick one yourself.": {
+   "zh-Hans": "未应用任何修正：没有哪条建议的最佳选项是明确的。请自己选择。",
+   "hi": "कुछ भी लागू नहीं हुआ: किसी सुझाव का सबसे अच्छा विकल्प साफ़ नहीं है। ख़ुद एक चुनें।",
+   "es": "No se aplicó nada: ninguna sugerencia tiene una mejor opción clara. Elige una tú.",
+   "ar": "لم يُطبَّق شيء: لا يوجد اقتراح بخيار أفضل واضح. اختر واحدًا بنفسك.",
+   "fr": "Rien n'a été appliqué : aucune suggestion n'a de meilleure option claire. Choisissez vous-même.",
+   "bn": "কিছুই প্রয়োগ হয়নি: কোনো পরামর্শের সেরা বিকল্প স্পষ্ট নয়। নিজে একটি বেছে নিন।",
+   "pt-BR": "Nada foi aplicado: nenhuma sugestão tem uma melhor opção clara. Escolha uma você mesmo.",
+   "ru": "Ничего не применено: ни у одной подсказки нет очевидно лучшего варианта. Выберите сами.",
+   "id": "Tidak ada yang diterapkan: tidak ada saran dengan opsi terbaik yang jelas. Pilih sendiri."
   }
  }
 }

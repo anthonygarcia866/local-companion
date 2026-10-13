@@ -139,13 +139,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
     };
-    let send_result = |outcome: crate::writing::Outcome, app_name: String, done: usize, total: usize| {
-        if total > 0 {
-            crate::log::line(format!("writing: fix all {done}/{total} {} ({app_name})", outcome.code()));
+    let send_result = |outcome: crate::writing::Outcome, app_name: String, done: usize, total: usize, skipped: usize| {
+        if total > 0 || skipped > 0 {
+            crate::log::line(format!("writing: fix all {done}/{total} {}, {skipped} unclear skipped ({app_name})", outcome.code()));
         } else {
             crate::log::line(format!("writing: fix {} ({app_name})", outcome.code()));
         }
-        let r = crate::writing::FixResult { outcome, app: app_name, done, total };
+        let r = crate::writing::FixResult { outcome, app: app_name, done, total, skipped };
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::RESULT_EVENT, &r);
     };
     // Diagnostics for the log: how many focus events and polls arrived, how
@@ -181,25 +181,25 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         // Whatever happened, the field is checked again at once.
                         writer.after_fix();
                         fix_field = None;
-                        send_result(outcome, name, 0, 0);
+                        send_result(outcome, name, 0, 0, 0);
                     }
                     Request::FixAll { check_id } => {
-                        let (done, total, outcome) = match writer.jobs_all(check_id) {
-                            Err(o) => (0, 0, o),
-                            Ok(jobs) if crate::writing::paused() => (0, jobs.len(), Outcome::Paused),
-                            Ok(jobs) => match &fix_field {
+                        let (done, total, skipped, outcome) = match writer.jobs_all(check_id) {
+                            Err(o) => (0, 0, 0, o),
+                            Ok((jobs, skipped)) if crate::writing::paused() => (0, jobs.len(), skipped, Outcome::Paused),
+                            Ok((jobs, skipped)) => match &fix_field {
                                 Some((element, pid)) => {
                                     let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
                                     let (done, outcome) = crate::writing::apply::run_all(&mut field, &jobs);
-                                    (done, jobs.len(), outcome)
+                                    (done, jobs.len(), skipped, outcome)
                                 }
-                                None => (0, jobs.len(), Outcome::Away),
+                                None => (0, jobs.len(), skipped, Outcome::Away),
                             },
                         };
                         let name = writer.app();
                         writer.after_fix();
                         fix_field = None;
-                        send_result(outcome, name, done, total);
+                        send_result(outcome, name, done, total, skipped);
                     }
                     Request::Copy { check_id, index, choice } => {
                         let outcome = match writer.copy_text(check_id, index, choice) {
@@ -207,7 +207,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             Ok(_) => Outcome::ClipboardBusy,
                             Err(o) => o,
                         };
-                        send_result(outcome, writer.app(), 0, 0);
+                        send_result(outcome, writer.app(), 0, 0, 0);
                     }
                     Request::Dismiss => {
                         writer.dismiss(send_list);

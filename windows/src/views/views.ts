@@ -712,7 +712,8 @@ export function suggestionNote(fix: WritingFix, result: WritingResult | null, bu
     const fixed = counts.done > 0
       ? t("Fixed {done} of {total}. Ctrl+Z in {app} undoes one fix per press.", counts)
       : t("Fixed {done} of {total}.", counts);
-    return result.outcome === "applied" ? fixed : `${fixed} ${stopNote(result.outcome, app)}`;
+    const left = result.skipped ? ` ${t("Left {skipped} for you to pick: the best option isn't clear.", { skipped: result.skipped })}` : "";
+    return result.outcome === "applied" ? `${fixed}${left}` : `${fixed}${left} ${stopNote(result.outcome, app)}`;
   }
   return outcomeNote(result?.outcome, app) ?? modeNote(fix);
 }
@@ -745,6 +746,7 @@ function outcomeNote(outcome: string | undefined, app: string): string | undefin
     case "keys-held": return t("Release the keys you're holding, then try again.");
     case "unsupported": return t("{app} didn't take the fix, so nothing changed.", { app });
     case "not-clean": return t("That didn't apply cleanly. Press Ctrl+Z in {app} to undo it.", { app });
+    case "unclear": return t("Nothing was applied: no suggestion has a clearly best option. Pick one yourself.");
     case "clipboard-busy": return t("Couldn't copy: another app is using the clipboard.");
   }
   return undefined;
@@ -778,7 +780,7 @@ export function buildSuggestions(): ViewHost {
   let pageOf: WritingSuggestion[] | null = null;
   const title = h("div", { class: "title one-line" });
   // Apply all: each row's first replacement, typed by Rust last to first.
-  const allTip = tl("Applies each suggestion's first option, last to first. Ctrl+Z undoes one fix per press.");
+  const allTip = tl("Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.");
   const applyAll = h("button", { class: "apply-all", type: "button", title: allTip, "aria-label": allTip, text: tl("Apply all"), onclick: () => fixAll() }) as HTMLButtonElement;
   const head = h("div", { class: "suggestion-head" }, title, applyAll);
   const list = h("div", { class: "suggestion-list" });

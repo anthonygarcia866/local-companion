@@ -214,7 +214,7 @@ test("Apply all: one click sends the list id only, says it uses each first optio
   const all = view.el.find(".apply-all")[0];
   assert.equal(all.style.display, "");
   assert.equal(all.textContent, "Apply all");
-  assert.equal(all.getAttribute("title"), "Applies each suggestion's first option, last to first. Ctrl+Z undoes one fix per press.");
+  assert.equal(all.getAttribute("title"), "Applies each suggestion's first option, last to first, and skips any whose best option isn't clear. Ctrl+Z undoes one fix per press.");
   const n = sent("writing_fix_all").length;
   all.fire("click");
   assert.deepEqual(sent("writing_fix_all").slice(n), [{ checkId: 41 }]);
@@ -247,6 +247,9 @@ test("after Apply all the note says how many went in, that Ctrl+Z undoes one per
   // Nothing went in: the count, and why (live in Outlook, 2026-10-12: the note gave no reason).
   assert.equal(suggestionNote(fix, { outcome: "not-clean", app: "Outlook", done: 0, total: 2 }, false), "Fixed 0 of 2. It stopped because Outlook changed the next fix as it was typed (its AutoCorrect, or a text expander). Check that word: Ctrl+Z undoes it.");
   assert.equal(suggestionNote(fix, { outcome: "changed", app: "Word", done: 0, total: 3 }, false), "Fixed 0 of 3. It stopped because the text changed after the check. Checked again.");
+  // Suggestions whose best option isn't clear are left to the user, and counted.
+  assert.equal(suggestionNote(fix, { outcome: "applied", app: "Outlook", done: 1, total: 1, skipped: 1 }, false), "Fixed 1 of 1. Ctrl+Z in Outlook undoes one fix per press. Left 1 for you to pick: the best option isn't clear.");
+  assert.equal(suggestionNote(fix, { outcome: "unclear", app: "Outlook", done: 0, total: 0, skipped: 0 }, false), "Nothing was applied: no suggestion has a clearly best option. Pick one yourself.");
   // Every way it can stop has its own reason.
   for (const outcome of ["changed", "away", "paused", "blocked", "elevated", "keys-held", "unsupported", "not-clean"]) {
     assert.match(suggestionNote(fix, { outcome, app: "Word", done: 1, total: 2 }, false), /It stopped because /, outcome);

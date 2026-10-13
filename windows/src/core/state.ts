@@ -193,6 +193,8 @@ export interface WritingSuggestion {
   message: string;
   /** "" means "remove it". */
   replacements: string[];
+  /** The first replacement is clearly the best: Apply all takes it. */
+  clear: boolean;
 }
 
 /**
@@ -219,6 +221,8 @@ export interface WritingResult {
   app: string;
   done?: number;
   total?: number;
+  /** Apply all: suggestions left to the user, their best option not clear. */
+  skipped?: number;
 }
 
 class AppState {

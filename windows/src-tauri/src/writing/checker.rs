@@ -17,6 +17,9 @@ pub struct Finding {
     pub message: String,
     /// Up to MAX_REPLACEMENTS; "" means "remove it".
     pub replacements: Vec<String>,
+    /// The first replacement is clearly the best: "Apply all" takes only
+    /// these (`rank`).
+    pub clear: bool,
 }
 
 impl std::fmt::Debug for Finding {
@@ -113,7 +116,7 @@ impl Checker {
                 let kind = format!("{:?}", lint.lint_kind);
                 let message = message(&rule, &lint.message, &chars, end);
                 let entry = by_span.entry((start, end)).or_insert_with(|| {
-                    (lint.priority, Finding { start, end, kind: kind.clone(), message: message.clone(), replacements: Vec::new() })
+                    (lint.priority, Finding { start, end, kind: kind.clone(), message: message.clone(), replacements: Vec::new(), clear: true })
                 });
                 if lint.priority < entry.0 {
                     entry.0 = lint.priority;
@@ -130,11 +133,73 @@ impl Checker {
         by_span
             .into_values()
             .map(|(_, mut f)| {
+                if f.kind == "Spelling" {
+                    let problem: String = chars[f.start..f.end].iter().collect();
+                    f.clear = rank(&problem, &mut f.replacements);
+                }
                 f.replacements.truncate(MAX_REPLACEMENTS);
                 f
             })
             .collect()
     }
+}
+
+/// Folds case and curly apostrophes, for comparing words.
+fn fold(s: &str) -> Vec<char> {
+    s.chars().map(|c| if c == '\u{2019}' { '\'' } else { c }).flat_map(char::to_lowercase).collect()
+}
+
+/// A spelling replacement that adds a possessive or a plural the user didn't
+/// type: "possible's" or "possibles" for "possibleeee" (live in Outlook,
+/// 2026-10-12: Harper put "possible's" first). A plural counts only when the
+/// word without its "s" is offered too, so "was" for "wa" is a plain word.
+fn adds_ending(problem: &str, replacement: &str, all: &[String]) -> bool {
+    let (p, r) = (fold(problem), fold(replacement));
+    let possessive = (r.ends_with(&['\'', 's']) || r.ends_with(&['s', '\''])) && !p.contains(&'\'');
+    let plural = r.last() == Some(&'s') && p.last() != Some(&'s') && all.iter().any(|o| fold(o) == r[..r.len() - 1]);
+    possessive || plural
+}
+
+/// Edit distance, an adjacent swap counting as one ("recieve" → "receive").
+fn distance(a: &[char], b: &[char]) -> usize {
+    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for j in 0..=b.len() {
+        d[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    d[a.len()][b.len()]
+}
+
+/// Orders a spelling finding's replacements: plain words before ones that add
+/// a possessive or a plural, otherwise Harper's own order. Returns whether the
+/// first is clearly the best, for "Apply all": it adds no ending, and every
+/// other plain word is further from what was typed, or as far but Harper also
+/// put the first one first.
+fn rank(problem: &str, replacements: &mut Vec<String>) -> bool {
+    let harper_first = replacements.first().cloned();
+    let all = replacements.clone();
+    replacements.sort_by_key(|r| adds_ending(problem, r, &all));
+    let Some(top) = replacements.first() else { return false };
+    if adds_ending(problem, top, &all) {
+        return false;
+    }
+    let typed = fold(problem);
+    let far = distance(&typed, &fold(top));
+    replacements[1..].iter().filter(|r| !adds_ending(problem, r, &all)).all(|r| {
+        let d = distance(&typed, &fold(r));
+        d > far || (d == far && harper_first.as_deref() == Some(top.as_str()))
+    })
 }
 
 /// Harper's message for a space before a sentence's final mark.
@@ -301,6 +366,49 @@ mod tests {
         assert!(!f[0].message.is_empty() && f[0].kind == "Spelling");
     }
 
+    /// Live in Outlook (2026-10-12): Harper offered "possible's" first for
+    /// "possibleeee", and Apply all typed it.
+    #[test]
+    fn plain_words_come_before_possessives_and_plurals() {
+        let first = |text: &str, word: &str| {
+            let chars: Vec<char> = text.chars().collect();
+            let f = check(text).into_iter().find(|f| chars[f.start..f.end].iter().collect::<String>() == word).unwrap();
+            (f.replacements[0].clone(), f.clear)
+        };
+        let p = "We rreceive the payment tomorrow, possibleeee";
+        assert_eq!(first(p, "possibleeee"), ("possible".into(), true));
+        assert_eq!(first(p, "rreceive"), ("receive".into(), true));
+        // "receive" and "relieve" are both one edit from "recieve": Harper's first stands.
+        assert_eq!(first("We recieve it.", "recieve"), ("receive".into(), true));
+        assert_eq!(first("We recieved it.", "recieved"), ("received".into(), true));
+    }
+
+    #[test]
+    fn apply_all_takes_only_a_clearly_best_first_option() {
+        let ranked = |problem: &str, options: &[&str]| {
+            let mut r: Vec<String> = options.iter().map(|s| s.to_string()).collect();
+            let clear = rank(problem, &mut r);
+            (r, clear)
+        };
+        // Possessive and plural go last, in Harper's order otherwise.
+        let (r, clear) = ranked("possibleeee", &["possible's", "possible", "possibles"]);
+        assert_eq!((r, clear), (vec!["possible".into(), "possible's".into(), "possibles".into()], true));
+        // An "s" is a plural only when the word without it is offered too.
+        assert_eq!(ranked("wa", &["was", "way"]).0[0], "was");
+        // A typed apostrophe or "s" is kept as typed.
+        assert!(ranked("tenant's", &["tenant's", "tenants"]).1);
+        // Only possessives on offer: none is clearly right.
+        assert!(!ranked("Sarahh", &["Sarah's"]).1);
+        // Another plain word is closer to what was typed than the first: not clear.
+        assert!(!ranked("paymnt", &["pant", "payment"]).1);
+        // As close, but Harper didn't put it first: not clear.
+        assert!(!ranked("abcd", &["abc's", "abce", "abcf"]).1);
+        assert!(ranked("abcd", &["abce", "abc's", "abcf"]).1, "Harper's first, tied: it stands");
+        // Nothing offered.
+        assert!(!ranked("zzz", &[]).1);
+        assert_eq!(distance(&fold("recieve"), &fold("receive")), 1);
+    }
+
     #[test]
     fn lints_on_the_same_span_become_one_finding() {
         // Harper flags "friday" twice (spelling, capitalization) and "Their"
@@ -355,7 +463,7 @@ mod tests {
 
     #[test]
     fn formatting_a_finding_never_shows_its_words() {
-        let f = Finding { start: 1, end: 2, kind: "Spelling".into(), message: "SENTINEL-msg".into(), replacements: vec!["SENTINEL-rep".into()] };
+        let f = Finding { start: 1, end: 2, kind: "Spelling".into(), message: "SENTINEL-msg".into(), replacements: vec!["SENTINEL-rep".into()], clear: true };
         assert!(!format!("{f:?}").contains("SENTINEL"));
     }
 }
