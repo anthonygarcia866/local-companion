@@ -564,11 +564,33 @@ impl Session {
     }
 }
 
+/// Up to CONTEXT_CHARS characters before and after `start..end`, cut only
+/// between words: a word the cut would split is left out ("…tomorrow, p"
+/// live in Outlook, 2026-10-12).
+fn context(chars: &[char], start: usize, end: usize) -> (String, String) {
+    let mut from = start.saturating_sub(CONTEXT_CHARS);
+    if from > 0 && !chars[from - 1].is_whitespace() {
+        // Mid-word: start after the next space, if there is one before the problem.
+        match chars[from..start].iter().position(|c| c.is_whitespace()) {
+            Some(i) => from += i + 1,
+            None => from = start,
+        }
+    }
+    let mut to = (end + CONTEXT_CHARS).min(chars.len());
+    if to < chars.len() && !chars[to].is_whitespace() {
+        // Mid-word: end at the last space, if there is one after the problem.
+        match chars[end..to].iter().rposition(|c| c.is_whitespace()) {
+            Some(i) => to = end + i,
+            None => to = end,
+        }
+    }
+    (chars[from..start].iter().collect(), chars[end..to].iter().collect())
+}
+
 fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
     let s: String = chars[f.start..f.end].iter().collect();
     let replacements = f.replacements.iter().filter(|r| offerable(r)).cloned().collect();
-    let before: String = chars[f.start.saturating_sub(CONTEXT_CHARS)..f.start].iter().collect();
-    let after: String = chars[f.end..(f.end + CONTEXT_CHARS).min(chars.len())].iter().collect();
+    let (before, after) = context(chars, f.start, f.end);
     Suggestion {
         start: offset + f.start,
         end: offset + f.end,
@@ -728,6 +750,29 @@ mod tests {
         assert_eq!(chars[item.start..item.end].iter().collect::<String>(), "recieved");
         assert_eq!((item.problem.as_str(), item.before.as_str(), item.after.as_str()), ("recieved", "We ", " the payment."));
         assert_eq!(item.replacements[0], "received");
+    }
+
+    /// Live in Outlook (2026-10-12): the context after "rreceive" ended
+    /// "…tomorrow, p". It is cut between words only.
+    #[test]
+    fn context_is_cut_between_words_only() {
+        let chars: Vec<char> = "We rreceive the payment tomorrow, possibleeee".chars().collect();
+        let at = |w: &str| {
+            let s: String = chars.iter().collect();
+            let start = s[..s.find(w).unwrap()].chars().count();
+            (start, start + w.chars().count())
+        };
+        let (s, e) = at("rreceive");
+        assert_eq!(context(&chars, s, e), ("We ".into(), " the payment tomorrow,".into()));
+        let (s, e) = at("possibleeee");
+        assert_eq!(context(&chars, s, e), ("the payment tomorrow, ".into(), "".into()));
+        // Short enough: nothing is cut.
+        let short: Vec<char> = "We recieved it.".chars().collect();
+        assert_eq!(context(&short, 3, 11), ("We ".into(), " it.".into()));
+        // One word longer than the window on either side: left out, never split.
+        let long: Vec<char> = "Pneumonoultramicroscopicsilicovolcanoconiosis teh Pneumonoultramicroscopicsilicovolcanoconiosis".chars().collect();
+        let s = long.iter().position(|&c| c == ' ').unwrap() + 1;
+        assert_eq!(context(&long, s, s + 3), ("".into(), "".into()));
     }
 
     // ── 1b: what is kept for a fix, and when it is dropped (§7.2) ────────────
