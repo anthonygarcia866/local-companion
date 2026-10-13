@@ -58,6 +58,8 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
   # Fullscreen detection (presence.rs): SHQueryUserNotificationState.
   "Win32_UI_Shell",
+  # The one-time writing prompt's app name (capture/uia.rs): FileDescription.
+  "Win32_Storage_FileSystem",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -7,6 +7,8 @@ import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings, type WritingFix, type WritingResult, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { nextRewrite, type RewriteEvent } from "./core/rewrite";
+import { askPlacement, type WritingAsk } from "./core/ask";
+import { answerAsk, askClock } from "./views/ask";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
@@ -186,6 +188,28 @@ async function main() {
   // this" or "Copy" did. Stored and redrawn, nothing else.
   await onEvent<RewriteEvent>("writing-rewrite", (e) => {
     State.rewrite = nextRewrite(State.rewrite, e);
+    State.notify();
+  });
+
+  // "Check writing in [app]?" (1d, §14.2): Rust asks after 2 s in a field of
+  // an app on neither list. Seen now, in the ember, behind an approval card,
+  // or not at all (Hidden, fullscreen): see core/ask.ts.
+  const askHost = { setView: (v: Parameters<typeof island.setView>[0]) => island.setView(v), collapse: () => island.collapse() };
+  State.subscribe(() => presence.setAsk(State.writingAsk !== null));
+  await onEvent<WritingAsk>("writing-ask", (ask) => {
+    const where = askPlacement({
+      presence: presence.model.kind,
+      paused: State.paused,
+      approval: State.pendingApproval !== null,
+      current: State.writingAsk,
+      incoming: ask,
+    });
+    if (where === "drop" || where === "keep") return;
+    State.writingAsk = { exe: ask.exe, name: ask.name };
+    void Bridge.writingAskShown(ask.exe);
+    if (where === "show") island.alert("writingAsk");
+    // In the ember the "?" is what is in sight: the 30 s run from now.
+    if (where === "ember") askClock.start(ask.exe, () => answerAsk("later", askHost));
     State.notify();
   });
 

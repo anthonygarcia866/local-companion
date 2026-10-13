@@ -12,6 +12,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import type { WritingAsk } from "./ask";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -157,6 +158,8 @@ export interface Settings {
   aiMonthlyCapUsd: number;
   /** Settings → Writing → Apps (1d): "on" / "off" by exe, only where it differs from the default. */
   writingApps: Record<string, string>;
+  /** When each app on neither list was last asked about ("YYYY-MM-DD" by exe). Rust's. */
+  writingAppsAsked?: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -303,6 +306,8 @@ class AppState {
   writingBusy = false;
   /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
   rewrite: RewriteState | null = null;
+  /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
+  writingAsk: WritingAsk | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -604,6 +609,7 @@ class AppState {
    */
   lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
+    if (this.writingAsk) return "writingAsk";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

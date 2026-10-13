@@ -1137,7 +1137,9 @@ export class Island {
     else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else {
       const writing = State.writing.length;
-      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
+      const suggest = writing + (State.writingAsk ? 1 : 0);
+      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
       const badge = this.writingBadge;

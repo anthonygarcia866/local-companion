@@ -11,6 +11,9 @@ import { t } from "../i18n/i18n";
 export interface WritingHost {
   settings(): Settings;
   save(): Promise<void>;
+  /** Gets the section's redraw, for settings changed elsewhere (an answer
+   *  to the one-time prompt in the island). */
+  watch?(redraw: () => void): void;
 }
 
 const lower = (s: string) => s.toLowerCase();
@@ -81,6 +84,7 @@ export function writingSection(host: WritingHost, known: KnownApp[]): HTMLElemen
     }
   }
   draw();
+  host.watch?.(draw);
 
   return h(
     "section",

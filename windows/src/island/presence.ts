@@ -8,7 +8,7 @@ import { Bridge } from "../core/bridge";
 import { Lantern, RECORDING_STATE } from "../mascot/lantern";
 import { h } from "../views/dom";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
-import { tn } from "../i18n/i18n";
+import { t, tn } from "../i18n/i18n";
 
 export type PresenceKind = "pill" | "ember" | "hidden" | "indicator";
 
@@ -55,6 +55,8 @@ export class PresenceModel {
   kind: PresenceKind = "pill";
   /** The writing checker's count, shown on the ember. */
   writing = 0;
+  /** "Check writing in [app]?" is waiting (1d): the ember shows "?". */
+  ask = false;
   /** The ember was clicked to see the suggestions: the pill is out for that
    *  only, and Ember comes back when the island closes. */
   peeking = false;
@@ -87,7 +89,7 @@ export class PresenceModel {
    * (a peek, never saved); otherwise, back to the pill (Normal).
    */
   restore() {
-    if (this.kind === "ember" && this.writing > 0) {
+    if (this.kind === "ember" && (this.writing > 0 || this.ask)) {
       this.peeking = true;
       this.openOnPill = true;
       void Bridge.setPeek(true);
@@ -105,8 +107,10 @@ export class PresenceModel {
 }
 
 /** The ember's look with writing suggestions: brighter, with a count (no
- *  bounce). Nine and up show "9+": the window is 28 px. */
-export function emberWriting(count: number): { lit: boolean; badge: string } {
+ *  bounce). Nine and up show "9+": the window is 28 px. A question waiting
+ *  (1d's "Check writing in [app]?") shows "?" instead of the count. */
+export function emberWriting(count: number, ask = false): { lit: boolean; badge: string } {
+  if (ask) return { lit: true, badge: "?" };
   if (count <= 0) return { lit: false, badge: "" };
   return { lit: true, badge: count > 9 ? "9+" : String(count) };
 }
@@ -193,15 +197,24 @@ export class PresenceView {
     this.drawWriting();
   }
 
+  /** A "Check writing in [app]?" question is waiting, or no longer. */
+  setAsk(on: boolean) {
+    if (this.model.ask === on) return;
+    this.model.ask = on;
+    this.drawWriting();
+  }
+
   private drawWriting() {
-    const { lit, badge } = emberWriting(this.model.writing);
+    const { lit, badge } = emberWriting(this.model.writing, this.model.ask);
     const shown = lit && this.model.kind === "ember";
     this.el.classList.toggle("lit", shown);
     this.badge.textContent = badge;
     this.badge.hidden = !shown;
     this.el.setAttribute(
       "aria-label",
-      shown ? `Glim: ${tn("{count} writing suggestion", "{count} writing suggestions", this.model.writing)}` : "Glim",
+      !shown ? "Glim"
+        : this.model.ask ? `Glim: ${t("Glim has a question")}`
+        : `Glim: ${tn("{count} writing suggestion", "{count} writing suggestions", this.model.writing)}`,
     );
   }
 }

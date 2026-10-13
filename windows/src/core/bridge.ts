@@ -140,6 +140,10 @@ export const Bridge = {
   aiModels: () => call<AiModel[]>("ai_models"),
   /** The built-in apps of Settings → Writing → Apps (1d). */
   writingKnownApps: () => call<KnownApp[]>("writing_known_apps"),
+  /** "Check writing in [app]?" is in sight (or queued): asked today (1d). */
+  writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
+  /** Its answer: "yes", "later" or "never". */
+  writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

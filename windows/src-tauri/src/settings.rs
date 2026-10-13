@@ -80,6 +80,10 @@ pub struct Settings {
     /// "off" by exe, only where it differs from writing::apps' defaults. Any
     /// other value reads as the default.
     pub writing_apps: BTreeMap<String, String>,
+    /// The one-time prompt (§14.2): the local date ("YYYY-MM-DD") each app on
+    /// neither list was last asked about, by exe. Nothing else: no title, no
+    /// text. Yes and Never remove the app's entry.
+    pub writing_apps_asked: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -126,6 +130,7 @@ impl Default for Settings {
             ai_model: crate::ai::claude::DEFAULT_MODEL.into(),
             ai_monthly_cap_usd: 0.0,
             writing_apps: BTreeMap::new(),
+            writing_apps_asked: BTreeMap::new(),
         }
     }
 }
@@ -402,7 +407,8 @@ mod tests {
   "aiBrain": "local",
   "aiModel": "claude-sonnet-5-5",
   "aiMonthlyCapUsd": 7.5,
-  "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" }
+  "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
+  "writingAppsAsked": { "WordPad.exe": "2026-10-12" }
 }"##;
 
     fn custom() -> Value {
@@ -517,7 +523,7 @@ mod tests {
     #[test]
     fn a_file_from_before_1d_has_every_app_at_its_default() {
         let loaded = parse(br#"{"screen":"active"}"#).unwrap();
-        assert!(loaded.writing_apps.is_empty());
+        assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty());
         // Not a map of strings: the switches fall back, and nothing else does.
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
@@ -826,6 +832,7 @@ mod tests {
                 "aiModel",
                 "aiMonthlyCapUsd",
                 "writingApps",
+                "writingAppsAsked",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

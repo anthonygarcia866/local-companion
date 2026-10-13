@@ -107,6 +107,11 @@ pub fn enabled_in(exe: &str, switches: &std::collections::BTreeMap<String, bool>
     switches.get(&exe.to_ascii_lowercase()).copied().unwrap_or_else(|| on_by_default(exe))
 }
 
+/// Whether the app is on either built-in list.
+pub fn is_known(exe: &str) -> bool {
+    ON.iter().chain(OFF.iter()).any(|a| a.eq_ignore_ascii_case(exe))
+}
+
 /// One built-in app, as Settings → Writing → Apps lists it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,7 +195,9 @@ mod tests {
         assert!(!code.default_on && !code.fixes && code.name == "VS Code");
         for a in &apps {
             assert!(!a.name.to_ascii_lowercase().ends_with(".exe"), "{}", a.exe);
+            assert!(is_known(&a.exe.to_ascii_uppercase()));
         }
+        assert!(!is_known("Acrobat.exe"));
     }
 
     /// The owner, 2026-10-11: fixes only in the tested apps; chat apps, Edge

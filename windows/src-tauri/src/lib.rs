@@ -90,6 +90,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.desktop_mochi = current.desktop_mochi.clone();
         settings.docks = current.docks.clone();
         settings.visibility = current.visibility.clone();
+        // When each app was asked about is Rust's (writing_ask_shown/_answer).
+        settings.writing_apps_asked = current.writing_apps_asked.clone();
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -587,6 +589,59 @@ struct AiModel {
     prices_checked: &'static str,
 }
 
+/// Changes the settings in Rust's hands, saves them, puts the writing
+/// settings in force and tells both windows.
+fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Settings)) {
+    let updated = {
+        let mut current = shared.settings.lock().unwrap();
+        change(&mut current);
+        if let Err(err) = settings::save(&current) {
+            log::line(format!("could not save settings: {err}"));
+        }
+        current.clone()
+    };
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
+    let _ = app.emit("settings-changed", updated);
+}
+
+/// The island showed (or queued) "Check writing in [app]?" (1d, §14.2):
+/// today's date is kept for that app, so it is asked at most once a day.
+#[tauri::command]
+fn writing_ask_shown(app: AppHandle, shared: State<Shared>, exe: String) {
+    if !writing::ask::askable(&exe, &writing::prefs::get(), &writing::ask::today()) {
+        return;
+    }
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps_asked.insert(exe, writing::ask::today());
+    });
+}
+
+/// The answer to "Check writing in [app]?": "yes" turns the checker on
+/// there, "never" keeps it off for good (both listed in Settings → Writing →
+/// Apps), "later" asks again the next day at the earliest.
+#[tauri::command]
+fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer: String) {
+    if !writing::ask::valid_exe(&exe) || writing::apps::is_known(&exe) {
+        return;
+    }
+    let today = writing::ask::today();
+    log::line(format!("writing: asked about {exe}: {}", if matches!(answer.as_str(), "yes" | "never") { answer.as_str() } else { "later" }));
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        let on = match answer.as_str() {
+            "yes" => "on",
+            "never" => "off",
+            _ => {
+                s.writing_apps_asked.insert(exe, today);
+                return;
+            }
+        };
+        s.writing_apps.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps.insert(exe, on.to_string());
+    });
+}
+
 /// The apps Settings → Writing → Apps lists (1d): the built-in ones.
 #[tauri::command]
 fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
@@ -976,6 +1031,8 @@ pub fn run() {
             ai_spend,
             ai_models,
             writing_known_apps,
+            writing_ask_shown,
+            writing_ask_answer,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

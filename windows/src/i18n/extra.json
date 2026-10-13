@@ -3802,6 +3802,72 @@
    "pt-BR": "Os apps em que o Glim revisa o que você escreve. Gerenciadores de senhas e apps pausados nunca são lidos, seja qual for a chave deles.",
    "ru": "Приложения, в которых Glim проверяет ваш текст. Менеджеры паролей и приостановленные приложения никогда не читаются, что бы ни говорил их переключатель.",
    "id": "Aplikasi tempat Glim memeriksa tulisan Anda. Pengelola kata sandi dan aplikasi yang dijeda tidak pernah dibaca, apa pun sakelarnya."
+  },
+  "Check writing in {app}?": {
+   "zh-Hans": "要在 {app} 中检查写作吗？",
+   "hi": "{app} में लेखन जाँचें?",
+   "es": "¿Revisar la escritura en {app}?",
+   "ar": "هل تريد تدقيق الكتابة في {app}؟",
+   "fr": "Vérifier l'écriture dans {app} ?",
+   "bn": "{app}-এ লেখা যাচাই করবেন?",
+   "pt-BR": "Revisar a escrita no {app}?",
+   "ru": "Проверять текст в {app}?",
+   "id": "Periksa tulisan di {app}?"
+  },
+  "Glim would check what you type there. Nothing is read until you say yes.": {
+   "zh-Hans": "Glim 会检查你在那里输入的内容。在你同意之前不会读取任何内容。",
+   "hi": "Glim वहाँ आप जो लिखते हैं उसे जाँचेगा। आपके हाँ कहने तक कुछ नहीं पढ़ा जाता।",
+   "es": "Glim revisaría lo que escribes ahí. No se lee nada hasta que digas que sí.",
+   "ar": "سيدقق Glim ما تكتبه هناك. لا يُقرأ شيء حتى توافق.",
+   "fr": "Glim vérifierait ce que vous y tapez. Rien n'est lu tant que vous n'avez pas dit oui.",
+   "bn": "Glim সেখানে আপনি যা লেখেন তা যাচাই করবে। আপনি হ্যাঁ না বলা পর্যন্ত কিছুই পড়া হয় না।",
+   "pt-BR": "O Glim revisaria o que você digita ali. Nada é lido até você dizer sim.",
+   "ru": "Glim будет проверять то, что вы там печатаете. Ничего не читается, пока вы не согласитесь.",
+   "id": "Glim akan memeriksa apa yang Anda ketik di sana. Tidak ada yang dibaca sampai Anda setuju."
+  },
+  "Yes": {
+   "zh-Hans": "是",
+   "hi": "हाँ",
+   "es": "Sí",
+   "ar": "نعم",
+   "fr": "Oui",
+   "bn": "হ্যাঁ",
+   "pt-BR": "Sim",
+   "ru": "Да",
+   "id": "Ya"
+  },
+  "Not now": {
+   "zh-Hans": "以后再说",
+   "hi": "अभी नहीं",
+   "es": "Ahora no",
+   "ar": "ليس الآن",
+   "fr": "Pas maintenant",
+   "bn": "এখন নয়",
+   "pt-BR": "Agora não",
+   "ru": "Не сейчас",
+   "id": "Nanti saja"
+  },
+  "Never": {
+   "zh-Hans": "从不",
+   "hi": "कभी नहीं",
+   "es": "Nunca",
+   "ar": "أبدًا",
+   "fr": "Jamais",
+   "bn": "কখনো না",
+   "pt-BR": "Nunca",
+   "ru": "Никогда",
+   "id": "Jangan pernah"
+  },
+  "Glim has a question": {
+   "zh-Hans": "Glim 有一个问题",
+   "hi": "Glim का एक सवाल है",
+   "es": "Glim tiene una pregunta",
+   "ar": "لدى Glim سؤال",
+   "fr": "Glim a une question",
+   "bn": "Glim-এর একটি প্রশ্ন আছে",
+   "pt-BR": "O Glim tem uma pergunta",
+   "ru": "У Glim есть вопрос",
+   "id": "Glim punya pertanyaan"
   }
  }
 }

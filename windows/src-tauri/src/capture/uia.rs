@@ -174,6 +174,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // The writing settings in force (1d): a change drops what the checker
     // shows and keeps, and the next reading starts afresh.
     let mut prefs_version = crate::writing::prefs::version();
+    // The one-time "Check writing in [app]?" prompt (1d, §14.2).
+    let mut asker = crate::writing::ask::Asker::default();
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -368,6 +370,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             continue;
         }
         let reading = read(&uia, &element, pid, &pause, dev);
+        let ask = reading.ask;
         let mut capture = reading.capture;
         capture.via = via.into();
         let same = current
@@ -379,6 +382,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     let _ = record_to(&results, &meta);
                 }
             }
+        }
+        let askable = ask.then_some(capture.meta.app.as_str());
+        if let Some(exe) = asker.feed(askable, same, std::time::Instant::now()) {
+            let name = app_description(pid).unwrap_or_else(|| crate::writing::apps::display_name(&exe));
+            crate::log::line(format!("writing: asking about {exe}"));
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::ask::EVENT, &crate::writing::ask::Ask { exe, name });
         }
         if !same && !apps.contains(&capture.meta.app) {
             apps.push(capture.meta.app.clone());
@@ -421,9 +430,17 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
         return withheld(app, control_type_name(control), true).into();
     }
     let mut meta = CaptureMeta { app, control_type: control_type_name(control), pattern: "none".into(), ..Default::default() };
+    // An app on neither list (1d, §14.2): whether its field is one to ask
+    // about, from the password flag and the editable signals only.
+    let ask = !crate::writing::apps::enabled(&meta.app)
+        && crate::writing::ask::askable(&meta.app, &crate::writing::prefs::get(), &crate::writing::ask::today())
+        && !unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool())
+        && is_editable(&edit_signals(element, control));
     if !dev && !crate::writing::apps::enabled(&meta.app) {
         meta.pattern = SKIPPED_OFF.into();
-        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
+        let mut off: Reading = Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
+        off.ask = ask;
+        return off;
     }
 
     if unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool()) {
@@ -655,6 +672,52 @@ pub(super) fn process_name(pid: i32) -> String {
         }
         let path = String::from_utf16_lossy(&buf[..len as usize]);
         path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string()
+    }
+}
+
+/// The app's name from its executable's version info (FileDescription,
+/// "Adobe Acrobat"), for the one-time prompt. None when it has none.
+fn app_description(pid: i32) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+    let path = process_path(pid)?;
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let size = GetFileVersionInfoSizeW(PCWSTR(wide.as_ptr()), None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(PCWSTR(wide.as_ptr()), None, size, data.as_mut_ptr().cast()).ok()?;
+        // The first language and code page the file lists.
+        let mut ptr = std::ptr::null_mut();
+        let mut len = 0u32;
+        let query: Vec<u16> = "\\VarFileInfo\\Translation\0".encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr().cast(), PCWSTR(query.as_ptr()), &mut ptr, &mut len).as_bool() || len < 4 {
+            return None;
+        }
+        let pair = std::slice::from_raw_parts(ptr as *const u16, 2);
+        let key = format!("\\StringFileInfo\\{:04x}{:04x}\\FileDescription\0", pair[0], pair[1]);
+        let query: Vec<u16> = key.encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr().cast(), PCWSTR(query.as_ptr()), &mut ptr, &mut len).as_bool() || len == 0 {
+            return None;
+        }
+        let chars = std::slice::from_raw_parts(ptr as *const u16, len as usize);
+        let end = chars.iter().position(|&c| c == 0).unwrap_or(chars.len());
+        let name = String::from_utf16_lossy(&chars[..end]).trim().to_string();
+        (!name.is_empty() && name.chars().count() <= 64 && !name.chars().any(char::is_control)).then_some(name)
+    }
+}
+
+/// The executable's full path for a process id.
+fn process_path(pid: i32) -> Option<String> {
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = CloseHandle(h);
+        ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
     }
 }
 

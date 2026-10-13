@@ -1004,11 +1004,12 @@ async function render() {
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
   const ai = await aiSection({ settings: () => settings, save });
-  const writing = writingSection({ settings: () => settings, save }, (await Bridge.writingKnownApps()) ?? []);
+  const knownApps = (await Bridge.writingKnownApps()) ?? [];
 
   declaredViews.length = 0;
   localRedraw = null;
   shortcutsListener = null;
+  const writing = writingSection({ settings: () => settings, save, watch: (redraw) => declaredViews.push(redraw) }, knownApps);
   clear(root);
   root.append(
     h("h1", {}, h("span", { text: "Glim" }), h("span", { class: "version", text: version })),

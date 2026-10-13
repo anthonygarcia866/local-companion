@@ -13,11 +13,17 @@ pub struct Prefs {
     /// Per-app switches that differ from the defaults, by lowercase exe name:
     /// true = on, false = off (14.1).
     pub apps: BTreeMap<String, bool>,
+    /// When each app on neither list was last asked about (§14.2): local
+    /// "YYYY-MM-DD" by lowercase exe.
+    pub asked: BTreeMap<String, String>,
 }
 
 impl Prefs {
     pub fn from_settings(s: &crate::settings::Settings) -> Prefs {
-        Prefs { apps: app_switches(&s.writing_apps) }
+        Prefs {
+            apps: app_switches(&s.writing_apps),
+            asked: s.writing_apps_asked.iter().map(|(exe, d)| (exe.to_ascii_lowercase(), d.clone())).collect(),
+        }
     }
 }
 
