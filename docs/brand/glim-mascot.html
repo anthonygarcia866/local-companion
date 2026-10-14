@@ -9,6 +9,7 @@ Glim mascot - approved design, reference implementation. Source of truth.
 - Add class "compact" for sizes under 48px (hides ribs, embers, face details, hands, brows; enlarges eyes; wider listen glance).
 - The "aura" and "twinkles" groups (ribbons + sparkles) are for large/icon contexts only; remove them in the notch sprite.
 - Respects prefers-reduced-motion.
+- DRAFT (2026-10-13, not approved): s-hear, listening to dictation. In the second <style data-draft="s-hear"> block, which the port ignores. Not an app state yet.
 - Additive classes (2026-10-10): "pop" = brief attention bounce + glow flare on a state change; "pop-record" = the stronger repeating cue for s-record; "ignite" = the startup flame lighting (s-paused -> s-idle). Reduced motion: no bounce, a glow change only.
 -->
 <style>
@@ -122,6 +123,27 @@ button{font:inherit;padding:8px 14px;border-radius:999px;border:1px solid #9a6a4
 @media (prefers-reduced-motion: reduce){.lantern.pop,.lantern.pop-record{animation:none}.lantern.pop .glow,.lantern.pop-record .glow{opacity:1}}
 @media (prefers-reduced-motion: reduce){.lantern *{animation:none !important}}
 
+</style>
+<style data-draft="s-hear">
+/* DRAFT s-hear = listening to dictation (push-to-talk held). 2026-10-13, for Anthony's review: NOT approved, NOT ported.
+   scripts/port-lantern.mjs reads only the first <style> and the first <svg>, so nothing in this block reaches the app,
+   and src/mascot/lantern.css is unchanged (tests/lantern.test.mjs checks that).
+   Intent: cool teal, never red (red is s-record only); not s-listen (that is "the island is open").
+   The flame and glow follow the microphone: the app sets --mic-level (0..1, ~15 times a second, 0 when silent) on the <svg>.
+   Eyes look up, brows raised: attentive. No hands, no sparks, no ring (the ring is s-record's cue).
+   Known in this draft: the hue shift also tints the eyes inside the flame; fine at notch size, to judge at 240 px.
+   When approved: move these rules into the first <style> before the reduced-motion lines, add s-hear to the state
+   list in the header comment and to setState(), run `node scripts/port-lantern.mjs` in windows/, and update the
+   nine-state count in tests/lantern.test.mjs and LANTERN_STATES. */
+.s-hear .tone,.s-hear .glow,.s-hear .flame-g{filter:hue-rotate(150deg) saturate(.9)}
+.s-hear .glow{opacity:calc(.55 + var(--mic-level,0) * .45)}
+.s-hear .flame-g{transform:scale(calc(.92 + var(--mic-level,0) * .2));transition:transform .07s linear}
+.s-hear .eyes{transform:translateY(-2.2px)}
+.s-hear .brows{opacity:1}
+.s-hear .brow{transform:translateY(-1.2px)}
+.compact.s-hear .eyes{transform:translateY(-3px)}
+@media (prefers-reduced-motion: reduce){.s-hear .flame-g{transform:none;transition:none}.s-hear .glow{opacity:.9}}
+.draft-note{color:#9fe3dc;font-size:13px;display:flex;align-items:center;gap:8px}
 </style></head><body>
 <svg viewBox="0 0 100 124" id="glim" class="lantern s-listen" width="240" height="298" aria-hidden="true">
 <defs>
@@ -171,7 +193,8 @@ button{font:inherit;padding:8px 14px;border-radius:999px;border:1px solid #9a6a4
 <path class="lift" d="M50 15 L51.3 18.7 L55 20 L51.3 21.3 L50 25 L48.7 21.3 L45 20 L48.7 18.7Z" fill="#fff4c2"></path><path class="drop" d="M64 56 C64 56 60.6 60.4 60.6 62.6 C60.6 64.5 62.1 66 64 66 C65.9 66 67.4 64.5 67.4 62.6 C67.4 60.4 64 56 64 56Z" fill="#cfe9ff" stroke="#7fb4e0" stroke-width="0.6"></path>
 </svg>
 <div class="controls"><button onclick="setState('s-idle')">idle</button><button onclick="setState('s-listen')">listen</button><button onclick="setState('s-think')">think</button><button onclick="setState('s-suggest')">suggest</button><button onclick="setState('s-record')">record</button><button onclick="setState('s-paused')">paused</button><button onclick="setState('s-delegate')">delegate</button><button onclick="setState('s-done')">done</button><button onclick="setState('s-error')">error</button><button onclick="document.getElementById('glim').classList.toggle('compact')">toggle compact</button></div>
+<div class="controls draft-note">DRAFT: <button onclick="setState('s-hear')">hear (draft)</button><label>mic level <input type="range" min="0" max="1" step="0.05" value="0" oninput="document.getElementById('glim').style.setProperty('--mic-level',this.value)"></label></div>
 <script>
-function setState(s){const el=document.getElementById('glim');el.classList.remove('s-idle','s-listen','s-think','s-suggest','s-record','s-paused','s-delegate','s-done','s-error');el.classList.add(s);}
+function setState(s){const el=document.getElementById('glim');el.classList.remove('s-idle','s-listen','s-think','s-suggest','s-record','s-paused','s-delegate','s-done','s-error','s-hear');el.classList.add(s);}
 </script>
 </body></html>

@@ -1,6 +1,6 @@
 # Phase 1.5 — Voice + Actions: plan
 
-Status: **design for the owner's approval (2026-10-13), not built.** Source: PROJECT_STATUS.md "Phase 1.5 — Voice + Actions" and `docs/vision.md` §2–4. Upstream Coucou's voice design (`docs/upstream-watch.md` row 4) is adapted, not ported: its code is Swift and its speech-to-text is Apple's.
+Status: **design approved by the owner 2026-10-13 (decisions in §8); not built.** Source: PROJECT_STATUS.md "Phase 1.5 — Voice + Actions" and `docs/vision.md` §2–4. Upstream Coucou's voice design (`docs/upstream-watch.md` row 4) is adapted, not ported: its code is Swift and its speech-to-text is Apple's.
 
 Rules this plan keeps, unchanged:
 
@@ -22,9 +22,9 @@ Rules this plan keeps, unchanged:
 
 ## 2. The listening state (new mascot state)
 
-- **New state `s-hear`**, added to `docs/brand/glim-mascot.html` first and ported with `node scripts/port-lantern.mjs` (never hand-edited, CLAUDE.md).
+- **New state `s-hear`** (decided 2026-10-13), designed in `docs/brand/glim-mascot.html` first (draft there for Anthony's review) and ported with `node scripts/port-lantern.mjs` (never hand-edited, CLAUDE.md).
 - Why not an existing one: `s-listen` already means "the island is open" (calm glance, `lantern.ts`); `s-record` is red and reserved for screen recording.
-- Proposed look: the lantern's warm glow turns **cool teal**, the flame breathes with the **microphone level** (one CSS variable set from the meter, clamped, ~15 updates a second), eyes look up. A small mic glyph on the badge spot. Reduced motion: a steady teal glow, no breathing.
+- Draft look (in the design file, not approved yet): the lantern's warm glow turns **cool teal**, the flame breathes with the **microphone level** (one CSS variable set from the meter, clamped, ~15 updates a second), eyes look up. A small mic glyph on the badge spot. Reduced motion: a steady teal glow, no breathing.
 - Precedence: while the key is held, `s-hear` wins over everything except a waiting approval's badge (the approval card still shows; the lantern still says it's listening).
 
 ## 3. Speech-to-text: how the comparison will be run (not run yet)
@@ -94,10 +94,11 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
 4. **1.5c — actions:** the tool schema and validation, `open_app`, `resume_work` cards (on top of PR 1), `clarify`.
 5. **1.5d — Outlook drafts:** `draft_email` through classic Outlook COM, the draft card, Send only by a click.
 
-## 8. Decisions for Anthony
+## 8. Decided 2026-10-13 (Anthony)
 
-1. **Push-to-talk key: Ctrl+Alt+Shift+V (held)?** Recommended: **yes**, after the same `RegisterHotKey` + Word `FindKey` probe the 1d keys got.
-2. **New mascot state `s-hear` (cool teal, breathing with the mic level)?** Recommended: **yes**; `s-listen` already means "island open".
-3. **Cloud candidates for the comparison:** Recommended: **two**, picked from current price pages on the day, plus whisper.cpp `base.en` / `small.en` / `medium.en`.
-4. **Dictation when the API is unavailable: type the raw transcript, or refuse?** Recommended: **type the raw transcript** (after the sensitive scan), and say "not cleaned up" on the card.
-5. **`resume_work` opens Claude Code only after a click on a repo's card?** Recommended: **yes**, even though "open app" needs no click: it starts work in a specific folder.
+1. **Push-to-talk = Ctrl+Alt+Shift+V, held.** Still needs the usual conflict check when Anthony is at the PC: `RegisterHotKey` probe plus Word's key table (`Application.FindKey`), as the 1d keys got. If it's taken, the plan is amended before 1.5b, not worked around.
+2. **The listening state is `s-hear`** (not `s-record`, which stays screen recording only; not `s-listen`, which means "island open"). **Its look is designed in `docs/brand/glim-mascot.html` first** (the source of truth). A draft is there (2026-10-13, for Anthony's review); no code uses `s-hear` and it isn't ported (`port-lantern.mjs` not run) until he approves the look.
+3. **Speech-to-text comparison:** **two cloud candidates** against **whisper.cpp `base.en` / `small.en` / `medium.en`**, on the same clips (§3).
+4. **If the API is down, type the raw transcript, marked "not cleaned up"** (after the sensitive scan). This is the Claude API, the clean-up step. If the speech-to-text step itself fails, there is no transcript to type: the card says so, and nothing is typed.
+5. **`resume_work` opens Claude Code only after a click on that repo's card.**
+6. **Resume reader (`resume_work`'s data, PR #21): a card-like number (card, SSN, IBAN, 12+ digit run) withholds only the section it is in**, marked as withheld; true secrets (API keys, tokens, private keys, `password=`-style values) still skip the whole HANDOFF.md.

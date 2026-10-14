@@ -273,7 +273,7 @@ The design was approved as written, with these answers:
 
 ## 7a. The floating mini lantern at the field (PR "1e", after 1d)
 
-Status: **design for the owner's approval (2026-10-13), not built.** The first sketch (owner, 2026-10-10) is kept in its decisions: the real lantern, not a dot; a count badge; a popover right there; it never takes focus. §14.7 made it its own PR (1e), right after 1d. It is written against `phase-1d` (PR #18), since it uses 1d's app switches and its pause.
+Status: **design approved by the owner 2026-10-13 (decisions in §7a.9); not built.** The first sketch (owner, 2026-10-10) is kept in its decisions: the real lantern, not a dot; a count badge; a popover right there; it never takes focus. §14.7 made it its own PR (1e), right after 1d. It is written against `phase-1d` (PR #18), since it uses 1d's app switches and its pause.
 
 Goal: a Grammarly-style marker where the user types, so a suggestion doesn't need a trip to the top of the screen. The island's list stays exactly as it is. The mini lantern is a second way into the same suggestions, not a replacement.
 
@@ -348,13 +348,13 @@ Any of them failing hides it within one reading (≤300 ms). Hiding never touche
 - **Guards:** the window's flags (`WS_EX_NOACTIVATE`, tool window, topmost), `BROWSER_ARGS`, no `set_focus`; no text in the new capture fields.
 - **Live (owner, away from the keyboard or at their say-so):** Outlook (new mail body), Word, Gmail compose in Chrome, Notepad. In each: it appears next to the field with the right count; never covers the line being typed; follows a scroll (hides while moving); a click opens the popover and the caret stays in the field (typing continues where it was); a fix applies and Ctrl+Z undoes it; Ignore works; it hides on Ctrl+Alt+Shift+P, in a password field, in an app switched off, in Hidden, and behind a fullscreen video; the 125% monitor.
 
-### 7a.9 Decisions for Anthony
+### 7a.9 Decided 2026-10-13 (Anthony)
 
-1. **Single-line fields: outside the right edge, or inside?** Recommended: **outside** (it never covers text), falling back to inside at a monitor edge.
-2. **Size: 22 px?** Recommended: **22 logical px**; 18 is the smallest at which the lantern's face still reads.
-3. **Default for the setting in the first build?** Recommended: **off**, turned on in the same PR once your live tests pass (as §14.7 says).
-4. **Popover footer with "Rewrite…"?** Recommended: **yes**; it's the same action as the hotkey, and it saves a trip to the island.
-5. **Auto-close after 20 s with no pointer over it?** Recommended: **yes, 20 s**, so a forgotten popover doesn't hang over the text.
+1. **Single-line fields:** the mini lantern sits **outside the right edge**; inside only at a monitor edge.
+2. **Size:** **22 logical px**.
+3. **The setting** (`writing_bubble`, stored as `writingBubble`): **off** in the first build, turned on once Anthony's live tests pass.
+4. **The popover's footer has "Rewrite…"** (the same 1c flow as Ctrl+Alt+Shift+R).
+5. **The popover auto-closes after 20 s with no pointer over it.**
 
 ## 8. Settings (1d) and Windows' own suggestions
 

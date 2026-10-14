@@ -39,6 +39,13 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 - **Rule:** consequential actions (send, delete, purchase, publish) wait for approval. Low-risk ones (open, read, summarize) don't.
 - Audio is never stored.
 - Its own mascot state for "listening to dictation" — not `s-record`: red stays reserved for screen recording.
+- **Decided 2026-10-13 (Anthony; design `docs/voice-actions-plan.md` §8):**
+  - **Push-to-talk = Ctrl+Alt+Shift+V, held.** Still needs the usual conflict check (RegisterHotKey probe, Word's key table) with Anthony at the PC.
+  - **Listening state = `s-hear`** (not `s-record`, not `s-listen`). Its look is drafted in `docs/brand/glim-mascot.html` (the source of truth) for Anthony's review; no code uses it and it isn't ported until he approves the look.
+  - **Speech-to-text comparison:** two cloud candidates vs. whisper.cpp `base.en` / `small.en` / `medium.en`, same clips.
+  - **Claude API down:** type the raw transcript, marked "not cleaned up" (after the sensitive scan).
+  - **`resume_work`** opens Claude Code only after a click on that repo's card.
+  - **Resume reader:** a card-like number withholds only its section; true secrets skip the whole HANDOFF.md.
 
 ### Phase 2 — SOP recorder
 - User-initiated only.
@@ -90,9 +97,9 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 ## Roadmap
 - **Phase 0a** — rebrand to Glim, strip upstream assets, network choke point, local-only lockdown. *Merged 2026-10-09 (PR #2).*
 - **Phase 0b** — the real Glim mascot (from `docs/brand/glim-mascot.html`) replaces the placeholder orb. In the notch: done (PR #5, see "Mascot"); the remaining placeholders moved to Phase 4. Also a text-capture spike (UI Automation) to decide how Phase 1 reads the focused field: see "Text-capture spike".
-- **Phase 1** — writing assistant. Plan: `docs/phase1-plan.md`; capture plan and spike results: `docs/capture-results.md`. **1a** merged 2026-10-11 (PR #9); **1b-apply** merged 2026-10-11 (PR #12, `b99651b`); post-1b fixes merged 2026-10-12 (PR #15, `e942686`). **1c** uses the Claude API (direction change, 2026-10-11): merged 2026-10-13 (PR #16, `58ae4d3`), design in `docs/phase1-plan.md` §13; see "1c" below. Next: 1d, then the floating mini lantern (§7a, full design for approval 2026-10-13, PR open).
+- **Phase 1** — writing assistant. Plan: `docs/phase1-plan.md`; capture plan and spike results: `docs/capture-results.md`. **1a** merged 2026-10-11 (PR #9); **1b-apply** merged 2026-10-11 (PR #12, `b99651b`); post-1b fixes merged 2026-10-12 (PR #15, `e942686`). **1c** uses the Claude API (direction change, 2026-10-11): merged 2026-10-13 (PR #16, `58ae4d3`), design in `docs/phase1-plan.md` §13; see "1c" below. Next: 1d, then the floating mini lantern (§7a, design approved 2026-10-13, decisions in §7a.9).
   - **1d** (settings, the one-time app prompt, strictness, the editable pause list, the pause key): design in `docs/phase1-plan.md` §14 (2026-10-12), approved with the owner's decisions in §14.11 the same day (adds a fifth tone, Casual, and shows approvals while paused). Built after PR #15 and 1c merge. The floating bubble is its own PR after 1d; the underline overlay is parked. Hand tests for every feature so far: `docs/manual-tests.md`.
-- **Phase 1.5** — Voice + Actions (see Vision): push-to-talk dictation and spoken actions. Priority right after 1b. Design for approval: `docs/voice-actions-plan.md` (2026-10-13, PR open, not approved).
+- **Phase 1.5** — Voice + Actions (see Vision): push-to-talk dictation and spoken actions. Priority right after 1b. Design: `docs/voice-actions-plan.md`, approved 2026-10-13 (decisions in its §8).
 - **Phase 2** — SOP recorder, with two capture layers under different rules (see Vision). The recording start/stop sound cue ships with the recorder, not with Phase 4's sounds.
 - **Phase 3** — delegation layer, with a memory policy: learned summaries only, never raw captured text, behind a testable sensitive-data filter (see Vision).
 - **Phase 4** — Polish: sounds (synthesized in code via Web Audio, no audio files; suggestion sounds default off), more mascot animations/emotes, and replacing the remaining Coucou placeholders outside the notch (greeting, file-drop, recap image, per-session characters).
