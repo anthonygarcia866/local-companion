@@ -27,7 +27,7 @@ Rules this plan keeps, unchanged:
 - Draft look (in the design file, not approved yet): the lantern's warm glow turns **cool teal**, the flame breathes with the **microphone level** (one CSS variable set from the meter, clamped, ~15 updates a second), eyes look up. A small mic glyph on the badge spot. Reduced motion: a steady teal glow, no breathing.
 - Precedence: while the key is held, `s-hear` wins over everything except a waiting approval's badge (the approval card still shows; the lantern still says it's listening).
 
-## 3. Speech-to-text: how the comparison will be run (not run yet)
+## 3. Speech-to-text: how the comparison is run (first run 2026-10-14, §3.1)
 
 Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the run and its results are PR 1.5a.
 
@@ -46,6 +46,29 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
   - **Cost:** cloud: the listed price × the owner's estimated use (e.g. 30 min of dictation a day); local: $0, plus RAM and CPU while transcribing and model size on disk.
 - **Output:** `docs/voice-stt-results.md`, a table and a recommendation; the owner chooses. A cloud winner means a new host in the checkpoint (§6), called out in its PR.
 - **Tooling:** a dev-only binary (`windows/src-tauri/examples/stt_compare.rs` or a script) that reads the clips and writes the table. It never ships in the app.
+
+### 3.1 First run, 2026-10-14 (unattended): results and recommendation
+
+Full write-up: **`docs/voice-stt-results.md`**. Tool: `windows/dev/stt-compare/` (dev-only).
+
+> **⚠ Limits.** The 20 clips are **Windows' offline synthetic voices**, not Anthony's (his recordings don't exist yet), and the **cloud candidates couldn't be measured**: no Deepgram or AssemblyAI key on this machine. Their prices were read from the official pages. Latency carries over; the accuracy ranking is indicative only.
+
+- **Measured (whisper.cpp b5454, 8 threads, Ryzen AI 7 350):**
+
+  | | base.en q5_1 | small.en q5_1 | medium.en q5_0 |
+  |---|---|---|---|
+  | Lenient WER, plain / with vocabulary hint | 2.7% / 1.4% | 3.2% / 0.9% | 2.7% / 0.9% |
+  | Command word heard first (12 clips) | 12/12 | 12/12 | 12/12 |
+  | Processing, median (3.6 s clip) | **0.7–1.1 s** | 2.4–3.4 s | 6.6–10.2 s (slower than real time) |
+
+- **Every model** got every command word first, so the §4.1 rule held on these clips. **Every model** misheard "Glim" ("glimpse") and "HOA board" ("ho aboard") without a vocabulary hint; with whisper's `--prompt` word list, most name errors went away.
+- **Cloud, priced not measured:** Deepgram Nova-3 ≈ $5/month and AssemblyAI Universal-2 ≈ $3/month at 30 min/day with custom vocabulary.
+- **Recommendation (the owner chooses):**
+  - **local `base.en` + a personal vocabulary list** as the default for now (fast, free, nothing leaves the PC);
+  - **not `medium.en`** on this CPU;
+  - **re-run with Anthony's own 20 clips** to settle base vs small;
+  - try **one** cloud key only if real-speech accuracy disappoints.
+- New for 1.5b if base wins: a **"Words Glim should know"** list in Settings, passed as whisper's initial prompt (it never leaves the PC). Not decided; listed for the owner.
 
 ## 4. From speech to a structured action (Claude API)
 

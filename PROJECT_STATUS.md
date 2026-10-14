@@ -17,7 +17,7 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 - **gemma3 / Ollama** becomes an optional offline fallback, not the default. 1c gets a **"brain" setting**: Claude API (default) or local model, switchable in Settings without rebuilding.
 - **Local model benchmarking is deferred** until the owner's next laptop (32 GB+). This one has 16 GB and is already memory-tight, so the API stays the default.
 - **`s-delegate`** shows while text is going to the API (it is reserved for data leaving the machine).
-- **Phase 1.5 voice:** compare local whisper with cloud speech-to-text on cost, speed and accuracy before choosing.
+- **Phase 1.5 voice:** compare local whisper with cloud speech-to-text on cost, speed and accuracy before choosing. **First run 2026-10-14** (`docs/voice-stt-results.md`, plan §3.1): synthetic Windows-voice clips and local whisper.cpp only (no cloud key on this machine; Deepgram Nova-3 and AssemblyAI priced, not measured). All three models heard every command word first; base.en answers in ~0.7–1.1 s, medium.en is slower than real time on this CPU. Recommendation: local base.en + a personal vocabulary list for now; re-run on Anthony's own 20 clips before the pick.
 - **Long term:** when the owner upgrades, the current laptop becomes the always-on **hub**. It holds the rules, one approval queue, the open items and the scheduler, exposed via MCP, and it replaces Muse/Jarvis job by job.
 
 ### Phase 1 — writing assistant
