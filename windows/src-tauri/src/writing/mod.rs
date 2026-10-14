@@ -14,6 +14,7 @@
 pub mod apply;
 pub mod apps;
 pub mod ask;
+pub mod bubble;
 pub mod checker;
 pub mod docs_tip;
 pub mod prefs;

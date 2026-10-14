@@ -27,6 +27,8 @@ pub struct Prefs {
     /// entries, on top of the built-in ones.
     pub pause_apps: Vec<String>,
     pub pause_sites: Vec<String>,
+    /// The mini lantern beside the field (1e, §7a.6); off by default.
+    pub bubble: bool,
 }
 
 impl Prefs {
@@ -39,6 +41,7 @@ impl Prefs {
             strictness: super::checker::Strictness::from_id(&s.checker_strictness),
             pause_apps: s.pause_apps.clone(),
             pause_sites: s.pause_sites.clone(),
+            bubble: s.writing_bubble,
         }
     }
 }

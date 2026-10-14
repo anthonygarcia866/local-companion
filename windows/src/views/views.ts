@@ -18,6 +18,7 @@ import { buildRewrite } from "./rewrite";
 import { buildAsk } from "./ask";
 import { buildDocsTip } from "./docs-tip";
 import { openToneCard } from "../core/rewrite";
+import { suggestionPage } from "../core/paging";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
@@ -687,20 +688,8 @@ function buildNote(): ViewHost {
 
 // ── Writing suggestions (1a list, 1b fixes) ───────────────────────────────────
 
-/** Suggestions shown at once; Previous / Next page through the rest. */
-export const SUGGESTIONS_SHOWN = 3;
-
-/**
- * Which suggestions a page shows: `page` clamped to the pages there are,
- * and `from`-`to` (1-based, for "1–3 of 12"). Paging is by buttons only: the
- * island's window never takes focus, so the mouse wheel can't be relied on.
- */
-export function suggestionPage(total: number, page: number): { page: number; pages: number; from: number; to: number } {
-  const pages = Math.max(1, Math.ceil(total / SUGGESTIONS_SHOWN));
-  const p = Math.min(Math.max(0, page), pages - 1);
-  const from = total === 0 ? 0 : p * SUGGESTIONS_SHOWN + 1;
-  return { page: p, pages, from, to: Math.min(total, (p + 1) * SUGGESTIONS_SHOWN) };
-}
+// Paging is shared with the mini lantern's popover (1e): core/paging.ts.
+export { SUGGESTIONS_SHOWN, suggestionPage } from "../core/paging";
 
 /**
  * The note under the list: "Fixing…" while a fix is on its way, the last

@@ -171,6 +171,8 @@ export interface Settings {
   pauseSites: string[];
   /** Settings → General → File drop zone: the pill takes files dragged onto it. */
   fileDropZone: boolean;
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -200,6 +202,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseApps: [],
   pauseSites: [],
   fileDropZone: true,
+  writingBubble: false,
 };
 
 type Listener = () => void;

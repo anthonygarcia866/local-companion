@@ -102,6 +102,10 @@ pub struct Settings {
     /// Settings → General → "File drop zone" (1d retest): the pill takes
     /// files dragged onto it. Off: file drags never stop at Glim.
     pub file_drop_zone: bool,
+    /// Settings → Writing → "Show the mini lantern next to the text field"
+    /// (1e, docs/phase1-plan.md §7a.6): off by default until the owner's live
+    /// tests pass (decided 2026-10-13).
+    pub writing_bubble: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -155,6 +159,7 @@ impl Default for Settings {
             pause_apps: Vec::new(),
             pause_sites: Vec::new(),
             file_drop_zone: true,
+            writing_bubble: false,
         }
     }
 }
@@ -438,7 +443,8 @@ mod tests {
   "checkerStrictness": "standard",
   "pauseApps": ["Quicken.exe"],
   "pauseSites": ["portal.example.com", "*/invoice"],
-  "fileDropZone": false
+  "fileDropZone": false,
+  "writingBubble": true
 }"##;
 
     fn custom() -> Value {
@@ -560,6 +566,14 @@ mod tests {
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
         assert_eq!(loaded.screen, "cursor");
+    }
+
+    #[test]
+    fn the_mini_lantern_is_off_unless_turned_on() {
+        assert!(!Settings::default().writing_bubble);
+        assert!(!parse(br#"{"screen":"active"}"#).unwrap().writing_bubble, "a file from before 1e");
+        assert!(parse(br#"{"writingBubble":true}"#).unwrap().writing_bubble);
+        assert!(parse(&custom_with("writingBubble", None)).map(|s| !s.writing_bubble).unwrap());
     }
 
     #[test]
@@ -871,6 +885,7 @@ mod tests {
                 "pauseApps",
                 "pauseSites",
                 "fileDropZone",
+                "writingBubble",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
