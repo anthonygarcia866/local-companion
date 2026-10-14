@@ -224,16 +224,26 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
     if paragraph.chars().count() > MAX_PARAGRAPH_CHARS {
         return Reply::failed(Failure::TooLong);
     }
-    let body = serde_json::to_vec(&request_body(model_id, tone, paragraph)).unwrap_or_default();
+    match send(base, key, &request_body(model_id, tone, paragraph)).await {
+        Ok(body) => parse_answer(&body, model_id),
+        Err(f) => Reply::failed(f),
+    }
+}
+
+/// Sends one request body to /v1/messages and returns a 2xx answer's body.
+/// The whole body is scanned for card, SSN and IBAN numbers first: a hit
+/// sends nothing. Shared by the rewrite and "Check with AI" (check.rs).
+pub(super) async fn send(base: &Url, key: &ApiKey, body: &Value) -> Result<Vec<u8>, Failure> {
+    let body = serde_json::to_vec(body).unwrap_or_default();
     // The last look before anything leaves: the whole body, as it will be sent.
     if crate::capture::sensitive::contains_sensitive_number(&String::from_utf8_lossy(&body)) {
-        return Reply::failed(Failure::Sensitive);
+        return Err(Failure::Sensitive);
     }
     let Ok(url) = Url::parse(&net::join(base, "/v1/messages")) else {
-        return Reply::failed(Failure::Network);
+        return Err(Failure::Network);
     };
     let Ok(request) = net::request(Method::POST, &url, TIMEOUT) else {
-        return Reply::failed(Failure::Network);
+        return Err(Failure::Network);
     };
     let sent = request
         .header("x-api-key", key.expose())
@@ -243,7 +253,7 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
         .send()
         .await;
     let Ok(response) = sent else {
-        return Reply::failed(Failure::Network);
+        return Err(Failure::Network);
     };
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
@@ -257,12 +267,9 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
             .ok()
             .and_then(|v| v.pointer("/error/type").and_then(Value::as_str).map(error_kind))
             .unwrap_or_else(|| "unknown".into());
-        return Reply::failed(Failure::Api { status, kind, retry_after });
+        return Err(Failure::Api { status, kind, retry_after });
     }
-    match net::read_capped(response, net::MAX_BODY).await {
-        Ok(body) => parse_answer(&body, model_id),
-        Err(_) => Reply::failed(Failure::Network),
-    }
+    net::read_capped(response, net::MAX_BODY).await.map_err(|_| Failure::Network)
 }
 
 /// An error type as the log may show it: Anthropic's documented names are
@@ -280,15 +287,7 @@ pub fn parse_answer(body: &[u8], asked_model: &str) -> Reply {
     let Ok(v) = serde_json::from_slice::<Value>(body) else {
         return Reply::failed(Failure::BadAnswer);
     };
-    let tokens = |name: &str| v.pointer(&format!("/usage/{name}")).and_then(Value::as_u64).unwrap_or(0);
-    // No prompt caching is asked for; any cache tokens are counted as input.
-    let input = tokens("input_tokens") + tokens("cache_creation_input_tokens") + tokens("cache_read_input_tokens");
-    let output = tokens("output_tokens");
-    let answered = v.get("model").and_then(Value::as_str).unwrap_or(asked_model);
-    // Priced as the model that answered; one Settings doesn't list is priced
-    // as the model asked for.
-    let priced = model(answered).or_else(|| model(asked_model));
-    let usage = priced.map(|m| Usage { model: m.id.to_string(), input_tokens: input, output_tokens: output, cost_nanos: cost_nanos(m, input, output) });
+    let usage = usage_of(&v, asked_model);
     let text: String = v
         .get("content")
         .and_then(Value::as_array)
@@ -306,6 +305,18 @@ pub fn parse_answer(body: &[u8], asked_model: &str) -> Reply {
         _ => clean(&text).ok_or(Failure::BadAnswer),
     };
     Reply { result, usage }
+}
+
+/// What an answer cost, from its `usage`: priced as the model that answered;
+/// one Settings doesn't list is priced as the model asked for.
+pub(super) fn usage_of(v: &Value, asked_model: &str) -> Option<Usage> {
+    let tokens = |name: &str| v.pointer(&format!("/usage/{name}")).and_then(Value::as_u64).unwrap_or(0);
+    // No prompt caching is asked for; any cache tokens are counted as input.
+    let input = tokens("input_tokens") + tokens("cache_creation_input_tokens") + tokens("cache_read_input_tokens");
+    let output = tokens("output_tokens");
+    let answered = v.get("model").and_then(Value::as_str).unwrap_or(asked_model);
+    let priced = model(answered).or_else(|| model(asked_model));
+    priced.map(|m| Usage { model: m.id.to_string(), input_tokens: input, output_tokens: output, cost_nanos: cost_nanos(m, input, output) })
 }
 
 /// The answer as one paragraph: trimmed, without tags or quotes wrapped
@@ -496,7 +507,7 @@ mod tests {
     /// The AI code never logs or prints: the caller logs `log_line` only.
     #[test]
     fn the_ai_code_logs_nothing_itself() {
-        for (name, text) in [("claude.rs", include_str!("claude.rs")), ("key.rs", include_str!("key.rs"))] {
+        for (name, text) in [("claude.rs", include_str!("claude.rs")), ("key.rs", include_str!("key.rs")), ("check.rs", include_str!("check.rs"))] {
             let code = &text[..text.find("#[cfg(test)]\nmod tests").or_else(|| text.find("#[cfg(test)]\r\nmod tests")).unwrap_or(text.len())];
             for banned in ["log::line", "println!", "eprintln!", "dbg!", "std::fs::write", "File::create"] {
                 assert!(!code.contains(banned), "{name} uses {banned}");

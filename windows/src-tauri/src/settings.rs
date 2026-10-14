@@ -102,6 +102,10 @@ pub struct Settings {
     /// Settings → General → "File drop zone" (1d retest): the pill takes
     /// files dragged onto it. Off: file drags never stop at Glim.
     pub file_drop_zone: bool,
+    /// Settings → Writing → "Check with AI automatically when I pause
+    /// typing" (docs/phase1-plan.md §15.1): off by default. Off, only the
+    /// button sends text.
+    pub ai_auto_check: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -155,6 +159,7 @@ impl Default for Settings {
             pause_apps: Vec::new(),
             pause_sites: Vec::new(),
             file_drop_zone: true,
+            ai_auto_check: false,
         }
     }
 }
@@ -438,7 +443,8 @@ mod tests {
   "checkerStrictness": "standard",
   "pauseApps": ["Quicken.exe"],
   "pauseSites": ["portal.example.com", "*/invoice"],
-  "fileDropZone": false
+  "fileDropZone": false,
+  "aiAutoCheck": true
 }"##;
 
     fn custom() -> Value {
@@ -871,6 +877,7 @@ mod tests {
                 "pauseApps",
                 "pauseSites",
                 "fileDropZone",
+                "aiAutoCheck",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

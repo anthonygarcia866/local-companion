@@ -81,6 +81,10 @@ pub enum Request {
     RewriteCopy { id: u64 },
     /// 1c: the Rewrite card was closed.
     RewriteDismiss,
+    /// "Check with AI" (§15.1): a click, or the automatic check.
+    AiCheck { auto: bool },
+    /// Its answer, from the async runtime.
+    AiCheckDone { id: u64, reply: crate::ai::check::CheckReply, elapsed: std::time::Duration },
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -155,6 +159,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let send_rewrite = |e: crate::ai::rewrite::RewriteEvent| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::rewrite::EVENT, &e);
     };
+    let send_ai = |e: crate::ai::check::CheckEvent| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::check::EVENT, &e);
+    };
+    // The automatic check's last refusal before sending (no key, cap…):
+    // logged once, not at every pause in typing.
+    let mut auto_refused: Option<String> = None;
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
     };
@@ -331,6 +341,71 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         writer.rewrite_clear();
                         rewrite_field = None;
                     }
+                    Request::AiCheck { auto } => {
+                        use crate::ai::{check, claude, key, rewrite, spend};
+                        let config = rewrite::config();
+                        let saved = key::load(&key::vault());
+                        let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
+                        let spent = spend::current(&spend::path(), &spend::month_now());
+                        let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
+                            .map_err(String::from)
+                            .and_then(|()| writer.ai_begin(auto).map_err(|o| if o == crate::writing::Outcome::Blocked { "sensitive".to_string() } else { "no-paragraph".to_string() }));
+                        match (begun, saved) {
+                            (Ok(src), Ok(Some(api_key))) => {
+                                auto_refused = None;
+                                send_ai(check::CheckEvent { phase: "sending", id: src.id, auto, ..Default::default() });
+                                let (id, paragraph) = (src.id, src.paragraph);
+                                tauri::async_runtime::spawn(async move {
+                                    let started = std::time::Instant::now();
+                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                        Ok(base) => check::check(&base, &api_key, &paragraph).await,
+                                        Err(_) => check::CheckReply { result: Err(claude::Failure::Network), usage: None, dropped: 0 },
+                                    };
+                                    request(Request::AiCheckDone { id, reply, elapsed: started.elapsed() });
+                                });
+                            }
+                            (Err(code), _) if auto => {
+                                if auto_refused.as_deref() != Some(code.as_str()) {
+                                    crate::log::line(format!("ai-check: not sent ({code}) (auto)"));
+                                    auto_refused = Some(code);
+                                }
+                            }
+                            (Err(code), _) => {
+                                crate::log::line(format!("ai-check: not sent ({code}) (click)"));
+                                send_ai(check::CheckEvent { phase: "failed", code, ..Default::default() });
+                            }
+                            (Ok(src), _) => {
+                                writer.ai_clear(src.id);
+                                send_ai(check::CheckEvent { phase: "failed", id: src.id, auto, code: "no-key".into(), ..Default::default() });
+                            }
+                        }
+                    }
+                    Request::AiCheckDone { id, reply, elapsed } => {
+                        use crate::ai::{check, rewrite, spend};
+                        let auto = writer.ai_pending(id).unwrap_or(false);
+                        crate::log::line(check::log_line(&reply, elapsed, auto));
+                        if let Some(usage) = &reply.usage {
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
+                                crate::log::line(format!("ai-check: could not record the spend: {err}"));
+                            }
+                        }
+                        let event = match &reply.result {
+                            Ok(issues) => match writer.ai_answer(id, issues, send_list) {
+                                Some(added) => check::CheckEvent { phase: "done", id, auto, added, ..Default::default() },
+                                // The paragraph changed meanwhile: nothing to show.
+                                None => check::CheckEvent { phase: "failed", id, auto, code: "changed".into(), ..Default::default() },
+                            },
+                            Err(f) => {
+                                writer.ai_clear(id);
+                                let retry_after = match f {
+                                    crate::ai::claude::Failure::Api { retry_after, .. } => *retry_after,
+                                    _ => None,
+                                };
+                                check::CheckEvent { phase: "failed", id, auto, code: rewrite::failure_code(f), retry_after, ..Default::default() }
+                            }
+                        };
+                        send_ai(event);
+                    }
                     Request::Wake => {}
                 }
                 "request"
@@ -435,6 +510,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             sensitive: capture.meta.sensitive && crate::writing::apps::enabled(&capture.meta.app),
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
+        // "Check with AI automatically when I pause typing" (§15.1, off by
+        // default): once per paragraph version, the same path as a click.
+        if checked.is_some() && crate::writing::prefs::get().ai_auto_check && writer.ai_auto_take(std::time::Instant::now()) {
+            request(Request::AiCheck { auto: true });
+        }
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
