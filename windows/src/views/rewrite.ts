@@ -37,7 +37,7 @@ export function failureText(code: string, retryAfter: number | null): string {
     case "no-paragraph":
     case "empty": return t("Click in the paragraph you want rewritten first.");
     case "too-long": return t("That paragraph is too long to rewrite (over 2,000 characters).");
-    case "sensitive": return t("Not sent: it looks like it has a card, SSN or bank number in it.");
+    case "sensitive": return t("Not sent: this has a card, ID or bank number in it, or it's a payment field. Glim never reads or sends those.");
     case "truncated": return t("The rewrite was cut off. Try Shorter.");
     case "refused": return t("Claude declined to rewrite this.");
     case "bad-answer": return t("Claude's answer wasn't a paragraph. Try again.");

@@ -246,7 +246,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         let spent = spend::current(&spend::path(), &spend::month_now());
                         let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
                             .map_err(String::from)
-                            .and_then(|()| writer.rewrite_begin(std::time::Instant::now()).map_err(|_| "no-paragraph".to_string()));
+                            .and_then(|()| {
+                                writer.rewrite_begin(std::time::Instant::now()).map_err(|o| {
+                                    // Withheld as sensitive: nothing of it was read or sent.
+                                    if o == crate::writing::Outcome::Blocked { "sensitive" } else { "no-paragraph" }.to_string()
+                                })
+                            });
                         match (begun, saved) {
                             (Ok(src), Ok(Some(api_key))) => {
                                 rewrite_field = last_field.clone();
@@ -360,7 +365,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         // Paused: nothing is read at all, and the checker drops what it kept.
         if crate::writing::paused() {
-            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true };
+            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false };
             writer.observe_in(&r, std::time::Instant::now(), send_list);
             fix_field = None;
             continue;
@@ -425,6 +430,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern, capture.meta.chat_site),
             app: &name,
             paused: false,
+            // Withheld for a card, SSN or IBAN (or a payment field), in an
+            // app the checker is on for.
+            sensitive: capture.meta.sensitive && crate::writing::apps::enabled(&capture.meta.app),
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
         // A kept paragraph always belongs to the field just read (moving

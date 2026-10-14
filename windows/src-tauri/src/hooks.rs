@@ -1,9 +1,15 @@
 // Claude Code hook installation.
 //
 // The rule from CLAUDE.md is strict and is followed to the letter:
-// read %USERPROFILE%\.claude\settings.json, take a dated backup, merge without
-// touching anybody else's hooks, show the diff, and write only after an explicit
-// click. Uninstall removes Coucou's entries and nothing else.
+// read settings.json, take a dated backup, merge without touching anybody
+// else's hooks, show the diff, and write only after an explicit click.
+// Uninstall removes Glim's entries and nothing else.
+//
+// Every Claude config folder gets the hooks (`config_dirs`): ~/.claude, the
+// folder CLAUDE_CONFIG_DIR names, and any other ~/.claude* folder holding a
+// settings.json (the owner runs ~/.claude and ~/.claude2). They are found
+// afresh each time, so a folder that appears later is picked up by the next
+// install or update, and one preview covers them all.
 //
 // The command is only the quoted exe path in forward slashes plus the event name:
 // on Windows Claude Code runs hook commands through Git Bash, and anything with
@@ -44,10 +50,26 @@ pub const HOOK_EVENTS: &[(&str, u64)] = &[
 // only the current name counts as installed: the old relay path is gone.
 use crate::agents::{names_relay, MARKER};
 
+/// One Claude config folder, as Settings shows it.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderStatus {
+    /// The folder's settings.json.
+    pub settings_path: String,
+    /// Glim's hooks (the current relay) are in it.
+    pub installed: bool,
+    /// Installing would change nothing: every hook is there and current.
+    pub up_to_date: bool,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HookStatus {
+    /// Glim's hooks are in at least one folder.
     pub installed: bool,
+    /// Every folder has them, current: nothing to update.
+    pub all_up_to_date: bool,
+    pub folders: Vec<FolderStatus>,
     /// Coucou's status line relay (plan usage) is the one in settings.json.
     pub plan_relay_installed: bool,
     pub settings_path: String,
@@ -66,8 +88,66 @@ pub struct HookPreview {
     pub fingerprint: String,
 }
 
+/// ~/.claude/settings.json: where the status line relay (plan usage) goes.
 pub fn settings_path() -> PathBuf {
     platform::home_dir().join(".claude").join("settings.json")
+}
+
+/// Every Claude config folder, in a fixed order: ~/.claude, the folder
+/// CLAUDE_CONFIG_DIR names, then the other ~/.claude* folders that hold a
+/// settings.json, by name. Each folder once, whatever its spelling.
+pub fn config_dirs() -> Vec<PathBuf> {
+    config_dirs_in(&platform::home_dir(), std::env::var_os(CONFIG_DIR_VAR).map(PathBuf::from))
+}
+
+/// Claude Code's own variable. Tests read another one: the developer's real
+/// CLAUDE_CONFIG_DIR (the owner's ~/.claude2) must never be written by a test.
+#[cfg(not(test))]
+const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
+#[cfg(test)]
+const CONFIG_DIR_VAR: &str = "GLIM_TEST_CLAUDE_CONFIG_DIR";
+
+fn config_dirs_in(home: &Path, env: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut dirs = vec![home.join(".claude")];
+    if let Some(dir) = env.filter(|d| !d.as_os_str().is_empty()) {
+        let dir = if dir.is_absolute() { dir } else { home.join(dir) };
+        // A folder that isn't there isn't created: Claude Code makes its own.
+        if dir.is_dir() {
+            dirs.push(dir);
+        }
+    }
+    let mut others: Vec<PathBuf> = std::fs::read_dir(home)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().to_ascii_lowercase().starts_with(".claude"))
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.join("settings.json").is_file())
+        .collect();
+    others.sort();
+    dirs.extend(others);
+    let mut seen: Vec<String> = Vec::new();
+    dirs.retain(|d| {
+        let key = same_folder_key(d);
+        let fresh = !seen.contains(&key);
+        seen.push(key);
+        fresh
+    });
+    dirs
+}
+
+/// Two spellings of one folder compare equal (case on Windows, a trailing
+/// separator, `.` parts, links where the folder exists).
+fn same_folder_key(dir: &Path) -> String {
+    let p = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.components().collect());
+    let s = p.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+    if cfg!(windows) { s.to_lowercase() } else { s }
+}
+
+/// A settings.json's contents, or None when it isn't there or isn't JSON
+/// we can read (left to the strict writer to report).
+fn read_value(path: &Path) -> Option<Value> {
+    config_file::read(path).ok().flatten().and_then(|bytes| config_file::parse_json(Some(&bytes), "settings.json").ok())
 }
 
 /// The settings as they are, or an empty object when we cannot tell. Only for
@@ -176,33 +256,71 @@ fn without_ours(existing: &Value) -> Result<Value, String> {
     Ok(Value::Object(root))
 }
 
+/// The files an install (or uninstall) changes, one per folder. A folder it
+/// would leave as it is isn't touched at all (no rewrite, no backup), so a
+/// folder already in sync keeps its file byte for byte. Uninstalling never
+/// creates a file; installing creates one only where none is.
 fn edits(install: bool) -> Vec<FileEdit<'static>> {
-    vec![FileEdit {
-        path: settings_path(),
-        edit: config_file::json_edit("settings.json".into(), move |current| {
-            if install { merged(current).map(Some) } else { without_ours(current).map(Some) }
-        }),
-    }]
+    edits_for(&config_dirs(), install)
+}
+
+fn edits_for(dirs: &[PathBuf], install: bool) -> Vec<FileEdit<'static>> {
+    dirs.iter()
+        .map(|d| d.join("settings.json"))
+        .filter(|path| {
+            let exists = path.is_file();
+            match read_value(path) {
+                Some(current) => {
+                    let after = if install { merged(&current) } else { without_ours(&current) };
+                    // A refusal (an odd "hooks") is kept, so the preview says so.
+                    after.map_or(true, |a| a != current)
+                }
+                // Unreadable: kept, so the strict writer reports it. Missing:
+                // only an install has something to write.
+                None => exists || install,
+            }
+        })
+        .map(|path| FileEdit {
+            path,
+            edit: config_file::json_edit("settings.json".into(), move |current| {
+                if install { merged(current).map(Some) } else { without_ours(current).map(Some) }
+            }),
+        })
+        .collect()
+}
+
+/// Whether Glim's current hooks are anywhere in `settings`.
+fn has_current_hooks(settings: &Value) -> bool {
+    settings
+        .get("hooks")
+        .and_then(Value::as_object)
+        .is_some_and(|hooks| hooks.values().filter_map(Value::as_array).flatten().any(entry_is_current))
+}
+
+/// Each folder: hooks in it or not, and in sync or not.
+fn folder_statuses(dirs: &[PathBuf]) -> Vec<FolderStatus> {
+    dirs.iter()
+        .map(|d| {
+            let path = d.join("settings.json");
+            let current = read_value(&path);
+            let installed = current.as_ref().is_some_and(has_current_hooks);
+            let up_to_date = current.as_ref().is_some_and(|c| merged(c).is_ok_and(|m| &m == c));
+            FolderStatus { settings_path: path.to_string_lossy().to_string(), installed, up_to_date }
+        })
+        .collect()
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 pub fn status() -> HookStatus {
     let current = read_settings_lossy();
-    let installed = current
-        .get("hooks")
-        .and_then(Value::as_object)
-        .map(|hooks| {
-            hooks
-                .values()
-                .filter_map(Value::as_array)
-                .flatten()
-                .any(entry_is_current)
-        })
-        .unwrap_or(false);
+    let folders = folder_statuses(&config_dirs());
+    let installed = folders.iter().any(|f| f.installed);
     let hook_path = settings::hook_exe_path();
     HookStatus {
         installed,
+        all_up_to_date: folders.iter().all(|f| f.up_to_date),
+        folders,
         plan_relay_installed: plan_relay_installed(&current),
         settings_path: settings_path().to_string_lossy().to_string(),
         hook_ready: hook_path.exists(),
@@ -211,7 +329,25 @@ pub fn status() -> HookStatus {
 }
 
 pub fn preview(install: bool) -> Result<HookPreview, String> {
-    Ok(plan_to_preview(config_file::preview(&edits(install))?))
+    let edits = edits(install);
+    if edits.is_empty() {
+        return Ok(HookPreview { diff: crate::i18n::t("No change."), backup: String::new(), settings_path: String::new(), fingerprint: NOTHING.into() });
+    }
+    Ok(plan_to_preview(config_file::preview(&edits)?))
+}
+
+/// The fingerprint of a preview with nothing to write.
+const NOTHING: &str = "nothing";
+
+/// At launch: says in the log when the folders aren't in sync (a folder
+/// without Glim's hooks, or an older relay command). Writes nothing: the
+/// fix is Settings → Claude Code → Update hooks, after the diff.
+pub fn log_sync_state() {
+    let folders = folder_statuses(&config_dirs());
+    if folders.iter().any(|f| f.installed) && !folders.iter().all(|f| f.up_to_date) {
+        let behind: Vec<&str> = folders.iter().filter(|f| !f.up_to_date).map(|f| f.settings_path.as_str()).collect();
+        crate::log::line(format!("hooks: not in sync in {} (Settings → Claude Code → Update hooks)", behind.join(", ")));
+    }
 }
 
 fn plan_to_preview(plan: config_file::Plan) -> HookPreview {
@@ -229,8 +365,14 @@ fn plan_to_preview(plan: config_file::Plan) -> HookPreview {
 /// `fingerprint` is the one the preview was computed from: a settings.json that
 /// changed in between is refused rather than overwritten (see config_file).
 pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
-    let backups = config_file::apply(&edits(install), fingerprint)?;
-    Ok(backups.first().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
+    let edits = edits(install);
+    if edits.is_empty() && fingerprint == NOTHING {
+        return Ok(String::new());
+    }
+    let backups = config_file::apply(&edits, fingerprint)?;
+    let done = if install { "installed" } else { "removed" };
+    crate::log::line(format!("hooks {done} in {} folder(s)", edits.len()));
+    Ok(backups.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join("\n"))
 }
 
 // ── Status line (plan usage) ──────────────────────────────────────────────────
@@ -574,7 +716,9 @@ mod tests {
         let stale = preview(false).unwrap();
         std::fs::write(&path, br#"{"model":"someone-else-edited-this"}"#).unwrap();
         let err = write(false, &stale.fingerprint).unwrap_err();
-        assert!(err.contains("changed since the preview"), "got: {err}");
+        // Either it changed, or (here) there's nothing of Glim's left in it:
+        // the set of files differs from the preview's. Nothing is written.
+        assert!(err.contains("Nothing was written"), "got: {err}");
         let untouched: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(untouched["model"], "someone-else-edited-this");
 
@@ -585,6 +729,160 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"{ broken");
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ── Every Claude config folder (owner, 2026-10-12) ──────────────────────
+    //
+    // These tests pass folders explicitly and never read CLAUDE_CONFIG_DIR or
+    // the real home: a test must never write the owner's ~/.claude2.
+
+    fn scratch_home(name: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("glim-hooks-dirs-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
+
+    fn write_json(path: &Path, v: &Value) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, serde_json::to_vec_pretty(v).unwrap()).unwrap();
+    }
+
+    fn json_at(path: &Path) -> Value {
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    fn ours_per_event(v: &Value) -> Vec<usize> {
+        HOOK_EVENTS
+            .iter()
+            .map(|(e, _)| v["hooks"][*e].as_array().map_or(0, |l| l.iter().filter(|x| entry_is_ours(x)).count()))
+            .collect()
+    }
+
+    #[test]
+    fn every_claude_folder_is_found_once() {
+        let home = scratch_home("find");
+        std::fs::create_dir_all(home.join(".claude")).unwrap(); // no settings.json yet: still listed
+        write_json(&home.join(".claude2").join("settings.json"), &json!({}));
+        write_json(&home.join(".claude-work").join("settings.json"), &json!({}));
+        std::fs::create_dir_all(home.join(".claude-empty")).unwrap(); // no settings.json: left out
+        std::fs::write(home.join(".claude.json"), b"{}").unwrap(); // a file, not a folder
+        let elsewhere = home.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+
+        let none = config_dirs_in(&home, None);
+        assert_eq!(none, [home.join(".claude"), home.join(".claude-work"), home.join(".claude2")]);
+        // CLAUDE_CONFIG_DIR naming a folder already found: once only.
+        let spelled = PathBuf::from(format!("{}{}", home.join(".claude2").display(), std::path::MAIN_SEPARATOR));
+        assert_eq!(config_dirs_in(&home, Some(spelled)).len(), 3);
+        #[cfg(windows)]
+        assert_eq!(config_dirs_in(&home, Some(PathBuf::from(home.join(".CLAUDE2").to_string_lossy().to_string()))).len(), 3);
+        // A folder elsewhere comes second, even without a settings.json yet.
+        assert_eq!(config_dirs_in(&home, Some(elsewhere.clone()))[1], elsewhere);
+        // One that isn't there is not created or listed; nor is an empty value.
+        assert_eq!(config_dirs_in(&home, Some(home.join("missing"))).len(), 3);
+        assert_eq!(config_dirs_in(&home, Some(PathBuf::new())).len(), 3);
+        assert!(!home.join("missing").exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn install_reaches_every_folder_backs_each_up_and_never_duplicates_hand_copied_hooks() {
+        let home = scratch_home("install");
+        let (main, two, work) = (home.join(".claude"), home.join(".claude2"), home.join(".claude-work"));
+        std::fs::create_dir_all(&main).unwrap(); // no settings.json: created
+        // .claude2: the owner's hand copy, exactly what Glim writes, plus their own settings.
+        let copied = merged(&json!({ "model": "opus", "env": { "X": "1" } })).unwrap();
+        write_json(&two.join("settings.json"), &copied);
+        let copied_bytes = std::fs::read(two.join("settings.json")).unwrap();
+        // .claude-work: another tool's hook and an older Glim relay path.
+        let old_path = json!({ "theme": "dark", "hooks": {
+            "Stop": [
+                { "hooks": [{ "type": "command", "command": "other-tool.exe" }] },
+                { "hooks": [{ "type": "command", "command": "\"C:/Old/Place/bin/glim-hook.exe\" Stop", "timeout": 10 }] }
+            ]
+        } });
+        write_json(&work.join("settings.json"), &old_path);
+        let dirs = vec![main.clone(), two.clone(), work.clone()];
+
+        // The hand copy is recognised as Glim's: in sync already, so not touched.
+        let before = folder_statuses(&dirs);
+        assert_eq!(before.iter().map(|f| (f.installed, f.up_to_date)).collect::<Vec<_>>(), [(false, false), (true, true), (true, false)]);
+        let edits = edits_for(&dirs, true);
+        assert_eq!(edits.iter().map(|e| e.path.clone()).collect::<Vec<_>>(), [main.join("settings.json"), work.join("settings.json")]);
+
+        let plan = config_file::preview(&edits).unwrap();
+        assert!(plan.diff.contains(".claude-work"), "one preview names every folder: {}", plan.diff);
+        let backups = config_file::apply(&edits, &plan.fingerprint).unwrap();
+        assert_eq!(backups.len(), 1, "a backup of each file that was there");
+        assert_eq!(json_at(&backups[0]), old_path);
+
+        assert_eq!(std::fs::read(two.join("settings.json")).unwrap(), copied_bytes, ".claude2 byte for byte");
+        let created = json_at(&main.join("settings.json"));
+        let updated = json_at(&work.join("settings.json"));
+        for v in [&created, &updated] {
+            assert!(ours_per_event(v).iter().all(|n| *n == 1), "one Glim entry per event: {v}");
+            assert!(has_current_hooks(v));
+        }
+        assert_eq!(updated["theme"], "dark");
+        assert_eq!(updated["hooks"]["Stop"][0]["hooks"][0]["command"], "other-tool.exe");
+        assert!(!updated.to_string().contains("C:/Old/Place"), "the old relay path is replaced");
+        assert!(folder_statuses(&dirs).iter().all(|f| f.installed && f.up_to_date));
+        // Installing again: nothing to do anywhere.
+        assert!(edits_for(&dirs, true).is_empty());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_folder_that_appears_later_is_picked_up_by_the_next_install() {
+        let home = scratch_home("later");
+        write_json(&home.join(".claude").join("settings.json"), &merged(&json!({})).unwrap());
+        assert!(edits_for(&config_dirs_in(&home, None), true).is_empty());
+        write_json(&home.join(".claude3").join("settings.json"), &json!({ "model": "sonnet" }));
+        let dirs = config_dirs_in(&home, None);
+        let statuses = folder_statuses(&dirs);
+        assert_eq!(statuses.iter().map(|f| f.up_to_date).collect::<Vec<_>>(), [true, false]);
+        let edits = edits_for(&dirs, true);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].path, home.join(".claude3").join("settings.json"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn uninstall_takes_glims_hooks_out_of_every_folder_and_nothing_else() {
+        let home = scratch_home("uninstall");
+        let (main, two, bare) = (home.join(".claude"), home.join(".claude2"), home.join("bare"));
+        let theirs = json!({ "model": "opus", "hooks": { "PreToolUse": [{ "hooks": [{ "type": "command", "command": "keep-me.exe" }] }] } });
+        write_json(&main.join("settings.json"), &merged(&theirs).unwrap());
+        write_json(&two.join("settings.json"), &merged(&json!({ "env": { "A": "b" } })).unwrap());
+        std::fs::create_dir_all(&bare).unwrap(); // no settings.json: never created by an uninstall
+        let dirs = vec![main.clone(), two.clone(), bare.clone()];
+
+        let edits = edits_for(&dirs, false);
+        assert_eq!(edits.len(), 2);
+        let plan = config_file::preview(&edits).unwrap();
+        let backups = config_file::apply(&edits, &plan.fingerprint).unwrap();
+        assert_eq!(backups.len(), 2);
+        assert_eq!(json_at(&main.join("settings.json")), theirs);
+        assert_eq!(json_at(&two.join("settings.json")), json!({ "env": { "A": "b" } }));
+        assert!(!bare.join("settings.json").exists());
+        assert!(folder_statuses(&dirs).iter().all(|f| !f.installed));
+        assert!(edits_for(&dirs, false).is_empty(), "nothing left to remove");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_folder_that_changed_since_the_preview_stops_every_write() {
+        let home = scratch_home("stale");
+        let (a, b) = (home.join(".claude"), home.join(".claude2"));
+        write_json(&a.join("settings.json"), &json!({ "model": "a" }));
+        write_json(&b.join("settings.json"), &json!({ "model": "b" }));
+        let dirs = vec![a.clone(), b.clone()];
+        let plan = config_file::preview(&edits_for(&dirs, true)).unwrap();
+        write_json(&b.join("settings.json"), &json!({ "model": "edited" }));
+        assert!(config_file::apply(&edits_for(&dirs, true), &plan.fingerprint).is_err());
+        assert_eq!(json_at(&a.join("settings.json")), json!({ "model": "a" }), "nothing written anywhere");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     // ── Entries from before the rename (coucou-hook) ──────────────────────────

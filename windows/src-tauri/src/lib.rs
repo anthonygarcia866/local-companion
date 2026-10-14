@@ -1149,6 +1149,8 @@ pub fn run() {
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
+            // Every Claude config folder in sync? Logged only; Settings fixes it.
+            hooks::log_sync_state();
             pipe::start(handle.clone());
             shortcuts::apply(&handle, &loaded.shortcuts);
             Ok(())

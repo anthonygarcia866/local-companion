@@ -310,6 +310,10 @@ pub struct Session {
     current: Option<Current>,
     /// The rewrite asked for or shown (1c): one at a time.
     rewrite: Option<RewriteKept>,
+    /// The focused field's last reading was withheld: a payment or ID field,
+    /// or text holding a card, SSN or IBAN. A rewrite asked for there says
+    /// so (owner, 2026-10-13) instead of "click in the paragraph".
+    withheld: bool,
 }
 
 /// The focused field's paragraph, for a rewrite.
@@ -368,6 +372,9 @@ pub struct Observed<'a> {
     pub app: &'a str,
     /// Glim is paused (the tray's Pause).
     pub paused: bool,
+    /// The reading was withheld as sensitive (capture: a payment or ID field,
+    /// or a card, SSN or IBAN in the text). Its text is None.
+    pub sensitive: bool,
 }
 
 impl Session {
@@ -382,13 +389,14 @@ impl Session {
         now: Instant,
         emit: impl FnMut(&Suggestions),
     ) {
-        let r = Observed { same, text, caret, rules, mode: FixMode::View, app: "", paused: false };
+        let r = Observed { same, text, caret, rules, mode: FixMode::View, app: "", paused: false, sensitive: false };
         self.observe_in(&r, now, emit);
     }
 
     /// One reading of the focused field. `emit` gets the island's new
     /// suggestions whenever they change.
     pub fn observe_in(&mut self, r: &Observed, now: Instant, mut emit: impl FnMut(&Suggestions)) {
+        self.withheld = r.sensitive && !r.paused;
         // Paused: nothing is checked, kept or shown.
         if r.paused {
             self.kept = None;
@@ -556,8 +564,10 @@ impl Session {
     /// A tone was clicked: the paragraph the caret is in goes out, under a
     /// new id. Away when there is none (no field, a blank line, an app the
     /// checker is off for). A rewrite already on its way or shown is replaced.
+    /// Blocked when the field was withheld as sensitive: nothing of it was read.
     pub fn rewrite_begin(&mut self, now: Instant) -> Result<RewriteSource, Outcome> {
-        let c = self.current.as_ref().ok_or(Outcome::Away)?;
+        let none = if self.withheld { Outcome::Blocked } else { Outcome::Away };
+        let c = self.current.as_ref().ok_or(none)?;
         if c.text.trim().is_empty() {
             return Err(Outcome::Away);
         }
@@ -933,7 +943,7 @@ mod tests {
     /// A field where fixes are typed: one reading per step.
     fn feed(s: &mut Session, same: bool, text: Option<&str>, caret: Option<usize>, mode: FixMode, paused: bool, at: Instant) -> Option<Suggestions> {
         let mut got = None;
-        let r = Observed { same, text, caret, rules: Rules::Full, mode, app: "Notepad", paused };
+        let r = Observed { same, text, caret, rules: Rules::Full, mode, app: "Notepad", paused, sensitive: false };
         s.observe_in(&r, at, |x| got = Some(x.clone()));
         got
     }
@@ -1068,6 +1078,24 @@ Anthony";
         let src = s.rewrite_begin(t).unwrap();
         feed(&mut s, true, Some("We will send it."), Some(3), FixMode::Apply, true, t);
         assert!(!s.rewrite_is(src.id), "Pause drops the rewrite");
+        assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Away);
+    }
+
+    /// Owner, 2026-10-13: a rewrite of a paragraph holding a card number said
+    /// "Click in the paragraph…". Capture never reads such a paragraph, so
+    /// the session knows only that it was withheld, and says so.
+    #[test]
+    fn a_rewrite_in_a_withheld_field_is_blocked_not_away() {
+        let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
+        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true };
+        s.observe_in(&withheld, t, |_| {});
+        assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Blocked);
+        // Back to an ordinary field without text (another app): Away again.
+        feed(&mut s, false, None, None, FixMode::View, false, t);
+        assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Away);
+        // Paused wins: "Glim is paused" is checked before the paragraph.
+        let paused = Observed { paused: true, ..withheld };
+        s.observe_in(&paused, t, |_| {});
         assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Away);
     }
 
