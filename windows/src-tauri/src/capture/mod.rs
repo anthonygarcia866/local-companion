@@ -240,11 +240,13 @@ pub struct Reading {
     pub ask: bool,
     /// On a mail site (Gmail): the rewrite's Email tone (§14.3).
     pub mail_site: bool,
+    /// In a Google Docs document (writing::docs_tip): the site only.
+    pub docs_site: bool,
 }
 
 impl From<Capture> for Reading {
     fn from(capture: Capture) -> Self {
-        Reading { capture, text: None, ask: false, mail_site: false }
+        Reading { capture, text: None, ask: false, mail_site: false, docs_site: false }
     }
 }
 
@@ -270,7 +272,7 @@ pub fn finish(meta: CaptureMeta, window_title: String, text: Option<String>, car
     // Only the window around the caret goes to the panel; the full text stays
     // in the capture thread for the checker and is dropped after it.
     let excerpt = text.as_deref().map(|t| caret_window(t, caret));
-    Reading { capture: Capture { meta, window_title, excerpt, via: String::new() }, text, ask: false, mail_site: false }
+    Reading { capture: Capture { meta, window_title, excerpt, via: String::new() }, text, ask: false, mail_site: false, docs_site: false }
 }
 
 /// The most text read from one field: a safety limit (a whole document can

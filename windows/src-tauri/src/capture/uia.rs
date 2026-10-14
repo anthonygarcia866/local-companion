@@ -178,6 +178,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let mut prefs_version = crate::writing::prefs::version();
     // The one-time "Check writing in [app]?" prompt (1d, §14.2).
     let mut asker = crate::writing::ask::Asker::default();
+    let mut docs_tip = crate::writing::docs_tip::DocsTip::default();
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -376,6 +377,22 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         let reading = read(&uia, &element, pid, &pause, dev);
         let ask = reading.ask;
         let mail_site = reading.mail_site;
+        // Google Docs with no text to check (canvas rendering, screen reader
+        // support off): one metadata line per stay, and the one-time tip.
+        let docs_unreadable = reading.docs_site
+            && crate::writing::apps::enabled(&reading.capture.meta.app)
+            && crate::writing::docs_tip::unreadable(&reading.capture.meta.pattern, reading.capture.meta.read_only, reading.text.as_deref());
+        let step = docs_tip.feed(docs_unreadable, crate::writing::prefs::get().docs_tip_dismissed, std::time::Instant::now());
+        if step.log {
+            crate::log::line(format!(
+                "writing: Google Docs field not readable (pattern {}, read-only {})",
+                reading.capture.meta.pattern, reading.capture.meta.read_only
+            ));
+        }
+        if step.offer {
+            crate::log::line("writing: Google Docs tip offered");
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::docs_tip::EVENT, ());
+        }
         let mut capture = reading.capture;
         capture.via = via.into();
         let same = current
@@ -473,12 +490,15 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     // The window title is for the dev panel only.
     let window_title = if dev { foreground_title() } else { String::new() };
 
+    let docs_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::docs_tip::DOCS_SITES));
     if !is_editable(&edit_signals(element, control)) {
         // Read-only content (a web page, a document view): the writing layer
         // never reads it. Like a password field, nothing is read.
         meta.read_only = true;
         meta.pattern = SKIPPED_READ_ONLY.into();
-        return Capture { meta, window_title, excerpt: None, via: String::new() }.into();
+        let mut skipped: Reading = Capture { meta, window_title, excerpt: None, via: String::new() }.into();
+        skipped.docs_site = docs_site;
+        return skipped;
     }
 
     let mail_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::tones::MAIL_SITES));
@@ -488,6 +508,7 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     // reading goes anywhere.
     let mut reading = finish(meta, window_title, text, caret);
     reading.mail_site = mail_site;
+    reading.docs_site = docs_site;
     reading
 }
 

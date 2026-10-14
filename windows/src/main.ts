@@ -9,6 +9,8 @@ import { Island } from "./island/island";
 import { nextRewrite, type RewriteEvent } from "./core/rewrite";
 import { askPlacement, type WritingAsk } from "./core/ask";
 import { answerAsk, askClock } from "./views/ask";
+import { docsTipPlacement } from "./core/docs-tip";
+import { closeDocsTip } from "./views/docs-tip";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
@@ -66,6 +68,7 @@ async function main() {
     presence.setPaused(on);
     // A question about an app waits for another day.
     if (on && State.writingAsk) answerAsk("later", askHost);
+    if (on && State.writingDocsTip) closeDocsTip(false, askHost);
     State.notify();
   });
 
@@ -209,6 +212,22 @@ async function main() {
     if (where === "show") island.alert("writingAsk");
     // In the ember the "?" is what is in sight: the 30 s run from now.
     if (where === "ember") askClock.start(ask.exe, () => answerAsk("later", askHost));
+    State.notify();
+  });
+
+  // The Google Docs tip (core/docs-tip.ts): Rust offers it once per run when
+  // a Docs field gives no text to check.
+  await onEvent<null>("writing-docs-tip", () => {
+    const where = docsTipPlacement({
+      presence: presence.model.kind,
+      paused: State.paused,
+      approval: State.pendingApproval !== null,
+      ask: State.writingAsk !== null,
+      showing: State.writingDocsTip,
+    });
+    if (where === "drop") return;
+    State.writingDocsTip = true;
+    if (where === "show") island.alert("writingDocsTip");
     State.notify();
   });
 

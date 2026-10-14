@@ -93,6 +93,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.visibility = current.visibility.clone();
         // When each app was asked about is Rust's (writing_ask_shown/_answer).
         settings.writing_apps_asked = current.writing_apps_asked.clone();
+        settings.writing_docs_tip_dismissed = current.writing_docs_tip_dismissed;
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -643,6 +644,13 @@ fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer
     });
 }
 
+/// "Got it" on the Google Docs tip (writing::docs_tip): it never shows again.
+#[tauri::command]
+fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
+    log::line("writing: Google Docs tip dismissed");
+    update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
+}
+
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
 fn writing_rewrite_default() -> &'static str {
@@ -1053,6 +1061,7 @@ pub fn run() {
             writing_tone_defaults,
             writing_ask_shown,
             writing_ask_answer,
+            writing_docs_tip_dismiss,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

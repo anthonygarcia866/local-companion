@@ -84,6 +84,10 @@ pub struct Settings {
     /// neither list was last asked about, by exe. Nothing else: no title, no
     /// text. Yes and Never remove the app's entry.
     pub writing_apps_asked: BTreeMap<String, String>,
+    /// The Google Docs tip ("Turn on screen reader support…",
+    /// writing::docs_tip) was dismissed with "Got it": it never shows again.
+    /// Rust-owned, like `writing_apps_asked`.
+    pub writing_docs_tip_dismissed: bool,
     /// Settings → Writing → Rewrite tones (§14.3): a tone id ("formal"…) by
     /// category ("email", "documents", "chat", "other") or by exe, only
     /// where it differs from writing::tones' defaults.
@@ -142,6 +146,7 @@ impl Default for Settings {
             ai_monthly_cap_usd: 0.0,
             writing_apps: BTreeMap::new(),
             writing_apps_asked: BTreeMap::new(),
+            writing_docs_tip_dismissed: false,
             rewrite_tones: BTreeMap::new(),
             checker_strictness: "full".into(),
             pause_apps: Vec::new(),
@@ -424,6 +429,7 @@ mod tests {
   "aiMonthlyCapUsd": 7.5,
   "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
   "writingAppsAsked": { "WordPad.exe": "2026-10-12" },
+  "writingDocsTipDismissed": true,
   "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" },
   "checkerStrictness": "standard",
   "pauseApps": ["Quicken.exe"],
@@ -854,6 +860,7 @@ mod tests {
                 "aiMonthlyCapUsd",
                 "writingApps",
                 "writingAppsAsked",
+                "writingDocsTipDismissed",
                 "rewriteTones",
                 "checkerStrictness",
                 "pauseApps",

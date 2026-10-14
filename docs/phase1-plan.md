@@ -642,6 +642,15 @@ Settings gets a **Writing** section and a **Privacy** section:
 
 ## 15. Follow-ups after 1d (2026-10-14)
 
+### 15.0 Google Docs gives Glim no text (§20 blocked, 2026-10-14) — in #18
+
+- **What happened:** in Anthony's live test, typing in a Google Doc in Chrome gave no suggestions.
+- **What the log shows:** only what it can. glim.log (metadata only) has 30 s summaries: Chrome was focused often during the test (22:28–23:19), and checks ran in those windows (likely Gmail), but the log never said *why* a field wasn't checked, so the Docs moment can't be singled out. Nothing in it contradicts the hypothesis below; nothing proves it either.
+- **Hypothesis (very likely, to be confirmed live):** Docs draws its pages on a canvas (since 2021). What has focus is a hidden text-input target with little or no text, so UI Automation gives Glim nothing to check. Docs only exposes the document's text to assistive tech when **screen reader support** is on (Tools → Accessibility, Ctrl+Alt+Z, per document session).
+- **Added in #18:** when the focused field is in a `docs.google.com/document` page and gives no text (no text pattern, read-only, or empty) for 3 s, the island shows a one-time tip: "Turn on screen reader support (Ctrl+Alt+Z) so Glim can check your writing". **Got it** stores `writingDocsTipDismissed` (Rust-owned) and it never shows again; Not now or 30 s only close it (offered at most once per run; it shows only with the pill, not in Ember or Hidden). New log lines, metadata only: `writing: Google Docs field not readable (pattern X, read-only Y)` once per stay, `… tip offered`, `… tip dismissed`.
+- **Still unknown:** whether Docs with screen reader support on actually gives Glim the paragraph and caret (manual test §20 step 6), and whether typing fixes back works there. If it doesn't, the tip's text is wrong and must change before it ships.
+- **§20's paused-site test now uses Gmail** (`mail.google.com`).
+
 ### 15.1 "Check with AI" (its own PR after 1d, not #18)
 
 Harper misses agreement and meaning errors ("Alex and I was", "issues that needs", the wrong word spelled right). The 1c Claude API path can catch them; this puts it behind a button.

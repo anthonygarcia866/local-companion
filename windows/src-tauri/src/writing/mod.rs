@@ -15,6 +15,7 @@ pub mod apply;
 pub mod apps;
 pub mod ask;
 pub mod checker;
+pub mod docs_tip;
 pub mod prefs;
 pub mod text;
 pub mod tones;

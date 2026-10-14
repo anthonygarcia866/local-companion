@@ -160,6 +160,8 @@ export interface Settings {
   writingApps: Record<string, string>;
   /** When each app on neither list was last asked about ("YYYY-MM-DD" by exe). Rust's. */
   writingAppsAsked?: Record<string, string>;
+  /** The Google Docs tip was dismissed with "Got it" (core/docs-tip.ts). Rust's. */
+  writingDocsTipDismissed?: boolean;
   /** Settings → Writing → Rewrite tones (1d): a tone id by category or exe, only where it differs. */
   rewriteTones: Record<string, string>;
   /** Settings → Writing → Strictness (1d): "spelling", "standard" or "full". */
@@ -322,6 +324,8 @@ class AppState {
   rewrite: RewriteState | null = null;
   /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
   writingAsk: WritingAsk | null = null;
+  /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
+  writingDocsTip = false;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -624,6 +628,7 @@ class AppState {
   lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
     if (this.writingAsk) return "writingAsk";
+    if (this.writingDocsTip) return "writingDocsTip";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

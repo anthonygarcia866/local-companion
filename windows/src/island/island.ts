@@ -1142,7 +1142,7 @@ export class Island {
     else {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
-      const suggest = writing + (State.writingAsk ? 1 : 0);
+      const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
       this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.

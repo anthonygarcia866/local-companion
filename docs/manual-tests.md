@@ -417,9 +417,14 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **See:** no count; Notepad isn't read at all.
 3. **Refused:** try `Notepad`, `C:\Windows\notepad.exe` and `KeePass.exe`.
    - **See:** each is refused, with the reason under the box.
-4. **Add a site:** type `docs.google.com`, then **Add**, and type in a Google Doc in Chrome.
-   - **See:** nothing is checked there. Gmail still is.
-5. **Remove** both; Notepad gets its count again within a second.
+4. **Add a site:** type `mail.google.com`, then **Add**, and write an email in Gmail in Chrome. *(Retest 2026-10-14: Google Docs can't be used for this, see step 6.)*
+   - **See:** nothing is checked there. Outlook (and claude.ai) still are.
+5. **Remove** both; Notepad gets its count again within a second, and Gmail within a second of typing.
+6. **Google Docs (needs screen reader support):** open a Google Doc in Chrome **with screen reader support off** (Tools → Accessibility; Ctrl+Alt+Z toggles it) and type the test sentence.
+   - **See:** after ~3 s, Glim shows **"Google Docs: Glim can't read this document"** with "Turn on screen reader support (Ctrl+Alt+Z)…" and **Got it** / **Not now**. glim.log has `writing: Google Docs field not readable (pattern …, read-only …)` and `writing: Google Docs tip offered` (no text).
+   - Click **Not now**. Press **Ctrl+Alt+Z** in the Doc, type the test sentence again.
+   - **See (to be found out):** whether Glim now gets a count. Tell Claude either way, with the log's `Google Docs field not readable` lines, if any.
+   - Quit and restart Glim, go back to a Doc with support off: the tip comes back (Not now isn't a dismissal). Click **Got it**: restart again, and it never comes back (log: `writing: Google Docs tip dismissed`).
 
 **Cleanup:** remove your test entries.
 

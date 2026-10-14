@@ -154,6 +154,8 @@ export const Bridge = {
   writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
   /** Its answer: "yes", "later" or "never". */
   writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
+  /** "Got it" on the Google Docs tip: it never shows again (1d retest). */
+  writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */
