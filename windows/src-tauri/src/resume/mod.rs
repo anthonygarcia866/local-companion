@@ -10,8 +10,11 @@
 // - its contents are never logged (`summary_line` gives repo names and counts);
 // - a file over MAX_BYTES is not read at all;
 // - a file holding anything that looks like a secret (an API key, a token, a
-//   private key, `password=…`) or a card / SSN / IBAN number (the capture
-//   layer's `contains_sensitive_number`) is skipped whole: none of it is kept.
+//   private key, `password=…`) is skipped whole: none of it is kept;
+// - a section holding a card / SSN / IBAN number or a long digit run (the
+//   capture layer's `contains_sensitive_number`) is withheld: replaced by
+//   WITHHELD and named in `Handoff::withheld`; the other sections are kept
+//   (owner, 2026-10-13: a migration timestamp mustn't hide a whole repo).
 #![allow(dead_code)] // wired up by 1.5c
 
 use std::io::Read;
@@ -42,7 +45,12 @@ pub struct Handoff {
     pub last_commit: Option<String>,
     pub in_progress: Option<String>,
     pub open_questions: Option<String>,
+    /// The sections replaced by WITHHELD, in file order of the four fields.
+    pub withheld: Vec<&'static str>,
 }
+
+/// What a withheld section reads as. Nothing of the original is kept.
+pub const WITHHELD: &str = "[withheld: holds a card, ID or bank number]";
 
 impl Handoff {
     /// None of the four sections was found.
@@ -54,8 +62,8 @@ impl Handoff {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Skip {
     TooLarge,
-    /// A token, key, password or card / SSN / IBAN number: skipped whole.
-    Sensitive,
+    /// A key, token, private key or password: skipped whole.
+    Secret,
     /// Not UTF-8, or it couldn't be opened.
     Unreadable,
 }
@@ -64,7 +72,7 @@ impl Skip {
     fn label(self) -> &'static str {
         match self {
             Skip::TooLarge => "too large",
-            Skip::Sensitive => "sensitive",
+            Skip::Secret => "secret",
             Skip::Unreadable => "unreadable",
         }
     }
@@ -135,15 +143,23 @@ fn read_one(path: &Path) -> Result<String, Skip> {
     }
     let text = String::from_utf8(bytes).map_err(|_| Skip::Unreadable)?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text).to_string();
-    if looks_like_secret(&text) || contains_sensitive_number(&text) {
-        return Err(Skip::Sensitive);
+    // Secrets anywhere in the file, kept sections or not: skip all of it.
+    if looks_like_secret(&text) {
+        return Err(Skip::Secret);
     }
     Ok(text)
 }
 
 /// One log line: repo names and counts, never anything from the files.
 pub fn summary_line(scan: &Scan) -> String {
-    let read: Vec<&str> = scan.read.iter().map(|h| h.repo.as_str()).collect();
+    let read: Vec<String> = scan
+        .read
+        .iter()
+        .map(|h| match h.withheld.len() {
+            0 => h.repo.clone(),
+            n => format!("{} ({n} withheld)", h.repo),
+        })
+        .collect();
     let skipped: Vec<String> = scan.skipped.iter().map(|(n, why)| format!("{n} ({})", why.label())).collect();
     format!(
         "resume: {} read [{}], {} skipped [{}]",
@@ -259,15 +275,30 @@ pub fn parse(text: &str) -> Handoff {
             slot.1.push(line.trim_end().to_string());
         }
     }
-    let take = |s: Section| parts.iter().find(|p| p.0 == s).and_then(|p| clean(&p.1));
-    let branch_section = take(Section::Branch);
+    // A section with a card-like number is withheld whole, checked before
+    // the length cut so a number straddling the cut is still caught.
+    let mut withheld = Vec::new();
+    let mut take = |s: Section, name: &'static str| -> Option<String> {
+        let text = parts.iter().find(|p| p.0 == s).and_then(|p| joined(&p.1))?;
+        if contains_sensitive_number(&text) {
+            withheld.push(name);
+            return Some(WITHHELD.to_string());
+        }
+        Some(cut(text))
+    };
+    let goal = take(Section::Goal, "goal");
+    let branch_section = take(Section::Branch, "branch");
+    let in_progress = take(Section::InProgress, "in progress");
+    let open_questions = take(Section::OpenQuestions, "open questions");
+    let readable_branch = branch_section.as_deref().filter(|s| *s != WITHHELD);
     Handoff {
-        goal: take(Section::Goal),
-        branch: branch_section.as_deref().and_then(branch_name),
-        last_commit: branch_section.as_deref().and_then(commit_hash),
+        goal,
+        branch: readable_branch.and_then(branch_name),
+        last_commit: readable_branch.and_then(commit_hash),
         branch_section,
-        in_progress: take(Section::InProgress),
-        open_questions: take(Section::OpenQuestions),
+        in_progress,
+        open_questions,
+        withheld,
         ..Handoff::default()
     }
 }
@@ -287,16 +318,17 @@ fn is_other_label(line: &str) -> bool {
     }
 }
 
-fn clean(lines: &[String]) -> Option<String> {
+fn joined(lines: &[String]) -> Option<String> {
     let text = lines.join("\n");
     let text = text.trim();
-    if text.is_empty() {
-        return None;
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn cut(text: String) -> String {
+    match text.char_indices().nth(MAX_SECTION_CHARS) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text,
     }
-    Some(match text.char_indices().nth(MAX_SECTION_CHARS) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
-        None => text.to_string(),
-    })
 }
 
 fn branch_name(section: &str) -> Option<String> {
@@ -479,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_skips_oversized_sensitive_and_unreadable_files_and_keeps_the_rest() {
+    fn reading_skips_oversized_secret_and_unreadable_files_and_keeps_the_rest() {
         let home = scratch("read");
         let big = format!("## Goal\nbig\n{}", "a".repeat(MAX_BYTES as usize + 1));
         // Secret-shaped fixtures are built here, not committed, so the repo
@@ -487,29 +519,32 @@ mod tests {
         let key = format!("## Goal\nship\n## Gotchas\nkey is {}{}\n", "sk-ant-api03-", "Zx9".repeat(10));
         let password = "## Goal\nship\nadmin password: correct-horse-battery\n";
         let pem = format!("## Goal\nx\n-----BEGIN {} KEY-----\nabc\n", "RSA PRIVATE");
+        // A card number AND a secret: the secret wins, nothing is kept.
+        let both = format!("{SENSITIVE_CARD}\n## Open questions\ntoken={}{}\n", "ghp_", "a1B2".repeat(9));
         let repos = vec![
             repo(&home, "complete", Some(COMPLETE.as_bytes())),
             repo(&home, "empty", Some(b"")),
-            repo(&home, "oversized", Some(big.as_bytes())),
             repo(&home, "card", Some(SENSITIVE_CARD.as_bytes())),
+            repo(&home, "oversized", Some(big.as_bytes())),
             repo(&home, "key", Some(key.as_bytes())),
             repo(&home, "password", Some(password.as_bytes())),
             repo(&home, "pem", Some(pem.as_bytes())),
+            repo(&home, "card-and-secret", Some(both.as_bytes())),
             repo(&home, "latin1", Some(b"## Goal\ncaf\xe9\n")),
             repo(&home, "no-handoff", None),
         ];
         let scan = read_all(&repos);
-        assert_eq!(scan.read.iter().map(|h| h.repo.as_str()).collect::<Vec<_>>(), ["complete", "empty"]);
+        assert_eq!(scan.read.iter().map(|h| h.repo.as_str()).collect::<Vec<_>>(), ["complete", "empty", "card"]);
         assert!(scan.read[1].is_empty());
         assert_eq!(scan.read[0].path, home.join("complete").join(FILE_NAME));
         assert_eq!(
             scan.skipped,
             [
                 ("oversized".to_string(), Skip::TooLarge),
-                ("card".to_string(), Skip::Sensitive),
-                ("key".to_string(), Skip::Sensitive),
-                ("password".to_string(), Skip::Sensitive),
-                ("pem".to_string(), Skip::Sensitive),
+                ("key".to_string(), Skip::Secret),
+                ("password".to_string(), Skip::Secret),
+                ("pem".to_string(), Skip::Secret),
+                ("card-and-secret".to_string(), Skip::Secret),
                 ("latin1".to_string(), Skip::Unreadable),
             ]
         );
@@ -517,13 +552,65 @@ mod tests {
     }
 
     #[test]
+    fn a_card_number_withholds_only_its_section() {
+        let h = parse(SENSITIVE_CARD);
+        assert_eq!(h.goal.as_deref(), Some("Refund test for unit 4B."), "the other sections are kept");
+        assert_eq!(h.in_progress.as_deref(), Some(WITHHELD));
+        assert_eq!(h.withheld, ["in progress"]);
+        assert!(!format!("{h:?}").contains("4111"), "nothing of the number is kept anywhere");
+        assert!(!format!("{h:?}").contains("Visa"), "nor the rest of its section");
+        assert!(!h.is_empty());
+    }
+
+    #[test]
+    fn a_migration_timestamp_withholds_its_section_not_the_repo() {
+        // The false positive that decided it (owner, 2026-10-13): a 14-digit
+        // migration name reads as a card being typed.
+        let h = parse(include_str!("fixtures/migration.md"));
+        assert_eq!(h.goal.as_deref(), Some("Referral tracking for the VA."));
+        assert_eq!(h.branch.as_deref(), Some("feat/referral-codes"));
+        assert_eq!(h.last_commit.as_deref(), Some("9e1d0c4"));
+        assert_eq!(h.in_progress.as_deref(), Some(WITHHELD));
+        assert!(h.open_questions.unwrap().contains("JANE code"));
+        assert_eq!(h.withheld, ["in progress"]);
+    }
+
+    #[test]
+    fn a_withheld_branch_section_yields_no_branch_or_commit() {
+        let h = parse("## Branch + last commit\n`fix/x` at 3f9c2ab, card 4111 1111 1111 1111\n## Goal\nok\n");
+        assert_eq!(h.branch_section.as_deref(), Some(WITHHELD));
+        assert_eq!((h.branch, h.last_commit), (None, None));
+        assert_eq!(h.withheld, ["branch"]);
+        assert_eq!(h.goal.as_deref(), Some("ok"));
+    }
+
+    #[test]
+    fn a_number_past_the_length_cut_still_withholds_the_section() {
+        let text = format!("## In progress\n{} 4111 1111 1111 1111\n", "x".repeat(MAX_SECTION_CHARS + 10));
+        assert_eq!(parse(&text).in_progress.as_deref(), Some(WITHHELD));
+    }
+
+    #[test]
+    fn numbers_outside_the_four_sections_are_simply_not_kept() {
+        let h = parse("## Goal\nship\n## Gotchas\ntest card 4111 1111 1111 1111\n");
+        assert_eq!(h.goal.as_deref(), Some("ship"));
+        assert!(h.withheld.is_empty());
+        assert!(!format!("{h:?}").contains("4111"));
+    }
+
+    #[test]
     fn the_log_line_names_repos_and_counts_and_nothing_from_the_files() {
         let home = scratch("log");
-        let repos = vec![repo(&home, "complete", Some(COMPLETE.as_bytes())), repo(&home, "card", Some(SENSITIVE_CARD.as_bytes()))];
+        let key = format!("## Goal\n{}{}\n", "sk-ant-api03-", "Zx9".repeat(10));
+        let repos = vec![
+            repo(&home, "complete", Some(COMPLETE.as_bytes())),
+            repo(&home, "card", Some(SENSITIVE_CARD.as_bytes())),
+            repo(&home, "key", Some(key.as_bytes())),
+        ];
         let scan = read_all(&repos);
         let line = summary_line(&scan);
-        assert_eq!(line, "resume: 1 read [complete], 1 skipped [card (sensitive)]");
-        for leaked in ["maintenance", "3f9c2ab", "photo", "4111", "Max photo size"] {
+        assert_eq!(line, "resume: 2 read [complete, card (1 withheld)], 1 skipped [key (secret)]");
+        for leaked in ["maintenance", "3f9c2ab", "photo", "4111", "Max photo size", "Refund", "sk-ant", "in progress"] {
             assert!(!line.contains(leaked), "{leaked} in {line}");
         }
         let _ = std::fs::remove_dir_all(&home);
