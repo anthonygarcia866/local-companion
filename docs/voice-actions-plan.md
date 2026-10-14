@@ -51,7 +51,7 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
 
 - **One request per utterance**, through 1c's client (`ai::claude`, the same key, model, monthly cap and spend accounting). Default model `claude-haiku-5-5` (as 1c). The lantern is `s-delegate` while it runs.
 - **Input:** the transcript, plus a small context block: the focused app's exe and field kind (from the writing layer, never the field's text), today's date, the list of known repos (names only), and the known apps.
-- **Output: tool use with exactly one tool call**, `tool_choice: {"type": "any"}`. Claude never acts; it only picks a tool and fills its fields. Glim validates the call against the schema and decides. Anything that doesn't validate is shown as "Didn't understand" with the transcript, and nothing happens.
+- **Output: tool use with exactly one tool call**, `tool_choice: {"type": "any"}`. Claude never acts; it only picks a tool and fills its fields. Glim validates the call against the schema and decides. Anything that doesn't validate, or a command Glim can't carry out, shows **"Here's what I heard: … (couldn't act on it)"** with the transcript on the card, and nothing happens (§4.1).
 - **The tools (the action schema):**
 
 | Tool | Fields | Risk | What Glim does |
@@ -68,8 +68,30 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
   - "pick up from yesterday" → `resume_work {}`; "where was I on dale cuts" → `resume_work { repo: "dale-cuts" }`
   - "draft an email to Maria saying the plumber comes Tuesday at ten" → `draft_email { to: ["Maria"], subject: "Plumber visit Tuesday", body: "Hi Maria,\n\nThe plumber is coming Tuesday at 10am.\n\n…" }`
   - "send it" → **not a tool**. There is no `send_email` tool; Claude can't produce one. The reply is `clarify { question: "Click Send on the draft to send it." }`.
-- **Dictation without the API** (offline, cap reached, or the API off): the raw transcript is typed as is, after the sensitive scan. Actions need the API; without it the card says so. No local phrase parser in the first version (upstream has one; it's a later fallback).
 - **Sensitive data:** the transcript goes through the card/SSN/IBAN scan before the API call. A hit stops the request ("Not sent: …", the 1c wording). For `dictate`, the text Claude returns is scanned again before typing.
+
+### 4.1 When a step fails (decided 2026-10-13, Anthony)
+
+**The Claude clean-up step fails** when any of these happens:
+
+- the API is unreachable or returns an error (an outage);
+- no answer within **~4 s** of sending (the request is cancelled; a late answer is discarded, so nothing is ever typed twice; a cancelled request may still be billed and is counted like any other);
+- **no API key** is set;
+- the **monthly spend cap** is reached (1c's cap; nothing is sent).
+
+What happens then:
+
+- **Dictation only: the raw transcript is typed**, after the sensitive scan, through 1b's insertion path with all its checks.
+- **The "not cleaned up" marker is shown by Glim**, on the result card and as the lantern's badge, **never inserted into the typed text.** The text typed is exactly the transcript.
+- **A spoken command is never typed as raw text.** If a command can't be acted on, the card shows **"Here's what I heard: … (couldn't act on it)"** and nothing happens. Without Claude, Glim can't classify the utterance, so it uses a cautious local rule: the transcript is typed **only** if an editable, non-password field had the focus when the key was pressed **and** the transcript doesn't start like a command (a short fixed list: "open", "pick up", "resume", "where was I", "draft", "email", "send", "reply", "delete", "go to", in any case, after leading filler like "hey Glim" or "um"). Anything else gets the "Here's what I heard" card. This is not a phrase parser: it never runs an action, it only decides whether raw typing is safe. *(This local rule is a design detail added 2026-10-13 to carry out the decision; Anthony to confirm the list.)*
+
+**Speech-to-text fails** (the cloud service is down, slow or refuses):
+
+- If a **local whisper model is installed**, Glim **falls back to it automatically** and the card notes it ("Transcribed on this PC"). Then the steps above run as usual.
+- If **neither works**, the card says so, and **nothing is typed** and nothing is sent to Claude.
+- If whisper.cpp wins the comparison and is the main speech-to-text, there is no cloud fallback (none is configured): a local failure is "neither works".
+
+**Sensitive scan hit** (unchanged): nothing is sent or typed; "Not sent: …" (the 1c wording).
 
 ## 5. Approval rule
 
@@ -99,6 +121,6 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
 1. **Push-to-talk = Ctrl+Alt+Shift+V, held.** Still needs the usual conflict check when Anthony is at the PC: `RegisterHotKey` probe plus Word's key table (`Application.FindKey`), as the 1d keys got. If it's taken, the plan is amended before 1.5b, not worked around.
 2. **The listening state is `s-hear`** (not `s-record`, which stays screen recording only; not `s-listen`, which means "island open"). **Its look is designed in `docs/brand/glim-mascot.html` first** (the source of truth). A draft is there (2026-10-13, for Anthony's review); no code uses `s-hear` and it isn't ported (`port-lantern.mjs` not run) until he approves the look.
 3. **Speech-to-text comparison:** **two cloud candidates** against **whisper.cpp `base.en` / `small.en` / `medium.en`**, on the same clips (§3).
-4. **If the API is down, type the raw transcript, marked "not cleaned up"** (after the sensitive scan). This is the Claude API, the clean-up step. If the speech-to-text step itself fails, there is no transcript to type: the card says so, and nothing is typed.
+4. **If the Claude clean-up step fails, dictation types the raw transcript** (after the sensitive scan). Confirmed by Anthony 2026-10-13, with details: the trigger is any clean-up failure (outage, no answer within ~4 s, no API key, monthly cap reached); dictation only, a command is never typed (it gets "Here's what I heard: … (couldn't act on it)" and nothing happens); "not cleaned up" shows on Glim's card and badge, never in the typed text; a failed cloud speech-to-text falls back to a local whisper model when one is installed (noted on the card), and with neither, the card only, nothing typed. Full rules: §4.1.
 5. **`resume_work` opens Claude Code only after a click on that repo's card.**
 6. **Resume reader (`resume_work`'s data, PR #21): a card-like number (card, SSN, IBAN, 12+ digit run) withholds only the section it is in**, marked as withheld; true secrets (API keys, tokens, private keys, `password=`-style values) still skip the whole HANDOFF.md.

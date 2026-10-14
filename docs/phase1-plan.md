@@ -273,21 +273,23 @@ The design was approved as written, with these answers:
 
 ## 7a. The floating mini lantern at the field (PR "1e", after 1d)
 
-Status: **design approved by the owner 2026-10-13 (decisions in §7a.9); not built.** The first sketch (owner, 2026-10-10) is kept in its decisions: the real lantern, not a dot; a count badge; a popover right there; it never takes focus. §14.7 made it its own PR (1e), right after 1d. It is written against `phase-1d` (PR #18), since it uses 1d's app switches and its pause.
+Status: **design approved by the owner 2026-10-13 (decisions in §7a.9). Logic and unit tests built in PR #22 (draft; `writing::bubble`, `src/core/bubble.ts`), except §7a.1 rule 3 (tall fields), its follow-up. No window yet.** The first sketch (owner, 2026-10-10) is kept in its decisions: the real lantern, not a dot; a count badge; a popover right there; it never takes focus. §14.7 made it its own PR (1e), right after 1d. It is written against `phase-1d` (PR #18), since it uses 1d's app switches and its pause.
 
 Goal: a Grammarly-style marker where the user types, so a suggestion doesn't need a trip to the top of the screen. The island's list stays exactly as it is. The mini lantern is a second way into the same suggestions, not a replacement.
 
 ### 7a.1 Anchoring: where it sits
 
 - **New capture data, rectangles only.** Each reading the capture thread already takes adds two rectangles: the field's (UIA `CurrentBoundingRectangle`) and, when the field has TextPattern, the caret's (`GetSelection()[0]`, collapsed, `GetBoundingRectangles()`). Both are in **physical screen pixels**. No text is added to what the capture sends. A rectangle is a geometry fact, so it can go into the panel event; the sensitive-field rules don't change.
-- **The anchor**, in order:
-  1. **Single-line field** (height under ~2.5 caret heights): just outside the field's right edge, vertically centred on it. If the field touches the monitor's right edge, just inside its right end instead.
-  2. **Multi-line field** (bodies of Outlook mail, Word, Gmail compose): the field's bottom-right corner, inside by 6 px. If the caret's line is within 24 px of that corner, move up one caret height, so the lantern never sits on the line being typed.
-  3. **No field rectangle** (some Chromium fields report none or 0×0): the caret's rectangle, 8 px right of its line end. With neither, **don't show it** (the island still has the list).
-- **The rule that wins over all others:** the lantern never covers the caret's rectangle, grown by 4 px. If every candidate would, it's not shown for that reading.
-- **Scrolling and moving.** Re-placed on each reading (today every 300 ms) and on UIA `BoundingRectangle` property changes for the focused element, when the app sends them. When it moves more than 2 px, it jumps there; no animation, so a scrolling page doesn't drag it around. **Hidden while the rectangle changes** across two readings in a row (scrolling), and shown again once it holds still for one reading.
-- **Off screen.** Hidden when the anchor point is outside every monitor's work area, or when the field's rectangle is more than half outside its monitor (scrolled away).
-- **Multi-monitor and DPI.** The anchor's monitor is `MonitorFromPoint`. The lantern's window size is set in that monitor's pixels: 22 logical px × that monitor's scale (from `GetDpiForMonitor`, the same scale the island uses). Moving to a monitor with another scale resizes it before showing it there. Rectangles from browsers are already in screen pixels (checked in 1a for the panel), so no page-zoom correction. To check live: a 125% monitor beside a 100% one (the owner's DISPLAY1 is 125%).
+- **The monitor and the visible part** (amended 2026-10-13, accepted by Anthony; built in PR #22). The monitor is the one holding the caret's centre (a field can span two), else the one holding the field's centre. The field is **clipped to that monitor's work area**, and everything below uses that **visible part**. The lantern is **hidden only when none of the field is visible, or the caret's line has scrolled out of the visible part.** (The first draft hid it when the field was "more than half outside its monitor"; that would hide it in long Gmail and Word bodies taller than the screen, exactly where it's wanted.)
+- **The anchor**, in order (sizes and gaps are logical px × the monitor's scale):
+  1. **Single-line field** (visible height under 2.5 caret heights; without a caret, 40 px or less): just outside the right edge, 4 px from it, vertically centred on the field. If that would cross the monitor's right edge, just inside the field's right end instead (6 px in).
+  2. **Multi-line field** (bodies of Outlook mail, Word, Gmail compose): the visible part's bottom-right corner, 6 px in. If the caret's line is within 24 px of that corner, or the lantern would touch the caret (grown by 4 px), it moves up to sit just above the caret's line.
+  3. **Tall field** (added 2026-10-13, Anthony): a multi-line field cut off by the monitor's edge, or taller than half the monitor's work area. The lantern sits **in the visible part, at its right edge (6 px in), level with the caret's line**, not in a corner of the field, so it stays next to where the user is typing as they scroll. If that would touch the caret (the caret is at the right edge), it goes just above the caret's line, or just below it when there's no room above. Without a caret, rule 2 applies. **Not in PR #22 yet:** #22 places a tall field like rule 2, at the visible part's bottom-right; this rule is its follow-up commit.
+  4. **No field rectangle** (some Chromium fields report none or 0×0): 8 px right of the caret, centred on its line. With neither, **don't show it** (the island still has the list).
+- **Kept on the monitor:** the result is clamped inside the monitor's work area.
+- **The rule that wins over all others:** the lantern never covers the caret's rectangle, grown by 4 px. If the chosen place would (for example a short field with the caret on its first line, or a caret at the monitor's edge), it's not shown for that reading.
+- **Scrolling and moving.** Re-placed on each reading (today every 300 ms) and on UIA `BoundingRectangle` property changes for the focused element, when the app sends them. A move of 2 px or less is ignored (no twitching); a bigger one jumps there, with no animation. **Hidden while the field's rectangle moves** between readings (scrolling, a dragged window), and shown again after one reading where it held still. A newly focused field shows at once.
+- **Multi-monitor and DPI.** The monitor is chosen as above (in code: by work-area rectangles; the window step may use `MonitorFromPoint`). The lantern's window size is set in that monitor's pixels: 22 logical px × that monitor's scale (from `GetDpiForMonitor`, the same scale the island uses). Moving to a monitor with another scale resizes it before showing it there. Rectangles from browsers are already in screen pixels (checked in 1a for the panel), so no page-zoom correction. To check live: a 125% monitor beside a 100% one (the owner's DISPLAY1 is 125%).
 
 ### 7a.2 Size and states
 
@@ -343,7 +345,7 @@ Any of them failing hides it within one reading (≤300 ms). Hiding never touche
 
 ### 7a.8 Test plan
 
-- **Unit (Rust):** `place` table tests: single- and multi-line fields; field at each monitor edge; caret in the bottom-right corner; no field rectangle; neither rectangle; a rectangle half off screen; 100% vs 125% monitors; negative coordinates (the owner's DISPLAY1 is left of the main one, at −1536). Each 7a.5 condition alone hides it. A rectangle that changes across two readings hides it; one stable reading shows it again.
+- **Unit (Rust):** `place` table tests: single- and multi-line fields; field at each monitor edge; caret in the bottom-right corner; no field rectangle; neither rectangle; a field taller than the screen (placed in its visible part) and its caret scrolled out (hidden); a tall field with the caret mid-screen (level with the caret's line, rule 3); a field across two monitors (follows the caret); 100% vs 125% monitors; negative coordinates (the owner's DISPLAY1 is left of the main one, at −1536). Each 7a.5 condition alone hides it. A rectangle that changes across two readings hides it; one stable reading shows it again.
 - **Unit (TS):** the popover's rows come out in reading order, 3 a page; the badge count matches; Ignore and Fixed recount; the pop plays only on 0 → more.
 - **Guards:** the window's flags (`WS_EX_NOACTIVATE`, tool window, topmost), `BROWSER_ARGS`, no `set_focus`; no text in the new capture fields.
 - **Live (owner, away from the keyboard or at their say-so):** Outlook (new mail body), Word, Gmail compose in Chrome, Notepad. In each: it appears next to the field with the right count; never covers the line being typed; follows a scroll (hides while moving); a click opens the popover and the caret stays in the field (typing continues where it was); a fix applies and Ctrl+Z undoes it; Ignore works; it hides on Ctrl+Alt+Shift+P, in a password field, in an app switched off, in Hidden, and behind a fullscreen video; the 125% monitor.
@@ -355,6 +357,8 @@ Any of them failing hides it within one reading (≤300 ms). Hiding never touche
 3. **The setting** (`writing_bubble`, stored as `writingBubble`): **off** in the first build, turned on once Anthony's live tests pass.
 4. **The popover's footer has "Rewrite…"** (the same 1c flow as Ctrl+Alt+Shift+R).
 5. **The popover auto-closes after 20 s with no pointer over it.**
+6. **Off screen (amendment, accepted):** clip the field to its monitor; hide only when none of the field is visible or the caret's line has scrolled out of view (§7a.1).
+7. **Tall fields:** the lantern sits in the visible part, level with the caret's line, not in a corner of the field (§7a.1 rule 3).
 
 ## 8. Settings (1d) and Windows' own suggestions
 
