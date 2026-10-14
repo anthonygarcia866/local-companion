@@ -6,8 +6,10 @@
 // Uninstall removes Glim's entries and nothing else.
 //
 // Every Claude config folder gets the hooks (`config_dirs`): ~/.claude, the
-// folder CLAUDE_CONFIG_DIR names, and any other ~/.claude* folder holding a
-// settings.json (the owner runs ~/.claude and ~/.claude2). They are found
+// folder CLAUDE_CONFIG_DIR names, and any ~/.claude<digits> folder (the owner
+// runs ~/.claude and ~/.claude2), each only if Claude Code has really used it
+// (`looks_like_claude_config`). Other tools' ~/.claude-mem or ~/.claude-flow
+// hold a settings.json of their own and are never written. They are found
 // afresh each time, so a folder that appears later is picked up by the next
 // install or update, and one preview covers them all.
 //
@@ -94,8 +96,9 @@ pub fn settings_path() -> PathBuf {
 }
 
 /// Every Claude config folder, in a fixed order: ~/.claude, the folder
-/// CLAUDE_CONFIG_DIR names, then the other ~/.claude* folders that hold a
-/// settings.json, by name. Each folder once, whatever its spelling.
+/// CLAUDE_CONFIG_DIR names, then the ~/.claude<digits> folders, by name; each
+/// only if it looks like a Claude Code config. Each folder once, whatever its
+/// spelling.
 pub fn config_dirs() -> Vec<PathBuf> {
     config_dirs_in(&platform::home_dir(), std::env::var_os(CONFIG_DIR_VAR).map(PathBuf::from))
 }
@@ -108,32 +111,69 @@ const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CONFIG_DIR_VAR: &str = "GLIM_TEST_CLAUDE_CONFIG_DIR";
 
 fn config_dirs_in(home: &Path, env: Option<PathBuf>) -> Vec<PathBuf> {
-    let mut dirs = vec![home.join(".claude")];
+    find_config_dirs(home, env).0
+}
+
+/// The config folders, and the names of the ~/.claude* (and CLAUDE_CONFIG_DIR)
+/// folders left out, for the launch log.
+fn find_config_dirs(home: &Path, env: Option<PathBuf>) -> (Vec<PathBuf>, Vec<String>) {
+    let mut candidates = vec![home.join(".claude")];
     if let Some(dir) = env.filter(|d| !d.as_os_str().is_empty()) {
         let dir = if dir.is_absolute() { dir } else { home.join(dir) };
         // A folder that isn't there isn't created: Claude Code makes its own.
         if dir.is_dir() {
-            dirs.push(dir);
+            candidates.push(dir);
         }
     }
-    let mut others: Vec<PathBuf> = std::fs::read_dir(home)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_name().to_string_lossy().to_ascii_lowercase().starts_with(".claude"))
-        .map(|e| e.path())
-        .filter(|p| p.is_dir() && p.join("settings.json").is_file())
-        .collect();
+    let mut skipped = Vec::new();
+    let mut others = Vec::new();
+    for e in std::fs::read_dir(home).into_iter().flatten().filter_map(Result::ok) {
+        let name = e.file_name().to_string_lossy().to_string();
+        // The entry's own type: a path to "~/.claude2 " would be read as
+        // ~/.claude2 on Windows (trailing space dropped).
+        let is_dir = e.file_type().is_ok_and(|t| t.is_dir()) || e.path().is_dir();
+        if !name.to_ascii_lowercase().starts_with(".claude") || !is_dir || name.eq_ignore_ascii_case(".claude") {
+            continue;
+        }
+        if numbered_claude_name(&name) {
+            others.push(e.path());
+        } else {
+            skipped.push(name);
+        }
+    }
     others.sort();
-    dirs.extend(others);
+    candidates.extend(others);
     let mut seen: Vec<String> = Vec::new();
-    dirs.retain(|d| {
+    candidates.retain(|d| {
         let key = same_folder_key(d);
         let fresh = !seen.contains(&key);
         seen.push(key);
         fresh
     });
-    dirs
+    let (dirs, unlike): (Vec<PathBuf>, Vec<PathBuf>) = candidates.into_iter().partition(|d| looks_like_claude_config(d));
+    skipped.extend(unlike.iter().map(|d| d.file_name().map_or_else(|| d.to_string_lossy().to_string(), |n| n.to_string_lossy().to_string())));
+    skipped.sort();
+    skipped.dedup();
+    (dirs, skipped)
+}
+
+/// `.claude` followed by one or more digits and nothing else (`.claude2`,
+/// `.claude10`): the other folders the owner names by hand. `.claude-mem`,
+/// `.claude-flow` (other tools' own folders) and `.claude2 ` don't count.
+fn numbered_claude_name(name: &str) -> bool {
+    match (name.get(..7), name.get(7..)) {
+        (Some(head), Some(digits)) => {
+            head.eq_ignore_ascii_case(".claude") && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+        }
+        _ => false,
+    }
+}
+
+/// Claude Code has run with this folder as its config: it keeps `projects/`
+/// there, and `history.jsonl` or `.claude.json` (both checked in the owner's
+/// ~/.claude and ~/.claude2, 2026-10-13). Existence only: nothing is read.
+fn looks_like_claude_config(dir: &Path) -> bool {
+    dir.join("projects").is_dir() && (dir.join("history.jsonl").is_file() || dir.join(".claude.json").is_file())
 }
 
 /// Two spellings of one folder compare equal (case on Windows, a trailing
@@ -343,7 +383,11 @@ const NOTHING: &str = "nothing";
 /// without Glim's hooks, or an older relay command). Writes nothing: the
 /// fix is Settings → Claude Code → Update hooks, after the diff.
 pub fn log_sync_state() {
-    let folders = folder_statuses(&config_dirs());
+    let (dirs, skipped) = find_config_dirs(&platform::home_dir(), std::env::var_os(CONFIG_DIR_VAR).map(PathBuf::from));
+    if !skipped.is_empty() {
+        crate::log::line(format!("hooks: not a Claude Code config folder, skipped: {}", skipped.join(", ")));
+    }
+    let folders = folder_statuses(&dirs);
     if folders.iter().any(|f| f.installed) && !folders.iter().all(|f| f.up_to_date) {
         let behind: Vec<&str> = folders.iter().filter(|f| !f.up_to_date).map(|f| f.settings_path.as_str()).collect();
         crate::log::line(format!("hooks: not in sync in {} (Settings → Claude Code → Update hooks)", behind.join(", ")));
@@ -683,7 +727,7 @@ mod tests {
     fn writing_backs_up_preserves_and_refuses_a_changed_file() {
         let tmp = std::env::temp_dir().join(format!("glim-hooks-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join(".claude")).unwrap();
+        used_by_claude(&tmp.join(".claude"), "history.jsonl");
         std::env::set_var(platform::HOME_VAR, &tmp);
 
         let path = settings_path();
@@ -759,30 +803,86 @@ mod tests {
             .collect()
     }
 
+    /// What Claude Code leaves in a config folder it has used (the markers
+    /// `looks_like_claude_config` checks), with or without a settings.json.
+    fn used_by_claude(dir: &Path, marker: &str) {
+        std::fs::create_dir_all(dir.join("projects")).unwrap();
+        std::fs::write(dir.join(marker), b"").unwrap();
+    }
+
     #[test]
     fn every_claude_folder_is_found_once() {
         let home = scratch_home("find");
-        std::fs::create_dir_all(home.join(".claude")).unwrap(); // no settings.json yet: still listed
+        used_by_claude(&home.join(".claude"), "history.jsonl"); // no settings.json yet: still listed
+        used_by_claude(&home.join(".claude2"), ".claude.json");
         write_json(&home.join(".claude2").join("settings.json"), &json!({}));
-        write_json(&home.join(".claude-work").join("settings.json"), &json!({}));
-        std::fs::create_dir_all(home.join(".claude-empty")).unwrap(); // no settings.json: left out
+        used_by_claude(&home.join(".claude10"), "history.jsonl");
         std::fs::write(home.join(".claude.json"), b"{}").unwrap(); // a file, not a folder
         let elsewhere = home.join("elsewhere");
-        std::fs::create_dir_all(&elsewhere).unwrap();
+        used_by_claude(&elsewhere, "history.jsonl");
 
         let none = config_dirs_in(&home, None);
-        assert_eq!(none, [home.join(".claude"), home.join(".claude-work"), home.join(".claude2")]);
+        assert_eq!(none, [home.join(".claude"), home.join(".claude10"), home.join(".claude2")]);
         // CLAUDE_CONFIG_DIR naming a folder already found: once only.
         let spelled = PathBuf::from(format!("{}{}", home.join(".claude2").display(), std::path::MAIN_SEPARATOR));
         assert_eq!(config_dirs_in(&home, Some(spelled)).len(), 3);
         #[cfg(windows)]
         assert_eq!(config_dirs_in(&home, Some(PathBuf::from(home.join(".CLAUDE2").to_string_lossy().to_string()))).len(), 3);
-        // A folder elsewhere comes second, even without a settings.json yet.
+        // A folder elsewhere comes second, whatever its name.
         assert_eq!(config_dirs_in(&home, Some(elsewhere.clone()))[1], elsewhere);
         // One that isn't there is not created or listed; nor is an empty value.
         assert_eq!(config_dirs_in(&home, Some(home.join("missing"))).len(), 3);
         assert_eq!(config_dirs_in(&home, Some(PathBuf::new())).len(), 3);
         assert!(!home.join("missing").exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn other_tools_folders_and_odd_names_are_never_config_folders() {
+        let home = scratch_home("others");
+        used_by_claude(&home.join(".claude"), "history.jsonl");
+        // The owner's real neighbours (2026-10-13): each holds a settings.json
+        // or a projects folder, and none is Claude Code's.
+        for name in [".claude-mem", ".claude-flow", ".claude2 ", ".claude-something", ".claude2b", ".claude_3", ".claude-2"] {
+            // Windows drops a trailing space from an ordinary path (".claude2 "
+            // would land in .claude2); a \\?\ path makes the folder as named.
+            let dir = if cfg!(windows) { PathBuf::from(format!(r"\\?\{}", home.join(name).display())) } else { home.join(name) };
+            std::fs::create_dir_all(&dir).unwrap();
+            write_json(&dir.join("settings.json"), &json!({ "tool": name }));
+            used_by_claude(&dir, "history.jsonl"); // even looking like a config doesn't make the name count
+        }
+        assert!(!home.join(".claude2").exists(), "the trailing-space folder is its own folder");
+        let (dirs, skipped) = find_config_dirs(&home, None);
+        assert_eq!(dirs, [home.join(".claude")]);
+        for name in [".claude-mem", ".claude-flow", ".claude2 ", ".claude-something", ".claude2b", ".claude_3", ".claude-2"] {
+            assert!(skipped.contains(&name.to_string()), "{name} skipped and logged: {skipped:?}");
+        }
+        // Logged by folder name only, never a path.
+        assert!(skipped.iter().all(|n| !n.contains('/') && !n.contains('\\')), "{skipped:?}");
+        assert!(edits_for(&dirs, true).iter().all(|e| e.path.starts_with(home.join(".claude"))));
+        assert!(numbered_claude_name(".claude2") && numbered_claude_name(".CLAUDE3"));
+        for name in [".claude2 ", ".claude", ".claude-mem", ".claude 2", ".claude2\u{a0}", ".claude²", ".claudé2", "claude2"] {
+            assert!(!numbered_claude_name(name), "{name:?}");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_folder_claude_code_never_used_is_left_out_even_when_named_right() {
+        let home = scratch_home("unused");
+        // A bare ~/.claude, a .claude3 with only settings.json, a .claude4 with
+        // projects but no history, and CLAUDE_CONFIG_DIR naming an empty folder.
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        write_json(&home.join(".claude3").join("settings.json"), &json!({}));
+        std::fs::create_dir_all(home.join(".claude4").join("projects")).unwrap();
+        let named = home.join("named");
+        std::fs::create_dir_all(&named).unwrap();
+        let (dirs, skipped) = find_config_dirs(&home, Some(named));
+        assert!(dirs.is_empty(), "{dirs:?}");
+        assert_eq!(skipped, [".claude", ".claude3", ".claude4", "named"]);
+        // Nothing is created anywhere by looking.
+        assert!(!home.join(".claude").join("settings.json").exists());
+        assert!(!home.join("named").join("projects").exists());
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -836,9 +936,12 @@ mod tests {
     #[test]
     fn a_folder_that_appears_later_is_picked_up_by_the_next_install() {
         let home = scratch_home("later");
+        used_by_claude(&home.join(".claude"), "history.jsonl");
         write_json(&home.join(".claude").join("settings.json"), &merged(&json!({})).unwrap());
         assert!(edits_for(&config_dirs_in(&home, None), true).is_empty());
         write_json(&home.join(".claude3").join("settings.json"), &json!({ "model": "sonnet" }));
+        assert_eq!(config_dirs_in(&home, None).len(), 1, "not until Claude Code has used it");
+        used_by_claude(&home.join(".claude3"), ".claude.json");
         let dirs = config_dirs_in(&home, None);
         let statuses = folder_statuses(&dirs);
         assert_eq!(statuses.iter().map(|f| f.up_to_date).collect::<Vec<_>>(), [true, false]);
