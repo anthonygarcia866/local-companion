@@ -19,6 +19,7 @@ mod net;
 mod pipe;
 mod platform;
 mod recap;
+mod resume;
 mod session_window;
 mod settings;
 mod shortcuts;
