@@ -4253,6 +4253,72 @@
    "pt-BR": "Glim (pausado)",
    "ru": "Glim (приостановлен)",
    "id": "Glim (dijeda)"
+  },
+  "Standard": {
+   "zh-Hans": "标准",
+   "hi": "मानक",
+   "es": "Estándar",
+   "ar": "قياسي",
+   "fr": "Standard",
+   "bn": "সাধারণ",
+   "pt-BR": "Padrão",
+   "ru": "Стандартная",
+   "id": "Standar"
+  },
+  "Full": {
+   "zh-Hans": "完整",
+   "hi": "पूर्ण",
+   "es": "Completo",
+   "ar": "كامل",
+   "fr": "Complet",
+   "bn": "সম্পূর্ণ",
+   "pt-BR": "Completo",
+   "ru": "Полная",
+   "id": "Lengkap"
+  },
+  "Misspelled words and repeated words (“the the”).": {
+   "zh-Hans": "拼写错误和重复的词（“the the”）。",
+   "hi": "ग़लत वर्तनी वाले शब्द और दोहराए गए शब्द (“the the”)।",
+   "es": "Palabras mal escritas y palabras repetidas (“the the”).",
+   "ar": "الكلمات المكتوبة خطأً والكلمات المكررة (“the the”).",
+   "fr": "Les fautes d’orthographe et les mots répétés (« the the »).",
+   "bn": "ভুল বানান আর পুনরাবৃত্ত শব্দ (“the the”)।",
+   "pt-BR": "Palavras com erro de ortografia e palavras repetidas (“the the”).",
+   "ru": "Слова с ошибками и повторы слов («the the»).",
+   "id": "Kata yang salah eja dan kata yang berulang (“the the”)."
+  },
+  "Adds grammar, word choice, capitals and punctuation.": {
+   "zh-Hans": "另加语法、用词、大小写和标点。",
+   "hi": "साथ में व्याकरण, शब्द-चयन, बड़े अक्षर और विराम चिह्न।",
+   "es": "Añade gramática, elección de palabras, mayúsculas y puntuación.",
+   "ar": "يضيف القواعد واختيار الكلمات والأحرف الكبيرة وعلامات الترقيم.",
+   "fr": "Ajoute la grammaire, le choix des mots, les majuscules et la ponctuation.",
+   "bn": "সঙ্গে ব্যাকরণ, শব্দ বাছাই, বড় হাতের অক্ষর আর যতিচিহ্ন।",
+   "pt-BR": "Adiciona gramática, escolha de palavras, maiúsculas e pontuação.",
+   "ru": "Добавляет грамматику, выбор слов, заглавные буквы и пунктуацию.",
+   "id": "Menambahkan tata bahasa, pilihan kata, huruf kapital, dan tanda baca."
+  },
+  "Adds wordiness and style (“8am in the morning”, “for free of charge”).": {
+   "zh-Hans": "另加冗词和文风（“8am in the morning”、“for free of charge”）。",
+   "hi": "साथ में अनावश्यक शब्द और शैली (“8am in the morning”, “for free of charge”)।",
+   "es": "Añade palabras de más y estilo (“8am in the morning”, “for free of charge”).",
+   "ar": "يضيف الحشو والأسلوب (“8am in the morning”، “for free of charge”).",
+   "fr": "Ajoute les mots en trop et le style (« 8am in the morning », « for free of charge »).",
+   "bn": "সঙ্গে বাড়তি শব্দ আর লেখার ধরন (“8am in the morning”, “for free of charge”)।",
+   "pt-BR": "Adiciona palavras sobrando e estilo (“8am in the morning”, “for free of charge”).",
+   "ru": "Добавляет лишние слова и стиль («8am in the morning», «for free of charge»).",
+   "id": "Menambahkan kata berlebihan dan gaya (“8am in the morning”, “for free of charge”)."
+  },
+  "Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.": {
+   "zh-Hans": "主谓一致和语义错误（如“Alex and I was”）在任何级别都可能漏掉：这些需要 AI。目前请用“改写”。",
+   "hi": "कर्ता-क्रिया मेल और अर्थ की ग़लतियाँ (जैसे “Alex and I was”) हर स्तर पर छूट सकती हैं: इनके लिए AI चाहिए। अभी के लिए, दोबारा लिखें इस्तेमाल करें।",
+   "es": "Los errores de concordancia y de sentido (como “Alex and I was”) pueden pasar en cualquier nivel: necesitan la IA. Por ahora, usa Reescribir.",
+   "ar": "قد تفلت أخطاء التطابق والمعنى (مثل “Alex and I was”) في كل مستوى: تحتاج إلى الذكاء الاصطناعي. في الوقت الحالي، استخدم إعادة الصياغة.",
+   "fr": "Les fautes d’accord et de sens (comme « Alex and I was ») peuvent passer à tous les niveaux : il faut l’IA. Pour l’instant, utilisez Réécrire.",
+   "bn": "মিল আর অর্থের ভুল (যেমন “Alex and I was”) যেকোনো স্তরে বাদ পড়তে পারে: এগুলোর জন্য AI লাগে। আপাতত, আবার লিখুন ব্যবহার করুন।",
+   "pt-BR": "Erros de concordância e de sentido (como “Alex and I was”) podem passar em qualquer nível: precisam da IA. Por enquanto, use Reescrever.",
+   "ru": "Ошибки согласования и смысла (например, «Alex and I was») могут пройти на любом уровне: для них нужен ИИ. Пока используйте «Переписать».",
+   "id": "Kesalahan kesesuaian dan makna (seperti “Alex and I was”) bisa lolos di semua tingkat: perlu AI. Untuk sekarang, gunakan Tulis ulang."
   }
  }
 }

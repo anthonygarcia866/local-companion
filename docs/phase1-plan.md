@@ -522,6 +522,11 @@ For apps on **neither** list (§5: off by default, ask once).
 
 - **Chat apps keep their relaxed rules on top** (no capitalization, no chat words), whatever the level. A level can only make the checker quieter, never louder than Full.
 - **How it's built:** by Harper's `LintKind` (the `kind` each finding already carries), in `checker.rs`. A test lists every `LintKind` that Harper 2.11.0 has and the level it belongs to, so a Harper update that adds a kind fails the test instead of slipping in unsorted. The exact kind-to-level table is set at build time from that list.
+> **⚠ Retest note (Anthony's live test, 2026-10-14, §19 FAIL).** The wiring is right (a level only removes kinds), but two assumptions above were wrong:
+> - **Harper 2.11 doesn't catch some agreement errors at any level:** "Alex and I was" (a compound subject) and "issues that needs" (a "that" clause) give no finding. No newer Harper helps: 2.12.0 (2026-10-01) is only a GitHub tag, not on crates.io, and adds phrase fixes, no agreement rules. Glim stays on `=2.11.0`; a test (`known_agreement_gaps_stay_documented`) notices if a future Harper starts catching them.
+> - **Full looked the same as Standard** because the test paragraph had no style findings. Harper's Full-only rules are few (Redundancy like "8am in the morning" and "for free of charge", the Oxford comma). The §19 paragraph now has two, and a test asserts Full > Standard > Spelling on it.
+> - **Settings now says honestly what each level covers** (one line per level under the menu) and that agreement and meaning errors need the AI (for now: Rewrite). The real answer is "Check with AI" (§15.1), a separate PR after 1d.
+
 - **Global, not per app** (**decision 5**, decided): one setting is easy to understand, and the chat relaxation already covers the app that differs most. A per-app override could come later without changing the storage (`checkerStrictness: "spelling" | "standard" | "full"`).
 
 ### 14.5 The editable pause list
@@ -634,3 +639,18 @@ Settings gets a **Writing** section and a **Privacy** section:
 8. **"Not now":** ask again the next day at the earliest, never more than once a day per app (14.2). This replaces §5's "ask again next session".
 
 **Also settled for 1c (§13's open questions):** the hotkey opens the tone card, and a second press sends the default tone (14.3); refusal fallbacks stay off.
+
+## 15. Follow-ups after 1d (2026-10-14)
+
+### 15.1 "Check with AI" (its own PR after 1d, not #18)
+
+Harper misses agreement and meaning errors ("Alex and I was", "issues that needs", the wrong word spelled right). The 1c Claude API path can catch them; this puts it behind a button.
+
+- **The button:** "Check with AI" at the foot of the suggestions list (the lantern's popover and the island's list).
+- **What is sent:** the current paragraph only, to the Claude API through `net::request` (Haiku, the 1c model setting), **only on that click**. The card/SSN/IBAN refusal from 1c applies first, with the same plain refusal message; a refused paragraph is never sent.
+- **While it runs:** the lantern shows **`s-delegate`** (data leaving the machine), as for a rewrite. Spend counts toward the 1c monthly cap, and a cap hit, missing key or outage says so on the card and leaves Harper's findings as they are.
+- **The answer:** asked for as a tool call (a list of `{start, end, message, replacement}`), validated against the paragraph (offsets in range, the quoted text matches), and shown as **normal suggestions** next to Harper's, marked as from the AI. Applying one is the usual apply path (`apply.rs`), with the usual stale-paragraph check. Nothing is applied automatically.
+- **Optional setting:** Settings → Writing → "Check with AI automatically when I pause typing", **default OFF**. When on: after ~2 s without typing, once per paragraph version, same refusal, same cap, same `s-delegate`. Off means the button is the only way text leaves.
+- **Logging:** as 1c: never the text, the answer or the replacements; only `ai-check: ok|refused|failed`, timings and counts.
+- **Tests:** a fake API server (as in 1c) for answer validation, refusal before sending, cap and failure paths; the setting's default; a live test in Outlook and Word with the two sentences above.
+

@@ -396,14 +396,15 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ## 19. Strictness (1d)
 
-*Where: `phase-1d`.* Settings… → **Writing → Strictness**. Use this paragraph in Notepad:
+*Where: `phase-1d`.* Settings… → **Writing → Strictness**. Under the menu, one line per level says what it covers; the chosen level's line is marked. Use this paragraph in Notepad (retest 2026-10-14: the old one had nothing only Full finds):
 
-`Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok?`
+`Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok? The plumber can come at 8am in the morning, and the repair is for free of charge.`
 
-1. **Full (default):** the most suggestions.
-2. **Standard:** a few fewer; still "recieved", "the the", "Their" and the space before the comma.
+1. **Full (default):** everything below, **plus** "am in the morning" and "for free of charge" (wordiness).
+2. **Standard:** those two go; still "recieved", "the the", "Their" and the space before the comma.
 3. **Spelling only:** only "recieved" and "the the".
 4. **Chat:** in Slack, at any level, "u", "lol" and lowercase sentence starts are never flagged.
+5. **Known gap, at every level:** `Alex and I was at the unit. There are a few issues that needs fixing.` gives **no** suggestion. That is Harper, not the level; the note under the levels says so (agreement and meaning errors need the AI; for now, Rewrite fixes them).
 
 **Cleanup:** back to **Full** (or what you prefer).
 

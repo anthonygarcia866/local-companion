@@ -519,6 +519,20 @@ mod tests {
         assert_eq!(said("Wait , no."), only("Don't use a space before a comma."));
     }
 
+    /// The paragraph in docs/manual-tests.md §19: spelling, grammar and
+    /// wordiness, so each level shows something the one below doesn't.
+    const STRICTNESS_FIXTURE: &str = "Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok? The plumber can come at 8am in the morning, and the repair is for free of charge.";
+
+    /// Harper 2.11 misses these (agreement across "and" and in "that"
+    /// clauses), at every level: the AI check is what catches them
+    /// (docs/phase1-plan.md, "Check with AI"). If a Harper update starts
+    /// flagging them, update Settings' level lines and this test.
+    #[test]
+    fn known_agreement_gaps_stay_documented() {
+        assert!(problems_at("Alex and I was at the unit on Monday.", Strictness::Full).is_empty());
+        assert!(problems_at("There are a few issues that needs fixing.", Strictness::Full).is_empty());
+    }
+
     fn problems_at(text: &str, level: Strictness) -> Vec<String> {
         let chars: Vec<char> = text.chars().collect();
         CHECKER.with(|c| c.borrow_mut().check_at(text, Rules::Full, level)).iter().map(|f| chars[f.start..f.end].iter().collect()).collect()
@@ -527,7 +541,7 @@ mod tests {
     /// §14.4: each level gives what it says, and only takes findings away.
     #[test]
     fn strictness_levels_keep_only_their_findings() {
-        let text = "Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok?";
+        let text = STRICTNESS_FIXTURE;
         let spelling = problems_at(text, Strictness::Spelling);
         let standard = problems_at(text, Strictness::Standard);
         let full = problems_at(text, Strictness::Full);
@@ -536,7 +550,12 @@ mod tests {
         }
         assert!(!spelling.iter().any(|f| f == "Their" || f.trim() == ","), "{spelling:?}");
         assert!(standard.iter().any(|f| f == "Their"), "grammar at Standard: {standard:?}");
-        assert!(spelling.len() < standard.len() && standard.len() <= full.len(), "{spelling:?} {standard:?} {full:?}");
+        assert!(spelling.len() < standard.len() && standard.len() < full.len(), "{spelling:?} {standard:?} {full:?}");
+        // Full adds wordiness the other levels leave alone (§19 retest,
+        // 2026-10-14: without these, Full looked the same as Standard).
+        for p in ["am in the morning", "for free of charge"] {
+            assert!(full.iter().any(|f| f == p) && !standard.iter().any(|f| f == p), "{p}: {standard:?} {full:?}");
+        }
         for f in &spelling {
             assert!(standard.contains(f) && full.contains(f), "{f}");
         }
@@ -574,4 +593,5 @@ mod tests {
         assert!(!format!("{f:?}").contains("SENTINEL"));
     }
 }
+
 

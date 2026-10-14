@@ -65,6 +65,18 @@ export function strictnessLabel(level: string): string {
   }
 }
 
+/**
+ * What a level covers, honestly (the §19 retest, 2026-10-14): Harper finds
+ * no agreement error across "and" or in a "that" clause at any level.
+ */
+export function strictnessCovers(level: string): string {
+  switch (level) {
+    case "spelling": return t("Misspelled words and repeated words (“the the”).");
+    case "standard": return t("Adds grammar, word choice, capitals and punctuation.");
+    default: return t("Adds wordiness and style (“8am in the morning”, “for free of charge”).");
+  }
+}
+
 /** A category's name in Settings → Writing → Rewrite tones. */
 export function categoryLabel(id: string): string {
   switch (id) {
@@ -106,12 +118,24 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
   const strictness = h("select", { "data-role": "strictness" }) as HTMLSelectElement;
   for (const level of STRICTNESS) strictness.append(h("option", { value: level, text: strictnessLabel(level) }));
   strictness.value = (STRICTNESS as readonly string[]).includes(host.settings().checkerStrictness) ? host.settings().checkerStrictness : "full";
+  const covers = h("ul", { class: "levels", "data-role": "strictness-covers" });
+  function drawCovers() {
+    clear(covers);
+    for (const level of STRICTNESS) {
+      const name = level === "spelling" ? t("Spelling only") : level === "standard" ? t("Standard") : t("Full");
+      covers.append(h("li", { class: level === strictness.value ? "current" : "", "data-level": level },
+        h("strong", { text: name }), h("span", { text: " " + strictnessCovers(level) })));
+    }
+  }
+  drawCovers();
   strictness.addEventListener("change", () => {
     const v = strictness.value;
     host.settings().checkerStrictness = v === "spelling" || v === "standard" ? v : "full";
+    drawCovers();
     void host.save();
   });
-  const strictnessRow = h("div", { class: "row" }, h("label", { text: t("Strictness") }), strictness);
+  strictness.id = "strictness";
+  const strictnessRow = h("div", { class: "row" }, h("label", { text: t("Strictness"), for: "strictness" }), strictness);
 
   function toneSelect(value: string, withDefault: boolean, onChange: (tone: string) => void): HTMLSelectElement {
     const select = h("select", {}) as HTMLSelectElement;
@@ -206,7 +230,9 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     h("div", { class: "hint", text: t("The apps Glim checks your writing in. Password managers and paused apps are never read, whatever their switch says.") }),
     apps,
     strictnessRow,
+    covers,
     h("div", { class: "hint", text: t("One level for every app. Chat apps keep their relaxed rules on top.") }),
+    h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
     tones,
   );
 }

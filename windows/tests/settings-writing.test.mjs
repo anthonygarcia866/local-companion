@@ -109,3 +109,19 @@ test("Strictness: one global level, full by default, stored as its id", () => {
   assert.equal(settings.checkerStrictness, "full", "anything else is full");
   assert.equal(saves, 2);
 });
+
+test("Strictness: a line under each level says what it covers, the current one marked, and the AI note", () => {
+  const settings = { ...DEFAULT_SETTINGS, writingApps: {}, rewriteTones: {}, checkerStrictness: "standard" };
+  const el = writingSection({ settings: () => settings, save: async () => {} }, KNOWN, DEFAULTS);
+  const covers = el.find("ul").find((u) => u.getAttribute("data-role") === "strictness-covers");
+  const lines = () => covers.find("li").map((li) => [li.getAttribute("data-level"), li.className, li.textContent]);
+  assert.deepEqual(lines().map(([l, c]) => [l, c]), [["spelling", ""], ["standard", "current"], ["full", ""]]);
+  assert.match(lines()[0][2], /^Spelling only Misspelled words/);
+  assert.match(lines()[2][2], /8am in the morning/);
+  const select = el.find("select").find((s) => s.getAttribute("data-role") === "strictness");
+  select.value = "full";
+  select.fire("change");
+  assert.deepEqual(lines().map(([, c]) => c), ["", "", "current"]);
+  const note = el.find("div").find((d) => d.getAttribute("data-role") === "strictness-ai-note");
+  assert.match(note.textContent, /Alex and I was.*need the AI/);
+});
