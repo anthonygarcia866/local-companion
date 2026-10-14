@@ -70,7 +70,7 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
   - "send it" → **not a tool**. There is no `send_email` tool; Claude can't produce one. The reply is `clarify { question: "Click Send on the draft to send it." }`.
 - **Sensitive data:** the transcript goes through the card/SSN/IBAN scan before the API call. A hit stops the request ("Not sent: …", the 1c wording). For `dictate`, the text Claude returns is scanned again before typing.
 
-### 4.1 When a step fails (decided 2026-10-13, Anthony)
+### 4.1 When a step fails (decided 2026-10-13, Anthony; command-word list confirmed 2026-10-14 — §4.1 fully confirmed)
 
 **The Claude clean-up step fails** when any of these happens:
 
@@ -83,7 +83,7 @@ What happens then:
 
 - **Dictation only: the raw transcript is typed**, after the sensitive scan, through 1b's insertion path with all its checks.
 - **The "not cleaned up" marker is shown by Glim**, on the result card and as the lantern's badge, **never inserted into the typed text.** The text typed is exactly the transcript.
-- **A spoken command is never typed as raw text.** If a command can't be acted on, the card shows **"Here's what I heard: … (couldn't act on it)"** and nothing happens. Without Claude, Glim can't classify the utterance, so it uses a cautious local rule: the transcript is typed **only** if an editable, non-password field had the focus when the key was pressed **and** the transcript doesn't start like a command (a short fixed list: "open", "pick up", "resume", "where was I", "draft", "email", "send", "reply", "delete", "go to", in any case, after leading filler like "hey Glim" or "um"). Anything else gets the "Here's what I heard" card. This is not a phrase parser: it never runs an action, it only decides whether raw typing is safe. *(This local rule is a design detail added 2026-10-13 to carry out the decision; Anthony to confirm the list.)*
+- **A spoken command is never typed as raw text.** If a command can't be acted on, the card shows **"Here's what I heard: … (couldn't act on it)"** and nothing happens. Without Claude, Glim can't classify the utterance, so it uses a cautious local rule: the transcript is typed **only** if an editable, non-password field had the focus when the key was pressed **and** the transcript doesn't start like a command (a short fixed list: "open", "pick up", "resume", "where was I", "draft", "email", "send", "reply", "delete", "go to", in any case, after leading filler like "hey Glim" or "um"). Anything else gets the "Here's what I heard" card. This is not a phrase parser: it never runs an action, it only decides whether raw typing is safe. *(Local rule added 2026-10-13 to carry out the decision; **the list was confirmed as-is by Anthony on 2026-10-14**.)*
 
 **Speech-to-text fails** (the cloud service is down, slow or refuses):
 
