@@ -385,7 +385,9 @@ const NOTHING: &str = "nothing";
 pub fn log_sync_state() {
     let (dirs, skipped) = find_config_dirs(&platform::home_dir(), std::env::var_os(CONFIG_DIR_VAR).map(PathBuf::from));
     if !skipped.is_empty() {
-        crate::log::line(format!("hooks: not a Claude Code config folder, skipped: {}", skipped.join(", ")));
+        // Quoted, so a trailing space shows: ".claude2 " is not ".claude2".
+        let names: Vec<String> = skipped.iter().map(|n| format!("{n:?}")).collect();
+        crate::log::line(format!("hooks: not a Claude Code config folder, skipped: {}", names.join(", ")));
     }
     let folders = folder_statuses(&dirs);
     if folders.iter().any(|f| f.installed) && !folders.iter().all(|f| f.up_to_date) {
@@ -864,6 +866,32 @@ mod tests {
         for name in [".claude2 ", ".claude", ".claude-mem", ".claude 2", ".claude2\u{a0}", ".claude²", ".claudé2", "claude2"] {
             assert!(!numbered_claude_name(name), "{name:?}");
         }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_owners_real_claude2_counts_and_its_trailing_space_twin_does_not() {
+        // Shaped like the owner's home (2026-10-13): .claude and .claude2 as
+        // Claude Code leaves them, and ".claude2 " beside .claude2 holding
+        // only a projects folder.
+        let home = scratch_home("owner");
+        for real in [".claude", ".claude2"] {
+            let dir = home.join(real);
+            used_by_claude(&dir, "history.jsonl");
+            std::fs::write(dir.join(".claude.json"), b"{}").unwrap();
+            std::fs::write(dir.join(".credentials.json"), b"").unwrap();
+            write_json(&dir.join("settings.json"), &json!({}));
+            for sub in ["sessions", "shell-snapshots", "file-history", "plugins"] {
+                std::fs::create_dir_all(dir.join(sub)).unwrap();
+            }
+        }
+        let twin = if cfg!(windows) { PathBuf::from(format!(r"\\?\{}", home.join(".claude2 ").display())) } else { home.join(".claude2 ") };
+        std::fs::create_dir_all(twin.join("projects")).unwrap();
+        let (dirs, skipped) = find_config_dirs(&home, None);
+        assert_eq!(dirs, [home.join(".claude"), home.join(".claude2")]);
+        assert_eq!(dirs[1].file_name().unwrap().len(), 8, "the real .claude2, no trailing space");
+        assert_eq!(skipped, [".claude2 "]);
+        assert_eq!(skipped[0].len(), 9);
         let _ = std::fs::remove_dir_all(&home);
     }
 
