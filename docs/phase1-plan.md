@@ -588,6 +588,8 @@ Settings gets a **Writing** section and a **Privacy** section:
 - **Shortcuts** gains Pause.
 - **Every new string** gets its 9 translations, as usual.
 
+> **⚠ Retest note (2026-10-14):** one long scroll was too much (Anthony). Settings now has a sidebar with search, and the page order is General · Presence · Writing (Apps, Tones, Strictness; the AI section under it) · Privacy · Shortcuts · Claude Code & Agents · About (`settings/nav.ts`).
+
 ### 14.9 Done when
 
 - [ ] Each app's switch takes effect within one reading (≤ 300 ms after the setting is saved), and an app switched off drops its suggestions and kept paragraph.

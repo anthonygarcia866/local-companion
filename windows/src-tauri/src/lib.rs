@@ -800,7 +800,7 @@ fn create_settings_window(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
         .title(i18n::t("Settings — Glim"))
-        .inner_size(560.0, 680.0)
+        .inner_size(780.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
         .visible(false)

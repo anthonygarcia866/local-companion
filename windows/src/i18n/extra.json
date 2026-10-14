@@ -4352,6 +4352,83 @@
    "pt-BR": "Entendi",
    "ru": "Понятно",
    "id": "Mengerti"
+  },
+  "Presence": {
+   "zh-Hans": "显示方式",
+   "hi": "उपस्थिति",
+   "es": "Presencia",
+   "ar": "الظهور",
+   "fr": "Présence",
+   "bn": "উপস্থিতি",
+   "pt-BR": "Presença",
+   "ru": "Присутствие",
+   "id": "Kehadiran"
+  },
+  "Tones": {
+   "zh-Hans": "语气",
+   "hi": "लहजे",
+   "es": "Tonos",
+   "ar": "النبرات",
+   "fr": "Tons",
+   "bn": "সুর",
+   "pt-BR": "Tons",
+   "ru": "Тон",
+   "id": "Nada"
+  },
+  "Claude Code & Agents": {
+   "zh-Hans": "Claude Code 与代理",
+   "hi": "Claude Code और एजेंट",
+   "es": "Claude Code y agentes",
+   "ar": "Claude Code والوكلاء",
+   "fr": "Claude Code et agents",
+   "bn": "Claude Code ও এজেন্ট",
+   "pt-BR": "Claude Code e agentes",
+   "ru": "Claude Code и агенты",
+   "id": "Claude Code & agen"
+  },
+  "About": {
+   "zh-Hans": "关于",
+   "hi": "परिचय",
+   "es": "Acerca de",
+   "ar": "حول",
+   "fr": "À propos",
+   "bn": "সম্পর্কে",
+   "pt-BR": "Sobre",
+   "ru": "О программе",
+   "id": "Tentang"
+  },
+  "Search settings": {
+   "zh-Hans": "搜索设置",
+   "hi": "सेटिंग खोजें",
+   "es": "Buscar ajustes",
+   "ar": "البحث في الإعدادات",
+   "fr": "Rechercher dans les réglages",
+   "bn": "সেটিংস খুঁজুন",
+   "pt-BR": "Pesquisar configurações",
+   "ru": "Поиск настроек",
+   "id": "Cari pengaturan"
+  },
+  "Settings sections": {
+   "zh-Hans": "设置分区",
+   "hi": "सेटिंग के भाग",
+   "es": "Secciones de ajustes",
+   "ar": "أقسام الإعدادات",
+   "fr": "Sections des réglages",
+   "bn": "সেটিংসের বিভাগ",
+   "pt-BR": "Seções das configurações",
+   "ru": "Разделы настроек",
+   "id": "Bagian pengaturan"
+  },
+  "No setting matches “{query}”.": {
+   "zh-Hans": "没有与“{query}”匹配的设置。",
+   "hi": "“{query}” से कोई सेटिंग मेल नहीं खाती।",
+   "es": "Ningún ajuste coincide con “{query}”.",
+   "ar": "لا يوجد إعداد يطابق “{query}”.",
+   "fr": "Aucun réglage ne correspond à « {query} ».",
+   "bn": "“{query}”-এর সঙ্গে কোনো সেটিং মেলেনি।",
+   "pt-BR": "Nenhuma configuração corresponde a “{query}”.",
+   "ru": "Нет настроек, подходящих под «{query}».",
+   "id": "Tidak ada pengaturan yang cocok dengan “{query}”."
   }
  }
 }

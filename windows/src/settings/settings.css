@@ -36,12 +36,141 @@ body.settings-window {
 }
 
 #settings-root {
-  padding: 22px 24px 32px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* Section navigation (settings/nav.ts): a sticky sidebar, or a sticky bar on
+   top when the window is narrow. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  align-items: start;
+}
+
+.settings-content {
+  padding: 22px 24px 32px 12px;
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 720px;
-  margin: 0 auto;
+  min-width: 0;
+}
+
+.settings-content > .settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 22px 8px 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nav-search {
+  width: 100%;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font: 400 12.5px var(--font);
+}
+
+.nav-search:focus-visible,
+.nav-link:focus-visible,
+section h2:focus-visible,
+section h3:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.nav-list,
+.nav-sub {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-link {
+  display: block;
+  color: var(--dim);
+  text-decoration: none;
+  font: 500 12.5px var(--font);
+  padding: 5px 9px;
+  border-radius: 7px;
+}
+
+.nav-link.sub {
+  padding-left: 22px;
+  font-weight: 400;
+}
+
+.nav-link:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-link.current {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 2px 0 0 var(--green);
+}
+
+[dir="rtl"] .nav-link.current {
+  box-shadow: inset -2px 0 0 var(--green);
+}
+
+/* Search hides what doesn't match; rows set their own display. */
+.settings-content [hidden],
+.nav-empty[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-nav {
+    z-index: 2;
+    max-height: none;
+    padding: 12px 16px 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .nav-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 2px;
+  }
+  .nav-sub {
+    display: none;
+  }
+  .nav-link {
+    white-space: nowrap;
+  }
+  .settings-content {
+    padding: 16px;
+  }
+  section,
+  .settings-group,
+  .pill-group {
+    scroll-margin-top: 100px;
+  }
+}
+
+/* Jumping to a section leaves room above its heading. */
+section,
+.settings-group,
+.pill-group {
+  scroll-margin-top: 16px;
 }
 
 h1 {

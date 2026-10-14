@@ -112,8 +112,8 @@ export function categoryTone(map: Record<string, string>, id: string, builtin: s
 const shortName = (exe: string) => exe.replace(/\.exe$/i, "");
 
 export function writingSection(host: WritingHost, known: KnownApp[], toneDefaults: [string, string][] = []): HTMLElement {
-  const apps = h("div", { class: "pill-group" });
-  const tones = h("div", { class: "pill-group" });
+  const apps = h("div", { class: "pill-group", id: "settings-writing-apps" });
+  const tones = h("div", { class: "pill-group", id: "settings-writing-tones" });
 
   const strictness = h("select", { "data-role": "strictness" }) as HTMLSelectElement;
   for (const level of STRICTNESS) strictness.append(h("option", { value: level, text: strictnessLabel(level) }));
@@ -229,10 +229,12 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     h("h2", {}, h("span", { text: t("Writing") })),
     h("div", { class: "hint", text: t("The apps Glim checks your writing in. Password managers and paused apps are never read, whatever their switch says.") }),
     apps,
-    strictnessRow,
-    covers,
-    h("div", { class: "hint", text: t("One level for every app. Chat apps keep their relaxed rules on top.") }),
-    h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
+    h("div", { class: "settings-group", id: "settings-writing-strictness" },
+      strictnessRow,
+      covers,
+      h("div", { class: "hint", text: t("One level for every app. Chat apps keep their relaxed rules on top.") }),
+      h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
+    ),
     tones,
   );
 }

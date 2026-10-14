@@ -449,6 +449,17 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ---
 
+## 22. Settings navigation (1d retest)
+
+*Where: `phase-1d`.* Open Settings…
+
+1. **Sidebar:** on the left: a search box, then General, Presence, Writing (Apps, Tones, Strictness), Privacy, Shortcuts, Claude Code & Agents, About. The page's sections come in the same order.
+2. **Jump:** click **Strictness**. The page scrolls to it, and Strictness is marked in the sidebar. Scroll by hand: the mark follows the section on screen.
+3. **Keyboard:** Tab to the sidebar, move with Tab, press Enter on **Privacy**: it scrolls there, and the next Tab continues inside Privacy.
+4. **Search:** press **Ctrl+F**, type `ember`: only the "Show Glim as" row (Presence) stays. Type `apps`: Writing's whole Apps list shows. Type `zzz`: "No setting matches “zzz”." Press **Esc**: everything is back.
+5. **Narrow:** make the window narrow (under ~640 px): the sidebar becomes a bar on top with the sections side by side; clicking one still jumps there and the heading isn't hidden under the bar.
+6. **Language:** switch to Français and back: the sidebar and search are translated, and what you typed in the search stays.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
