@@ -121,6 +121,8 @@ export const Bridge = {
   // The rewrite (1c): a tone id, or which rewrite; never text.
   /** A tone on the Rewrite card: sends the paragraph to the Claude API. */
   writingRewrite: (tone: string) => call<void>("writing_rewrite", { tone }),
+  /** "Check with AI": the paragraph the caret is in goes to Claude (Haiku). */
+  writingAiCheck: () => call<void>("writing_ai_check"),
   /** "Use this": types rewrite `id` in (1b's apply path). */
   writingRewriteApply: (id: number) => call<void>("writing_rewrite_apply", { id }),
   writingRewriteCopy: (id: number) => call<void>("writing_rewrite_copy", { id }),

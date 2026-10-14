@@ -7,6 +7,7 @@ import { Bridge, onEvent } from "./core/bridge";
 import { State, type Settings, type WritingFix, type WritingResult, type WritingSuggestion } from "./core/state";
 import { Island } from "./island/island";
 import { nextRewrite, type RewriteEvent } from "./core/rewrite";
+import { nextAiCheck, type AiCheckEvent } from "./core/ai-check";
 import { askPlacement, type WritingAsk } from "./core/ask";
 import { answerAsk, askClock } from "./views/ask";
 import { docsTipPlacement } from "./core/docs-tip";
@@ -167,6 +168,9 @@ async function main() {
     const had = State.writing.length > 0;
     State.writing = items;
     State.writingFix = { checkId, mode, app };
+    // A finished "Check with AI" note belongs to the list before this one
+    // (Rust sends the AI's list just before its "done").
+    if (State.aiCheck && State.aiCheck.phase !== "sending") State.aiCheck = null;
     presence.setWriting(items.length);
     // The list emptied while it was open: back to what the island shows.
     // Not when it emptied because a fix just worked: the list stays to say so
@@ -189,6 +193,12 @@ async function main() {
 
   // The Rewrite card (1c): Rust's answer to a tone click, and what "Use
   // this" or "Copy" did. Stored and redrawn, nothing else.
+  // "Check with AI" (core/ai-check.ts): the lantern delegates while it runs.
+  await onEvent<AiCheckEvent>("writing-ai-check", (e) => {
+    State.aiCheck = nextAiCheck(e);
+    State.notify();
+  });
+
   await onEvent<RewriteEvent>("writing-rewrite", (e) => {
     State.rewrite = nextRewrite(State.rewrite, e);
     State.notify();

@@ -114,9 +114,11 @@ test("the suggestion list sends ids only and never logs", () => {
   for (const banned of ["addEventListener", "console.", "keydown", "localStorage"]) {
     assert.ok(!section.includes(banned), `the suggestion list uses ${banned}`);
   }
-  // Its only calls to Rust: a fix, Apply all, a copy, dismiss; with ids, never words.
+  // Its only calls to Rust: a fix, Apply all, a copy, dismiss, Check with
+  // AI; with ids (or nothing), never words.
   assert.deepEqual(section.match(/Bridge\.\w+\([^)]*\)/g), [
     "Bridge.writingDismiss()",
+    "Bridge.writingAiCheck()",
     "Bridge.writingFixAll(fix.checkId)",
     "Bridge.writingFix(fix.checkId, index, choice)",
     "Bridge.writingCopy(fix.checkId, index, choice)",

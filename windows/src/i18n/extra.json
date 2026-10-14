@@ -4506,6 +4506,160 @@
    "pt-BR": "Não enviado: contém um número de cartão, de documento ou bancário, ou é um campo de pagamento. O Glim nunca lê nem envia isso.",
    "ru": "Не отправлено: здесь номер карты, документа или банковского счёта, или это платёжное поле. Glim никогда их не читает и не отправляет.",
    "id": "Tidak dikirim: ini berisi nomor kartu, identitas, atau rekening bank, atau ini kolom pembayaran. Glim tidak pernah membaca atau mengirimnya."
+  },
+  "Check with AI": {
+   "zh-Hans": "用 AI 检查",
+   "hi": "AI से जाँचें",
+   "es": "Revisar con IA",
+   "ar": "التدقيق بالذكاء الاصطناعي",
+   "fr": "Vérifier avec l’IA",
+   "bn": "AI দিয়ে যাচাই",
+   "pt-BR": "Verificar com IA",
+   "ru": "Проверить с ИИ",
+   "id": "Periksa dengan AI"
+  },
+  "Send this paragraph to Claude to find grammar and meaning errors the checker misses": {
+   "zh-Hans": "把这段文字发给 Claude，找出检查器漏掉的语法和语义错误",
+   "hi": "यह अनुच्छेद Claude को भेजें, ताकि जाँचकर्ता से छूटी व्याकरण और अर्थ की ग़लतियाँ मिलें",
+   "es": "Envía este párrafo a Claude para encontrar errores de gramática y de sentido que el corrector no detecta",
+   "ar": "أرسل هذه الفقرة إلى Claude للعثور على أخطاء القواعد والمعنى التي يفوتها المدقق",
+   "fr": "Envoyer ce paragraphe à Claude pour trouver les fautes de grammaire et de sens que le correcteur ne voit pas",
+   "bn": "এই অনুচ্ছেদ Claude-এ পাঠান, যাতে যাচাইকারীর চোখ এড়ানো ব্যাকরণ ও অর্থের ভুল পাওয়া যায়",
+   "pt-BR": "Enviar este parágrafo ao Claude para achar erros de gramática e de sentido que o corretor não vê",
+   "ru": "Отправить этот абзац Claude, чтобы найти грамматические и смысловые ошибки, которые пропускает проверка",
+   "id": "Kirim paragraf ini ke Claude untuk menemukan kesalahan tata bahasa dan makna yang terlewat oleh pemeriksa"
+  },
+  "Checking with Claude…": {
+   "zh-Hans": "正在用 Claude 检查…",
+   "hi": "Claude से जाँच हो रही है…",
+   "es": "Revisando con Claude…",
+   "ar": "جارٍ التدقيق مع Claude…",
+   "fr": "Vérification avec Claude…",
+   "bn": "Claude দিয়ে যাচাই হচ্ছে…",
+   "pt-BR": "Verificando com o Claude…",
+   "ru": "Проверка с Claude…",
+   "id": "Memeriksa dengan Claude…"
+  },
+  "Claude found {count} more suggestions.": {
+   "zh-Hans": {"other": "Claude 又找到 {count} 条建议。"},
+   "hi": {"one": "Claude को {count} और सुझाव मिला।", "other": "Claude को {count} और सुझाव मिले।"},
+   "es": {"one": "Claude encontró {count} sugerencia más.", "other": "Claude encontró {count} sugerencias más."},
+   "ar": {"zero": "وجد Claude {count} اقتراحات إضافية.", "one": "وجد Claude اقتراحًا إضافيًا واحدًا.", "two": "وجد Claude اقتراحين إضافيين.", "few": "وجد Claude {count} اقتراحات إضافية.", "many": "وجد Claude {count} اقتراحًا إضافيًا.", "other": "وجد Claude {count} اقتراح إضافي."},
+   "fr": {"one": "Claude a trouvé {count} suggestion de plus.", "other": "Claude a trouvé {count} suggestions de plus."},
+   "bn": {"one": "Claude আরও {count}টি পরামর্শ পেয়েছে।", "other": "Claude আরও {count}টি পরামর্শ পেয়েছে।"},
+   "pt-BR": {"one": "O Claude encontrou mais {count} sugestão.", "other": "O Claude encontrou mais {count} sugestões."},
+   "ru": {"one": "Claude нашёл ещё {count} предложение.", "few": "Claude нашёл ещё {count} предложения.", "many": "Claude нашёл ещё {count} предложений.", "other": "Claude нашёл ещё {count} предложения."},
+   "id": {"other": "Claude menemukan {count} saran lagi."}
+  },
+  "Claude found nothing more to fix.": {
+   "zh-Hans": "Claude 没有找到其他要改的地方。",
+   "hi": "Claude को ठीक करने के लिए और कुछ नहीं मिला।",
+   "es": "Claude no encontró nada más que corregir.",
+   "ar": "لم يجد Claude شيئًا آخر يحتاج إلى تصحيح.",
+   "fr": "Claude n’a rien trouvé d’autre à corriger.",
+   "bn": "ঠিক করার মতো আর কিছু Claude পায়নি।",
+   "pt-BR": "O Claude não encontrou mais nada para corrigir.",
+   "ru": "Claude больше ничего не нашёл.",
+   "id": "Claude tidak menemukan hal lain untuk diperbaiki."
+  },
+  "Click in the paragraph you want checked first.": {
+   "zh-Hans": "请先点击要检查的段落。",
+   "hi": "पहले उस अनुच्छेद में क्लिक करें जिसे जाँचना है।",
+   "es": "Primero haz clic en el párrafo que quieres revisar.",
+   "ar": "انقر أولًا في الفقرة التي تريد تدقيقها.",
+   "fr": "Cliquez d’abord dans le paragraphe à vérifier.",
+   "bn": "আগে যে অনুচ্ছেদ যাচাই করতে চান সেখানে ক্লিক করুন।",
+   "pt-BR": "Primeiro clique no parágrafo que você quer verificar.",
+   "ru": "Сначала щёлкните в абзаце, который нужно проверить.",
+   "id": "Klik dulu di paragraf yang ingin diperiksa."
+  },
+  "That paragraph is too long to check (over 2,000 characters).": {
+   "zh-Hans": "这段太长，无法检查（超过 2,000 个字符）。",
+   "hi": "यह अनुच्छेद जाँचने के लिए बहुत लंबा है (2,000 से ज़्यादा अक्षर)।",
+   "es": "Ese párrafo es demasiado largo para revisarlo (más de 2.000 caracteres).",
+   "ar": "هذه الفقرة أطول من أن تُدقَّق (أكثر من 2000 حرف).",
+   "fr": "Ce paragraphe est trop long pour être vérifié (plus de 2 000 caractères).",
+   "bn": "এই অনুচ্ছেদ যাচাই করার পক্ষে খুব লম্বা (২,০০০-এর বেশি অক্ষর)।",
+   "pt-BR": "Esse parágrafo é longo demais para verificar (mais de 2.000 caracteres).",
+   "ru": "Этот абзац слишком длинный для проверки (больше 2000 символов).",
+   "id": "Paragraf itu terlalu panjang untuk diperiksa (lebih dari 2.000 karakter)."
+  },
+  "The paragraph changed while Claude was checking. Check again.": {
+   "zh-Hans": "Claude 检查时段落已改动。请再检查一次。",
+   "hi": "Claude के जाँचते समय अनुच्छेद बदल गया। फिर से जाँचें।",
+   "es": "El párrafo cambió mientras Claude lo revisaba. Vuelve a revisarlo.",
+   "ar": "تغيّرت الفقرة أثناء تدقيق Claude. دقّقها مرة أخرى.",
+   "fr": "Le paragraphe a changé pendant la vérification. Relancez-la.",
+   "bn": "Claude যাচাই করার সময় অনুচ্ছেদ বদলে গেছে। আবার যাচাই করুন।",
+   "pt-BR": "O parágrafo mudou enquanto o Claude verificava. Verifique de novo.",
+   "ru": "Абзац изменился, пока Claude проверял его. Проверьте ещё раз.",
+   "id": "Paragraf berubah saat Claude memeriksa. Periksa lagi."
+  },
+  "Claude declined to check this.": {
+   "zh-Hans": "Claude 拒绝检查这段内容。",
+   "hi": "Claude ने इसे जाँचने से मना कर दिया।",
+   "es": "Claude se negó a revisar esto.",
+   "ar": "رفض Claude تدقيق هذا.",
+   "fr": "Claude a refusé de vérifier ceci.",
+   "bn": "Claude এটি যাচাই করতে রাজি হয়নি।",
+   "pt-BR": "O Claude se recusou a verificar isto.",
+   "ru": "Claude отказался это проверять.",
+   "id": "Claude menolak memeriksa ini."
+  },
+  "Claude's answer couldn't be used. Try again.": {
+   "zh-Hans": "Claude 的回答无法使用。请重试。",
+   "hi": "Claude का जवाब इस्तेमाल नहीं हो सका। फिर से कोशिश करें।",
+   "es": "No se pudo usar la respuesta de Claude. Inténtalo de nuevo.",
+   "ar": "تعذّر استخدام إجابة Claude. حاول مرة أخرى.",
+   "fr": "La réponse de Claude est inutilisable. Réessayez.",
+   "bn": "Claude-এর উত্তর ব্যবহার করা গেল না। আবার চেষ্টা করুন।",
+   "pt-BR": "Não deu para usar a resposta do Claude. Tente de novo.",
+   "ru": "Ответ Claude не удалось использовать. Попробуйте ещё раз.",
+   "id": "Jawaban Claude tidak bisa dipakai. Coba lagi."
+  },
+  "Found by Claude (Check with AI)": {
+   "zh-Hans": "由 Claude 找到（用 AI 检查）",
+   "hi": "Claude ने ढूँढा (AI से जाँचें)",
+   "es": "Encontrado por Claude (Revisar con IA)",
+   "ar": "عثر عليه Claude (التدقيق بالذكاء الاصطناعي)",
+   "fr": "Trouvé par Claude (Vérifier avec l’IA)",
+   "bn": "Claude খুঁজে পেয়েছে (AI দিয়ে যাচাই)",
+   "pt-BR": "Encontrado pelo Claude (Verificar com IA)",
+   "ru": "Найдено Claude (проверка с ИИ)",
+   "id": "Ditemukan oleh Claude (Periksa dengan AI)"
+  },
+  "AI": {
+   "zh-Hans": "AI",
+   "hi": "AI",
+   "es": "IA",
+   "ar": "ذ.ا",
+   "fr": "IA",
+   "bn": "AI",
+   "pt-BR": "IA",
+   "ru": "ИИ",
+   "id": "AI"
+  },
+  "Check with AI automatically when I pause typing": {
+   "zh-Hans": "停止输入时自动用 AI 检查",
+   "hi": "टाइप करना रोकने पर अपने-आप AI से जाँचें",
+   "es": "Revisar con IA automáticamente cuando dejo de escribir",
+   "ar": "التدقيق بالذكاء الاصطناعي تلقائيًا عندما أتوقف عن الكتابة",
+   "fr": "Vérifier avec l’IA automatiquement quand j’arrête de taper",
+   "bn": "টাইপ থামালে নিজে থেকে AI দিয়ে যাচাই",
+   "pt-BR": "Verificar com IA automaticamente quando eu paro de digitar",
+   "ru": "Автоматически проверять с ИИ, когда я перестаю печатать",
+   "id": "Periksa dengan AI otomatis saat saya berhenti mengetik"
+  },
+  "Off: a paragraph goes to Claude only when you click Check with AI. On: after a 2-second pause, once per paragraph, with the same card and ID check and the same monthly cap.": {
+   "zh-Hans": "关闭：只有点击“用 AI 检查”时段落才会发给 Claude。开启：停顿 2 秒后，每段一次，同样会先检查卡号和证件号，并受同样的每月上限约束。",
+   "hi": "बंद: अनुच्छेद Claude को तभी जाता है जब आप AI से जाँचें पर क्लिक करते हैं। चालू: 2 सेकंड रुकने पर, हर अनुच्छेद एक बार, उसी कार्ड और ID जाँच और उसी मासिक सीमा के साथ।",
+   "es": "Desactivado: un párrafo va a Claude solo cuando haces clic en Revisar con IA. Activado: tras una pausa de 2 segundos, una vez por párrafo, con la misma comprobación de tarjetas e identificaciones y el mismo límite mensual.",
+   "ar": "إيقاف: لا تُرسل الفقرة إلى Claude إلا عند النقر على التدقيق بالذكاء الاصطناعي. تشغيل: بعد توقف لثانيتين، مرة واحدة لكل فقرة، مع نفس فحص أرقام البطاقات والهوية ونفس الحد الشهري.",
+   "fr": "Désactivé : un paragraphe n’est envoyé à Claude que si vous cliquez sur Vérifier avec l’IA. Activé : après 2 secondes de pause, une fois par paragraphe, avec le même contrôle des numéros de carte et d’identité et le même plafond mensuel.",
+   "bn": "বন্ধ: AI দিয়ে যাচাই-এ ক্লিক করলেই কেবল অনুচ্ছেদ Claude-এ যায়। চালু: ২ সেকেন্ড থামার পর, প্রতি অনুচ্ছেদে একবার, একই কার্ড ও আইডি যাচাই এবং একই মাসিক সীমা মেনে।",
+   "pt-BR": "Desligado: um parágrafo só vai para o Claude quando você clica em Verificar com IA. Ligado: após 2 segundos de pausa, uma vez por parágrafo, com a mesma verificação de cartões e documentos e o mesmo limite mensal.",
+   "ru": "Выкл.: абзац уходит Claude, только когда вы нажимаете «Проверить с ИИ». Вкл.: после паузы в 2 секунды, один раз на абзац, с той же проверкой номеров карт и документов и тем же месячным лимитом.",
+   "id": "Mati: paragraf dikirim ke Claude hanya saat Anda mengeklik Periksa dengan AI. Nyala: setelah jeda 2 detik, sekali per paragraf, dengan pemeriksaan kartu dan ID yang sama serta batas bulanan yang sama."
   }
  }
 }

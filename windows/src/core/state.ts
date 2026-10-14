@@ -1,5 +1,6 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
+import type { AiCheckEvent } from "./ai-check";
 import type { BotEmoteName, BotStateName, Dock, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
@@ -171,6 +172,8 @@ export interface Settings {
   pauseSites: string[];
   /** Settings → General → File drop zone: the pill takes files dragged onto it. */
   fileDropZone: boolean;
+  /** Settings → Writing → Check with AI automatically when I pause typing (§15.1). Off by default. */
+  aiAutoCheck: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -200,6 +203,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseApps: [],
   pauseSites: [],
   fileDropZone: true,
+  aiAutoCheck: false,
 };
 
 type Listener = () => void;
@@ -325,6 +329,8 @@ class AppState {
   writingBusy = false;
   /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
   rewrite: RewriteState | null = null;
+  /** "Check with AI" (core/ai-check.ts): the last check's phase; null for none. */
+  aiCheck: AiCheckEvent | null = null;
   /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
   writingAsk: WritingAsk | null = null;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */

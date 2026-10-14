@@ -13,6 +13,7 @@ import {
 } from "../core/layout";
 import { State } from "../core/state";
 import { sendingToApi } from "../core/rewrite";
+import { aiSending } from "../core/ai-check";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -1143,7 +1144,7 @@ export class Island {
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
-    else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
+    else if (sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
