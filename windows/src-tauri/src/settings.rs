@@ -99,6 +99,9 @@ pub struct Settings {
     /// entries only; the built-in ones stay in code (capture::sensitive).
     pub pause_apps: Vec<String>,
     pub pause_sites: Vec<String>,
+    /// Settings → General → "File drop zone" (1d retest): the pill takes
+    /// files dragged onto it. Off: file drags never stop at Glim.
+    pub file_drop_zone: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -151,6 +154,7 @@ impl Default for Settings {
             checker_strictness: "full".into(),
             pause_apps: Vec::new(),
             pause_sites: Vec::new(),
+            file_drop_zone: true,
         }
     }
 }
@@ -433,7 +437,8 @@ mod tests {
   "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" },
   "checkerStrictness": "standard",
   "pauseApps": ["Quicken.exe"],
-  "pauseSites": ["portal.example.com", "*/invoice"]
+  "pauseSites": ["portal.example.com", "*/invoice"],
+  "fileDropZone": false
 }"##;
 
     fn custom() -> Value {
@@ -865,6 +870,7 @@ mod tests {
                 "checkerStrictness",
                 "pauseApps",
                 "pauseSites",
+                "fileDropZone",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

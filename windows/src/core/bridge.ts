@@ -401,7 +401,7 @@ interface WebView2Bridge {
  * the drop hands the File objects to Rust, which answers with their real paths
  * as a `file-drag` event. Elsewhere (Linux) Tauri's own drag events still do it.
  */
-export async function onDragDrop(handler: (e: DragDropPayload) => void) {
+export async function onDragDrop(handler: (e: DragDropPayload) => void, enabled: () => boolean = () => true) {
   if (!IS_TAURI) return () => {};
   const webview = (window as unknown as { chrome?: { webview?: WebView2Bridge } }).chrome?.webview;
   if (!webview) {
@@ -413,13 +413,14 @@ export async function onDragDrop(handler: (e: DragDropPayload) => void) {
   // dragenter/dragleave fire for every element crossed; only the outermost pair counts.
   let depth = 0;
 
+  // "File drop zone" off: the page doesn't accept the drag (no-drop cursor).
   const onEnter = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || !enabled()) return;
     e.preventDefault();
     if (depth++ === 0) handler({ type: "enter" });
   };
   const onOver = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || !enabled()) return;
     // Without this WebView2 refuses the drop — or navigates to the file.
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
@@ -445,7 +446,15 @@ export async function onDragDrop(handler: (e: DragDropPayload) => void) {
   window.addEventListener("dragleave", onLeave);
   window.addEventListener("drop", onDrop);
   const unlisten = await listen<DragDropPayload>("file-drag", (e) => handler(e.payload));
+  // Rust disarmed the zone (the drag left it, ended elsewhere or was
+  // cancelled): a leave, even if the page never saw one.
+  const unlistenDisarm = await listen("file-drag-disarm", () => {
+    if (depth === 0) return;
+    depth = 0;
+    handler({ type: "leave" });
+  });
   return () => {
+    unlistenDisarm();
     window.removeEventListener("dragenter", onEnter);
     window.removeEventListener("dragover", onOver);
     window.removeEventListener("dragleave", onLeave);

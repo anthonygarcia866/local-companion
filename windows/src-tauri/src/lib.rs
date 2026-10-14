@@ -98,6 +98,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         (screen_changed, autostart_changed, shortcuts_changed)
     };
     let settings = shared.settings.lock().unwrap().clone();
+    shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     if let Err(err) = settings::save(&settings) {
@@ -958,6 +959,7 @@ pub fn run() {
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     let gate = Arc::new(PollGate::new());
+    gate.drop_zone.store(loaded.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {

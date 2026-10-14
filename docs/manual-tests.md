@@ -460,6 +460,20 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 5. **Narrow:** make the window narrow (under ~640 px): the sidebar becomes a bar on top with the sections side by side; clicking one still jumps there and the heading isn't hidden under the bar.
 6. **Language:** switch to Français and back: the sidebar and search are translated, and what you typed in the search stays.
 
+## 23. File drags pass Glim by (1d retest)
+
+*Where: `phase-1d`.* Glim running as the pill, top centre.
+
+1. **Into another folder:** drag a file from one Explorer window to another folder, passing the mouse **across the top of the screen near (not onto) the pill** on the way.
+   - **See:** Glim doesn't change, no "Drop your files here"; the file lands in the folder.
+2. **Into Outlook:** drag a file onto a new email in Outlook (attach it).
+   - **See:** it attaches; Glim never opens.
+3. **Onto the lantern:** drag a file onto the pill.
+   - **See:** the bucket ("Drop your files here", PDF / Images / Code / Docs) appears as you get close; drop it on a target: it is taken as before.
+4. **Change your mind:** drag a file onto the pill until the bucket opens, then move away (or press **Esc**).
+   - **See:** the bucket folds away at once; dropping somewhere else then works normally.
+5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

@@ -169,6 +169,8 @@ export interface Settings {
   /** Settings → Privacy (1d): the user's own paused apps (exe names) and sites. */
   pauseApps: string[];
   pauseSites: string[];
+  /** Settings → General → File drop zone: the pill takes files dragged onto it. */
+  fileDropZone: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -197,6 +199,7 @@ export const DEFAULT_SETTINGS: Settings = {
   checkerStrictness: "full",
   pauseApps: [],
   pauseSites: [],
+  fileDropZone: true,
 };
 
 type Listener = () => void;

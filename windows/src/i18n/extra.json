@@ -4429,6 +4429,28 @@
    "pt-BR": "Nenhuma configuração corresponde a “{query}”.",
    "ru": "Нет настроек, подходящих под «{query}».",
    "id": "Tidak ada pengaturan yang cocok dengan “{query}”."
+  },
+  "File drop zone": {
+   "zh-Hans": "文件投放区",
+   "hi": "फ़ाइल ड्रॉप क्षेत्र",
+   "es": "Zona para soltar archivos",
+   "ar": "منطقة إفلات الملفات",
+   "fr": "Zone de dépôt de fichiers",
+   "bn": "ফাইল ছাড়ার জায়গা",
+   "pt-BR": "Área para soltar arquivos",
+   "ru": "Зона для файлов",
+   "id": "Area lepas berkas"
+  },
+  "Drop a file on the pill to hand it to Glim. Drags anywhere else are never stopped.": {
+   "zh-Hans": "把文件拖到胶囊上即可交给 Glim。拖到其他地方时不会被拦下。",
+   "hi": "फ़ाइल Glim को देने के लिए उसे पिल पर छोड़ें। कहीं और खींची गई फ़ाइल कभी रोकी नहीं जाती।",
+   "es": "Suelta un archivo en la píldora para dárselo a Glim. Los arrastres a cualquier otro sitio nunca se interrumpen.",
+   "ar": "أفلت ملفًا على الكبسولة لتسليمه إلى Glim. لا يُوقَف أي سحب إلى مكان آخر.",
+   "fr": "Déposez un fichier sur la pastille pour le confier à Glim. Les glisser-déposer ailleurs ne sont jamais interceptés.",
+   "bn": "ফাইল Glim-কে দিতে পিলের ওপর ছাড়ুন। অন্য কোথাও টানলে কখনও আটকানো হয় না।",
+   "pt-BR": "Solte um arquivo na pílula para entregá-lo ao Glim. Arrastos para qualquer outro lugar nunca são interrompidos.",
+   "ru": "Перетащите файл на капсулу, чтобы передать его Glim. Перетаскивание в другие места никогда не перехватывается.",
+   "id": "Lepas berkas di pil untuk menyerahkannya ke Glim. Seretan ke tempat lain tidak pernah dihentikan."
   }
  }
 }
