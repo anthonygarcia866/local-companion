@@ -4671,6 +4671,160 @@
    "pt-BR": "Segure para ditar",
    "ru": "Удерживайте для диктовки",
    "id": "Tahan untuk mendikte"
+  },
+  "Claude didn't answer in time, so it wasn't cleaned up.": {
+   "zh-Hans": "Claude 没有及时回应，所以没有整理。",
+   "hi": "Claude ने समय पर जवाब नहीं दिया, इसलिए इसे साफ़ नहीं किया गया।",
+   "es": "Claude no respondió a tiempo, así que no se limpió.",
+   "ar": "لم يردّ Claude في الوقت المناسب، لذلك لم يُنقَّح النص.",
+   "fr": "Claude n'a pas répondu à temps, le texte n'a donc pas été nettoyé.",
+   "bn": "Claude সময়মতো উত্তর দেয়নি, তাই এটি পরিষ্কার করা হয়নি।",
+   "pt-BR": "O Claude não respondeu a tempo, então o texto não foi limpo.",
+   "ru": "Claude не ответил вовремя, поэтому текст не был очищен.",
+   "id": "Claude tidak menjawab tepat waktu, jadi teks tidak dirapikan."
+  },
+  "Not cleaned up: {why}": {
+   "zh-Hans": "未整理：{why}",
+   "hi": "साफ़ नहीं किया गया: {why}",
+   "es": "Sin limpiar: {why}",
+   "ar": "لم يُنقَّح: {why}",
+   "fr": "Non nettoyé : {why}",
+   "bn": "পরিষ্কার করা হয়নি: {why}",
+   "pt-BR": "Não foi limpo: {why}",
+   "ru": "Не очищено: {why}",
+   "id": "Tidak dirapikan: {why}"
+  },
+  "Typed in {app}, not cleaned up": {
+   "zh-Hans": "已在 {app} 中输入，未整理",
+   "hi": "{app} में टाइप किया गया, साफ़ नहीं किया गया",
+   "es": "Escrito en {app}, sin limpiar",
+   "ar": "كُتب في {app} دون تنقيح",
+   "fr": "Saisi dans {app}, non nettoyé",
+   "bn": "{app}-এ টাইপ করা হয়েছে, পরিষ্কার করা হয়নি",
+   "pt-BR": "Digitado no {app}, sem limpeza",
+   "ru": "Напечатано в {app}, без очистки",
+   "id": "Diketik di {app}, tidak dirapikan"
+  },
+  "Not typed": {
+   "zh-Hans": "未输入",
+   "hi": "टाइप नहीं किया गया",
+   "es": "No se escribió",
+   "ar": "لم يُكتب",
+   "fr": "Non saisi",
+   "bn": "টাইপ করা হয়নি",
+   "pt-BR": "Não digitado",
+   "ru": "Не напечатано",
+   "id": "Tidak diketik"
+  },
+  "Glim couldn't type it. Copy it and paste it yourself.": {
+   "zh-Hans": "Glim 无法输入。请复制后自行粘贴。",
+   "hi": "Glim इसे टाइप नहीं कर सका। इसे कॉपी करके खुद पेस्ट करें।",
+   "es": "Glim no pudo escribirlo. Cópialo y pégalo tú.",
+   "ar": "تعذّر على Glim كتابته. انسخه والصقه بنفسك.",
+   "fr": "Glim n'a pas pu le saisir. Copiez-le et collez-le vous-même.",
+   "bn": "Glim এটি টাইপ করতে পারেনি। কপি করে নিজে পেস্ট করুন।",
+   "pt-BR": "O Glim não conseguiu digitar. Copie e cole você mesmo.",
+   "ru": "Glim не смог это напечатать. Скопируйте и вставьте сами.",
+   "id": "Glim tidak bisa mengetiknya. Salin lalu tempel sendiri."
+  },
+  "Here's what I heard (couldn't act on it)": {
+   "zh-Hans": "我听到的内容（无法执行）",
+   "hi": "मैंने यह सुना (इस पर कुछ नहीं कर सका)",
+   "es": "Esto es lo que oí (no pude hacer nada con ello)",
+   "ar": "هذا ما سمعته (تعذّر تنفيذه)",
+   "fr": "Voici ce que j'ai entendu (impossible d'agir)",
+   "bn": "আমি যা শুনেছি (এ নিয়ে কিছু করতে পারিনি)",
+   "pt-BR": "Foi isto que ouvi (não consegui agir)",
+   "ru": "Вот что я услышал (не смог выполнить)",
+   "id": "Ini yang saya dengar (tidak bisa ditindaklanjuti)"
+  },
+  "Nothing was typed. Click in a text field first to dictate.": {
+   "zh-Hans": "没有输入任何内容。请先点击文本框再听写。",
+   "hi": "कुछ भी टाइप नहीं हुआ। बोलकर लिखने के लिए पहले किसी टेक्स्ट फ़ील्ड में क्लिक करें।",
+   "es": "No se escribió nada. Haz clic en un campo de texto antes de dictar.",
+   "ar": "لم يُكتب شيء. انقر في حقل نصي أولًا لتُملي.",
+   "fr": "Rien n'a été saisi. Cliquez d'abord dans un champ de texte pour dicter.",
+   "bn": "কিছুই টাইপ হয়নি। বলে লেখার আগে একটি টেক্সট ফিল্ডে ক্লিক করুন।",
+   "pt-BR": "Nada foi digitado. Clique em um campo de texto antes de ditar.",
+   "ru": "Ничего не напечатано. Сначала щёлкните в текстовом поле, чтобы диктовать.",
+   "id": "Tidak ada yang diketik. Klik di kolom teks dulu untuk mendikte."
+  },
+  "Hold the dictation shortcut again to answer.": {
+   "zh-Hans": "再次按住听写快捷键来回答。",
+   "hi": "जवाब देने के लिए बोलकर लिखने का शॉर्टकट फिर से दबाकर रखें।",
+   "es": "Mantén pulsado de nuevo el atajo de dictado para responder.",
+   "ar": "اضغط مطولًا على اختصار الإملاء مرة أخرى للإجابة.",
+   "fr": "Maintenez à nouveau le raccourci de dictée pour répondre.",
+   "bn": "উত্তর দিতে আবার বলে লেখার শর্টকাট চেপে ধরে রাখুন।",
+   "pt-BR": "Segure o atalho de ditado de novo para responder.",
+   "ru": "Чтобы ответить, снова удерживайте сочетание для диктовки.",
+   "id": "Tahan lagi pintasan dikte untuk menjawab."
+  },
+  "Nothing was typed": {
+   "zh-Hans": "没有输入任何内容",
+   "hi": "कुछ भी टाइप नहीं हुआ",
+   "es": "No se escribió nada",
+   "ar": "لم يُكتب شيء",
+   "fr": "Rien n'a été saisi",
+   "bn": "কিছুই টাইপ হয়নি",
+   "pt-BR": "Nada foi digitado",
+   "ru": "Ничего не напечатано",
+   "id": "Tidak ada yang diketik"
+  },
+  "Glim didn't catch any words. Hold the shortcut while you speak.": {
+   "zh-Hans": "Glim 没有听到任何词。说话时请按住快捷键。",
+   "hi": "Glim को कोई शब्द सुनाई नहीं दिया। बोलते समय शॉर्टकट दबाकर रखें।",
+   "es": "Glim no captó ninguna palabra. Mantén pulsado el atajo mientras hablas.",
+   "ar": "لم يلتقط Glim أي كلمات. اضغط مطولًا على الاختصار أثناء التحدث.",
+   "fr": "Glim n'a saisi aucun mot. Maintenez le raccourci pendant que vous parlez.",
+   "bn": "Glim কোনো শব্দ ধরতে পারেনি। কথা বলার সময় শর্টকাট চেপে ধরে রাখুন।",
+   "pt-BR": "O Glim não captou nenhuma palavra. Segure o atalho enquanto fala.",
+   "ru": "Glim не расслышал ни слова. Удерживайте сочетание, пока говорите.",
+   "id": "Glim tidak menangkap kata apa pun. Tahan pintasan saat Anda berbicara."
+  },
+  "No microphone found.": {
+   "zh-Hans": "未找到麦克风。",
+   "hi": "कोई माइक्रोफ़ोन नहीं मिला।",
+   "es": "No se encontró ningún micrófono.",
+   "ar": "لم يُعثر على ميكروفون.",
+   "fr": "Aucun micro trouvé.",
+   "bn": "কোনো মাইক্রোফোন পাওয়া যায়নি।",
+   "pt-BR": "Nenhum microfone encontrado.",
+   "ru": "Микрофон не найден.",
+   "id": "Mikrofon tidak ditemukan."
+  },
+  "Windows is blocking the microphone. Allow it in Windows Settings → Privacy → Microphone.": {
+   "zh-Hans": "Windows 阻止了麦克风。请在 Windows 设置 → 隐私 → 麦克风 中允许。",
+   "hi": "Windows माइक्रोफ़ोन को रोक रहा है। Windows सेटिंग्स → गोपनीयता → माइक्रोफ़ोन में इसकी अनुमति दें।",
+   "es": "Windows está bloqueando el micrófono. Permítelo en Configuración de Windows → Privacidad → Micrófono.",
+   "ar": "يحظر Windows الميكروفون. اسمح به في إعدادات Windows ← الخصوصية ← الميكروفون.",
+   "fr": "Windows bloque le micro. Autorisez-le dans Paramètres Windows → Confidentialité → Microphone.",
+   "bn": "Windows মাইক্রোফোন আটকে রাখছে। Windows সেটিংস → গোপনীয়তা → মাইক্রোফোন-এ অনুমতি দিন।",
+   "pt-BR": "O Windows está bloqueando o microfone. Permita em Configurações do Windows → Privacidade → Microfone.",
+   "ru": "Windows блокирует микрофон. Разрешите его в Параметры Windows → Конфиденциальность → Микрофон.",
+   "id": "Windows memblokir mikrofon. Izinkan di Pengaturan Windows → Privasi → Mikrofon."
+  },
+  "Dictation needs the speech model on this PC. See Settings → Writing → Dictation.": {
+   "zh-Hans": "听写需要此电脑上的语音模型。请参阅 设置 → 写作 → 听写。",
+   "hi": "बोलकर लिखने के लिए इस PC पर स्पीच मॉडल चाहिए। सेटिंग्स → लेखन → बोलकर लिखना देखें।",
+   "es": "El dictado necesita el modelo de voz en este PC. Consulta Configuración → Escritura → Dictado.",
+   "ar": "يحتاج الإملاء إلى نموذج الكلام على هذا الكمبيوتر. راجع الإعدادات ← الكتابة ← الإملاء.",
+   "fr": "La dictée a besoin du modèle vocal sur ce PC. Voir Réglages → Écriture → Dictée.",
+   "bn": "বলে লেখার জন্য এই PC-তে স্পিচ মডেল দরকার। সেটিংস → লেখা → বলে লেখা দেখুন।",
+   "pt-BR": "O ditado precisa do modelo de fala neste PC. Veja Configurações → Escrita → Ditado.",
+   "ru": "Для диктовки нужна речевая модель на этом ПК. См. Настройки → Письмо → Диктовка.",
+   "id": "Dikte memerlukan model suara di PC ini. Lihat Pengaturan → Menulis → Dikte."
+  },
+  "Speech-to-text didn't work this time. Try again.": {
+   "zh-Hans": "这次语音转文字没有成功。请重试。",
+   "hi": "इस बार वाक् से पाठ काम नहीं किया। फिर से कोशिश करें।",
+   "es": "La conversión de voz a texto no funcionó esta vez. Inténtalo de nuevo.",
+   "ar": "لم يعمل تحويل الكلام إلى نص هذه المرة. حاول مرة أخرى.",
+   "fr": "La reconnaissance vocale n'a pas fonctionné cette fois. Réessayez.",
+   "bn": "এবার কথা থেকে লেখা কাজ করেনি। আবার চেষ্টা করুন।",
+   "pt-BR": "A conversão de fala em texto não funcionou desta vez. Tente de novo.",
+   "ru": "Распознавание речи на этот раз не сработало. Попробуйте ещё раз.",
+   "id": "Ubah suara ke teks tidak berhasil kali ini. Coba lagi."
   }
  }
 }

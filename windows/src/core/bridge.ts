@@ -158,6 +158,8 @@ export const Bridge = {
   writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
   /** "Got it" on the Google Docs tip: it never shows again (1d retest). */
   writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
+  /** Push-to-talk's card: copies what was heard. False: the clipboard was busy. */
+  voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

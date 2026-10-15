@@ -14,6 +14,7 @@ import {
 import { State } from "../core/state";
 import { sendingToApi } from "../core/rewrite";
 import { aiSending } from "../core/ai-check";
+import { voiceLantern, voiceSending } from "../core/voice";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -1144,11 +1145,18 @@ export class Island {
     el.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
+    // Push-to-talk (voice 1.5b): s-hear while the key is held, s-think while
+    // whisper transcribes; data leaving while Claude cleans it up.
+    const voice = voiceLantern(State.voice);
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
-    else if (sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
-    else {
+    else if (voiceSending(State.voice) || sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
+    else if (voice && !forced) {
+      // The flame breathes with the microphone (glim-mascot.html's --mic-level).
+      el.style.setProperty("--mic-level", (State.voice?.level ?? 0).toFixed(2));
+      this.lantern.show(voice);
+    } else {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
       const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);

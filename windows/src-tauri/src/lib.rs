@@ -655,6 +655,19 @@ fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
     update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
 }
 
+/// Push-to-talk's card (voice 1.5b): "Copy" on what was heard or not typed.
+/// The text came from Rust in the first place; it is only put on the
+/// clipboard, never logged. False: another app held the clipboard.
+#[tauri::command]
+fn voice_copy(text: String) -> bool {
+    #[cfg(windows)]
+    let copied = capture::fix::copy_to_clipboard(&text);
+    #[cfg(not(windows))]
+    let copied = { let _ = text; false };
+    log::line(format!("voice: copy {}", if copied { "ok" } else { "clipboard busy" }));
+    copied
+}
+
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
 fn writing_rewrite_default() -> &'static str {
@@ -1075,6 +1088,7 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            voice_copy,
             writing_ai_check,
             writing_rewrite_apply,
             writing_rewrite_copy,

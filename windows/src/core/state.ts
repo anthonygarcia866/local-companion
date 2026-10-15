@@ -14,6 +14,7 @@ import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
 import type { WritingAsk } from "./ask";
+import { needsCard, type VoiceState } from "./voice";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -341,6 +342,8 @@ class AppState {
   writingAsk: WritingAsk | null = null;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
   writingDocsTip = false;
+  /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
+  voice: VoiceState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -644,6 +647,7 @@ class AppState {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
     if (this.writingAsk) return "writingAsk";
     if (this.writingDocsTip) return "writingDocsTip";
+    if (needsCard(this.voice)) return "voice";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

@@ -209,5 +209,5 @@ test("the card sends ids only and never logs; the event handler only stores", ()
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);
   for (const banned of ["Bridge.", "console.", "localStorage"]) assert.ok(!body.includes(banned), banned);
   // The data-leaving state is shown only while Rust is sending.
-  assert.match(read("src/island/island.ts"), /else if \(sendingToApi\(State\.rewrite\) \|\| aiSending\(State\.aiCheck\)\) this\.lantern\.showReserved\(DELEGATE_STATE, "api-request"\);/);
+  assert.match(read("src/island/island.ts"), /else if \(voiceSending\(State\.voice\) \|\| sendingToApi\(State\.rewrite\) \|\| aiSending\(State\.aiCheck\)\) this\.lantern\.showReserved\(DELEGATE_STATE, "api-request"\);/);
 });

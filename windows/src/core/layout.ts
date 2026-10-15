@@ -25,7 +25,8 @@ export type IslandViewName =
   | "suggestions"
   | "rewrite"
   | "writingAsk"
-  | "writingDocsTip";
+  | "writingDocsTip"
+  | "voice";
 
 export type BotStateName =
   | "idle"
@@ -184,6 +185,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   writingAsk: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // The Google Docs tip (views/docs-tip.ts): a title, one line, two buttons.
   writingDocsTip: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // Push-to-talk's result (views/voice.ts): a title, what was heard (up to
+  // ~3 lines, scrolls past that), a note and a row of buttons.
+  voice: { height: 190, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
