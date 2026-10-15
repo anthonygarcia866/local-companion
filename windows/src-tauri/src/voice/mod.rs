@@ -21,6 +21,8 @@ pub mod mic;
 #[cfg(windows)]
 pub mod run;
 pub mod whisper;
+#[cfg(all(test, windows))]
+mod live;
 
 use serde::Serialize;
 
