@@ -4660,6 +4660,17 @@
    "pt-BR": "Desligado: um parágrafo só vai para o Claude quando você clica em Verificar com IA. Ligado: após 2 segundos de pausa, uma vez por parágrafo, com a mesma verificação de cartões e documentos e o mesmo limite mensal.",
    "ru": "Выкл.: абзац уходит Claude, только когда вы нажимаете «Проверить с ИИ». Вкл.: после паузы в 2 секунды, один раз на абзац, с той же проверкой номеров карт и документов и тем же месячным лимитом.",
    "id": "Mati: paragraf dikirim ke Claude hanya saat Anda mengeklik Periksa dengan AI. Nyala: setelah jeda 2 detik, sekali per paragraf, dengan pemeriksaan kartu dan ID yang sama serta batas bulanan yang sama."
+  },
+  "Hold to dictate": {
+   "zh-Hans": "按住以听写",
+   "hi": "बोलकर लिखने के लिए दबाकर रखें",
+   "es": "Mantén pulsado para dictar",
+   "ar": "اضغط مطولًا للإملاء",
+   "fr": "Maintenir pour dicter",
+   "bn": "বলে লেখাতে চেপে ধরে রাখুন",
+   "pt-BR": "Segure para ditar",
+   "ru": "Удерживайте для диктовки",
+   "id": "Tahan untuk mendikte"
   }
  }
 }

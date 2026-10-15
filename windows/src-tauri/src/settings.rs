@@ -106,6 +106,12 @@ pub struct Settings {
     /// typing" (docs/phase1-plan.md §15.1): off by default. Off, only the
     /// button sends text.
     pub ai_auto_check: bool,
+    /// Settings → Writing → Dictation → Speech model (voice 1.5b): "base"
+    /// (default) or "small"; anything else reads as "base".
+    pub voice_model: String,
+    /// Settings → Writing → Dictation → Words Glim should know: names and
+    /// terms, comma separated; whisper's prompt (it never leaves the PC).
+    pub voice_words: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -160,6 +166,8 @@ impl Default for Settings {
             pause_sites: Vec::new(),
             file_drop_zone: true,
             ai_auto_check: false,
+            voice_model: "base".into(),
+            voice_words: String::new(),
         }
     }
 }
@@ -444,7 +452,9 @@ mod tests {
   "pauseApps": ["Quicken.exe"],
   "pauseSites": ["portal.example.com", "*/invoice"],
   "fileDropZone": false,
-  "aiAutoCheck": true
+  "aiAutoCheck": true,
+  "voiceModel": "small",
+  "voiceWords": "Glim, HOA, Okafor"
 }"##;
 
     fn custom() -> Value {
@@ -878,6 +888,8 @@ mod tests {
                 "pauseSites",
                 "fileDropZone",
                 "aiAutoCheck",
+                "voiceModel",
+                "voiceWords",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

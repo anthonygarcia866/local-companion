@@ -29,6 +29,7 @@ mod tray;
 #[cfg(windows)]
 mod webview_drop;
 mod writing;
+mod voice;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -333,6 +334,8 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    #[cfg(windows)]
+    voice::whisper::stop();
     app.exit(0);
 }
 
@@ -1155,6 +1158,12 @@ pub fn run() {
             // So does the pause key (1d): it works with the island hidden.
             let pause_handle = handle.clone();
             shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
+            // And push-to-talk (voice 1.5b): Rust polls the key for its release.
+            #[cfg(windows)]
+            {
+                let voice_handle = handle.clone();
+                shortcuts::on_push_to_talk(move || voice::run::on_key_down(&voice_handle));
+            }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

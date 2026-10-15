@@ -79,6 +79,11 @@ pub fn set_focus(exe: &str, cat: Category) {
     *FOCUS.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe.to_string(), cat));
 }
 
+/// The exe of the field the checker last read (voice: the clean-up's context).
+pub fn current_app() -> Option<String> {
+    FOCUS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(exe, _)| exe.clone())
+}
+
 /// The default tone for the field the user is writing in now.
 pub fn current_default() -> Tone {
     let focus = FOCUS.lock().unwrap_or_else(|e| e.into_inner()).clone();

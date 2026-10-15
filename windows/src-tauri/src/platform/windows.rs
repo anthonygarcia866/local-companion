@@ -225,6 +225,29 @@ pub fn reveal_folder(path: &str) {
 /// Our own `where`: walks %PATH% against %PATHEXT%, no shell involved.
 /// Rust quotes arguments correctly for `.cmd`/`.bat` targets since 1.77, so
 /// spawning `code.cmd` directly is safe.
+/// Ties a child process's life to Glim's: it is put in a job object that
+/// kills it when Glim's handle to the job closes (Glim exits or crashes).
+/// The handle is kept for Glim's lifetime on purpose.
+pub fn kill_with_glim(child: &std::process::Child) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    unsafe {
+        let Ok(job) = CreateJobObjectW(None, None) else { return false };
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let set = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        set.is_ok() && AssignProcessToJobObject(job, windows::Win32::Foundation::HANDLE(child.as_raw_handle())).is_ok()
+    }
+}
+
 pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     let dirs = std::env::var_os("PATH")?;

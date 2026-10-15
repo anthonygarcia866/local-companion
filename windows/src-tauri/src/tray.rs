@@ -37,7 +37,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("Glim")
         .menu(&menu)
         .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
+            "quit" => {
+                #[cfg(windows)]
+                crate::voice::whisper::stop();
+                app.exit(0);
+            }
             "settings" => crate::show_settings_window(app),
             // Pause is Rust's (pause.rs): the island hears the result.
             "pause" => crate::pause::toggle(app),
