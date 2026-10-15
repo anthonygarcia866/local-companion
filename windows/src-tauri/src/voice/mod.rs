@@ -147,6 +147,19 @@ pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_a
     }
 }
 
+/// Why a transcript was heard but not acted on, for the card: the clean-up's
+/// failure code when there was no clean-up; else "command" (Claude chose an
+/// action, not built yet) or "no-field" (dictation with no field to type in).
+pub fn heard_code(cleanup_failure: &str, field_at_press: bool) -> String {
+    if !cleanup_failure.is_empty() {
+        cleanup_failure.to_string()
+    } else if field_at_press {
+        "command".into()
+    } else {
+        "no-field".into()
+    }
+}
+
 /// What the island hears on `EVENT`: phases and codes; the transcript only
 /// where the card shows it (never logged).
 pub const EVENT: &str = "voice";
@@ -235,6 +248,14 @@ pub fn prompt_from(words: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_heard_card_says_why() {
+        assert_eq!(heard_code("cap", true), "cap");
+        assert_eq!(heard_code("timeout", false), "timeout");
+        assert_eq!(heard_code("", true), "command");
+        assert_eq!(heard_code("", false), "no-field");
+    }
 
     #[test]
     fn commands_are_recognised_after_filler_in_any_case() {

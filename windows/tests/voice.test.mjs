@@ -86,10 +86,13 @@ test("each result in words: not cleaned up says why, a command is never presente
   assert.equal(notCleanedText("timeout"), "Claude didn't answer in time, so it wasn't cleaned up.");
   assert.match(notCleanedText("cap"), /spending cap/);
 
-  const heard = voiceText(at({ phase: "heard", text: "open outlook" }));
+  const heard = voiceText(at({ phase: "heard", text: "open outlook", code: "command" }));
   assert.equal(heard.title, "Here's what I heard (couldn't act on it)");
   assert.equal(heard.body, "open outlook");
-  assert.match(heard.note, /Nothing was typed/);
+  assert.equal(heard.note, "Glim can't do that yet, so nothing happened.");
+  assert.match(voiceText(at({ phase: "heard", text: "hi", code: "no-field" })).note, /Click in a text field first/);
+  const rust = read("src-tauri/src/voice/mod.rs");
+  for (const code of ['"command"', '"no-field"']) assert.ok(rust.includes(code), code);
   assert.match(voiceText(at({ phase: "heard", text: "x", code: "network" })).note, /Not cleaned up: Couldn't reach Claude/);
 
   const notTyped = voiceText(at({ phase: "not-typed", text: "hello", code: "paused", app: "Word" }));

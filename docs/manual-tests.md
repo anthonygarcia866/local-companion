@@ -501,6 +501,25 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
    - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
    - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
 
+## 26. Dictation, push-to-talk (voice 1.5b, draft PR)
+
+*Where: branch `voice-dictation`.* Needs, put there by hand (Glim downloads nothing): `whisper-server.exe` and its DLLs from whisper.cpp **b5454** (the Windows x64 zip), and `ggml-base.en-q5_1.bin`, all in `%LOCALAPPDATA%\Glim\whisper\`. Claude clean-up needs the API key from section 12 and **Brain: Claude API**; each utterance costs a fraction of a cent (Haiku). **Ctrl+Alt+Shift+V takes Word's InsertAutoText on that key** (decided 2026-10-14).
+
+1. **Settings → Writing → Dictation:** Speech model **Base (faster)**; the hint names `ggml-base.en-q5_1.bin` and the folder. Type `Glim, HOA, Okafor` in **Words Glim should know** and click away.
+2. **Dictate, cleaned up:** click in Notepad, **hold Ctrl+Alt+Shift+V**, say "um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", let go.
+   - **See while held:** the lantern turns teal and its flame moves with your voice (s-hear). **After:** thinking, then the data-leaving state briefly, then `Thanks for the quick turnaround on unit 4B. We'll get the lease to you by Friday.` is typed at the caret. No card. **Ctrl+Z** undoes it.
+3. **Too short:** tap the key (under 0.4 s). Nothing happens, nothing is sent.
+4. **No clean-up (raw text):** Settings → AI, set the cap below what's spent. Dictate "the plumber comes tuesday at ten". **See:** the words typed exactly as whisper heard them, and a card "Typed in Notepad, not cleaned up" saying the cap is reached. Put the cap back.
+5. **A command is never typed raw:** with the cap still blocking, dictate "open outlook". **See:** nothing typed; card "Here's what I heard (couldn't act on it)" with the words and **Copy**. Click Copy, paste somewhere: the words.
+6. **A command with Claude:** cap back to normal, dictate "open outlook". **See:** the same "couldn't act on it" card (actions come in 1.5c), nothing typed.
+7. **Not in a field:** click the desktop, dictate a sentence. **See:** "couldn't act on it" card, "Click in a text field first to dictate."
+8. **Paused:** Ctrl+Alt+Shift+P, dictate in Notepad. **See:** "Not typed", "Glim is paused.", with Copy. Resume.
+9. **Card number:** dictate "my card is 4111 1111 1111 1111". **See:** "Nothing was typed" and the "Not sent: … card, ID or bank number" line; nothing sent to Claude.
+10. **No model:** rename the `whisper` folder, dictate. **See:** "Dictation needs the speech model on this PC…". Rename it back.
+11. **Hidden:** Ctrl+Alt+Shift+Space until Glim is hidden, dictate into Notepad: the text is typed; a card result (step 7) still shows.
+12. **Quit:** tray → Quit Glim. Task Manager: no `whisper-server.exe` left.
+13. **Network and log:** while dictating, `netstat -ano` for glim.exe and whisper-server.exe shows only 127.0.0.1 and api.anthropic.com. glim.log has `voice: held …s, transcribed (base) …s, N words`, `voice: typed applied (cleaned) Notepad` and the like: never your words.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

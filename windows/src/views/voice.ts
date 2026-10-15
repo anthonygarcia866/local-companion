@@ -58,7 +58,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       return {
         title: t("Here's what I heard (couldn't act on it)"),
         body: v.text,
-        note: v.code ? notCleanedText(v.code) : t("Nothing was typed. Click in a text field first to dictate."),
+        note: heardNote(v.code),
       };
     case "question":
       return { title: v.text, body: "", note: t("Hold the dictation shortcut again to answer.") };
@@ -66,6 +66,13 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       return { title: t("Nothing was typed"), body: "", note: failedText(v.code) };
   }
   return { title: "", body: "", note: "" };
+}
+
+/** Why something heard wasn't acted on (voice::heard_code). */
+export function heardNote(code: string): string {
+  if (code === "command") return t("Glim can't do that yet, so nothing happened.");
+  if (code === "no-field" || !code) return t("Nothing was typed. Click in a text field first to dictate.");
+  return notCleanedText(code);
 }
 
 /** Why nothing happened, for a "failed" code from Rust (voice/run.rs, mic.rs, whisper.rs). */

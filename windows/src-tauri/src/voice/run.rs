@@ -136,8 +136,9 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config) {
             request(Request::VoiceType { text, cleaned, why });
         }
         Decision::Heard { transcript } => {
-            crate::log::line(format!("voice: heard, not acted on ({})", if why.is_empty() { "command" } else { &why }));
-            send(app, VoiceEvent { phase: "heard", text: transcript, code: why, ..Default::default() });
+            let code = super::heard_code(&why, field);
+            crate::log::line(format!("voice: heard, not acted on ({code})"));
+            send(app, VoiceEvent { phase: "heard", text: transcript, code, ..Default::default() });
         }
         Decision::Question { question } => {
             crate::log::line("voice: clarify");

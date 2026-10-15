@@ -17,7 +17,8 @@ export interface VoiceEvent {
   cleaned: boolean;
   /** "heard" / "not-typed": the transcript (to copy); "question": Claude's question. */
   text: string;
-  /** "failed" / "not-typed": why; "typed" / "heard": why it wasn't cleaned up ("" = it was). */
+  /** "failed" / "not-typed": why; "typed": why it wasn't cleaned up ("" = it was); "heard":
+   *  that, or "command" / "no-field" (voice::heard_code). */
   code: string;
   /** The app typed into ("Word"). */
   app: string;
