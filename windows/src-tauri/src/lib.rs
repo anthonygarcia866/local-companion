@@ -28,6 +28,8 @@ mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+#[cfg(windows)]
+mod bubble_window;
 mod writing;
 
 use std::process::Command;
@@ -652,6 +654,26 @@ fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
     update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
 }
 
+/// The mini lantern's popover opened or closed (1e, §7a.3): the window is
+/// laid out again at once.
+#[tauri::command]
+fn bubble_popover(open: bool) {
+    #[cfg(windows)]
+    {
+        bubble_window::set_open(open);
+        capture::uia::request(capture::uia::Request::Wake);
+    }
+    #[cfg(not(windows))]
+    let _ = open;
+}
+
+/// "Rewrite…" in the mini lantern's popover: the same as Ctrl+Alt+Shift+R
+/// (1c's tones for this paragraph; nothing is sent until a tone is picked).
+#[tauri::command]
+fn bubble_rewrite(app: AppHandle) {
+    shortcuts::dispatch(&app, "rewrite");
+}
+
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
 fn writing_rewrite_default() -> &'static str {
@@ -1064,6 +1086,8 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            bubble_popover,
+            bubble_rewrite,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

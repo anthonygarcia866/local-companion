@@ -648,6 +648,16 @@ impl Session {
         self.debounce.check_next();
     }
 
+    /// How many suggestions the island shows now (the mini lantern's count).
+    pub fn count(&self) -> usize {
+        self.shown.items.len()
+    }
+
+    /// A rewrite is on its way (the mini lantern's s-delegate, §7a.2).
+    pub fn rewrite_pending(&self) -> bool {
+        self.rewrite.as_ref().is_some_and(|w| w.text.is_none())
+    }
+
     /// The app's short name for the shown list.
     pub fn app(&self) -> String {
         self.shown.app.clone()
