@@ -497,7 +497,9 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
    - Turn it **off** again: pausing never sends anything; only the button does.
 10. **Log:** glim.log has `ai-check: ok issues=2 dropped=0 (click) claude-haiku-5-5 in=… out=… $… …s` (and `(auto)` for step 9): numbers only, never your text. Settings → AI's spend went up a little.
 
-**Note:** with the setting off, a paragraph Harper finds nothing in shows no list, so there is no button for it (open question for Anthony, see the PR).
+11. **Nothing found, still reachable (decided 2026-10-14):** setting **off**. In Notepad type `Alex and I was at the unit on Monday.` (no typo: no count). Open the island and **click the lantern**.
+   - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
+   - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
 
 ## After testing
 

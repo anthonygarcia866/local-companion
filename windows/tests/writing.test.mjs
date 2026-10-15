@@ -379,7 +379,7 @@ test("the lantern is a button: mouse, Invoke and keys all go through activateLan
   assert.match(read("src/style.css"), /#bot-lantern \{\n  position: absolute;\n  pointer-events: none;/);
   assert.match(island, /if \(e\.button === 0 && this\.botPress && State\.mode === "expanded" && this\.isBotHit\(e\.clientX, e\.clientY\)\) \{\n\s+this\.activateLantern\(\);/);
   // Closed pill: open (on defaultView). Open island: lanternView.
-  assert.match(island, /activateLantern\(\) \{\n\s+if \(this\.uploadActive\) return;\n\s+if \(State\.mode !== "expanded"\) \{\n\s+this\.fsm\.click\(\);\n\s+return;\n\s+\}\n\s+const view = State\.lanternView\(\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
+  assert.match(island, /activateLantern\(\) \{\n\s+if \(this\.uploadActive\) return;\n\s+if \(State\.mode !== "expanded"\) \{\n\s+this\.fsm\.click\(\);\n\s+return;\n\s+\}(\n\s+\/\/[^\n]*)*\n\s+const view = State\.lanternView\(\) \?\? \(State\.writingCheckable \? "suggestions" : null\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
   // Hidden from readers only while it's invisible.
   assert.match(island, /const hidden = visible \? "false" : "true";/);
   assert.match(read("src/core/state.ts"), /return this\.lanternView\(\) \?\? \(this\.tasks\.length === 0 \? "empty" : "overview"\);/);

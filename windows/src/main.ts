@@ -164,9 +164,10 @@ async function main() {
   island.onWake = checkRecap;
   await onEvent<null>("recap-check", checkRecap);
   // The writing checker's suggestions for the focused field (Phase 1a).
-  await onEvent<{ items: WritingSuggestion[] } & WritingFix>("writing-suggestions", ({ items, checkId, mode, app }) => {
+  await onEvent<{ items: WritingSuggestion[]; checkable?: boolean } & WritingFix>("writing-suggestions", ({ items, checkId, mode, app, checkable }) => {
     const had = State.writing.length > 0;
     State.writing = items;
+    State.writingCheckable = checkable === true;
     State.writingFix = { checkId, mode, app };
     // A finished "Check with AI" note belongs to the list before this one
     // (Rust sends the AI's list just before its "done").

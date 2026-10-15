@@ -407,7 +407,7 @@ export class Island {
    * A click (or Invoke, Enter, Space) on the lantern. The closed pill opens,
    * on defaultView. In the open island the lantern goes to what the badge
    * points at (a waiting card, then the writing suggestions); see
-   * State.lanternView.
+   * State.lanternView. With neither, in a checked paragraph, the empty list.
    */
   activateLantern() {
     if (this.uploadActive) return;
@@ -415,7 +415,10 @@ export class Island {
       this.fsm.click();
       return;
     }
-    const view = State.lanternView();
+    // Nothing waiting, but the caret is in a checked paragraph: the empty
+    // list ("Nothing to fix here.") with Check with AI and Rewrite… (§15.1;
+    // grammar-only paragraphs are Check with AI's main use, owner 2026-10-14).
+    const view = State.lanternView() ?? (State.writingCheckable ? "suggestions" : null);
     if (view && view !== State.view) this.setView(view);
   }
 

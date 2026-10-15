@@ -109,3 +109,25 @@ test("Rust side: Haiku only, forced tool, sensitive scan before sending, setting
   assert.ok(send.indexOf("contains_sensitive_number") < send.indexOf("net::request"), "scanned before anything leaves");
   assert.ok(read("src-tauri/src/settings.rs").includes("ai_auto_check: false,"));
 });
+
+test("with nothing found, a lantern click in a checked paragraph opens the empty list with Check with AI", () => {
+  // Owner, 2026-10-14: grammar-only paragraphs are Check with AI's main use.
+  const island = read("src/island/island.ts");
+  assert.match(island, /const view = State\.lanternView\(\) \?\? \(State\.writingCheckable \? "suggestions" : null\);/);
+  assert.match(read("src/main.ts"), /State\.writingCheckable = checkable === true;/);
+  assert.ok(read("src-tauri/src/writing/mod.rs").includes("s.checkable = self.checkable;"));
+  // The empty list itself: the title says so, and the button is there.
+  State.writing = [];
+  State.writingFix = { checkId: 0, mode: "view", app: "" };
+  State.aiCheck = null;
+  const view = buildSuggestions();
+  view.sync();
+  assert.ok(view.el.textContent.includes("Nothing to fix here."));
+  const button = view.el.find("button").find((b) => b.textContent === "Check with AI");
+  assert.ok(button && !button.disabled);
+  const n = sent("writing_ai_check").length;
+  button.fire("click");
+  assert.equal(sent("writing_ai_check").length, n + 1);
+  // Nothing checkable: the lantern click keeps doing nothing (State.lanternView is null).
+  assert.equal(State.lanternView(), null);
+});

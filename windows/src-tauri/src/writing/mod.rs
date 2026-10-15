@@ -114,6 +114,10 @@ pub struct Suggestions {
     /// The app's short name ("Word"), for the island's notes.
     pub app: String,
     pub items: Vec<Suggestion>,
+    /// The caret is in a paragraph of a field the checker is on, even with
+    /// nothing found: the island lets a lantern click open the (empty) list
+    /// for "Check with AI" (§15.1; owner 2026-10-14).
+    pub checkable: bool,
 }
 
 impl std::fmt::Debug for Suggestions {
@@ -323,6 +327,9 @@ pub struct Session {
     /// The paragraph version the automatic check last went out for: once
     /// per version.
     ai_auto_done: Option<u64>,
+    /// The last checked field had a paragraph to check (Suggestions::checkable):
+    /// set by a check, like the list, and kept while the list stays.
+    checkable: bool,
     /// The focused field's last reading was withheld: a payment or ID field,
     /// or text holding a card, SSN or IBAN. A rewrite asked for there says
     /// so (owner, 2026-10-13) instead of "click in the paragraph".
@@ -443,6 +450,7 @@ impl Session {
             self.rewrite = None;
             self.ai = None;
             self.ai_found = None;
+            self.checkable = false;
             self.debounce.reset();
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
@@ -476,6 +484,7 @@ impl Session {
             self.debounce.reset();
             self.kept = None;
             self.current = None;
+            self.checkable = false;
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         };
@@ -495,6 +504,7 @@ impl Session {
             self.ai_found = None;
         }
         if self.debounce.feed(key, now) == Step::Check && self.dismissed.is_none() {
+            self.checkable = true;
             let mut found = self.check(&paragraph, r.rules);
             if let Some((_, ai)) = &self.ai_found {
                 found.items = merged(found.items, ai);
@@ -525,6 +535,7 @@ impl Session {
         self.rewrite = None;
         self.ai = None;
         self.ai_found = None;
+        self.checkable = false;
         self.dismissed = None;
         self.debounce.reset();
         self.show(Suggestions::default(), FixMode::View, &mut emit);
@@ -825,7 +836,7 @@ impl Session {
     /// paragraph is no longer kept.
     fn refresh(&mut self, emit: &mut impl FnMut(&Suggestions)) {
         let mode = self.checked_mode;
-        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items: self.shown.items.clone() };
+        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items: self.shown.items.clone(), checkable: false };
         self.show(s, mode, emit);
     }
 
@@ -838,6 +849,7 @@ impl Session {
             s.mode = FixMode::View;
             s.app.clear();
         }
+        s.checkable = self.checkable;
         let same_list = s.items == self.shown.items && s.app == self.shown.app;
         s.check_id = if s.items.is_empty() {
             0
@@ -1467,7 +1479,7 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
 
     #[test]
     fn formatting_suggestions_never_shows_their_words() {
-        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
+        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), checkable: true, items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
         let shown = format!("{s:?} {:?} {:#?}", s.items[0], s);
         assert!(!shown.contains("SENTINEL"), "{shown}");
     }
@@ -1625,4 +1637,28 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
         assert_eq!(s.ai_pending(src.id), None, "Pause drops it");
         assert_eq!(s.ai_begin(false).unwrap_err(), Outcome::Away);
     }
+
+    /// Owner, 2026-10-14: Check with AI must be reachable when Harper finds
+    /// nothing. The list says whether the caret is in a checked paragraph.
+    #[test]
+    fn the_list_says_when_a_clean_paragraph_can_still_be_checked() {
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        let clean = "Alex and I was at the unit on Monday.";
+        feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        assert!(got.items.is_empty() && got.checkable, "{got:?}");
+        // Another app: the list (and this) stays, like the suggestions do.
+        assert!(feed(&mut s, false, None, None, FixMode::View, false, t0 + DEBOUNCE).is_none());
+        assert!(s.shown.checkable);
+        // A checked field with no paragraph under the caret: not checkable.
+        let blank = feed(&mut s, true, Some("
+
+"), Some(1), FixMode::Apply, false, t0 + DEBOUNCE);
+        assert!(blank.is_none_or(|b| !b.checkable) && !s.shown.checkable);
+        // Paused: never.
+        let paused = feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, true, t0 + DEBOUNCE);
+        assert!(paused.is_none_or(|p| !p.checkable) && !s.shown.checkable);
+    }
 }
+

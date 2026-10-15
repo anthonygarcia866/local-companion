@@ -331,6 +331,12 @@ class AppState {
   rewrite: RewriteState | null = null;
   /** "Check with AI" (core/ai-check.ts): the last check's phase; null for none. */
   aiCheck: AiCheckEvent | null = null;
+  /**
+   * The caret is in a paragraph Glim checks, even with nothing found
+   * (Suggestions.checkable): a lantern click in the open island then opens
+   * the empty list, for Check with AI (owner, 2026-10-14).
+   */
+  writingCheckable = false;
   /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
   writingAsk: WritingAsk | null = null;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
