@@ -2,6 +2,7 @@
 // page is opened in a plain browser, so the island can be iterated on with
 // `npm run dev` alone.
 
+import type { ResumeCard } from "../views/resume";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -154,6 +155,10 @@ export const Bridge = {
   writingToneDefaults: () => call<[string, string][]>("writing_tone_defaults"),
   /** "Check writing in [app]?" is in sight (or queued): asked today (1d). */
   writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
+  /** "Pick up where you left off": each repo's HANDOFF.md, newest first. */
+  resumeCards: () => call<ResumeCard[]>("resume_cards"),
+  /** A click on a repo's row: Claude Code opens there (the name only; Rust finds the folder). */
+  resumeOpen: (repo: string) => call<boolean>("resume_open", { repo }),
   /** Its answer: "yes", "later" or "never". */
   writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
   /** "Got it" on the Google Docs tip: it never shows again (1d retest). */

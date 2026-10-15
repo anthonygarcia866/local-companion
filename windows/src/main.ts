@@ -32,6 +32,12 @@ async function main() {
   if (!root) return;
 
   const island = new Island(root);
+  /** Reads the repos' HANDOFF.md files (Rust) and opens the resume card. */
+  const showResume = async () => {
+    State.resume = (await Bridge.resumeCards()) ?? [];
+    island.alert("resume");
+    State.notify();
+  };
   // Pill: the compact island on screen (it may have been folded or paused).
   const presence = new PresenceView({
     showPill: () => island.reveal(),
@@ -85,6 +91,9 @@ async function main() {
         break;
       case "recap":
         void Recap.open(island);
+        break;
+      case "resume":
+        void showResume();
         break;
     }
   });
@@ -211,6 +220,12 @@ async function main() {
   // an app on neither list. Seen now, in the ember, behind an approval card,
   // or not at all (Hidden, fullscreen): see core/ask.ts.
   State.subscribe(() => presence.setAsk(State.writingAsk !== null));
+  // "Pick up where you left off" (views/resume.ts). Shown on request only
+  // (decided 2026-10-15): the tray's item, the voice action `resume_work`
+  // (1.5c), and the dev switch `--resume-card`. Never by itself. Nothing
+  // opens without a click on a row.
+  await onEvent<null>("resume-show", () => void showResume());
+
   await onEvent<WritingAsk>("writing-ask", (ask) => {
     const where = askPlacement({
       presence: presence.model.kind,

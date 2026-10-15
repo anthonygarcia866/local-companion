@@ -4935,6 +4935,94 @@
    "pt-BR": "O Glim ainda não consegue fazer isso, então nada aconteceu.",
    "ru": "Glim пока так не умеет, поэтому ничего не произошло.",
    "id": "Glim belum bisa melakukan itu, jadi tidak terjadi apa-apa."
+  },
+  "Pick up where you left off": {
+   "zh-Hans": "从上次停下的地方继续",
+   "hi": "जहाँ छोड़ा था वहीं से शुरू करें",
+   "es": "Retoma donde lo dejaste",
+   "ar": "تابع من حيث توقفت",
+   "fr": "Reprendre là où vous vous êtes arrêté",
+   "bn": "যেখানে থেমেছিলেন সেখান থেকে শুরু করুন",
+   "pt-BR": "Continue de onde parou",
+   "ru": "Продолжить с того места, где остановились",
+   "id": "Lanjutkan dari terakhir kali"
+  },
+  "Open in Claude Code": {
+   "zh-Hans": "在 Claude Code 中打开",
+   "hi": "Claude Code में खोलें",
+   "es": "Abrir en Claude Code",
+   "ar": "فتح في Claude Code",
+   "fr": "Ouvrir dans Claude Code",
+   "bn": "Claude Code-এ খুলুন",
+   "pt-BR": "Abrir no Claude Code",
+   "ru": "Открыть в Claude Code",
+   "id": "Buka di Claude Code"
+  },
+  "Opening Claude Code in {repo}…": {
+   "zh-Hans": "正在 {repo} 中打开 Claude Code…",
+   "hi": "{repo} में Claude Code खुल रहा है…",
+   "es": "Abriendo Claude Code en {repo}…",
+   "ar": "جارٍ فتح Claude Code في {repo}…",
+   "fr": "Ouverture de Claude Code dans {repo}…",
+   "bn": "{repo}-এ Claude Code খুলছে…",
+   "pt-BR": "Abrindo o Claude Code em {repo}…",
+   "ru": "Открываю Claude Code в {repo}…",
+   "id": "Membuka Claude Code di {repo}…"
+  },
+  "Couldn't open Claude Code in {repo}. Is it installed?": {
+   "zh-Hans": "无法在 {repo} 中打开 Claude Code。它装好了吗？",
+   "hi": "{repo} में Claude Code नहीं खुल सका। क्या यह इंस्टॉल है?",
+   "es": "No se pudo abrir Claude Code en {repo}. ¿Está instalado?",
+   "ar": "تعذّر فتح Claude Code في {repo}. هل هو مثبّت؟",
+   "fr": "Impossible d’ouvrir Claude Code dans {repo}. Est-il installé ?",
+   "bn": "{repo}-এ Claude Code খোলা গেল না। এটি কি ইনস্টল করা আছে?",
+   "pt-BR": "Não foi possível abrir o Claude Code em {repo}. Ele está instalado?",
+   "ru": "Не удалось открыть Claude Code в {repo}. Он установлен?",
+   "id": "Tidak bisa membuka Claude Code di {repo}. Apakah sudah terpasang?"
+  },
+  "No HANDOFF.md found in the folders under your home folder.": {
+   "zh-Hans": "在主文件夹下的文件夹里没有找到 HANDOFF.md。",
+   "hi": "आपके होम फ़ोल्डर के अंदर के फ़ोल्डरों में कोई HANDOFF.md नहीं मिली।",
+   "es": "No se encontró ningún HANDOFF.md en las carpetas de tu carpeta personal.",
+   "ar": "لم يُعثر على HANDOFF.md في المجلدات داخل مجلدك الرئيسي.",
+   "fr": "Aucun HANDOFF.md trouvé dans les dossiers de votre dossier personnel.",
+   "bn": "আপনার হোম ফোল্ডারের ভেতরের ফোল্ডারগুলোতে কোনো HANDOFF.md পাওয়া যায়নি।",
+   "pt-BR": "Nenhum HANDOFF.md encontrado nas pastas dentro da sua pasta pessoal.",
+   "ru": "В папках внутри вашей домашней папки нет HANDOFF.md.",
+   "id": "Tidak ada HANDOFF.md di folder-folder dalam folder utama Anda."
+  },
+  "Branch {branch}": {
+   "zh-Hans": "分支 {branch}",
+   "hi": "ब्रांच {branch}",
+   "es": "Rama {branch}",
+   "ar": "الفرع {branch}",
+   "fr": "Branche {branch}",
+   "bn": "ব্রাঞ্চ {branch}",
+   "pt-BR": "Branch {branch}",
+   "ru": "Ветка {branch}",
+   "id": "Cabang {branch}"
+  },
+  "Has open questions": {
+   "zh-Hans": "有待定问题",
+   "hi": "खुले सवाल हैं",
+   "es": "Tiene preguntas abiertas",
+   "ar": "فيه أسئلة مفتوحة",
+   "fr": "Questions en suspens",
+   "bn": "খোলা প্রশ্ন আছে",
+   "pt-BR": "Tem perguntas em aberto",
+   "ru": "Есть открытые вопросы",
+   "id": "Ada pertanyaan terbuka"
+  },
+  "Part of it is withheld: it holds a card, ID or bank number.": {
+   "zh-Hans": "部分内容已隐藏：其中含有卡号、证件号或银行账号。",
+   "hi": "इसका कुछ हिस्सा रोका गया है: इसमें कार्ड, ID या बैंक नंबर है।",
+   "es": "Una parte está oculta: contiene un número de tarjeta, identificación o banco.",
+   "ar": "جزء منه محجوب: فيه رقم بطاقة أو هوية أو حساب بنكي.",
+   "fr": "Une partie est masquée : elle contient un numéro de carte, d’identité ou bancaire.",
+   "bn": "এর কিছু অংশ লুকানো: এতে কার্ড, আইডি বা ব্যাংক নম্বর আছে।",
+   "pt-BR": "Uma parte foi ocultada: contém um número de cartão, documento ou banco.",
+   "ru": "Часть скрыта: в ней номер карты, документа или банковского счёта.",
+   "id": "Sebagian disembunyikan: berisi nomor kartu, ID, atau rekening bank."
   }
  }
 }

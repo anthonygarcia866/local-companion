@@ -25,6 +25,7 @@ export type IslandViewName =
   | "suggestions"
   | "rewrite"
   | "writingAsk"
+  | "resume"
   | "writingDocsTip"
   | "voice";
 
@@ -183,6 +184,8 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   rewrite: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // "Check writing in [app]?" (1d, views/ask.ts): a title, one line, three buttons.
   writingAsk: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // "Pick up where you left off" (views/resume.ts): up to three repos.
+  resume: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // The Google Docs tip (views/docs-tip.ts): a title, one line, two buttons.
   writingDocsTip: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // Push-to-talk's result (views/voice.ts): a title, what was heard (up to

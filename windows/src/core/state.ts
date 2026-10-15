@@ -1,6 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
 import type { AiCheckEvent } from "./ai-check";
+import type { ResumeCard } from "../views/resume";
 import type { BotEmoteName, BotStateName, Dock, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
@@ -346,6 +347,8 @@ class AppState {
   writingCheckable = false;
   /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
   writingAsk: WritingAsk | null = null;
+  /** "Pick up where you left off" (views/resume.ts): the repos shown; null when closed. */
+  resume: ResumeCard[] | null = null;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
   writingDocsTip = false;
   /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */

@@ -248,6 +248,23 @@ pub fn kill_with_glim(child: &std::process::Child) -> bool {
     }
 }
 
+/// Claude Code in its own console window, in `folder`, with `prompt` as its
+/// first message (the resume card's click). No shell: the launcher is found
+/// on PATH (or in ~/.local/bin, where Claude Code's installer puts it) and
+/// the prompt is one argument.
+pub fn open_claude_code_in(folder: &std::path::Path, prompt: &str) -> bool {
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let claude = find_on_path("claude").or_else(|| {
+        let local = super::home_dir().join(".local").join("bin").join("claude.exe");
+        local.is_file().then_some(local)
+    });
+    let Some(claude) = claude else { return false };
+    if !folder.is_dir() {
+        return false;
+    }
+    Command::new(claude).current_dir(folder).arg(prompt).creation_flags(CREATE_NEW_CONSOLE).spawn().is_ok()
+}
+
 pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     let dirs = std::env::var_os("PATH")?;
