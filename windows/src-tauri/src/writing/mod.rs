@@ -123,6 +123,11 @@ impl std::fmt::Debug for Suggestions {
     }
 }
 
+/// What Ignore remembers of a row: its kind and the flagged word, any case.
+fn ignore_key(s: &Suggestion) -> (String, String) {
+    (s.kind.clone(), s.problem.to_lowercase())
+}
+
 /// The longest a checked paragraph is kept for a fix (owner, 2026-10-11).
 pub const KEEP_FOR: Duration = Duration::from_secs(10 * 60);
 
@@ -301,6 +306,10 @@ pub struct Session {
     /// The paragraph whose suggestions were dismissed: not shown again until
     /// its text changes.
     dismissed: Option<u64>,
+    /// Rows ignored with Ignore (§7a.3, owner 2026-10-15): the kind and the
+    /// flagged word, lowercased; never flagged again this run. Memory only,
+    /// never written anywhere: they go when Glim quits.
+    ignored: std::collections::HashSet<(String, String)>,
     next_id: u64,
     /// Check times since the last report, in microseconds.
     times: Vec<u128>,
@@ -487,6 +496,28 @@ impl Session {
         self.dismissed = self.debounce.key();
         self.kept = None;
         self.show(Suggestions::default(), FixMode::View, &mut emit);
+    }
+
+    /// Ignore on row `index` of list `check_id` (the island's list or the
+    /// mini lantern's popover): that word, for that kind of problem, isn't
+    /// flagged again until Glim quits; the list goes out again without it.
+    /// Only numbers come from the island.
+    pub fn ignore(&mut self, check_id: u64, index: usize, mut emit: impl FnMut(&Suggestions)) -> Result<(), Outcome> {
+        if check_id == 0 || check_id != self.shown.check_id {
+            return Err(Outcome::Changed);
+        }
+        let item = self.shown.items.get(index).ok_or(Outcome::Changed)?;
+        self.ignored.insert(ignore_key(item));
+        let items: Vec<Suggestion> = self.shown.items.iter().filter(|s| !self.ignored.contains(&ignore_key(s))).cloned().collect();
+        let mode = self.checked_mode;
+        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items };
+        self.show(s, mode, &mut emit);
+        Ok(())
+    }
+
+    /// How many rows are ignored this run (the log's count; never the words).
+    pub fn ignored_count(&self) -> usize {
+        self.ignored.len()
     }
 
     /// The fix the island asked for (`check_id`, row, replacement): only
@@ -679,6 +710,7 @@ impl Session {
         self.lengths.push(p.text.chars().count());
         let chars: Vec<char> = p.text.chars().collect();
         let mut items: Vec<Suggestion> = findings.iter().map(|f| suggestion(&chars, p.start, f)).collect();
+        items.retain(|s| !self.ignored.contains(&ignore_key(s)));
         items.sort_by_key(|s| (s.start, s.end));
         Suggestions { items, ..Default::default() }
     }
@@ -1174,6 +1206,54 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
         feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(6));
         let back = feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(7)).unwrap();
         assert_eq!(back.items.len(), 1);
+    }
+
+    #[test]
+    fn ignore_drops_the_row_and_the_word_is_not_flagged_again_this_run() {
+        let (mut s, got, t) = checked();
+        let word = got.items[0].problem.clone();
+        // A stale list or a row that isn't there: refused, nothing ignored.
+        let mut sent = Vec::new();
+        assert_eq!(s.ignore(got.check_id + 1, 0, |x| sent.push(x.items.len())), Err(Outcome::Changed));
+        assert_eq!(s.ignore(got.check_id, 9, |x| sent.push(x.items.len())), Err(Outcome::Changed));
+        assert_eq!(s.ignore(0, 0, |x| sent.push(x.items.len())), Err(Outcome::Changed));
+        assert!(sent.is_empty());
+        assert_eq!(s.ignored_count(), 0);
+        // Ignore: the list goes out without it, under a new id.
+        s.ignore(got.check_id, 0, |x| sent.push(x.items.len())).unwrap();
+        assert_eq!(sent, [0]);
+        assert_eq!(s.ignored_count(), 1);
+        assert_eq!(s.job(got.check_id, 0, 0).unwrap_err(), Outcome::Changed, "the old list's clicks are refused");
+        // The same word elsewhere, in any case, isn't flagged again.
+        let other = format!("Hi Sam,
+They {} it twice.
+Best regards,
+Anthony", word.to_uppercase());
+        feed(&mut s, false, Some(&other), Some(12), FixMode::Apply, false, t + Duration::from_secs(2));
+        let again = feed(&mut s, true, Some(&other), Some(12), FixMode::Apply, false, t + Duration::from_secs(3));
+        assert!(again.is_none_or(|l| l.items.iter().all(|i| i.problem.to_lowercase() != word.to_lowercase())));
+        // Settings changing doesn't forget it (only quitting does).
+        s.settings_changed(|_| {});
+        assert_eq!(s.ignored_count(), 1);
+        // A new run: flagged again.
+        let (fresh, got2, _) = checked();
+        assert_eq!(fresh.ignored_count(), 0);
+        assert_eq!(got2.items[0].problem, word);
+    }
+
+    #[test]
+    fn ignore_is_memory_only_and_logged_as_a_count() {
+        let src = include_str!("mod.rs");
+        let code = &src[..src.find("mod tests {").unwrap()];
+        let at = code.find("pub fn ignore(").unwrap();
+        let body = &code[at..at + 900];
+        for banned in ["std::fs", "settings::", "log::line"] {
+            assert!(!body.contains(banned), "{banned}");
+        }
+        let uia = include_str!("../capture/uia.rs");
+        let line = &uia[uia.find("Request::Ignore { check_id, index } =>").unwrap()..];
+        let line = &line[..line[10..].find("Request::").unwrap() + 10];
+        assert!(line.contains("ignored_count()") && !line.contains("problem"));
     }
 
     #[test]

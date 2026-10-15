@@ -18,6 +18,7 @@ async function main() {
     setOpen: (open) => void Bridge.bubblePopover(open),
     fix: (checkId, index, choice) => void Bridge.writingFix(checkId, index, choice),
     copy: (checkId, index, choice) => void Bridge.writingCopy(checkId, index, choice),
+    ignore: (checkId, index) => void Bridge.writingIgnore(checkId, index),
     rewrite: () => void Bridge.bubbleRewrite(),
     now: () => performance.now(),
   });

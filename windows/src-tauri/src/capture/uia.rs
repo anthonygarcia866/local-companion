@@ -71,6 +71,8 @@ pub enum Request {
     FixAll { check_id: u64 },
     /// Dismiss the list.
     Dismiss,
+    /// Ignore row `index` of list `check_id` for the rest of this run (§7a.3).
+    Ignore { check_id: u64, index: usize },
     /// 1c: rewrite the paragraph the caret is in, in this tone (a click).
     Rewrite { tone: crate::ai::claude::Tone },
     /// 1c: the API's answer for rewrite `id` (from the async runtime).
@@ -244,6 +246,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     Request::Dismiss => {
                         writer.dismiss(send_list);
                         fix_field = None;
+                    }
+                    Request::Ignore { check_id, index } => {
+                        let done = writer.ignore(check_id, index, send_list);
+                        crate::log::line(format!("writing: ignore {} ({} ignored this run)", if done.is_ok() { "ok" } else { "stale" }, writer.ignored_count()));
                     }
                     Request::Rewrite { tone } => {
                         use crate::ai::{claude, key, rewrite, spend};

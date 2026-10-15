@@ -804,7 +804,7 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
       ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
       : t("Nothing to fix here.");
     clear(list);
-    items.slice(at.from - 1, at.to).forEach((s, i) => list.append(suggestionRow(s, at.from - 1 + i, pick)));
+    items.slice(at.from - 1, at.to).forEach((s, i) => list.append(suggestionRow(s, at.from - 1 + i, pick, ignore)));
     pages.style.display = at.pages > 1 ? "" : "none";
     range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
     (prev as HTMLButtonElement).disabled = at.page === 0;
@@ -836,6 +836,11 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
     wait(State.writing.length);
     void Bridge.writingFixAll(fix.checkId);
   };
+  // Ignore on row `index` (§7a.3): Rust drops it and sends the list again.
+  const ignore = (index: number) => {
+    if (State.writingBusy) return;
+    void Bridge.writingIgnore(State.writingFix.checkId, index);
+  };
   // A replacement was clicked: row `index` of the whole list, replacement `choice`.
   const pick = (index: number, choice: number) => {
     const fix = State.writingFix;
@@ -850,7 +855,12 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   return { el, sync };
 }
 
-export function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void): HTMLElement {
+/**
+ * One suggestion: the word in its context, the message, the replacements
+ * and, with `ignore`, an Ignore link (§7a.3: that word isn't flagged again
+ * until Glim quits). The island and the mini lantern's popover share it.
+ */
+export function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void, ignore?: (index: number) => void): HTMLElement {
   const context = h(
     "div",
     { class: "suggestion-context" },
@@ -877,6 +887,12 @@ export function suggestionRow(s: WritingSuggestion, index: number, pick: (index:
     button.disabled = mode === "away" || State.writingBusy;
     fixes.append(button);
   });
+  if (ignore) {
+    const tip = t("Ignore “{word}” until Glim quits", { word: s.problem });
+    const b = h("button", { class: "link-btn suggestion-ignore", type: "button", "data-role": "ignore", title: tip, "aria-label": tip, text: t("Ignore"), onclick: () => ignore(index) }) as HTMLButtonElement;
+    b.disabled = State.writingBusy;
+    fixes.append(b);
+  }
   return h("div", { class: "suggestion" }, context, h("div", { class: "suggestion-message", text: s.message }), fixes);
 }
 

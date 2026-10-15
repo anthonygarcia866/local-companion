@@ -758,6 +758,15 @@ fn writing_rewrite_dismiss() {
     capture::uia::request(capture::uia::Request::RewriteDismiss);
 }
 
+/// Ignore on a row (§7a.3): that word isn't flagged again this run. Ids only.
+#[tauri::command]
+fn writing_ignore(check_id: u64, index: usize) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Ignore { check_id, index });
+    #[cfg(not(windows))]
+    let _ = (check_id, index);
+}
+
 /// Dismiss: the list and its kept paragraph go until the text changes.
 #[tauri::command]
 fn writing_dismiss() {
@@ -1093,6 +1102,7 @@ pub fn run() {
             writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
+            writing_ignore,
             chat_send,
             chat_models,
             local_connect,

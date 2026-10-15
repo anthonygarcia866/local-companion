@@ -43,6 +43,8 @@ export interface BubbleHost {
   /** A replacement was clicked: row `index` of the whole list, option `choice`. */
   fix(checkId: number, index: number, choice: number): void;
   copy(checkId: number, index: number, choice: number): void;
+  /** Ignore on row `index` (§7a.3). */
+  ignore(checkId: number, index: number): void;
   /** Rewrite…: the island's tones, as Ctrl+Alt+Shift+R. */
   rewrite(): void;
   now(): number;
@@ -147,7 +149,7 @@ export class BubbleView {
     const at = bubbleRows(items, this.state.page);
     this.title.textContent = tn("{count} writing suggestion", "{count} writing suggestions", items.length);
     clear(this.list);
-    at.rows.forEach((s, i) => this.list.append(suggestionRow(s, at.from - 1 + i, (index, choice) => this.pick(index, choice))));
+    at.rows.forEach((s, i) => this.list.append(suggestionRow(s, at.from - 1 + i, (index, choice) => this.pick(index, choice), (index) => this.host.ignore(State.writingFix.checkId, index))));
     this.range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: at.total });
     (this.range.parentElement as HTMLElement).style.display = at.paged ? "" : "none";
     this.prev.disabled = !at.canPrev;

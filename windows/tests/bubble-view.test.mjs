@@ -35,6 +35,7 @@ function bubble() {
     setOpen: (open) => calls.push(["open", open]),
     fix: (...a) => calls.push(["fix", ...a]),
     copy: (...a) => calls.push(["copy", ...a]),
+    ignore: (...a) => calls.push(["ignore", ...a]),
     rewrite: () => calls.push(["rewrite"]),
     now: () => clock,
   }, fakeLantern);
@@ -68,6 +69,24 @@ test("a click opens the popover with the island's rows, three a page; a click on
   // Next page.
   popover(view).find("button").find((b) => b.getAttribute("aria-label") === "Next suggestions").fire("click");
   assert.equal(view.el.querySelector(".suggestion-list").find(".suggestion").length, 1);
+});
+
+test("Ignore on a popover row sends the list and row ids; Rust's new list recounts and pages it", () => {
+  const { view, calls } = bubble();
+  lantern(view).fire("click");
+  view.setWindow(placed({ open: true }));
+  const ignores = popover(view).find("button").filter((b) => b.getAttribute("data-role") === "ignore");
+  assert.equal(ignores.length, 3, "one per row");
+  assert.equal(ignores[1].getAttribute("aria-label"), "Ignore “tomorow” until Glim quits");
+  ignores[1].fire("click");
+  assert.deepEqual(calls.at(-1), ["ignore", 5, 1]);
+  // Rust sends the list again without it: three left, one page, still open.
+  view.setList(["recieved", "the the", "dont"].map(item), { checkId: 6, mode: "apply", app: "Notepad" });
+  assert.equal(view.el.querySelector(".suggestion-list").find(".suggestion").length, 3);
+  assert.ok(popover(view).textContent.includes("3 writing suggestions"));
+  // The last one ignored: the list empties and the popover closes.
+  view.setList([], { checkId: 0, mode: "view", app: "" });
+  assert.equal(popover(view).style.display, "none");
 });
 
 test("the footer: Rewrite… asks for the tones and closes; Close closes", () => {

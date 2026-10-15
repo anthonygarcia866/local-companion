@@ -114,10 +114,11 @@ test("the suggestion list sends ids only and never logs", () => {
   for (const banned of ["addEventListener", "console.", "keydown", "localStorage"]) {
     assert.ok(!section.includes(banned), `the suggestion list uses ${banned}`);
   }
-  // Its only calls to Rust: a fix, Apply all, a copy, dismiss; with ids, never words.
+  // Its only calls to Rust: a fix, Apply all, Ignore, a copy, dismiss; with ids, never words.
   assert.deepEqual(section.match(/Bridge\.\w+\([^)]*\)/g), [
     "Bridge.writingDismiss()",
     "Bridge.writingFixAll(fix.checkId)",
+    "Bridge.writingIgnore(State.writingFix.checkId, index)",
     "Bridge.writingFix(fix.checkId, index, choice)",
     "Bridge.writingCopy(fix.checkId, index, choice)",
   ]);
@@ -192,6 +193,25 @@ test("Dismiss asks Rust to drop the list", () => {
   view.el.find(".suggestion-dismiss")[0].fire("click");
   assert.equal(sent("writing_dismiss").length, n + 1);
   assert.equal(view.el.find(".suggestion-dismiss")[0].getAttribute("aria-label"), "Dismiss suggestions");
+});
+
+test("Ignore sends the list and row ids, in every mode, and waits for nothing", () => {
+  for (const mode of ["apply", "copy", "view", "away"]) {
+    const view = listIn(mode, true);
+    const ignores = view.el.find("button").filter((b) => b.getAttribute("data-role") === "ignore");
+    assert.equal(ignores.length, 2, mode);
+    assert.ok(ignores.every((b) => !b.disabled), mode);
+    const n = sent("writing_ignore").length;
+    ignores[0].fire("click");
+    assert.deepEqual(sent("writing_ignore").slice(n), [{ checkId: 41, index: 3 }], mode);
+    assert.equal(State.writingBusy, false);
+  }
+  // While a fix is on its way: off.
+  const view = listIn("apply");
+  State.writingBusy = true;
+  view.sync();
+  assert.ok(view.el.find("button").filter((b) => b.getAttribute("data-role") === "ignore").every((b) => b.disabled));
+  State.writingBusy = false;
 });
 
 test("every outcome Rust can send has its own note", () => {

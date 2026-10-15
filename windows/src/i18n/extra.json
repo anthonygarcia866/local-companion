@@ -4528,6 +4528,28 @@
    "pt-BR": "Uma pequena lanterna ao lado do campo onde você digita, com a contagem; clique nela para ver as sugestões. Ela nunca tira o foco do seu texto.",
    "ru": "Маленький фонарик рядом с полем, где вы печатаете, с числом; нажмите на него, чтобы увидеть предложения. Он никогда не забирает фокус у вашего текста.",
    "id": "Lentera kecil di samping kolom tempat Anda mengetik, dengan jumlahnya; klik untuk melihat saran. Lentera ini tidak pernah mengambil fokus dari teks Anda."
+  },
+  "Ignore": {
+   "zh-Hans": "忽略",
+   "hi": "अनदेखा करें",
+   "es": "Ignorar",
+   "ar": "تجاهل",
+   "fr": "Ignorer",
+   "bn": "উপেক্ষা করুন",
+   "pt-BR": "Ignorar",
+   "ru": "Пропустить",
+   "id": "Abaikan"
+  },
+  "Ignore “{word}” until Glim quits": {
+   "zh-Hans": "在 Glim 退出前忽略“{word}”",
+   "hi": "Glim बंद होने तक “{word}” को अनदेखा करें",
+   "es": "Ignorar «{word}» hasta que Glim se cierre",
+   "ar": "تجاهل ”{word}“ حتى يُغلق Glim",
+   "fr": "Ignorer « {word} » jusqu'à la fermeture de Glim",
+   "bn": "Glim বন্ধ না হওয়া পর্যন্ত “{word}” উপেক্ষা করুন",
+   "pt-BR": "Ignorar “{word}” até o Glim fechar",
+   "ru": "Пропускать «{word}», пока Glim не закрыт",
+   "id": "Abaikan “{word}” sampai Glim ditutup"
   }
  }
 }
