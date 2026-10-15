@@ -992,8 +992,8 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
-            // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card. Its
-            // everyday trigger isn't decided yet (HANDOFF.md, open question).
+            // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card, as the
+            // tray item does (decided 2026-10-15).
             if dev_session() && argv.iter().any(|a| a == "--resume-card") {
                 let _ = app.emit_to(island::WINDOW_LABEL, "resume-show", ());
                 return;

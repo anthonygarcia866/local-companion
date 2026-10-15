@@ -61,7 +61,7 @@ test("the notes, the withheld line, an empty list, and Close", () => {
   State.mode = "hidden";
 });
 
-test("Rust: the folder comes from the repos Glim reads, never from the island; the trigger is the dev switch for now", () => {
+test("Rust: the folder comes from the repos Glim reads, never from the island; the dev switch is one of its triggers", () => {
   const lib = read("src-tauri/src/lib.rs");
   assert.ok(lib.includes("fn resume_open(repo: String) -> bool"));
   assert.ok(lib.includes("resume::folder_for(&repo, &resume::repos(&[]))"));
@@ -71,4 +71,19 @@ test("Rust: the folder comes from the repos Glim reads, never from the island; t
   const fn = win.slice(win.indexOf("pub fn open_claude_code_in"), win.indexOf("pub fn find_on_path"));
   assert.ok(!/cmd\.exe|powershell|"\/c"/.test(fn), "no shell");
   assert.ok(fn.includes(".arg(prompt)"));
+});
+
+test("the card's triggers (decided 2026-10-15): the tray item, the resume event, the dev switch; never by itself", () => {
+  const tray = read("src-tauri/src/tray.rs");
+  assert.match(tray, /\("resume", n_\("Pick up where you left off"\)\)/);
+  assert.match(tray, /\(id == "open" \|\| id == "resume"\) && crate::presence::current\(app\)/, "it brings the pill back from Hidden, as Open does");
+  const main = read("src/main.ts");
+  // showResume is called only from the tray's "resume" and the "resume-show" event.
+  const calls = [...main.matchAll(/showResume\(\)/g)].map((m) => main.slice(Math.max(0, m.index - 120), m.index));
+  assert.equal(calls.length, 2);
+  assert.ok(calls.some((c) => c.includes('case "resume":')));
+  assert.ok(calls.some((c) => c.includes('"resume-show"')));
+  // Rust emits "resume-show" only for the dev switch on this branch (voice adds resume_work).
+  const lib = read("src-tauri/src/lib.rs");
+  assert.equal([...lib.matchAll(/"resume-show"/g)].length, 1);
 });

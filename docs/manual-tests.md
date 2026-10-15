@@ -476,7 +476,9 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ## 26. Pick up where you left off (resume card, PR #21)
 
-*Where: `voice-resume-reader`.* **How it's shown today:** only by the dev switch: start Glim with `GLIM_DEV=1` in its environment, then run `glim.exe --resume-card` (the running Glim gets it). Its everyday trigger (at the first open of the day? a menu item? voice "pick up from yesterday"?) is an **open question**, not built.
+*Where: `voice-resume-reader`.* **How it's shown (decided 2026-10-15):** the tray icon's **Pick up where you left off** (right-click Glim's tray icon); later also by voice ("pick up from yesterday", `resume_work`, on the voice branch). Never by itself. The dev switch `glim.exe --resume-card` (with `GLIM_DEV=1`) still works.
+
+0. **From the tray:** right-click Glim's tray icon: **Pick up where you left off** sits under Weekly recap. Click it: the card below opens. With Glim **Hidden** first (Ctrl+Alt+Shift+Space until it's gone), the pill comes back and the card opens, as Open Glim does. Pause in the tray still says Pause / Resume correctly.
 
 1. **The card:** "Pick up where you left off", with one row per folder under your home folder that has a HANDOFF.md, **the most recently updated first** (local-companion today). Each row: the repo's name, where it stopped (In progress, else Goal), the branch, "Has open questions" if any, and **Open in Claude Code**.
    - **See:** nothing opens by itself: no console, no Claude Code, until you click.
