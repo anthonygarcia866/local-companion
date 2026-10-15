@@ -4825,6 +4825,105 @@
    "pt-BR": "A conversão de fala em texto não funcionou desta vez. Tente de novo.",
    "ru": "Распознавание речи на этот раз не сработало. Попробуйте ещё раз.",
    "id": "Ubah suara ke teks tidak berhasil kali ini. Coba lagi."
+  },
+  "Base (faster)": {
+   "zh-Hans": "Base（更快）",
+   "hi": "Base (तेज़)",
+   "es": "Base (más rápido)",
+   "ar": "Base (أسرع)",
+   "fr": "Base (plus rapide)",
+   "bn": "Base (দ্রুততর)",
+   "pt-BR": "Base (mais rápido)",
+   "ru": "Base (быстрее)",
+   "id": "Base (lebih cepat)"
+  },
+  "Small (more accurate, slower)": {
+   "zh-Hans": "Small（更准确，较慢）",
+   "hi": "Small (ज़्यादा सटीक, धीमा)",
+   "es": "Small (más preciso, más lento)",
+   "ar": "Small (أدق، أبطأ)",
+   "fr": "Small (plus précis, plus lent)",
+   "bn": "Small (বেশি নির্ভুল, ধীরতর)",
+   "pt-BR": "Small (mais preciso, mais lento)",
+   "ru": "Small (точнее, медленнее)",
+   "id": "Small (lebih akurat, lebih lambat)"
+  },
+  "Needs whisper-server.exe and {file} in {folder}, put there by hand. Glim downloads nothing.": {
+   "zh-Hans": "需要将 whisper-server.exe 和 {file} 手动放到 {folder}。Glim 不会下载任何内容。",
+   "hi": "whisper-server.exe और {file} को हाथ से {folder} में रखना होगा। Glim कुछ भी डाउनलोड नहीं करता।",
+   "es": "Necesita whisper-server.exe y {file} en {folder}, colocados a mano. Glim no descarga nada.",
+   "ar": "يحتاج إلى whisper-server.exe و{file} في {folder}، توضع يدويًا. لا يُنزّل Glim أي شيء.",
+   "fr": "Nécessite whisper-server.exe et {file} dans {folder}, placés à la main. Glim ne télécharge rien.",
+   "bn": "{folder}-এ হাতে রাখা whisper-server.exe এবং {file} দরকার। Glim কিছুই ডাউনলোড করে না।",
+   "pt-BR": "Precisa de whisper-server.exe e {file} em {folder}, colocados manualmente. O Glim não baixa nada.",
+   "ru": "Нужны whisper-server.exe и {file} в {folder}, положенные вручную. Glim ничего не скачивает.",
+   "id": "Memerlukan whisper-server.exe dan {file} di {folder}, ditaruh secara manual. Glim tidak mengunduh apa pun."
+  },
+  "Glim, HOA, Okafor": {
+   "zh-Hans": "Glim, HOA, Okafor",
+   "hi": "Glim, HOA, Okafor",
+   "es": "Glim, HOA, Okafor",
+   "ar": "Glim, HOA, Okafor",
+   "fr": "Glim, HOA, Okafor",
+   "bn": "Glim, HOA, Okafor",
+   "pt-BR": "Glim, HOA, Okafor",
+   "ru": "Glim, HOA, Okafor",
+   "id": "Glim, HOA, Okafor"
+  },
+  "Dictation": {
+   "zh-Hans": "听写",
+   "hi": "बोलकर लिखना",
+   "es": "Dictado",
+   "ar": "الإملاء",
+   "fr": "Dictée",
+   "bn": "বলে লেখা",
+   "pt-BR": "Ditado",
+   "ru": "Диктовка",
+   "id": "Dikte"
+  },
+  "Hold the dictation shortcut (Ctrl+Alt+Shift+V unless you changed it) and speak; let go and Glim types it where you're writing. The microphone is on only while you hold it, and the audio is never saved.": {
+   "zh-Hans": "按住听写快捷键（默认为 Ctrl+Alt+Shift+V）并说话；松开后，Glim 会在你正在写作的位置输入。只有按住时麦克风才会打开，音频从不保存。",
+   "hi": "बोलकर लिखने का शॉर्टकट (जब तक आपने न बदला हो, Ctrl+Alt+Shift+V) दबाकर रखें और बोलें; छोड़ते ही Glim उसे वहाँ टाइप करता है जहाँ आप लिख रहे हैं। माइक्रोफ़ोन सिर्फ़ दबाए रखने तक चालू रहता है, और ऑडियो कभी सहेजा नहीं जाता।",
+   "es": "Mantén pulsado el atajo de dictado (Ctrl+Alt+Shift+V si no lo cambiaste) y habla; al soltarlo, Glim lo escribe donde estás escribiendo. El micrófono solo está activo mientras lo mantienes, y el audio nunca se guarda.",
+   "ar": "اضغط مطولًا على اختصار الإملاء (Ctrl+Alt+Shift+V ما لم تغيّره) وتحدّث؛ اتركه ليكتبه Glim حيث تكتب. لا يعمل الميكروفون إلا أثناء الضغط، ولا يُحفظ الصوت أبدًا.",
+   "fr": "Maintenez le raccourci de dictée (Ctrl+Alt+Shift+V sauf si vous l'avez changé) et parlez ; relâchez et Glim le saisit là où vous écrivez. Le micro n'est actif que pendant que vous maintenez la touche, et l'audio n'est jamais enregistré.",
+   "bn": "বলে লেখার শর্টকাট (না বদলালে Ctrl+Alt+Shift+V) চেপে ধরে কথা বলুন; ছেড়ে দিলে Glim আপনি যেখানে লিখছেন সেখানে টাইপ করে। শুধু চেপে ধরে রাখার সময়ই মাইক্রোফোন চালু থাকে, আর অডিও কখনো সংরক্ষণ করা হয় না।",
+   "pt-BR": "Segure o atalho de ditado (Ctrl+Alt+Shift+V, se você não o mudou) e fale; ao soltar, o Glim digita onde você está escrevendo. O microfone só fica ligado enquanto você segura, e o áudio nunca é salvo.",
+   "ru": "Удерживайте сочетание для диктовки (Ctrl+Alt+Shift+V, если вы его не меняли) и говорите; отпустите — и Glim напечатает текст там, где вы пишете. Микрофон включён, только пока вы держите клавиши, а звук никогда не сохраняется.",
+   "id": "Tahan pintasan dikte (Ctrl+Alt+Shift+V kecuali Anda mengubahnya) lalu bicara; lepaskan dan Glim mengetiknya di tempat Anda menulis. Mikrofon hanya menyala selama Anda menahannya, dan audionya tidak pernah disimpan."
+  },
+  "Speech model": {
+   "zh-Hans": "语音模型",
+   "hi": "स्पीच मॉडल",
+   "es": "Modelo de voz",
+   "ar": "نموذج الكلام",
+   "fr": "Modèle vocal",
+   "bn": "স্পিচ মডেল",
+   "pt-BR": "Modelo de fala",
+   "ru": "Речевая модель",
+   "id": "Model suara"
+  },
+  "Words Glim should know": {
+   "zh-Hans": "Glim 应该认识的词",
+   "hi": "शब्द जो Glim को पता होने चाहिए",
+   "es": "Palabras que Glim debe conocer",
+   "ar": "كلمات يجب أن يعرفها Glim",
+   "fr": "Mots que Glim doit connaître",
+   "bn": "যে শব্দগুলো Glim-এর জানা উচিত",
+   "pt-BR": "Palavras que o Glim deve conhecer",
+   "ru": "Слова, которые Glim должен знать",
+   "id": "Kata yang perlu Glim ketahui"
+  },
+  "Names and terms, separated by commas, so they're spelled right. They stay on this PC.": {
+   "zh-Hans": "名称和术语，用逗号分隔，以便正确拼写。它们只保存在此电脑上。",
+   "hi": "नाम और शब्द, कॉमा से अलग करके, ताकि उनकी वर्तनी सही हो। ये इसी PC पर रहते हैं।",
+   "es": "Nombres y términos, separados por comas, para que se escriban bien. Se quedan en este PC.",
+   "ar": "أسماء ومصطلحات مفصولة بفواصل، لتُكتب بشكل صحيح. تبقى على هذا الكمبيوتر.",
+   "fr": "Noms et termes, séparés par des virgules, pour qu'ils soient bien écrits. Ils restent sur ce PC.",
+   "bn": "নাম ও শব্দ, কমা দিয়ে আলাদা করে, যাতে বানান ঠিক হয়। এগুলো এই PC-তেই থাকে।",
+   "pt-BR": "Nomes e termos, separados por vírgulas, para serem escritos corretamente. Ficam neste PC.",
+   "ru": "Имена и термины через запятую, чтобы они писались правильно. Они остаются на этом ПК.",
+   "id": "Nama dan istilah, dipisahkan koma, agar ejaannya benar. Semuanya tetap di PC ini."
   }
  }
 }

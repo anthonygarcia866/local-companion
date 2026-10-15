@@ -175,6 +175,10 @@ export interface Settings {
   fileDropZone: boolean;
   /** Settings → Writing → Check with AI automatically when I pause typing (§15.1). Off by default. */
   aiAutoCheck: boolean;
+  /** Settings → Writing → Dictation → Speech model (voice 1.5b): whisper's "base" or "small". */
+  voiceModel: "base" | "small";
+  /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
+  voiceWords: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -205,6 +209,8 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseSites: [],
   fileDropZone: true,
   aiAutoCheck: false,
+  voiceModel: "base",
+  voiceWords: "",
 };
 
 type Listener = () => void;

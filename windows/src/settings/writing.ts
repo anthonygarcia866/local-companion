@@ -237,6 +237,47 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     ),
     tones,
     aiAutoRow(host),
+    dictationGroup(host),
+  );
+}
+
+/** whisper's model file for a size (voice/whisper.rs model_file). */
+export function modelFile(size: string): string {
+  return size === "small" ? "ggml-small.en-q5_1.bin" : "ggml-base.en-q5_1.bin";
+}
+
+/**
+ * Settings → Writing → Dictation (voice 1.5b, docs/voice-actions-plan.md
+ * §3.1): the speech model and the words whisper should know. Both stay on
+ * this PC: the words are whisper's prompt, never sent to Claude.
+ */
+export function dictationGroup(host: WritingHost): HTMLElement {
+  const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;
+  model.append(h("option", { value: "base", text: t("Base (faster)") }), h("option", { value: "small", text: t("Small (more accurate, slower)") }));
+  model.value = host.settings().voiceModel === "small" ? "small" : "base";
+  const files = h("div", { class: "hint", "data-role": "voice-files" });
+  const drawFiles = () => {
+    files.textContent = t("Needs whisper-server.exe and {file} in {folder}, put there by hand. Glim downloads nothing.", { file: modelFile(model.value), folder: "%LOCALAPPDATA%\\Glim\\whisper" });
+  };
+  drawFiles();
+  model.addEventListener("change", () => {
+    host.settings().voiceModel = model.value === "small" ? "small" : "base";
+    drawFiles();
+    void host.save();
+  });
+  const words = h("input", { id: "voice-words", type: "text", maxlength: "1000", "data-role": "voice-words", placeholder: t("Glim, HOA, Okafor") }) as HTMLInputElement;
+  words.value = host.settings().voiceWords ?? "";
+  words.addEventListener("change", () => {
+    host.settings().voiceWords = words.value.trim();
+    void host.save();
+  });
+  return h("div", { class: "settings-group", id: "settings-writing-dictation" },
+    h("h3", { text: t("Dictation") }),
+    h("div", { class: "hint", text: t("Hold the dictation shortcut (Ctrl+Alt+Shift+V unless you changed it) and speak; let go and Glim types it where you're writing. The microphone is on only while you hold it, and the audio is never saved.") }),
+    h("div", { class: "row" }, h("label", { text: t("Speech model"), for: "voice-model" }), model),
+    files,
+    h("div", { class: "row" }, h("label", { text: t("Words Glim should know"), for: "voice-words" }), words),
+    h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. They stay on this PC.") }),
   );
 }
 
