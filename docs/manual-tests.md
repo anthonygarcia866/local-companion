@@ -474,6 +474,30 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **See:** the bucket folds away at once; dropping somewhere else then works normally.
 5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
 
+## 25. The mini lantern beside the field (1e, PR #22)
+
+*Where: `phase-1-bubble`.* Settings → Writing → **Show the mini lantern next to the text field** is **off** by default: check that first, with it off nothing appears beside any field. Turn it **on**.
+
+Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
+
+1. **Single-line field** (Outlook's subject line, a browser search box): type `teh lease`.
+   - **See:** a small lantern, 22 px, just **outside the field's right end**, vertically centred, with an amber count. It never covers the text.
+   - Move the window so the field touches the screen's right edge: the lantern moves **inside** the field's right end.
+2. **Multi-line body** (Outlook new mail, Notepad): paste the paragraph.
+   - **See:** the lantern at the body's bottom-right corner. Type on the last line near that corner: it moves up, just above your line, never over the caret.
+3. **Tall body** (a long Word document or an Outlook body taller than the screen): the lantern sits at the **right edge of the visible part, level with the line you're typing**, and follows that line as you move up and down. Scroll: it hides while the page moves and comes back when it stops.
+4. **Click the lantern:**
+   - **See:** the popover opens below it (above it near the bottom of the screen) with the same rows as the island's list, 3 a page, "1–3 of N", and **Rewrite…** / **Close** at the bottom. **The caret stays in your text**: type a letter, it goes into the field.
+   - Click a replacement: it's typed in (Ctrl+Z undoes it), the count drops.
+   - **Rewrite…**: the island's Rewrite card opens, as with Ctrl+Alt+Shift+R; the mini lantern shows the data-leaving look while the rewrite is sent.
+   - **Close** closes it. Open it again and move the mouse away for **20 s**: it closes by itself. With the mouse resting on it, it stays.
+   - Click into another field: the popover closes.
+5. **Hidden when it should be:** Ctrl+Alt+Shift+P (paused), a password field, an app switched off in Settings → Writing → Apps, Settings → Show Glim as **Hidden**, a fullscreen video in front. In each it disappears within a moment; the island's list is unchanged.
+6. **The 125% monitor:** drag Outlook to DISPLAY1 (left, 125%): the lantern is a little bigger (28 px) and still placed right.
+7. **Turn the setting off:** the lantern disappears at the next reading and never comes back while it's off.
+
+**Not in this build:** per-row **Ignore** (open question).
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

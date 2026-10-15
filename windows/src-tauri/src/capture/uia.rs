@@ -168,6 +168,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         let r = crate::writing::FixResult { outcome, app: app_name, done, total, skipped };
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::RESULT_EVENT, &r);
+        let _ = app.emit_to(crate::bubble_window::LABEL, crate::writing::RESULT_EVENT, &r);
     };
     // Diagnostics for the log: how many focus events and polls arrived, how
     // many readings went to the panel and by which path, and which apps were

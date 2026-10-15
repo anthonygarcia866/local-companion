@@ -114,6 +114,10 @@ export const Bridge = {
   // words, never text from here.
   /** A fix button: replacement `choice` of row `index` of list `checkId`. */
   writingFix: (checkId: number, index: number, choice: number) => call<void>("writing_fix", { checkId, index, choice }),
+  /** The mini lantern's popover opened or closed (1e): Rust lays its window out. */
+  bubblePopover: (open: boolean) => call<void>("bubble_popover", { open }),
+  /** Rewrite… in the mini lantern's popover: the same as Ctrl+Alt+Shift+R. */
+  bubbleRewrite: () => call<void>("bubble_rewrite"),
   /** Apply all: every row of list `checkId`, each with its first replacement. */
   writingFixAll: (checkId: number) => call<void>("writing_fix_all", { checkId }),
   /** A Copy button (fields Glim can't type in). */

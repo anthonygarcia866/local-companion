@@ -317,7 +317,7 @@ mod tests {
         // Near the right edge: the popover is pulled in, still inside the work area.
         let right = Placement { x: 1890, y: 300, size: 22, monitor: 0 };
         let l = layout(&right, work, 1.0, true);
-        assert_eq!(l.window.right, 1912.max(1920));
+        assert_eq!(l.window.right, 1920, "the popover pulled in to the work area's edge");
         assert!(l.window.left + l.popover.unwrap().0 + 320 <= 1920);
         // 125%: 320 → 400 px, 22 → 28 px.
         let scaled = Placement { x: -1500, y: 100, size: 28, monitor: 1 };

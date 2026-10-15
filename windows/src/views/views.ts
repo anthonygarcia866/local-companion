@@ -850,7 +850,7 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   return { el, sync };
 }
 
-function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void): HTMLElement {
+export function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void): HTMLElement {
   const context = h(
     "div",
     { class: "suggestion-context" },

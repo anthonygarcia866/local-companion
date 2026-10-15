@@ -236,5 +236,27 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
       h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
     ),
     tones,
+    bubbleRow(host),
+  );
+}
+
+/**
+ * Settings → Writing → "Show the mini lantern next to the text field" (1e,
+ * docs/phase1-plan.md §7a.6): off by default until Anthony's live tests pass.
+ */
+export function bubbleRow(host: WritingHost): HTMLElement {
+  const on = host.settings().writingBubble === true;
+  const label = t("Show the mini lantern next to the text field");
+  const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "aria-label": label, "data-role": "writing-bubble" }) as HTMLButtonElement;
+  sw.addEventListener("click", () => {
+    const next = !sw.classList.contains("on");
+    sw.classList.toggle("on", next);
+    sw.setAttribute("aria-pressed", String(next));
+    host.settings().writingBubble = next;
+    void host.save();
+  });
+  return h("div", { class: "settings-group", id: "settings-writing-bubble" },
+    h("div", { class: "row" }, h("label", { text: label }), sw),
+    h("div", { class: "hint", text: t("A small lantern beside the field you type in, with the count; click it for the suggestions. It never takes the focus from your text.") }),
   );
 }
