@@ -3,8 +3,10 @@
 // reads each one's HANDOFF.md and pulls out where it stopped: Goal, Branch +
 // last commit, In progress, Open questions.
 //
-// No UI, no hotkey, no network, nothing opened or written. Nothing calls it
-// yet: the voice actions PR (1.5c) will.
+// No hotkey, no network, nothing written. The island shows it as a card
+// (`cards`); a click on a repo's row opens Claude Code there (`open`), never
+// without that click (owner, 2026-10-13). The voice action (1.5c) will call
+// the same.
 //
 // HANDOFF.md is the owner's own notes, so it is treated like captured text:
 // - its contents are never logged (`summary_line` gives repo names and counts);
@@ -15,7 +17,6 @@
 //   capture layer's `contains_sensitive_number`) is withheld: replaced by
 //   WITHHELD and named in `Handoff::withheld`; the other sections are kept
 //   (owner, 2026-10-13: a migration timestamp mustn't hide a whole repo).
-#![allow(dead_code)] // wired up by 1.5c
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -425,6 +426,72 @@ fn assignment(text: &str) -> bool {
     false
 }
 
+/// One repo's row on the island's card: where it stopped, short. Shown to
+/// the user (it's their own notes); never logged.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Card {
+    pub repo: String,
+    pub goal: Option<String>,
+    pub in_progress: Option<String>,
+    pub branch: Option<String>,
+    pub last_commit: Option<String>,
+    pub has_questions: bool,
+    /// Sections withheld for a card-like number (their names only).
+    pub withheld: Vec<&'static str>,
+    /// When HANDOFF.md last changed (seconds since 1970): newest first.
+    pub updated: u64,
+}
+
+/// Each section is cut to this many characters on the card.
+pub const CARD_CHARS: usize = 240;
+
+fn short(s: &Option<String>) -> Option<String> {
+    s.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(|t| {
+        let cut: String = t.chars().take(CARD_CHARS).collect();
+        if t.chars().count() > CARD_CHARS { format!("{}…", cut.trim_end()) } else { cut }
+    })
+}
+
+/// The card's rows, the most recently updated HANDOFF.md first ("yesterday's"
+/// repo on top). A HANDOFF.md with nothing in it is left out.
+pub fn cards(scan: &Scan) -> Vec<Card> {
+    let mut out: Vec<Card> = scan
+        .read
+        .iter()
+        .filter(|h| !h.is_empty())
+        .map(|h| Card {
+            repo: h.repo.clone(),
+            goal: short(&h.goal),
+            in_progress: short(&h.in_progress),
+            branch: h.branch.clone(),
+            last_commit: h.last_commit.clone(),
+            has_questions: h.open_questions.as_deref().is_some_and(|q| !q.trim().is_empty()),
+            withheld: h.withheld.clone(),
+            updated: std::fs::metadata(&h.path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs()),
+        })
+        .collect();
+    out.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.repo.cmp(&b.repo)));
+    out
+}
+
+/// What Claude Code is told when it opens in a repo (plan §4, `resume_work`).
+pub const PROMPT: &str = "Read HANDOFF.md first, check it against git status, and continue from In progress.";
+
+/// The repo folder for a name the island sent: only one of `found` (the
+/// repos Glim reads), matched by its folder name exactly. Never a path from
+/// the island.
+pub fn folder_for(name: &str, found: &[PathBuf]) -> Option<PathBuf> {
+    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        return None;
+    }
+    found.iter().find(|p| p.file_name().is_some_and(|n| n == name) && p.join(FILE_NAME).is_file()).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -664,5 +731,30 @@ mod tests {
         let h = parse("# HANDOFF (updated 2026-10-13)\n\n## Goal\nTwo PRs open.\n\n## Owner's constraints (2026-10-13)\n- no merges\n\n## Open PRs\n- #18\n\n## Gotchas\n- x\n");
         assert_eq!(h.goal.as_deref(), Some("Two PRs open."));
         assert_eq!((h.branch_section, h.in_progress, h.open_questions), (None, None, None));
+    }
+
+    #[test]
+    fn cards_put_the_most_recent_handoff_first_and_cut_long_sections() {
+        let dir = std::env::temp_dir().join(format!("glim-resume-cards-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (name, body) in [("older", "## Goal\nOld work\n## In progress\nSomething\n"), ("newer", "## Goal\nNew work\n## In progress\nThe next step\n## Open questions\n- Ignore?\n"), ("empty", "nothing here\n")] {
+            std::fs::create_dir_all(dir.join(name)).unwrap();
+            std::fs::write(dir.join(name).join(FILE_NAME), body).unwrap();
+        }
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(86_400);
+        std::fs::File::options().write(true).open(dir.join("older").join(FILE_NAME)).unwrap().set_modified(old).unwrap();
+        let found = discover(&dir);
+        let cards = cards(&read_all(&found));
+        assert_eq!(cards.iter().map(|c| c.repo.as_str()).collect::<Vec<_>>(), ["newer", "older"], "newest first; an empty one is left out");
+        assert_eq!(cards[0].goal.as_deref(), Some("New work"));
+        assert!(cards[0].has_questions && !cards[1].has_questions);
+        let long = Some("x".repeat(CARD_CHARS + 50));
+        assert_eq!(short(&long).unwrap().chars().count(), CARD_CHARS + 1, "cut, with an ellipsis");
+        // Only a repo Glim found, by its exact folder name.
+        assert_eq!(folder_for("newer", &found), Some(dir.join("newer")));
+        for bad in ["", "..", "newer/..", "C:\\Windows", "missing"] {
+            assert_eq!(folder_for(bad, &found), None, "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

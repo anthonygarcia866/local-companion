@@ -474,6 +474,19 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **See:** the bucket folds away at once; dropping somewhere else then works normally.
 5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
 
+## 26. Pick up where you left off (resume card, PR #21)
+
+*Where: `voice-resume-reader`.* **How it's shown today:** only by the dev switch: start Glim with `GLIM_DEV=1` in its environment, then run `glim.exe --resume-card` (the running Glim gets it). Its everyday trigger (at the first open of the day? a menu item? voice "pick up from yesterday"?) is an **open question**, not built.
+
+1. **The card:** "Pick up where you left off", with one row per folder under your home folder that has a HANDOFF.md, **the most recently updated first** (local-companion today). Each row: the repo's name, where it stopped (In progress, else Goal), the branch, "Has open questions" if any, and **Open in Claude Code**.
+   - **See:** nothing opens by itself: no console, no Claude Code, until you click.
+2. **Click Open in Claude Code** on local-companion.
+   - **See:** a console window opens in `C:\Users\antho\local-companion` running Claude Code, whose first message is "Read HANDOFF.md first, check it against git status, and continue from In progress." The card says "Opening Claude Code in local-companion…" and closes.
+   - glim.log: `resume: 1 read [...]` (names and counts only) and `resume: opened Claude Code in local-companion`. No HANDOFF text in the log.
+3. **Not installed:** (optional) if `claude` isn't on PATH or in `~/.local/bin`, the card says "Couldn't open Claude Code in local-companion. Is it installed?" and nothing else happens.
+4. **Close** closes the card without opening anything.
+5. **A card number in a HANDOFF.md** (in a scratch repo, e.g. `~/resume-test/HANDOFF.md` with `## In progress` holding `4111 1111 1111 1111`): its row says "Part of it is withheld…" and doesn't show that section. Delete the scratch folder after.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

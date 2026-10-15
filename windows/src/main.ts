@@ -198,6 +198,15 @@ async function main() {
   // an app on neither list. Seen now, in the ember, behind an approval card,
   // or not at all (Hidden, fullscreen): see core/ask.ts.
   State.subscribe(() => presence.setAsk(State.writingAsk !== null));
+  // "Pick up where you left off" (views/resume.ts). Shown on request only:
+  // today the dev switch (`--resume-card`); its everyday trigger is an open
+  // question (HANDOFF.md). Nothing opens without a click on a row.
+  await onEvent<null>("resume-show", async () => {
+    State.resume = (await Bridge.resumeCards()) ?? [];
+    island.alert("resume");
+    State.notify();
+  });
+
   await onEvent<WritingAsk>("writing-ask", (ask) => {
     const where = askPlacement({
       presence: presence.model.kind,
