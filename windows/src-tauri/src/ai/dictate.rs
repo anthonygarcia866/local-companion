@@ -5,10 +5,11 @@
 // (`tool_choice: any`). Claude never acts; Glim validates the call.
 //
 // The tools are the plan's five. Glim carries out `dictate`, shows `clarify`,
-// and opens the resume card for `resume_work` (decided 2026-10-15);
-// `open_app` and `draft_email` are 1.5c: they are in the schema so Claude can
-// tell a command from dictation, and Glim answers them with "Here's what I
-// heard: … (couldn't act on it)".
+// opens the resume card for `resume_work` (decided 2026-10-15) and opens
+// classic Outlook for `open_app` (codex and claude_code wait for the owner);
+// `draft_email` is 1.5d: it is in the schema so Claude can tell a command from
+// dictation, and Glim answers it with "Here's what I heard: … (couldn't act
+// on it)".
 //
 // §4.1: no answer within ~4 s cancels the request (a late answer is
 // dropped, so nothing is typed twice); that, an outage, no key or the monthly
@@ -87,7 +88,12 @@ pub fn parse_answer(body: &[u8], model: &str) -> (Result<Cleanup, CleanupFailed>
     let result = match call.get("name").and_then(Value::as_str).unwrap_or("") {
         "dictate" if !one_line(field("text")).is_empty() => Ok(Cleanup::Dictate(one_line(field("text")))),
         "clarify" if !field("question").is_empty() => Ok(Cleanup::Clarify(one_line(field("question")))),
-        "open_app" => Ok(Cleanup::Command("open_app")),
+        "open_app" => match field("app") {
+            "outlook" => Ok(Cleanup::Open("outlook")),
+            "codex" => Ok(Cleanup::Open("codex")),
+            "claude_code" => Ok(Cleanup::Open("claude_code")),
+            _ => Err(CleanupFailed::Outage("bad-answer".into())),
+        },
         "resume_work" => Ok(Cleanup::Resume(Some(field("repo")).filter(|r| !r.is_empty()).map(str::to_string))),
         "draft_email" => Ok(Cleanup::Command("draft_email")),
         // Anything that doesn't validate: no clean-up (§4).
@@ -153,7 +159,11 @@ mod tests {
     fn calls_are_validated() {
         let p = |name: &str, input: Value| parse_answer(&answer(name, input), "claude-haiku-5-5").0;
         assert_eq!(p("dictate", json!({ "text": "Line one.\nLine two." })), Ok(Cleanup::Dictate("Line one. Line two.".into())));
-        assert_eq!(p("open_app", json!({ "app": "outlook" })), Ok(Cleanup::Command("open_app")));
+        assert_eq!(p("open_app", json!({ "app": "outlook" })), Ok(Cleanup::Open("outlook")));
+        assert_eq!(p("open_app", json!({ "app": "claude_code" })), Ok(Cleanup::Open("claude_code")));
+        for app in ["notepad", "C:\\Windows\\System32\\cmd.exe", ""] {
+            assert_eq!(p("open_app", json!({ "app": app })), Err(CleanupFailed::Outage("bad-answer".into())), "{app}: never a free path");
+        }
         assert_eq!(p("draft_email", json!({ "to": ["Maria"], "body": "x" })), Ok(Cleanup::Command("draft_email")));
         assert_eq!(p("resume_work", json!({})), Ok(Cleanup::Resume(None)));
         assert_eq!(p("resume_work", json!({ "repo": "  " })), Ok(Cleanup::Resume(None)));

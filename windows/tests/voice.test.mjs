@@ -105,6 +105,8 @@ test("each result in words: not cleaned up says why, a command is never presente
   assert.match(failedText("mic-blocked"), /microphone settings/);
   assert.match(failedText("nothing-heard"), /didn't catch any words/);
   assert.equal(failedText("anything-else"), failedText("whisper"));
+  const notOpened = voiceText(at({ phase: "failed", code: "open-failed", app: "Outlook" }));
+  assert.deepEqual([notOpened.title, notOpened.note], ["Not opened", "Couldn't open Outlook. Is it installed?"]);
 });
 
 function card() {

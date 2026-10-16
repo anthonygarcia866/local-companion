@@ -218,6 +218,22 @@ pub fn open_url(url: &str) {
         .spawn();
 }
 
+/// Voice `open_app` (1.5c): opens an app Glim knows by its id, never a path
+/// from anywhere else. "outlook": classic Outlook, through Windows' App Paths
+/// (`OUTLOOK.EXE`), no shell. False when Windows can't find it.
+pub fn open_known_app(app: &str) -> bool {
+    use ::windows::core::w;
+    use ::windows::Win32::UI::Shell::ShellExecuteW;
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let file = match app {
+        "outlook" => w!("OUTLOOK.EXE"),
+        _ => return false,
+    };
+    // ShellExecute returns a value above 32 when it started the app.
+    let r = unsafe { ShellExecuteW(None, w!("open"), file, None, None, SW_SHOWNORMAL) };
+    r.0 as usize > 32
+}
+
 pub fn reveal_folder(path: &str) {
     let _ = Command::new("explorer").arg(path).spawn();
 }

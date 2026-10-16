@@ -5045,6 +5045,28 @@
    "pt-BR": "Sem limpeza",
    "ru": "Не очищено",
    "id": "Tidak dirapikan"
+  },
+  "Not opened": {
+   "zh-Hans": "未打开",
+   "hi": "नहीं खुला",
+   "es": "No se abrió",
+   "ar": "لم يُفتح",
+   "fr": "Non ouvert",
+   "bn": "খোলা হয়নি",
+   "pt-BR": "Não foi aberto",
+   "ru": "Не открыто",
+   "id": "Tidak dibuka"
+  },
+  "Couldn't open {app}. Is it installed?": {
+   "zh-Hans": "无法打开 {app}。它装好了吗？",
+   "hi": "{app} नहीं खुल सका। क्या यह इंस्टॉल है?",
+   "es": "No se pudo abrir {app}. ¿Está instalado?",
+   "ar": "تعذّر فتح {app}. هل هو مثبّت؟",
+   "fr": "Impossible d’ouvrir {app}. Est-il installé ?",
+   "bn": "{app} খোলা যায়নি। এটি কি ইনস্টল করা আছে?",
+   "pt-BR": "Não foi possível abrir o {app}. Ele está instalado?",
+   "ru": "Не удалось открыть {app}. Оно установлено?",
+   "id": "Tidak bisa membuka {app}. Apakah sudah terpasang?"
   }
  }
 }

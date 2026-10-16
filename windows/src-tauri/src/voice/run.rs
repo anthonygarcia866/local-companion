@@ -151,6 +151,17 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config) {
             send(app, VoiceEvent { phase: "idle", ..Default::default() });
             let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo }));
         }
+        Decision::Open { app: which } => {
+            // Low risk, no confirmation (plan §5): the app opening says it worked.
+            let opened = crate::platform::open_known_app(which);
+            crate::log::line(format!("voice: open_app {which} {}", if opened { "ok" } else { "failed" }));
+            let e = if opened {
+                VoiceEvent { phase: "idle", ..Default::default() }
+            } else {
+                VoiceEvent { phase: "failed", code: "open-failed".into(), app: super::app_label(which).into(), ..Default::default() }
+            };
+            send(app, e);
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), ..Default::default() });
@@ -193,6 +204,7 @@ async fn clean_up(app: &AppHandle, transcript: &str) -> Result<Cleanup, CleanupF
         Ok(Cleanup::Dictate(_)) => "dictate".to_string(),
         Ok(Cleanup::Clarify(_)) => "clarify".to_string(),
         Ok(Cleanup::Command(c)) => (*c).to_string(),
+        Ok(Cleanup::Open(_)) => "open_app".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Err(f) => f.code(),
     };

@@ -63,7 +63,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "question":
       return { title: v.text, body: "", note: t("Hold the dictation shortcut again to answer.") };
     case "failed":
-      return { title: t("Nothing was typed"), body: "", note: failedText(v.code) };
+      return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
   }
   return { title: "", body: "", note: "" };
 }
@@ -76,7 +76,7 @@ export function heardNote(code: string): string {
 }
 
 /** Why nothing happened, for a "failed" code from Rust (voice/run.rs, mic.rs, whisper.rs). */
-export function failedText(code: string): string {
+export function failedText(code: string, app = ""): string {
   switch (code) {
     case "nothing-heard": return t("Glim didn't catch any words. Hold the shortcut while you speak.");
     case "no-mic": return t("No microphone found.");
@@ -85,6 +85,7 @@ export function failedText(code: string): string {
     case "whisper-start":
     case "whisper": return t("Speech-to-text didn't work this time. Try again.");
     case "sensitive": return failureText("sensitive", null);
+    case "open-failed": return t("Couldn't open {app}. Is it installed?", { app });
   }
   return t("Speech-to-text didn't work this time. Try again.");
 }
