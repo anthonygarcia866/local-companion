@@ -173,6 +173,27 @@ body {
   width: 0;
 }
 
+/* Push-to-talk's level meter (voice plan §1.2), where the countdown runs,
+   in s-hear's teal; above the countdown while the key is held. */
+#voice-meter {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(94, 214, 200, 0.9);
+  transition: width 80ms linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #voice-meter {
+    transition: none;
+  }
+}
+
 /* Compact 2×2 mini grid, to the right of the notch. */
 #mini-grid {
   position: absolute;

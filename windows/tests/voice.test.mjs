@@ -180,6 +180,18 @@ test("the lantern's not-cleaned-up badge: only while a raw transcript's result i
   assert.match(island, /const shown = !raw && writing > 0/, "it takes the count's spot");
 });
 
+test("the level meter: only while listening, a sliver at silence, 60% of the pill at full voice", async () => {
+  const { meterPercent } = await import("../src/core/voice.ts");
+  assert.equal(meterPercent(at({ phase: "listening", level: 0 })), 6);
+  assert.equal(meterPercent(at({ phase: "listening", level: 0.5 })), 33);
+  assert.equal(meterPercent(at({ phase: "listening", level: 1 })), 60);
+  assert.equal(meterPercent({ ...at({ phase: "listening" }), level: 9 }), 60);
+  for (const phase of ["transcribing", "cleaning", "typed", "failed"]) assert.equal(meterPercent(at({ phase })), null, phase);
+  assert.equal(meterPercent(null), null);
+  const island = read("src/island/island.ts");
+  assert.match(island, /this\.voiceMeter\.style\.display = meter === null \|\| State\.mode === "hidden" \? "none" : "";/);
+});
+
 test("a typed result closes sooner than one there to copy", () => {
   assert.equal(cardTimeoutMs(at({ phase: "typed" })), 8_000);
   for (const phase of ["heard", "not-typed", "question", "failed"]) assert.equal(cardTimeoutMs(at({ phase })), 30_000, phase);
