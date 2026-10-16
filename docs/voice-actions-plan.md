@@ -40,6 +40,7 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
   - 8 dictation clips (emails and notes, with property-management words: unit numbers like "4B", tenant and vendor names, "lease renewal", "HOA", dollar amounts, dates);
   - 8 command clips ("open Outlook", "pick up where I left off in dale-cuts", "draft an email to …");
   - 4 hard clips: fast, noisy room, a pause mid-sentence, numbers spelled two ways.
+  > **Note 2026-10-16:** the list to record is `docs/voice-clips-to-record.md`: 22 clips, mixed 6 dictation / 12 commands / 4 hard so that every approved command word and each `open_app` target gets a clip.
   - Each clip has a hand-written reference transcript.
   - **The clips are kept only for the comparison**, in a gitignored folder, and deleted after the owner picks. Recording them is the owner's call; Glim's "audio is never stored" rule applies to the product, and the clips are made with a separate recorder, not Glim.
 - **Measured per option per clip:**

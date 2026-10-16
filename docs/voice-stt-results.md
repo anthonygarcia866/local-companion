@@ -96,6 +96,6 @@ Sources: [deepgram.com/pricing](https://deepgram.com/pricing), [assemblyai.com/p
 2. **Don't use `medium.en` on this CPU.** It's the most accurate (0 terms missed with the hint), but it runs **slower than real time** (6–13 s for a 3–8 s clip): push-to-talk would feel broken.
 3. **`small.en` is the candidate to re-check on real speech.** On clean synthetic speech it wasn't more accurate than base, at three times the wait (2.4–4.7 s). Real voices usually help bigger models more, so Anthony's own clips may change this.
 4. **Before the final pick (the owner chooses, plan §3):**
-   - **Record the 20 clips** (plan §3; a separate recorder, kept in a gitignored folder) and re-run `compare.py` on them, about 15 minutes for all three models. That run decides between base and small.
+   - **Record the clips** (exact lines and steps: `docs/voice-clips-to-record.md`; Sound Recorder, kept outside the repo) and re-run `compare.py` on them, about 15 minutes for all three models. That run decides between base and small.
    - **If a cloud option is still wanted:** one Deepgram or AssemblyAI key (both have free credit) and one run. Given these local results, cloud mainly buys accuracy on real, accented or noisy speech and doesn't load the CPU. It costs about $3–5/month at 30 min/day, adds a new allowed host (§6), and sends audio off the PC.
    - Whichever wins, the §4.1 fallback still applies: with a cloud main, a local `base.en` as the automatic fallback is cheap (60 MB, fast).
