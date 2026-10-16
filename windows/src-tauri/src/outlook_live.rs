@@ -50,7 +50,9 @@ fn test_items(f: &Disp) -> Vec<Disp> {
 #[test]
 #[ignore = "live: starts classic Outlook in the background; needs GLIM_LIVE_ME"]
 fn dry_run_probe() {
+    eprintln!("connecting…");
     let o = connect();
+    eprintln!("connected");
     let me = me();
     let accounts = o.ns.obj("Accounts").unwrap();
     println!("accounts: {}", accounts.int("Count"));
@@ -61,6 +63,7 @@ fn dry_run_probe() {
     let first = accounts.item(1).map(|a| a.text("SmtpAddress").eq_ignore_ascii_case(&me)).unwrap_or(false);
     println!("the first account is the owner's: {first}");
 
+    eprintln!("address book…");
     // The address book, and a first name with 2+ entries (test 2).
     let lists = o.ns.obj("AddressLists").unwrap();
     let mut firsts: BTreeMap<String, usize> = BTreeMap::new();
