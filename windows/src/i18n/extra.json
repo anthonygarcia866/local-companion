@@ -4946,6 +4946,17 @@
    "pt-BR": "O Windows está bloqueando o microfone, ou outro app está usando. Permita o Glim nas configurações do microfone.",
    "ru": "Windows блокирует микрофон, или его использует другое приложение. Разрешите Glim в настройках микрофона.",
    "id": "Windows memblokir mikrofon, atau aplikasi lain sedang memakainya. Izinkan Glim di pengaturan mikrofon."
+  },
+  "Not cleaned up": {
+   "zh-Hans": "未整理",
+   "hi": "साफ़ नहीं किया गया",
+   "es": "Sin limpiar",
+   "ar": "لم يُنقَّح",
+   "fr": "Non nettoyé",
+   "bn": "পরিষ্কার করা হয়নি",
+   "pt-BR": "Sem limpeza",
+   "ru": "Не очищено",
+   "id": "Tidak dirapikan"
   }
  }
 }

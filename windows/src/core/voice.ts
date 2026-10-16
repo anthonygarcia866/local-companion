@@ -89,6 +89,12 @@ export function voiceSending(v: VoiceState | null): boolean {
   return v?.phase === "cleaning";
 }
 
+/** The lantern's "not cleaned up" badge (plan §4.1): the raw transcript was
+ *  typed. Shown while that result is (its card, ~8 s); never in the text. */
+export function rawBadge(v: VoiceState | null): boolean {
+  return v?.phase === "typed" && !v.cleaned;
+}
+
 /** How long a result card stays with nobody touching it. A text that wasn't
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {

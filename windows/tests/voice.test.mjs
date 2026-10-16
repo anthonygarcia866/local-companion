@@ -169,6 +169,17 @@ test("the microphone blocked: one click opens Windows' microphone privacy page, 
   assert.ok(lib.includes("fn open_mic_settings() {"), "it takes nothing from the island");
 });
 
+test("the lantern's not-cleaned-up badge: only while a raw transcript's result is up", async () => {
+  const { rawBadge } = await import("../src/core/voice.ts");
+  assert.equal(rawBadge(at({ phase: "typed", cleaned: false, code: "cap" })), true);
+  assert.equal(rawBadge(at({ phase: "typed", cleaned: true })), false);
+  for (const phase of ["heard", "not-typed", "failed", "listening"]) assert.equal(rawBadge(at({ phase })), false, phase);
+  assert.equal(rawBadge(null), false);
+  const island = read("src/island/island.ts");
+  assert.match(island, /const raw = rawBadge\(State\.voice\) && State\.mode !== "hidden" && !State\.mochiOnDesktop;/);
+  assert.match(island, /const shown = !raw && writing > 0/, "it takes the count's spot");
+});
+
 test("a typed result closes sooner than one there to copy", () => {
   assert.equal(cardTimeoutMs(at({ phase: "typed" })), 8_000);
   for (const phase of ["heard", "not-typed", "question", "failed"]) assert.equal(cardTimeoutMs(at({ phase })), 30_000, phase);

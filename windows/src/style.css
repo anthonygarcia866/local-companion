@@ -2462,6 +2462,21 @@ html:not([data-presence="pill"]) #lantern-menu {
 
 /* The count on the pill, at the lantern's top right. */
 /* The writing features are paused (1d): a grey "❚❚" where the count goes. */
+/* Dictation typed the raw transcript (voice plan §4.1): "not cleaned up". */
+#voice-raw-badge {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #8a8f98;
+  color: #16181c;
+  font: 800 11px/14px var(--font);
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 #pause-badge {
   position: absolute;
   min-width: 15px;
