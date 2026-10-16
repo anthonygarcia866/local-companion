@@ -79,8 +79,11 @@ pub enum Cleanup {
     Dictate(String),
     /// `clarify`: a question for the user.
     Clarify(String),
-    /// Any action tool (`open_app`, `resume_work`, `draft_email`): not built
-    /// in this PR (1.5c), so "couldn't act on it".
+    /// `resume_work` (1.5c, decided 2026-10-15): the "Pick up where you left
+    /// off" card, with this repo first when Claude named one.
+    Resume(Option<String>),
+    /// An action tool not built yet (`open_app`, `draft_email`): "couldn't
+    /// act on it".
     Command(&'static str),
 }
 
@@ -121,6 +124,9 @@ pub enum Decision {
     Question { question: String },
     /// Not sent / not typed: a card, SSN or IBAN number.
     Sensitive,
+    /// Open the resume card (it only reads; opening Claude Code in a repo
+    /// still waits for a click on its row, decision 10).
+    Resume { repo: Option<String> },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -142,6 +148,7 @@ pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_a
             }
         }
         Ok(Cleanup::Clarify(question)) => Decision::Question { question },
+        Ok(Cleanup::Resume(repo)) => Decision::Resume { repo },
         Ok(Cleanup::Command(_)) => Decision::Heard { transcript: transcript.to_string() },
         // §4.1: dictation types the raw transcript; a command never is.
         Err(_) if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
@@ -160,6 +167,18 @@ pub fn heard_code(cleanup_failure: &str, field_at_press: bool) -> String {
     } else {
         "no-field".into()
     }
+}
+
+/// The repo Claude named, as one of the repos Glim reads (`known`, folder
+/// names): letters and digits compared, any case ("dale cuts" is "dale-cuts").
+/// None when it names none of them: the card then shows them all.
+pub fn match_repo(said: &str, known: &[String]) -> Option<String> {
+    let norm = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
+    let want = norm(said);
+    if want.is_empty() {
+        return None;
+    }
+    known.iter().find(|k| norm(k) == want).cloned()
 }
 
 /// What the island hears on `EVENT`: phases and codes; the transcript only
@@ -250,6 +269,22 @@ pub fn prompt_from(words: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_work_opens_the_card_with_or_without_a_field() {
+        for field in [true, false] {
+            assert_eq!(decide("pick up from yesterday", Ok(Cleanup::Resume(None)), field), Decision::Resume { repo: None });
+            assert_eq!(decide("where was I on dale cuts", Ok(Cleanup::Resume(Some("dale-cuts".into()))), field), Decision::Resume { repo: Some("dale-cuts".into()) });
+        }
+        // A card number still stops everything.
+        assert_eq!(decide("resume 4111 1111 1111 1111", Ok(Cleanup::Resume(None)), true), Decision::Sensitive);
+        let known = vec!["dale-cuts".to_string(), "local-companion".to_string(), "dalebooking-crm".to_string()];
+        assert_eq!(match_repo("dale cuts", &known).as_deref(), Some("dale-cuts"));
+        assert_eq!(match_repo("Local Companion", &known).as_deref(), Some("local-companion"));
+        assert_eq!(match_repo("dale", &known), None, "no partial matches");
+        assert_eq!(match_repo("../secret", &known), None);
+        assert_eq!(match_repo("", &known), None);
+    }
 
     #[test]
     fn a_heard_card_says_why() {

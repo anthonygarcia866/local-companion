@@ -27,6 +27,13 @@ export interface ResumeCard {
 /** At most this many repos fit the card. */
 export const RESUME_ROWS = 3;
 
+/** The cards with `repo` first, when voice named one (resume_work, decided
+ *  2026-10-15); the rest keep their order (newest first). */
+export function withFirst(cards: ResumeCard[], repo: string | null | undefined): ResumeCard[] {
+  const i = repo ? cards.findIndex((c) => c.repo === repo) : -1;
+  return i <= 0 ? cards : [cards[i], ...cards.slice(0, i), ...cards.slice(i + 1)];
+}
+
 /** The card's note after a click. */
 export function openNote(repo: string, opened: boolean): string {
   return opened

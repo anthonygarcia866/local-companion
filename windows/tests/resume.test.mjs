@@ -73,17 +73,31 @@ test("Rust: the folder comes from the repos Glim reads, never from the island; t
   assert.ok(fn.includes(".arg(prompt)"));
 });
 
-test("the card's triggers (decided 2026-10-15): the tray item, the resume event, the dev switch; never by itself", () => {
+test("the card's triggers (decided 2026-10-15): the tray item, voice resume_work, the dev switch; never by itself", () => {
   const tray = read("src-tauri/src/tray.rs");
   assert.match(tray, /\("resume", n_\("Pick up where you left off"\)\)/);
   assert.match(tray, /\(id == "open" \|\| id == "resume"\) && crate::presence::current\(app\)/, "it brings the pill back from Hidden, as Open does");
   const main = read("src/main.ts");
   // showResume is called only from the tray's "resume" and the "resume-show" event.
-  const calls = [...main.matchAll(/showResume\(\)/g)].map((m) => main.slice(Math.max(0, m.index - 120), m.index));
+  const calls = [...main.matchAll(/showResume\(/g)].map((m) => main.slice(Math.max(0, m.index - 120), m.index));
   assert.equal(calls.length, 2);
   assert.ok(calls.some((c) => c.includes('case "resume":')));
   assert.ok(calls.some((c) => c.includes('"resume-show"')));
-  // Rust emits "resume-show" only for the dev switch on this branch (voice adds resume_work).
+  // Rust emits "resume-show" for the dev switch and for voice's resume_work only.
   const lib = read("src-tauri/src/lib.rs");
   assert.equal([...lib.matchAll(/"resume-show"/g)].length, 1);
+  const run = read("src-tauri/src/voice/run.rs");
+  assert.equal([...run.matchAll(/"resume-show"/g)].length, 1);
+  assert.match(run, /Decision::Resume \{ repo \} => \{[\s\S]*?super::match_repo\(&r, &known_repos\(\)\)[\s\S]*?"resume-show"/);
+});
+
+test("voice's repo goes first; the rest keep their order; an unknown name changes nothing", async () => {
+  const { withFirst } = await import("../src/views/resume.ts");
+  const c = (repo) => ({ repo, goal: null, inProgress: null, branch: null, lastCommit: null, hasQuestions: false, withheld: [], updated: 0 });
+  const cards = ["local-companion", "dalebooking-crm", "dale-cuts", "listingheart"].map(c);
+  assert.deepEqual(withFirst(cards, "dale-cuts").map((x) => x.repo), ["dale-cuts", "local-companion", "dalebooking-crm", "listingheart"]);
+  assert.equal(withFirst(cards, "local-companion"), cards, "already first");
+  assert.equal(withFirst(cards, "nope"), cards);
+  assert.equal(withFirst(cards, null), cards);
+  assert.equal(withFirst(cards, undefined), cards);
 });

@@ -144,11 +144,24 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config) {
             crate::log::line("voice: clarify");
             send(app, VoiceEvent { phase: "question", text: question, ..Default::default() });
         }
+        Decision::Resume { repo } => {
+            // Only a repo Glim reads goes to the island; the log never names it.
+            let repo = repo.and_then(|r| super::match_repo(&r, &known_repos()));
+            crate::log::line(format!("voice: resume_work ({})", if repo.is_some() { "a repo first" } else { "all repos" }));
+            send(app, VoiceEvent { phase: "idle", ..Default::default() });
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo }));
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), ..Default::default() });
         }
     }
+}
+
+/// The repos Glim reads (resume::repos), by folder name: the clean-up's
+/// "Known repos" and what a named repo is matched against.
+fn known_repos() -> Vec<String> {
+    crate::resume::repos(&[]).iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect()
 }
 
 /// The Claude clean-up, with 1c's checks first (key, cap; Brain = Local isn't
@@ -173,13 +186,14 @@ async fn clean_up(app: &AppHandle, transcript: &str) -> Result<Cleanup, CleanupF
     let app_exe = crate::writing::tones::current_app().unwrap_or_else(|| "unknown".into());
     let today = crate::writing::ask::today();
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
-        Ok(base) => dictate::clean_up(&base, &api_key, config.model, transcript, &app_exe, &today).await,
+        Ok(base) => dictate::clean_up(&base, &api_key, config.model, transcript, &app_exe, &today, &known_repos()).await,
         Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
     };
     let outcome = match &result {
         Ok(Cleanup::Dictate(_)) => "dictate".to_string(),
         Ok(Cleanup::Clarify(_)) => "clarify".to_string(),
         Ok(Cleanup::Command(c)) => (*c).to_string(),
+        Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

@@ -4,10 +4,11 @@
 // app's exe, today's date), and exactly one tool call back
 // (`tool_choice: any`). Claude never acts; Glim validates the call.
 //
-// The tools are the plan's five. This PR carries out `dictate` and shows
-// `clarify`; `open_app`, `resume_work` and `draft_email` are 1.5c: they are in
-// the schema so Claude can tell a command from dictation, and Glim answers
-// them with "Here's what I heard: … (couldn't act on it)".
+// The tools are the plan's five. Glim carries out `dictate`, shows `clarify`,
+// and opens the resume card for `resume_work` (decided 2026-10-15);
+// `open_app` and `draft_email` are 1.5c: they are in the schema so Claude can
+// tell a command from dictation, and Glim answers them with "Here's what I
+// heard: … (couldn't act on it)".
 //
 // §4.1: no answer within ~4 s cancels the request (a late answer is
 // dropped, so nothing is typed twice); that, an outage, no key or the monthly
@@ -49,8 +50,9 @@ pub fn tools() -> Value {
     ])
 }
 
-/// The request body: the transcript and a little context, never the field's text.
-pub fn request_body(model: &str, transcript: &str, app: &str, today: &str) -> Value {
+/// The request body: the transcript and a little context (the app, the date,
+/// the repos' folder names), never the field's text.
+pub fn request_body(model: &str, transcript: &str, app: &str, today: &str, repos: &[String]) -> Value {
     json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
@@ -59,7 +61,7 @@ pub fn request_body(model: &str, transcript: &str, app: &str, today: &str) -> Va
         "tool_choice": { "type": "any" },
         "messages": [{
             "role": "user",
-            "content": format!("App in front: {app}\nToday: {today}\n\n<transcript>\n{transcript}\n</transcript>"),
+            "content": format!("App in front: {app}\nToday: {today}\nKnown repos: {}\n\n<transcript>\n{transcript}\n</transcript>", repos.join(", ")),
         }],
     })
 }
@@ -86,7 +88,7 @@ pub fn parse_answer(body: &[u8], model: &str) -> (Result<Cleanup, CleanupFailed>
         "dictate" if !one_line(field("text")).is_empty() => Ok(Cleanup::Dictate(one_line(field("text")))),
         "clarify" if !field("question").is_empty() => Ok(Cleanup::Clarify(one_line(field("question")))),
         "open_app" => Ok(Cleanup::Command("open_app")),
-        "resume_work" => Ok(Cleanup::Command("resume_work")),
+        "resume_work" => Ok(Cleanup::Resume(Some(field("repo")).filter(|r| !r.is_empty()).map(str::to_string))),
         "draft_email" => Ok(Cleanup::Command("draft_email")),
         // Anything that doesn't validate: no clean-up (§4).
         _ => Err(CleanupFailed::Outage("bad-answer".into())),
@@ -95,8 +97,8 @@ pub fn parse_answer(body: &[u8], model: &str) -> (Result<Cleanup, CleanupFailed>
 }
 
 /// The clean-up for `transcript`, within DEADLINE.
-pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, app: &str, today: &str) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
-    let body = request_body(model, transcript, app, today);
+pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, app: &str, today: &str, repos: &[String]) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
+    let body = request_body(model, transcript, app, today, repos);
     match tokio::time::timeout(DEADLINE, claude::send(base, key, &body)).await {
         Err(_) => (Err(CleanupFailed::Timeout), None),
         Ok(Err(f)) => (Err(CleanupFailed::Outage(match f {
@@ -134,7 +136,7 @@ mod tests {
     #[test]
     fn the_request_forces_one_tool_call_with_the_plans_five_tools() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("dictate", json!({ "text": "Thanks for the update." })));
-        let (r, usage) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "thanks for the update", "OUTLOOK.EXE", "2026-10-14"));
+        let (r, usage) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "thanks for the update", "OUTLOOK.EXE", "2026-10-14", &["dale-cuts".to_string()]));
         assert_eq!(r, Ok(Cleanup::Dictate("Thanks for the update.".into())));
         assert!(usage.is_some());
         let req = String::from_utf8_lossy(&got.recv_timeout(Duration::from_secs(5)).unwrap()).into_owned();
@@ -144,7 +146,7 @@ mod tests {
         assert_eq!(names, ["dictate", "open_app", "resume_work", "draft_email", "clarify"]);
         assert!(!names.contains(&"send_email"), "sending is never a tool");
         let content = body["messages"][0]["content"].as_str().unwrap();
-        assert!(content.contains("App in front: OUTLOOK.EXE") && content.ends_with("<transcript>\nthanks for the update\n</transcript>"));
+        assert!(content.contains("Known repos: dale-cuts\n") && content.contains("App in front: OUTLOOK.EXE") && content.ends_with("<transcript>\nthanks for the update\n</transcript>"));
     }
 
     #[test]
@@ -153,6 +155,9 @@ mod tests {
         assert_eq!(p("dictate", json!({ "text": "Line one.\nLine two." })), Ok(Cleanup::Dictate("Line one. Line two.".into())));
         assert_eq!(p("open_app", json!({ "app": "outlook" })), Ok(Cleanup::Command("open_app")));
         assert_eq!(p("draft_email", json!({ "to": ["Maria"], "body": "x" })), Ok(Cleanup::Command("draft_email")));
+        assert_eq!(p("resume_work", json!({})), Ok(Cleanup::Resume(None)));
+        assert_eq!(p("resume_work", json!({ "repo": "  " })), Ok(Cleanup::Resume(None)));
+        assert_eq!(p("resume_work", json!({ "repo": "dale-cuts" })), Ok(Cleanup::Resume(Some("dale-cuts".into()))));
         assert_eq!(p("clarify", json!({ "question": "Which draft?" })), Ok(Cleanup::Clarify("Which draft?".into())));
         for (name, input) in [("dictate", json!({ "text": "  " })), ("send_email", json!({})), ("clarify", json!({}))] {
             assert_eq!(p(name, input), Err(CleanupFailed::Outage("bad-answer".into())), "{name}");
@@ -166,7 +171,7 @@ mod tests {
         // A server that accepts and never answers.
         let url = crate::net::tests::serve_silent(8);
         let started = std::time::Instant::now();
-        let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "thanks", "x", "d"));
+        let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "thanks", "x", "d", &[]));
         assert_eq!(r, Err(CleanupFailed::Timeout));
         assert!(started.elapsed() < Duration::from_secs(6));
     }
@@ -174,7 +179,7 @@ mod tests {
     #[test]
     fn a_card_number_in_the_transcript_is_never_sent() {
         let base = Url::parse("http://127.0.0.1:1").unwrap();
-        let (r, _) = block_on(clean_up(&base, &key(), "m", "my card is 4111 1111 1111 1111", "x", "d"));
+        let (r, _) = block_on(clean_up(&base, &key(), "m", "my card is 4111 1111 1111 1111", "x", "d", &[]));
         assert_eq!(r, Err(CleanupFailed::Outage("sensitive".into())));
     }
 }

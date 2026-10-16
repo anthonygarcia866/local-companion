@@ -14,6 +14,7 @@ import { docsTipPlacement } from "./core/docs-tip";
 import { closeDocsTip } from "./views/docs-tip";
 import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "./core/voice";
 import { voiceShown } from "./views/voice";
+import { withFirst } from "./views/resume";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
@@ -33,8 +34,8 @@ async function main() {
 
   const island = new Island(root);
   /** Reads the repos' HANDOFF.md files (Rust) and opens the resume card. */
-  const showResume = async () => {
-    State.resume = (await Bridge.resumeCards()) ?? [];
+  const showResume = async (repo?: string | null) => {
+    State.resume = withFirst((await Bridge.resumeCards()) ?? [], repo);
     island.alert("resume");
     State.notify();
   };
@@ -222,9 +223,10 @@ async function main() {
   State.subscribe(() => presence.setAsk(State.writingAsk !== null));
   // "Pick up where you left off" (views/resume.ts). Shown on request only
   // (decided 2026-10-15): the tray's item, the voice action `resume_work`
-  // (1.5c), and the dev switch `--resume-card`. Never by itself. Nothing
-  // opens without a click on a row.
-  await onEvent<null>("resume-show", () => void showResume());
+  // (Rust sends the repo it named, one Glim reads, to put first), and the
+  // dev switch `--resume-card`. Never by itself. Nothing opens without a
+  // click on a row.
+  await onEvent<{ repo?: string | null } | null>("resume-show", (e) => void showResume(e?.repo));
 
   await onEvent<WritingAsk>("writing-ask", (ask) => {
     const where = askPlacement({
