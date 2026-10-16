@@ -183,7 +183,13 @@ async fn clean_up(app: &AppHandle, transcript: &str) -> Result<Cleanup, CleanupF
     let Ok(Some(api_key)) = saved else { return Err(CleanupFailed::NoKey) };
     send(app, VoiceEvent { phase: "cleaning", ..Default::default() });
     let started = Instant::now();
-    let app_exe = crate::writing::tones::current_app().unwrap_or_else(|| "unknown".into());
+    // The app and its kind (plan §4: "the focused app's exe and field kind"):
+    // "OUTLOOK.EXE (email)". Never the field's text.
+    let app_exe = format!(
+        "{} ({})",
+        crate::writing::tones::current_app().unwrap_or_else(|| "unknown".into()),
+        crate::writing::tones::current_kind()
+    );
     let today = crate::writing::ask::today();
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
         Ok(base) => dictate::clean_up(&base, &api_key, config.model, transcript, &app_exe, &today, &known_repos()).await,
