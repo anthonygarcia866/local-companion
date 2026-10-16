@@ -21,6 +21,7 @@ pub mod mic;
 #[cfg(windows)]
 pub mod run;
 pub mod whisper;
+pub mod draft;
 #[cfg(all(test, windows))]
 mod live;
 
