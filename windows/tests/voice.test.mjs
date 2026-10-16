@@ -102,7 +102,7 @@ test("each result in words: not cleaned up says why, a command is never presente
   assert.equal(voiceText(at({ phase: "question", text: "Which Maria?" })).title, "Which Maria?");
   assert.match(failedText("sensitive"), /^Not sent: .*card, ID or bank number/);
   assert.match(failedText("no-whisper"), /Settings → Writing → Dictation/);
-  assert.match(failedText("mic-blocked"), /Privacy → Microphone/);
+  assert.match(failedText("mic-blocked"), /microphone settings/);
   assert.match(failedText("nothing-heard"), /didn't catch any words/);
   assert.equal(failedText("anything-else"), failedText("whisper"));
 });
@@ -148,6 +148,27 @@ test("Copy puts what was heard on the clipboard through Rust; Close closes; the 
   State.mode = "hidden";
 });
 
+test("the microphone blocked: one click opens Windows' microphone privacy page, a fixed link in Rust", () => {
+  State.voice = at({ phase: "failed", code: "mic-blocked" });
+  State.mode = "expanded";
+  voiceShown();
+  const { v } = card();
+  v.sync();
+  assert.deepEqual(buttons(v), ["Open microphone settings", "Close"]);
+  const n = sent("open_mic_settings").length;
+  v.el.find("button").find((b) => b.textContent === "Open microphone settings").fire("click");
+  assert.equal(sent("open_mic_settings").length, n + 1);
+  // No mic at all: nothing to open.
+  State.voice = at({ phase: "failed", code: "no-mic" });
+  v.sync();
+  assert.deepEqual(buttons(v), ["Close"]);
+  closeVoice(null);
+  State.mode = "hidden";
+  const lib = read("src-tauri/src/lib.rs");
+  assert.ok(lib.includes('const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";'));
+  assert.ok(lib.includes("fn open_mic_settings() {"), "it takes nothing from the island");
+});
+
 test("a typed result closes sooner than one there to copy", () => {
   assert.equal(cardTimeoutMs(at({ phase: "typed" })), 8_000);
   for (const phase of ["heard", "not-typed", "question", "failed"]) assert.equal(cardTimeoutMs(at({ phase })), 30_000, phase);
@@ -158,7 +179,7 @@ test("the island never logs or stores what was heard; the handler sends nothing 
     const src = read(file);
     for (const banned of ["console.", "localStorage", "sessionStorage", "addEventListener"]) assert.ok(!src.includes(banned), `${file}: ${banned}`);
   }
-  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCopy(v.text)"]);
+  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"voice"'));
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);

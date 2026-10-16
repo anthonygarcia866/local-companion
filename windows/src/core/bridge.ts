@@ -160,6 +160,8 @@ export const Bridge = {
   writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
   /** Push-to-talk's card: copies what was heard. False: the clipboard was busy. */
   voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
+  /** Windows' microphone privacy page (a fixed link in Rust). */
+  openMicSettings: () => call<void>("open_mic_settings"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

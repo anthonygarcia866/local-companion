@@ -668,6 +668,19 @@ fn voice_copy(text: String) -> bool {
     copied
 }
 
+/// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
+/// Windows' own microphone privacy page. A fixed settings link, nothing
+/// from the island; no network.
+#[tauri::command]
+fn open_mic_settings() {
+    log::line("voice: opened the microphone privacy settings");
+    #[cfg(windows)]
+    platform::open_url(MIC_SETTINGS);
+}
+
+/// Windows Settings → Privacy & security → Microphone.
+const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
+
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
 fn writing_rewrite_default() -> &'static str {
@@ -1089,6 +1102,7 @@ pub fn run() {
             writing_ask_answer,
             writing_docs_tip_dismiss,
             voice_copy,
+            open_mic_settings,
             writing_ai_check,
             writing_rewrite_apply,
             writing_rewrite_copy,
