@@ -238,9 +238,6 @@ pub fn reveal_folder(path: &str) {
     let _ = Command::new("explorer").arg(path).spawn();
 }
 
-/// Our own `where`: walks %PATH% against %PATHEXT%, no shell involved.
-/// Rust quotes arguments correctly for `.cmd`/`.bat` targets since 1.77, so
-/// spawning `code.cmd` directly is safe.
 /// Ties a child process's life to Glim's: it is put in a job object that
 /// kills it when Glim's handle to the job closes (Glim exits or crashes).
 /// The handle is kept for Glim's lifetime on purpose.
@@ -281,6 +278,9 @@ pub fn open_claude_code_in(folder: &std::path::Path, prompt: &str) -> bool {
     Command::new(claude).current_dir(folder).arg(prompt).creation_flags(CREATE_NEW_CONSOLE).spawn().is_ok()
 }
 
+/// Our own `where`: walks %PATH% against %PATHEXT%, no shell involved.
+/// Rust quotes arguments correctly for `.cmd`/`.bat` targets since 1.77, so
+/// spawning `code.cmd` directly is safe.
 pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     let dirs = std::env::var_os("PATH")?;
