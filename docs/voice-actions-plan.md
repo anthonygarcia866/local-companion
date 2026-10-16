@@ -24,9 +24,9 @@ Rules this plan keeps, unchanged:
 
 ## 2. The listening state (new mascot state)
 
-- **New state `s-hear`** (decided 2026-10-13), designed in `docs/brand/glim-mascot.html` first (draft there for Anthony's review) and ported with `node scripts/port-lantern.mjs` (never hand-edited, CLAUDE.md).
+- **New state `s-hear`** (decided 2026-10-13), designed in `docs/brand/glim-mascot.html` first (a real state there since PR #24, which promoted the 2026-10-13 draft; the draft copy was deleted 2026-10-16) and ported with `node scripts/port-lantern.mjs` (never hand-edited, CLAUDE.md).
 - Why not an existing one: `s-listen` already means "the island is open" (calm glance, `lantern.ts`); `s-record` is red and reserved for screen recording.
-- Draft look (in the design file, not approved yet): the lantern's warm glow turns **cool teal**, the flame breathes with the **microphone level** (one CSS variable set from the meter, clamped, ~15 updates a second), eyes look up. A small mic glyph on the badge spot. Reduced motion: a steady teal glow, no breathing.
+- Look (the design file's first `<style>`, promoted in PR #24): the lantern's warm glow turns **cool teal**, the flame breathes with the **microphone level** (one CSS variable set from the meter, clamped, ~15 updates a second), eyes look up. A small mic glyph on the badge spot. Reduced motion: a steady teal glow, no breathing.
 - Precedence: while the key is held, `s-hear` wins over everything except a waiting approval's badge (the approval card still shows; the lantern still says it's listening).
 
 ## 3. Speech-to-text: how the comparison is run (first run 2026-10-14, §3.1)
