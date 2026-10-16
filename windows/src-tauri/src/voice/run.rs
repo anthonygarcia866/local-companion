@@ -162,6 +162,11 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config) {
             };
             send(app, e);
         }
+        Decision::Draft(spoken) => {
+            crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
+            send(app, VoiceEvent { phase: "idle", ..Default::default() });
+            super::draft_worker::begin(app, spoken);
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), ..Default::default() });
@@ -209,8 +214,8 @@ async fn clean_up(app: &AppHandle, transcript: &str) -> Result<Cleanup, CleanupF
     let outcome = match &result {
         Ok(Cleanup::Dictate(_)) => "dictate".to_string(),
         Ok(Cleanup::Clarify(_)) => "clarify".to_string(),
-        Ok(Cleanup::Command(c)) => (*c).to_string(),
         Ok(Cleanup::Open(_)) => "open_app".to_string(),
+        Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Err(f) => f.code(),
     };

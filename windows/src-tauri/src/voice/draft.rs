@@ -255,8 +255,9 @@ pub fn create(outlook: &dyn Outlook, from: &str, pending: &Pending, open: bool) 
     outlook.save_draft(from, &draft, open)
 }
 
-/// A stand-in Outlook: an address book, accounts, and the drafts it was asked
-/// to save (tests, and the dry run's search when Outlook isn't there).
+/// A stand-in Outlook for tests: an address book, accounts (the default
+/// first), and the drafts it was asked to save.
+#[cfg(test)]
 #[derive(Default)]
 pub struct FakeOutlook {
     pub book: Vec<Contact>,
@@ -265,6 +266,7 @@ pub struct FakeOutlook {
     pub saved: std::sync::Mutex<Vec<(String, Draft, bool)>>,
 }
 
+#[cfg(test)]
 impl Outlook for FakeOutlook {
     fn search(&self, query: &str) -> Result<Vec<Contact>, DraftError> {
         let q = memory_key(query);

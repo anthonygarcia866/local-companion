@@ -22,6 +22,8 @@ pub mod mic;
 pub mod run;
 pub mod whisper;
 pub mod draft;
+#[cfg(windows)]
+pub mod draft_worker;
 #[cfg(all(test, windows))]
 mod live;
 
@@ -101,8 +103,8 @@ pub enum Cleanup {
     /// `open_app` (1.5c): one of the schema's enum, "outlook", "codex" or
     /// "claude_code" (anything else doesn't validate).
     Open(&'static str),
-    /// An action tool not built yet (`draft_email`): "couldn't act on it".
-    Command(&'static str),
+    /// `draft_email` (1.5d, decided 2026-10-16): names as said, subject, body.
+    Draft(draft::Spoken),
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -148,6 +150,9 @@ pub enum Decision {
     /// Open an app Glim knows how to open (only classic Outlook so far): low
     /// risk, no confirmation (plan §5).
     Open { app: &'static str },
+    /// The "Draft email" card: it waits for Create draft (plan §5); nothing
+    /// is ever sent.
+    Draft(draft::Spoken),
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -171,8 +176,17 @@ pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_a
         Ok(Cleanup::Clarify(question)) => Decision::Question { question },
         Ok(Cleanup::Resume(repo)) => Decision::Resume { repo },
         Ok(Cleanup::Open(app)) if OPENABLE.contains(&app) => Decision::Open { app },
+        // Claude's draft is scanned like any text before it's shown or saved.
+        Ok(Cleanup::Draft(d)) => {
+            let all = [d.subject.as_str(), d.body.as_str()].into_iter().chain(d.to.iter().chain(&d.cc).chain(&d.bcc).map(String::as_str));
+            if all.into_iter().any(crate::capture::sensitive::contains_sensitive_number) {
+                Decision::Sensitive
+            } else {
+                Decision::Draft(d)
+            }
+        }
         // Codex and a bare "open Claude Code" wait for the owner (HANDOFF.md).
-        Ok(Cleanup::Open(_)) | Ok(Cleanup::Command(_)) => Decision::Heard { transcript: transcript.to_string() },
+        Ok(Cleanup::Open(_)) => Decision::Heard { transcript: transcript.to_string() },
         // §4.1: dictation types the raw transcript; a command never is.
         Err(_) if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
         Err(_) => Decision::Heard { transcript: transcript.to_string() },
@@ -361,7 +375,10 @@ mod tests {
         assert_eq!(decide("open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
         assert_eq!(decide("open codex", Ok(Cleanup::Open("codex")), field), Decision::Heard { transcript: "open codex".into() });
         assert_eq!(decide("open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Heard { transcript: "open claude code".into() });
-        assert_eq!(decide("draft an email", Ok(Cleanup::Command("draft_email")), field), Decision::Heard { transcript: "draft an email".into() });
+        let d = draft::Spoken { to: vec!["Maria".into()], subject: "Plumber".into(), body: "The plumber comes Tuesday.".into(), ..Default::default() };
+        assert_eq!(decide("draft an email to maria", Ok(Cleanup::Draft(d.clone())), field), Decision::Draft(d.clone()));
+        let card = draft::Spoken { body: "Card 4111 1111 1111 1111".into(), ..d };
+        assert_eq!(decide("draft an email to maria", Ok(Cleanup::Draft(card)), field), Decision::Sensitive, "Claude's body is scanned too");
         assert_eq!(decide("send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
         // Clean-up failed: dictation types the raw transcript (marker on Glim only) …
         for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {

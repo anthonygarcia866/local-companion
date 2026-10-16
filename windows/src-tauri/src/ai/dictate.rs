@@ -5,11 +5,10 @@
 // (`tool_choice: any`). Claude never acts; Glim validates the call.
 //
 // The tools are the plan's five. Glim carries out `dictate`, shows `clarify`,
-// opens the resume card for `resume_work` (decided 2026-10-15) and opens
-// classic Outlook for `open_app` (codex and claude_code wait for the owner);
-// `draft_email` is 1.5d: it is in the schema so Claude can tell a command from
-// dictation, and Glim answers it with "Here's what I heard: … (couldn't act
-// on it)".
+// opens the resume card for `resume_work` (decided 2026-10-15), opens
+// classic Outlook for `open_app` (codex and claude_code wait for the owner),
+// and shows the "Draft email" card for `draft_email` (1.5d, decided
+// 2026-10-16; the draft is saved in Outlook, never sent).
 //
 // §4.1: no answer within ~4 s cancels the request (a late answer is
 // dropped, so nothing is typed twice); that, an outage, no key or the monthly
@@ -44,8 +43,13 @@ pub fn tools() -> Value {
           "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": ["claude_code", "codex", "outlook"] } }, "required": ["app"] } },
         { "name": "resume_work", "description": "Pick up where the user left off in a repo (from its HANDOFF.md).",
           "input_schema": { "type": "object", "properties": { "repo": { "type": "string" } } } },
-        { "name": "draft_email", "description": "Create a draft email (never sent).",
-          "input_schema": { "type": "object", "properties": { "to": { "type": "array", "items": { "type": "string" } }, "subject": { "type": "string" }, "body": { "type": "string" } }, "required": ["to", "body"] } },
+        { "name": "draft_email", "description": "Create a draft email the user reviews and sends in Outlook (never sent by Glim). Names as said; cc and bcc only if the user said them. No attachments.",
+          "input_schema": { "type": "object", "properties": {
+              "to": { "type": "array", "items": { "type": "string" } },
+              "cc": { "type": "array", "items": { "type": "string" } },
+              "bcc": { "type": "array", "items": { "type": "string" } },
+              "subject": { "type": "string" },
+              "body": { "type": "string" } }, "required": ["to", "body"] } },
         { "name": "clarify", "description": "Ask the user one short question.",
           "input_schema": { "type": "object", "properties": { "question": { "type": "string" } }, "required": ["question"] } }
     ])
@@ -95,7 +99,19 @@ pub fn parse_answer(body: &[u8], model: &str) -> (Result<Cleanup, CleanupFailed>
             _ => Err(CleanupFailed::Outage("bad-answer".into())),
         },
         "resume_work" => Ok(Cleanup::Resume(Some(field("repo")).filter(|r| !r.is_empty()).map(str::to_string))),
-        "draft_email" => Ok(Cleanup::Command("draft_email")),
+        "draft_email" => {
+            let names = |k: &str| -> Vec<String> {
+                input.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+            };
+            // The body keeps its paragraphs (it goes to Outlook, not typed).
+            let body = input.get("body").and_then(Value::as_str).unwrap_or("").trim().to_string();
+            let d = crate::voice::draft::Spoken { to: names("to"), cc: names("cc"), bcc: names("bcc"), subject: one_line(field("subject")), body };
+            if d.to.is_empty() || d.body.is_empty() {
+                Err(CleanupFailed::Outage("bad-answer".into()))
+            } else {
+                Ok(Cleanup::Draft(d))
+            }
+        }
         // Anything that doesn't validate: no clean-up (§4).
         _ => Err(CleanupFailed::Outage("bad-answer".into())),
     };
@@ -164,7 +180,13 @@ mod tests {
         for app in ["notepad", "C:\\Windows\\System32\\cmd.exe", ""] {
             assert_eq!(p("open_app", json!({ "app": app })), Err(CleanupFailed::Outage("bad-answer".into())), "{app}: never a free path");
         }
-        assert_eq!(p("draft_email", json!({ "to": ["Maria"], "body": "x" })), Ok(Cleanup::Command("draft_email")));
+        assert_eq!(
+            p("draft_email", json!({ "to": ["Maria", " "], "cc": ["Sam"], "subject": "Plumber\nTuesday", "body": "Hi Maria,\n\nTuesday at 10am." })),
+            Ok(Cleanup::Draft(crate::voice::draft::Spoken { to: vec!["Maria".into()], cc: vec!["Sam".into()], bcc: vec![], subject: "Plumber Tuesday".into(), body: "Hi Maria,\n\nTuesday at 10am.".into() }))
+        );
+        for bad in [json!({ "to": [], "body": "x" }), json!({ "to": ["Maria"], "body": " " })] {
+            assert_eq!(p("draft_email", bad), Err(CleanupFailed::Outage("bad-answer".into())));
+        }
         assert_eq!(p("resume_work", json!({})), Ok(Cleanup::Resume(None)));
         assert_eq!(p("resume_work", json!({ "repo": "  " })), Ok(Cleanup::Resume(None)));
         assert_eq!(p("resume_work", json!({ "repo": "dale-cuts" })), Ok(Cleanup::Resume(Some("dale-cuts".into()))));

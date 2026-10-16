@@ -125,7 +125,8 @@ impl Disp {
 
 /// Classic Outlook on this PC (it starts in the background if it isn't running).
 pub struct ComOutlook {
-    pub app: Disp,
+    /// Held so Outlook stays up while Glim uses it.
+    pub _app: Disp,
     pub ns: Disp,
 }
 
@@ -137,7 +138,7 @@ impl ComOutlook {
         let app: IDispatch = unsafe { CoCreateInstance(&clsid, None, CLSCTX_LOCAL_SERVER) }.map_err(|_| DraftError::NoOutlook)?;
         let app = Disp(app);
         let ns = app.call_obj("GetNamespace", &[VARIANT::from("MAPI")]).map_err(|_| DraftError::NoOutlook)?;
-        Ok(ComOutlook { app, ns })
+        Ok(ComOutlook { _app: app, ns })
     }
 
     /// The account whose SMTP address is `from` (any case), else None.
