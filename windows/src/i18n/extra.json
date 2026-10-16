@@ -4793,17 +4793,6 @@
    "ru": "Микрофон не найден.",
    "id": "Mikrofon tidak ditemukan."
   },
-  "Windows is blocking the microphone. Allow it in Windows Settings → Privacy → Microphone.": {
-   "zh-Hans": "Windows 阻止了麦克风。请在 Windows 设置 → 隐私 → 麦克风 中允许。",
-   "hi": "Windows माइक्रोफ़ोन को रोक रहा है। Windows सेटिंग्स → गोपनीयता → माइक्रोफ़ोन में इसकी अनुमति दें।",
-   "es": "Windows está bloqueando el micrófono. Permítelo en Configuración de Windows → Privacidad → Micrófono.",
-   "ar": "يحظر Windows الميكروفون. اسمح به في إعدادات Windows ← الخصوصية ← الميكروفون.",
-   "fr": "Windows bloque le micro. Autorisez-le dans Paramètres Windows → Confidentialité → Microphone.",
-   "bn": "Windows মাইক্রোফোন আটকে রাখছে। Windows সেটিংস → গোপনীয়তা → মাইক্রোফোন-এ অনুমতি দিন।",
-   "pt-BR": "O Windows está bloqueando o microfone. Permita em Configurações do Windows → Privacidade → Microfone.",
-   "ru": "Windows блокирует микрофон. Разрешите его в Параметры Windows → Конфиденциальность → Микрофон.",
-   "id": "Windows memblokir mikrofon. Izinkan di Pengaturan Windows → Privasi → Mikrofon."
-  },
   "Dictation needs the speech model on this PC. See Settings → Writing → Dictation.": {
    "zh-Hans": "听写需要此电脑上的语音模型。请参阅 设置 → 写作 → 听写。",
    "hi": "बोलकर लिखने के लिए इस PC पर स्पीच मॉडल चाहिए। सेटिंग्स → लेखन → बोलकर लिखना देखें।",
@@ -5023,6 +5012,39 @@
    "pt-BR": "Uma parte foi ocultada: contém um número de cartão, documento ou banco.",
    "ru": "Часть скрыта: в ней номер карты, документа или банковского счёта.",
    "id": "Sebagian disembunyikan: berisi nomor kartu, ID, atau rekening bank."
+  },
+  "Open microphone settings": {
+   "zh-Hans": "打开麦克风设置",
+   "hi": "माइक्रोफ़ोन सेटिंग्स खोलें",
+   "es": "Abrir la configuración del micrófono",
+   "ar": "فتح إعدادات الميكروفون",
+   "fr": "Ouvrir les réglages du micro",
+   "bn": "মাইক্রোফোন সেটিংস খুলুন",
+   "pt-BR": "Abrir configurações do microfone",
+   "ru": "Открыть настройки микрофона",
+   "id": "Buka pengaturan mikrofon"
+  },
+  "Windows is blocking the microphone, or another app is using it. Allow Glim in the microphone settings.": {
+   "zh-Hans": "Windows 阻止了麦克风，或其他应用正在使用它。请在麦克风设置中允许 Glim。",
+   "hi": "Windows माइक्रोफ़ोन को रोक रहा है, या कोई दूसरा ऐप उसका उपयोग कर रहा है। माइक्रोफ़ोन सेटिंग्स में Glim को अनुमति दें।",
+   "es": "Windows está bloqueando el micrófono, u otra app lo está usando. Permite Glim en la configuración del micrófono.",
+   "ar": "يحظر Windows الميكروفون، أو يستخدمه تطبيق آخر. اسمح لـ Glim في إعدادات الميكروفون.",
+   "fr": "Windows bloque le micro, ou une autre app l'utilise. Autorisez Glim dans les réglages du micro.",
+   "bn": "Windows মাইক্রোফোন আটকে রাখছে, অথবা অন্য কোনো অ্যাপ এটি ব্যবহার করছে। মাইক্রোফোন সেটিংসে Glim-কে অনুমতি দিন।",
+   "pt-BR": "O Windows está bloqueando o microfone, ou outro app está usando. Permita o Glim nas configurações do microfone.",
+   "ru": "Windows блокирует микрофон, или его использует другое приложение. Разрешите Glim в настройках микрофона.",
+   "id": "Windows memblokir mikrofon, atau aplikasi lain sedang memakainya. Izinkan Glim di pengaturan mikrofon."
+  },
+  "Not cleaned up": {
+   "zh-Hans": "未整理",
+   "hi": "साफ़ नहीं किया गया",
+   "es": "Sin limpiar",
+   "ar": "لم يُنقَّح",
+   "fr": "Non nettoyé",
+   "bn": "পরিষ্কার করা হয়নি",
+   "pt-BR": "Sem limpeza",
+   "ru": "Не очищено",
+   "id": "Tidak dirapikan"
   }
  }
 }

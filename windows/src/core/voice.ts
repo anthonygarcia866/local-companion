@@ -89,6 +89,23 @@ export function voiceSending(v: VoiceState | null): boolean {
   return v?.phase === "cleaning";
 }
 
+/**
+ * The level meter along the pill's bottom edge while the key is held (plan
+ * §1.2: it shows Glim is actually hearing something): its width as a share of
+ * the pill, from a sliver at silence to 60% at full voice; null when not
+ * listening.
+ */
+export function meterPercent(v: VoiceState | null): number | null {
+  if (v?.phase !== "listening") return null;
+  return Math.round(6 + Math.min(1, Math.max(0, v.level)) * 54);
+}
+
+/** The lantern's "not cleaned up" badge (plan §4.1): the raw transcript was
+ *  typed. Shown while that result is (its card, ~8 s); never in the text. */
+export function rawBadge(v: VoiceState | null): boolean {
+  return v?.phase === "typed" && !v.cleaned;
+}
+
 /** How long a result card stays with nobody touching it. A text that wasn't
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {

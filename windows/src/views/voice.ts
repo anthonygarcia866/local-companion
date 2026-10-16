@@ -80,7 +80,7 @@ export function failedText(code: string): string {
   switch (code) {
     case "nothing-heard": return t("Glim didn't catch any words. Hold the shortcut while you speak.");
     case "no-mic": return t("No microphone found.");
-    case "mic-blocked": return t("Windows is blocking the microphone. Allow it in Windows Settings → Privacy → Microphone.");
+    case "mic-blocked": return t("Windows is blocking the microphone, or another app is using it. Allow Glim in the microphone settings.");
     case "no-whisper": return t("Dictation needs the speech model on this PC. See Settings → Writing → Dictation.");
     case "whisper-start":
     case "whisper": return t("Speech-to-text didn't work this time. Try again.");
@@ -117,6 +117,10 @@ export function buildVoice(host: AskHost): ViewHost {
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
     clear(row);
     if (words.body) row.append(h("button", { class: "apply-all", type: "button", "data-answer": "copy", text: t("Copy"), onclick: () => void copy() }));
+    // Windows blocks the microphone: its privacy page, one click away (plan §6).
+    if (v.phase === "failed" && v.code === "mic-blocked") {
+      row.append(h("button", { class: "apply-all", type: "button", "data-answer": "mic-settings", text: t("Open microphone settings"), onclick: () => void Bridge.openMicSettings() }));
+    }
     row.append(h("button", { class: "link-btn", type: "button", "data-answer": "close", text: t("Close"), onclick: () => closeVoice(host) }));
     if (State.mode === "expanded" && clockFor !== shown) {
       clockFor = shown;
