@@ -40,10 +40,10 @@ pub const MAX_HELD_MS: u64 = 60_000;
 /// The microphone's format: 16 kHz, mono, 16-bit (what whisper wants).
 pub const SAMPLE_RATE: u32 = 16_000;
 
-/// The `open_app` apps Glim opens. "codex" (the only Codex here is the
-/// ChatGPT app's package) and "claude_code" (which folder?) are open
-/// questions for the owner (HANDOFF.md, 2026-10-15).
-pub const OPENABLE: [&str; 1] = ["outlook"];
+/// The `open_app` apps Glim opens: classic Outlook, and the Codex and Claude
+/// desktop apps (owner, 2026-10-16: "the apps", found on the PC the way
+/// Outlook is; platform::open_known_app).
+pub const OPENABLE: [&str; 3] = ["outlook", "codex", "claude_code"];
 
 /// An `open_app` app's name for the card.
 pub fn app_label(app: &str) -> &'static str {
@@ -324,17 +324,20 @@ mod tests {
     }
 
     #[test]
-    fn open_app_opens_only_classic_outlook_by_its_fixed_name() {
-        assert_eq!(OPENABLE, ["outlook"]);
+    fn open_app_opens_three_known_apps_by_fixed_names_only() {
+        assert_eq!(OPENABLE, ["outlook", "codex", "claude_code"]);
         // Anything else returns before Windows is asked to start anything.
         #[cfg(windows)]
-        for app in ["codex", "claude_code", "notepad", r"C:\Windows\System32\cmd.exe", ""] {
+        for app in ["notepad", r"C:\Windows\System32\cmd.exe", ""] {
             assert!(!crate::platform::open_known_app(app), "{app}");
         }
         let src = include_str!("../platform/windows.rs");
         let f = &src[src.find("pub fn open_known_app(").unwrap()..];
         let f = &f[..f.find("\n}").unwrap()];
-        assert!(f.contains(r#""outlook" => w!("OUTLOOK.EXE"),"#) && f.contains("_ => return false,"));
+        assert!(f.contains(r#""outlook" => shell_open(w!("OUTLOOK.EXE")),"#));
+        assert!(f.contains(r#""codex" => activate_package("OpenAI.Codex", "App"),"#));
+        assert!(f.contains(r#""claude_code" => activate_package("Claude", "Claude"),"#));
+        assert!(f.contains("_ => false,"));
         assert!(!f.contains("Command::new"), "no shell, no child Glim spawns itself");
     }
 
@@ -373,8 +376,8 @@ mod tests {
         );
         // A command Glim can't carry out: heard, nothing typed.
         assert_eq!(decide("open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
-        assert_eq!(decide("open codex", Ok(Cleanup::Open("codex")), field), Decision::Heard { transcript: "open codex".into() });
-        assert_eq!(decide("open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Heard { transcript: "open claude code".into() });
+        assert_eq!(decide("open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
+        assert_eq!(decide("open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
         let d = draft::Spoken { to: vec!["Maria".into()], subject: "Plumber".into(), body: "The plumber comes Tuesday.".into(), ..Default::default() };
         assert_eq!(decide("draft an email to maria", Ok(Cleanup::Draft(d.clone())), field), Decision::Draft(d.clone()));
         let card = draft::Spoken { body: "Card 4111 1111 1111 1111".into(), ..d };
