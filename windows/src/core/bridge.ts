@@ -167,6 +167,13 @@ export const Bridge = {
   voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
   /** Windows' microphone privacy page (a fixed link in Rust). */
   openMicSettings: () => call<void>("open_mic_settings"),
+  /** The Draft email card (1.5d): ids, indexes and a search's text only. Nothing sends. */
+  draftPick: (id: number, index: number, choice: number) => call<void>("draft_pick", { id, index, choice }),
+  draftChange: (id: number, index: number) => call<void>("draft_change", { id, index }),
+  draftSearch: (id: number, query: string) => call<void>("draft_search", { id, query }),
+  draftCreate: (id: number) => call<void>("draft_create", { id }),
+  draftCancel: (id: number) => call<void>("draft_cancel", { id }),
+  draftForget: (name: string) => call<void>("draft_forget", { name }),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */
