@@ -33,6 +33,8 @@ mod writing;
 mod voice;
 #[cfg(windows)]
 mod outlook;
+#[cfg(all(test, windows))]
+mod outlook_live;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;

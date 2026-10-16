@@ -43,7 +43,7 @@ const EXCHANGE_USERS: [i32; 2] = [0, 5];
 const MAX_ENTRIES: i32 = 5000;
 
 /// An integer argument (VT_I4).
-fn int(n: i32) -> VARIANT {
+pub(crate) fn int(n: i32) -> VARIANT {
     VARIANT { Anonymous: VARIANT_0 { Anonymous: ManuallyDrop::new(VARIANT_0_0 { vt: VT_I4, wReserved1: 0, wReserved2: 0, wReserved3: 0, Anonymous: VARIANT_0_0_0 { lVal: n } }) } }
 }
 
