@@ -79,6 +79,17 @@ pub fn set_focus(exe: &str, cat: Category) {
     *FOCUS.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe.to_string(), cat));
 }
 
+/// The exe of the field the checker last read (voice: the clean-up's context).
+pub fn current_app() -> Option<String> {
+    FOCUS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(exe, _)| exe.clone())
+}
+
+/// What kind of app that field is in ("email", "documents", "chat",
+/// "other"): voice's clean-up matches its tone to it (plan §4). Never text.
+pub fn current_kind() -> &'static str {
+    FOCUS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(Category::Other.id(), |(_, cat)| cat.id())
+}
+
 /// The default tone for the field the user is writing in now.
 pub fn current_default() -> Tone {
     let focus = FOCUS.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -92,6 +103,16 @@ pub fn current_default() -> Tone {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_focused_fields_kind_is_its_category_id() {
+        set_focus("OUTLOOK.EXE", Category::Email);
+        assert_eq!(current_kind(), "email");
+        set_focus("WINWORD.EXE", Category::Documents);
+        assert_eq!(current_kind(), "documents");
+        *FOCUS.lock().unwrap() = None;
+        assert_eq!(current_kind(), "other");
+    }
 
     #[test]
     fn email_and_documents_are_formal_chat_casual_and_the_rest_grammar() {

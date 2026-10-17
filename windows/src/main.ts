@@ -12,6 +12,8 @@ import { askPlacement, type WritingAsk } from "./core/ask";
 import { answerAsk, askClock } from "./views/ask";
 import { docsTipPlacement } from "./core/docs-tip";
 import { closeDocsTip } from "./views/docs-tip";
+import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "./core/voice";
+import { voiceShown } from "./views/voice";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
 import { registerHookHandlers } from "./island/hooks";
@@ -239,6 +241,27 @@ async function main() {
     if (where === "drop") return;
     State.writingDocsTip = true;
     if (where === "show") island.alert("writingDocsTip");
+    State.notify();
+  });
+
+  // Push-to-talk (voice 1.5b, core/voice.ts): Rust's phases. While the key
+  // is held the mic level comes ~10 times a second; the lantern reads it each
+  // frame, so those need no redraw.
+  await onEvent<VoiceEvent>("voice", (e) => {
+    const was = State.voice;
+    State.voice = nextVoice(State.voice, e);
+    if (e.phase === "listening" && was?.phase === "listening") return;
+    const v = State.voice;
+    if (v && !running(v)) {
+      const where = voicePlacement({ presence: presence.model.kind, approval: State.pendingApproval !== null, v });
+      if (where === "drop") State.voice = null;
+      else {
+        voiceShown();
+        if (where === "show") island.alert("voice");
+      }
+    }
+    // A result that needed no card: the lantern goes back.
+    if (State.voice && !running(State.voice) && !needsCard(State.voice)) State.voice = null;
     State.notify();
   });
 

@@ -81,6 +81,11 @@ pub enum Request {
     RewriteCopy { id: u64 },
     /// 1c: the Rewrite card was closed.
     RewriteDismiss,
+    /// Voice: the push-to-talk key went down: note the field in front.
+    VoiceBegin,
+    /// Voice: type `text` into that field (1b's checks). `cleaned` false =
+    /// the raw transcript; `why` = the clean-up's failure code.
+    VoiceType { text: String, cleaned: bool, why: String },
     /// "Check with AI" (§15.1): a click, or the automatic check.
     AiCheck { auto: bool },
     /// Its answer, from the async runtime.
@@ -165,6 +170,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // The automatic check's last refusal before sending (no key, cap…):
     // logged once, not at every pause in typing.
     let mut auto_refused: Option<String> = None;
+    // Voice: the field that had the focus when push-to-talk went down, if it
+    // was one Glim may type in; and whether the last reading was such a field.
+    let mut voice_field: Option<(IUIAutomationElement, u32)> = None;
+    let mut last_typable = false;
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
     };
@@ -406,6 +415,32 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         };
                         send_ai(event);
                     }
+                    Request::VoiceBegin => {
+                        voice_field = if last_typable { current.as_ref().map(|(e, _)| (e.clone(), foreground_pid())) } else { None };
+                        crate::voice::FIELD_AT_PRESS.store(voice_field.is_some(), std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Request::VoiceType { text, cleaned, why } => {
+                        use crate::voice::{VoiceEvent, EVENT};
+                        let (outcome, name) = match &voice_field {
+                            _ if crate::writing::paused() => (crate::writing::Outcome::Paused, String::new()),
+                            Some((element, pid)) => {
+                                let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                (crate::writing::apply::insert(&mut field, &text), crate::writing::apps::display_name(&process_name(*pid as i32)))
+                            }
+                            None => (crate::writing::Outcome::Away, String::new()),
+                        };
+                        crate::log::line(format!("voice: typed {} ({}) {}", outcome.code(), if cleaned { "cleaned" } else { "not cleaned up" }, name));
+                        let applied = outcome == crate::writing::Outcome::Applied;
+                        let e = if applied {
+                            VoiceEvent { phase: "typed", cleaned, code: why, app: name, ..Default::default() }
+                        } else {
+                            // Not typed: the card shows the text, to copy.
+                            VoiceEvent { phase: "not-typed", cleaned, text, code: outcome.code().into(), app: name, ..Default::default() }
+                        };
+                        let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+                        voice_field = None;
+                        writer.after_fix();
+                    }
                     Request::Wake => {}
                 }
                 "request"
@@ -523,6 +558,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             let cat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site);
             crate::writing::tones::set_focus(&capture.meta.app, cat);
         }
+        last_typable = checked.is_some() && !capture.meta.read_only && !capture.meta.password;
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }

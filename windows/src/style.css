@@ -173,6 +173,27 @@ body {
   width: 0;
 }
 
+/* Push-to-talk's level meter (voice plan §1.2), where the countdown runs,
+   in s-hear's teal; above the countdown while the key is held. */
+#voice-meter {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(94, 214, 200, 0.9);
+  transition: width 80ms linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #voice-meter {
+    transition: none;
+  }
+}
+
 /* Compact 2×2 mini grid, to the right of the notch. */
 #mini-grid {
   position: absolute;
@@ -763,6 +784,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+/* Push-to-talk's question (views/voice.ts): always in full. It wraps, and
+   only a very long one scrolls inside the cap (the card grows to
+   VOICE_QUESTION_H for it). */
+.title.voice-question {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  max-height: 102px;
+  overflow-y: auto;
 }
 
 .sub {
@@ -2462,6 +2494,21 @@ html:not([data-presence="pill"]) #lantern-menu {
 
 /* The count on the pill, at the lantern's top right. */
 /* The writing features are paused (1d): a grey "❚❚" where the count goes. */
+/* Dictation typed the raw transcript (voice plan §4.1): "not cleaned up". */
+#voice-raw-badge {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #8a8f98;
+  color: #16181c;
+  font: 800 11px/14px var(--font);
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 #pause-badge {
   position: absolute;
   min-width: 15px;

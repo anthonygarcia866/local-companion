@@ -29,6 +29,7 @@ mod tray;
 #[cfg(windows)]
 mod webview_drop;
 mod writing;
+mod voice;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -333,6 +334,8 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    #[cfg(windows)]
+    voice::whisper::stop();
     app.exit(0);
 }
 
@@ -651,6 +654,32 @@ fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
     log::line("writing: Google Docs tip dismissed");
     update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
 }
+
+/// Push-to-talk's card (voice 1.5b): "Copy" on what was heard or not typed.
+/// The text came from Rust in the first place; it is only put on the
+/// clipboard, never logged. False: another app held the clipboard.
+#[tauri::command]
+fn voice_copy(text: String) -> bool {
+    #[cfg(windows)]
+    let copied = capture::fix::copy_to_clipboard(&text);
+    #[cfg(not(windows))]
+    let copied = { let _ = text; false };
+    log::line(format!("voice: copy {}", if copied { "ok" } else { "clipboard busy" }));
+    copied
+}
+
+/// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
+/// Windows' own microphone privacy page. A fixed settings link, nothing
+/// from the island; no network.
+#[tauri::command]
+fn open_mic_settings() {
+    log::line("voice: opened the microphone privacy settings");
+    #[cfg(windows)]
+    platform::open_url(MIC_SETTINGS);
+}
+
+/// Windows Settings → Privacy & security → Microphone.
+const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
 
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
@@ -1072,6 +1101,8 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            voice_copy,
+            open_mic_settings,
             writing_ai_check,
             writing_rewrite_apply,
             writing_rewrite_copy,
@@ -1155,6 +1186,12 @@ pub fn run() {
             // So does the pause key (1d): it works with the island hidden.
             let pause_handle = handle.clone();
             shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
+            // And push-to-talk (voice 1.5b): Rust polls the key for its release.
+            #[cfg(windows)]
+            {
+                let voice_handle = handle.clone();
+                shortcuts::on_push_to_talk(move || voice::run::on_key_down(&voice_handle));
+            }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

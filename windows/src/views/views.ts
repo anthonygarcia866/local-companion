@@ -18,6 +18,7 @@ import { PlanCard, buildPlanPill, claudePillVisible, planCardOpen } from "./usag
 import { buildRewrite } from "./rewrite";
 import { buildAsk } from "./ask";
 import { buildDocsTip } from "./docs-tip";
+import { buildVoice } from "./voice";
 import { openToneCard } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
@@ -995,6 +996,7 @@ export function buildViews(
   map.set("rewrite", buildRewrite(actions));
   map.set("writingAsk", buildAsk(actions));
   map.set("writingDocsTip", buildDocsTip(actions));
+  map.set("voice", buildVoice(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));
