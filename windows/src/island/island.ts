@@ -3,12 +3,13 @@
 
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
-import { afterDragLeave } from "../core/drop-zone";
+import { DropZoneSession } from "../core/drop-zone";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
   dockedBot, dockedSize, islandFrame, islandSize, isVerticalDock, pillGeometry,
   QUESTION_PICKER_H,
+  VOICE_QUESTION_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
@@ -533,6 +534,9 @@ export class Island {
 
   // ── File drop ───────────────────────────────────────────────────────────────
 
+  /** How the island looked before the current file drag opened the bucket. */
+  private readonly dropZone = new DropZoneSession();
+
   private onDragDrop(e: { type: string; paths?: string[] }) {
     if (e.type !== "over") void Bridge.log(`drag ${e.type} ${e.paths?.length ?? 0} file(s)`);
     switch (e.type) {
@@ -540,6 +544,7 @@ export class Island {
       case "over": {
         if (State.fileDragOver || !State.settings.fileDropZone) return;
         State.fileDragOver = true;
+        this.dropZone.enter(State.mode === "expanded", State.view);
         this.engine.animateMorph(1);
         // enterZone must run before the island expands, so the sequence is
         // already active by the time the view becomes `upload`.
@@ -554,7 +559,7 @@ export class Island {
         UploadSeq.exitZone();
         // Left the zone (or dropped elsewhere, or Esc): the bucket folds away
         // at once, so it never sits over where the file is going.
-        const next = afterDragLeave(State.view, State.mode === "expanded", State.lanternView());
+        const next = this.dropZone.leave(State.view, State.mode === "expanded");
         if (next === "collapse") this.collapse();
         else if (next !== "stay") this.setView(next);
         State.notify();
@@ -562,6 +567,7 @@ export class Island {
       }
       case "drop": {
         State.fileDragOver = false;
+        this.dropZone.drop();
         const path = e.paths?.[0];
         if (!path) {
           this.engine.animateMorph(0);
@@ -654,6 +660,9 @@ export class Island {
     let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length, pillGeometry(State.settings.pillSize));
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
+    }
+    if (State.mode === "expanded" && State.view === "voice" && State.voice?.phase === "question") {
+      h = VOICE_QUESTION_H;
     }
     ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;

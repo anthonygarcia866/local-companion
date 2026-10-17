@@ -112,6 +112,10 @@ export function buildVoice(host: AskHost): ViewHost {
     if (!v) return;
     const words = voiceText(v);
     title.textContent = words.title;
+    // A question is never cut off: it wraps (retest, 2026-10-16).
+    const asking = v.phase === "question";
+    title.classList.toggle("one-line", !asking);
+    title.classList.toggle("voice-question", asking);
     body.textContent = words.body;
     body.style.display = words.body ? "" : "none";
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
