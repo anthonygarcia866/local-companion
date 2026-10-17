@@ -29,11 +29,14 @@ export interface DraftCard {
   /** The recipient "Change recipient" is searching for, and what it found. */
   changing: number | null;
   results: DraftContact[];
+  /** A change to the draft Glim just saved (fix b, 2026-10-17): no
+   *  recipients, the new subject and text, and Update draft. */
+  edit?: boolean;
 }
 
 /** One event from Rust (draft_worker::DraftEvent). */
 export interface DraftEvent {
-  phase: "card" | "created" | "closed";
+  phase: "card" | "created" | "updated" | "closed";
   card: DraftCard | null;
   /** Why the last step didn't work ("no-outlook", "no-account", "no-sender", "outlook-failed"), or "". */
   code: string;
@@ -54,6 +57,8 @@ export interface DraftState {
   busy: boolean;
   /** "Change recipient" with several names: which one, picked next. */
   choosing: boolean;
+  /** "created" for a change put into the draft Glim saved before. */
+  updated?: boolean;
 }
 
 /** "me", "Me.", "myself", "my email": the sender (Rust's draft::means_me). */
@@ -69,7 +74,8 @@ export function nextDraft(cur: DraftState | null, e: DraftEvent): DraftState | n
       if (!e.card) return cur;
       return { phase: "open", card: e.card, code: e.code ?? "", dryRun: e.dryRun === true, ready: e.ready === true, busy: false, choosing: cur?.choosing === true && cur.card?.id === e.card.id && e.card.changing === null };
     case "created":
-      return { phase: "created", card: null, code: "", dryRun: e.dryRun === true, ready: false, busy: false, choosing: false };
+    case "updated":
+      return { phase: "created", card: null, code: "", dryRun: e.dryRun === true, ready: false, busy: false, choosing: false, updated: e.phase === "updated" };
     case "closed":
       return e.code ? { phase: "failed", card: null, code: e.code, dryRun: e.dryRun === true, ready: false, busy: false, choosing: false } : null;
   }

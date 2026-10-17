@@ -166,3 +166,85 @@ fn three_test_drafts() {
     assert!(test_items(&drafts).is_empty() && test_items(&deleted).is_empty(), "nothing left");
     println!("all test drafts deleted (Drafts and Deleted Items)");
 }
+
+/// Fix b (2026-10-17): "change the email you just drafted". One "[GLIM TEST]"
+/// draft to the owner, saved through Glim's own code; read back by its
+/// EntryID (subject + the text above the signature), changed, read again;
+/// the signature (everything after Glim's part) must be byte-for-byte the
+/// same, the draft never sent. Then deleted, from Deleted Items too.
+#[test]
+#[ignore = "live: saves 1 [GLIM TEST] draft to the owner, edits and deletes it; needs GLIM_LIVE_ME and GLIM_LIVE_DRAFTS=1"]
+fn edit_test_draft() {
+    assert_eq!(std::env::var("GLIM_LIVE_DRAFTS").as_deref(), Ok("1"));
+    let o = connect();
+    let me = me();
+    let account = o.account(&me).expect("the owner's account");
+    let drafts = folder(&o, &account, DRAFTS);
+    assert!(test_items(&drafts).is_empty(), "no leftover test drafts before");
+    let search = |q: &str| o.search(q).unwrap_or_default();
+    let none = BTreeMap::new();
+
+    let p = draft::pending(1, &Spoken { to: vec!["me".into()], subject: format!("{PREFIX} edit"), body: "Glim edit test, first version.\n\nSecond paragraph.".into(), ..Default::default() }, &me, &none, search);
+    let id = draft::create(&o, &me, &p, false).expect("saved");
+    println!("EntryID returned: {}", !id.is_empty());
+    assert!(!id.is_empty());
+    let tail = |o: &ComOutlook| {
+        let m = o.ns.call_obj("GetItemFromID", &[windows::Win32::System::Variant::VARIANT::from(id.as_str())]).unwrap();
+        let body = m.text("Body");
+        let cut = body.find("Second paragraph").map(|i| i + "Second paragraph".len()).or_else(|| body.find("And a third").map(|i| i + "And a third".len())).unwrap();
+        body[cut..].trim_start_matches(['.', '\r', '\n']).to_string()
+    };
+    let sig_before = tail(&o);
+    println!("signature after Glim's part: {} chars, looks like one: {}", sig_before.len(), crate::outlook::has_signature(&sig_before));
+
+    let read = o.read_draft(&id).expect("read back");
+    println!("read back: subject same: {}, body same: {}", read.subject == format!("{PREFIX} edit"), read.body == "Glim edit test, first version.\n\nSecond paragraph.");
+    assert_eq!(read.subject, format!("{PREFIX} edit"));
+    assert_eq!(read.body, "Glim edit test, first version.\n\nSecond paragraph.");
+
+    o.update_draft(&id, &format!("{PREFIX} edit, changed"), "Glim edit test, CHANGED.\n\nSecond paragraph. And a third", false).expect("changed");
+    let again = o.read_draft(&id).expect("read again");
+    println!("after the change: subject: {}, body: {}", again.subject == format!("{PREFIX} edit, changed"), again.body == "Glim edit test, CHANGED.\n\nSecond paragraph. And a third");
+    assert_eq!(again.subject, format!("{PREFIX} edit, changed"));
+    assert_eq!(again.body, "Glim edit test, CHANGED.\n\nSecond paragraph. And a third");
+    let sig_after = tail(&o);
+    println!("signature unchanged: {}", sig_after == sig_before);
+    assert_eq!(sig_after, sig_before, "the signature stays as it was");
+
+    let saved = test_items(&drafts);
+    assert_eq!(saved.len(), 1, "still one draft, in the owner's Drafts");
+    assert!(!saved[0].get("Sent").ok().and_then(|v| bool::try_from(&v).ok()).unwrap_or(true), "never sent");
+    // A deleted draft is Gone, never recreated.
+    for m in saved {
+        m.call("Delete", &[]).unwrap();
+    }
+    let deleted = folder(&o, &account, DELETED);
+    for m in test_items(&deleted) {
+        m.call("Delete", &[]).unwrap();
+    }
+    assert!(matches!(o.read_draft(&id), Err(draft::DraftError::Gone)), "a deleted draft can't be changed");
+    assert!(test_items(&drafts).is_empty() && test_items(&deleted).is_empty(), "nothing left");
+    println!("test draft deleted (Drafts and Deleted Items)");
+}
+
+/// Removes "[GLIM TEST]" drafts a failed live test left behind (Drafts, then
+/// Deleted Items). Only items whose subject starts with the test prefix.
+#[test]
+#[ignore = "live: deletes leftover [GLIM TEST] drafts in the owner's account; needs GLIM_LIVE_ME and GLIM_LIVE_DRAFTS=1"]
+fn cleanup_test_drafts() {
+    assert_eq!(std::env::var("GLIM_LIVE_DRAFTS").as_deref(), Ok("1"));
+    let o = connect();
+    let account = o.account(&me()).expect("the owner's account");
+    let drafts = folder(&o, &account, DRAFTS);
+    let left = test_items(&drafts);
+    println!("leftover test drafts: {}", left.len());
+    for m in left {
+        m.call("Delete", &[]).unwrap();
+    }
+    let deleted = folder(&o, &account, DELETED);
+    for m in test_items(&deleted) {
+        m.call("Delete", &[]).unwrap();
+    }
+    assert!(test_items(&drafts).is_empty() && test_items(&deleted).is_empty(), "nothing left");
+    println!("none left (Drafts and Deleted Items)");
+}

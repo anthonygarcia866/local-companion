@@ -62,8 +62,56 @@ pub trait Outlook {
     /// Outlook's local address book: entries whose name matches `query`.
     fn search(&self, query: &str) -> Result<Vec<Contact>, DraftError>;
     /// Saves a draft in the Drafts of the account whose address is `from`
-    /// (never another account) and opens it in Outlook when `open`. Never sends.
-    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<(), DraftError>;
+    /// (never another account) and opens it in Outlook when `open`. Never
+    /// sends. Ok: the draft's Outlook id (EntryID), kept only in memory so
+    /// "change the email you just drafted" can find it (fix b, 2026-10-17).
+    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<String, DraftError>;
+    /// The subject of draft `id` and its text above the signature. Err(Gone)
+    /// if it was deleted, moved or sent.
+    fn read_draft(&self, id: &str) -> Result<DraftText, DraftError>;
+    /// Puts a new subject and text (above the signature, which stays) into
+    /// draft `id`, saves it and opens it when `open`. Never sends.
+    fn update_draft(&self, id: &str, subject: &str, body: &str, open: bool) -> Result<(), DraftError>;
+}
+
+/// A saved draft's subject and Glim's part of its text (above the signature).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DraftText {
+    pub subject: String,
+    pub body: String,
+}
+
+/// Word's text (a message's editor) as plain text: a paragraph mark (\r) is
+/// a paragraph, a blank line apart; a line break inside one (\v) is a newline.
+/// Glim wrote "a\n\nb" as two paragraphs and "a\nb" as one with a break.
+pub fn word_to_text(word: &str) -> String {
+    let text = word.replace("\r\n", "\r").replace('\r', "\n\n").replace('\u{b}', "\n");
+    let mut lines: Vec<&str> = Vec::new();
+    for line in text.trim().split('\n').map(str::trim_end) {
+        // Empty paragraphs don't pile up: at most one blank line.
+        if line.is_empty() && lines.last().is_some_and(|l| l.is_empty()) {
+            continue;
+        }
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
+/// How much of the old part above the signature is replaced, in Word's
+/// character positions (UTF-16): everything but the paragraph marks just
+/// before the signature. Those stay, so the new text never touches the
+/// signature's bookmark (live, 2026-10-17: text put right against it went
+/// into the bookmark, i.e. into the signature).
+pub fn replaced_len(old: &str) -> usize {
+    old.trim_end_matches(['\r', '\n', ' ', '\u{b}']).encode_utf16().count()
+}
+
+/// `body` as Word text: its paragraphs as Word paragraphs (\r), its line
+/// breaks inside one as \v.
+pub fn text_to_word(body: &str) -> String {
+    let body = body.trim().replace("\r\n", "\n");
+    let paragraphs: Vec<String> = body.split("\n\n").map(|p| p.trim().replace('\n', "\u{b}")).filter(|p| !p.is_empty()).collect();
+    paragraphs.join("\r")
 }
 
 /// Why there is no draft (a code for the log and the card).
@@ -80,6 +128,9 @@ pub enum DraftError {
     /// The sender is the shared leasing mailbox: drafts are never made there
     /// (owner, 2026-10-16).
     SharedAccount,
+    /// The draft to change was deleted, moved or sent, or none was made in
+    /// the last few minutes.
+    Gone,
 }
 
 impl DraftError {
@@ -90,6 +141,7 @@ impl DraftError {
             DraftError::NoSender => "no-sender",
             DraftError::Failed => "outlook-failed",
             DraftError::SharedAccount => "shared-account",
+            DraftError::Gone => "draft-gone",
         }
     }
 }
@@ -209,11 +261,21 @@ pub struct Pending {
     /// (spoken name, address).
     #[serde(skip)]
     pub picked: Vec<(String, String)>,
+    /// A change to the draft Glim just saved (fix b, 2026-10-17): the card
+    /// shows the new subject and text, and its button updates that draft.
+    pub edit: bool,
+    /// That draft's Outlook id: stays in Rust, never sent to the island.
+    #[serde(skip)]
+    pub entry: String,
 }
 
 impl Pending {
     /// Every recipient has one address, and there is at least one To.
     pub fn ready(&self) -> bool {
+        // A change keeps the draft's recipients as they are in Outlook.
+        if self.edit {
+            return !self.entry.is_empty() && !self.body.trim().is_empty();
+        }
         self.recipients.iter().any(|r| r.line == Line::To) && self.recipients.iter().all(|r| matches!(r.found, Found::One { .. }))
     }
 
@@ -365,7 +427,30 @@ pub fn pending(id: u64, call: &Spoken, me: &str, remembered: &BTreeMap<String, S
             recipients.push(Recipient { said: said.to_string(), line, found: resolve(said, me, remembered, &search) });
         }
     }
-    Pending { id, recipients, subject: call.subject.trim().to_string(), body: call.body.trim().to_string(), changing: None, results: Vec::new(), picked: Vec::new() }
+    Pending { id, recipients, subject: call.subject.trim().to_string(), body: call.body.trim().to_string(), changing: None, results: Vec::new(), picked: Vec::new(), edit: false, entry: String::new() }
+}
+
+/// The card for a change to draft `entry`: the new subject and text, no
+/// recipients (they stay as they are in Outlook).
+pub fn edit_card(id: u64, entry: &str, new: &DraftText) -> Pending {
+    Pending { id, recipients: Vec::new(), subject: new.subject.trim().to_string(), body: new.body.trim().to_string(), changing: None, results: Vec::new(), picked: Vec::new(), edit: true, entry: entry.to_string() }
+}
+
+/// How long "the email you just drafted" means the last draft Glim saved.
+pub const EDIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// The draft Glim saved last, if it was saved (or changed) within
+/// EDIT_WINDOW of `now`. Only its Outlook id is kept, in memory.
+pub fn recent(last: &Option<(String, std::time::Instant)>, now: std::time::Instant) -> Option<&str> {
+    last.as_ref().filter(|(id, at)| !id.is_empty() && now.saturating_duration_since(*at) < EDIT_WINDOW).map(|(id, _)| id.as_str())
+}
+
+/// Updates the card's draft in Outlook and opens it there. Never sends.
+pub fn update(outlook: &dyn Outlook, card: &Pending) -> Result<(), DraftError> {
+    if !card.ready() {
+        return Err(DraftError::Failed);
+    }
+    outlook.update_draft(&card.entry, &card.subject, &card.body, true)
 }
 
 /// Claude's `draft_email` call, validated (ai::dictate): names as said.
@@ -379,7 +464,8 @@ pub struct Spoken {
 }
 
 /// Saves `pending`'s draft as `from` and opens it (dry run: nothing saved).
-pub fn create(outlook: &dyn Outlook, from: &str, pending: &Pending, open: bool) -> Result<(), DraftError> {
+/// Ok: the draft's Outlook id.
+pub fn create(outlook: &dyn Outlook, from: &str, pending: &Pending, open: bool) -> Result<String, DraftError> {
     if !looks_like_address(from) {
         return Err(DraftError::NoSender);
     }
@@ -399,6 +485,8 @@ pub struct FakeOutlook {
     /// The accounts' addresses, the default one first.
     pub accounts: Vec<String>,
     pub saved: std::sync::Mutex<Vec<(String, Draft, bool)>>,
+    /// Changes asked of saved drafts: (id, subject, body, open).
+    pub updated: std::sync::Mutex<Vec<(String, String, String, bool)>>,
 }
 
 #[cfg(test)]
@@ -411,9 +499,23 @@ impl Outlook for FakeOutlook {
         Ok(self.book.iter().filter(|c| memory_key(&c.name).split(' ').any(|w| w.starts_with(&q)) || memory_key(&c.name).starts_with(&q)).cloned().collect())
     }
 
-    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<(), DraftError> {
+    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<String, DraftError> {
         let account = self.accounts.iter().find(|a| a.eq_ignore_ascii_case(from)).ok_or(DraftError::NoAccount)?;
-        self.saved.lock().unwrap().push((account.clone(), draft.clone(), open));
+        let mut saved = self.saved.lock().unwrap();
+        saved.push((account.clone(), draft.clone(), open));
+        Ok(format!("fake-{}", saved.len()))
+    }
+
+    fn read_draft(&self, id: &str) -> Result<DraftText, DraftError> {
+        let n: usize = id.strip_prefix("fake-").and_then(|n| n.parse().ok()).ok_or(DraftError::Gone)?;
+        let saved = self.saved.lock().unwrap();
+        let (_, d, _) = saved.get(n.wrapping_sub(1)).ok_or(DraftError::Gone)?;
+        Ok(DraftText { subject: d.subject.clone(), body: d.body.clone() })
+    }
+
+    fn update_draft(&self, id: &str, subject: &str, body: &str, open: bool) -> Result<(), DraftError> {
+        self.read_draft(id)?;
+        self.updated.lock().unwrap().push((id.to_string(), subject.to_string(), body.to_string(), open));
         Ok(())
     }
 }
@@ -427,11 +529,20 @@ impl Outlook for DryRun<'_> {
         self.0.search(query)
     }
 
-    fn save_draft(&self, from: &str, _draft: &Draft, _open: bool) -> Result<(), DraftError> {
+    fn save_draft(&self, from: &str, _draft: &Draft, _open: bool) -> Result<String, DraftError> {
         if !looks_like_address(from) {
             return Err(DraftError::NoSender);
         }
-        Ok(())
+        // Nothing saved, so nothing to change later.
+        Ok(String::new())
+    }
+
+    fn read_draft(&self, _id: &str) -> Result<DraftText, DraftError> {
+        Err(DraftError::Gone)
+    }
+
+    fn update_draft(&self, _id: &str, _subject: &str, _body: &str, _open: bool) -> Result<(), DraftError> {
+        Err(DraftError::Gone)
     }
 }
 
@@ -456,6 +567,7 @@ mod tests {
             // The shared mailbox is the default account, on purpose.
             accounts: vec!["leasing@example.com".into(), ME_ADDR.into()],
             saved: Default::default(),
+            updated: Default::default(),
         }
     }
 
@@ -615,7 +727,7 @@ mod tests {
         let o = outlook();
         let call = Spoken { to: vec!["me".into()], subject: "[GLIM TEST] 1".into(), body: "x".into(), ..Default::default() };
         let p = pending(1, &call, ME_ADDR, &BTreeMap::new(), search(&o));
-        assert_eq!(create(&o, ME_ADDR, &p, true), Ok(()));
+        assert_eq!(create(&o, ME_ADDR, &p, true), Ok("fake-1".to_string()), "its Outlook id comes back");
         let saved = o.saved.lock().unwrap().clone();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].0, ME_ADDR, "not the default (shared) account");
@@ -632,10 +744,52 @@ mod tests {
     }
 
     #[test]
+    fn a_drafts_text_goes_to_word_and_back_unchanged() {
+        // Word holds paragraphs (\r) and in-paragraph breaks (\v).
+        assert_eq!(word_to_text("First.\rSecond\u{b}line.\r\r"), "First.\n\nSecond\nline.");
+        assert_eq!(word_to_text("A\r\r\r\rB"), "A\n\nB", "empty paragraphs: one blank line");
+        // Only the text is replaced; the marks before the signature stay.
+        assert_eq!(text_to_word("New one.\n\nSecond\nline."), "New one.\rSecond\u{b}line.");
+        assert_eq!(replaced_len("Old.\r\r"), 4);
+        assert_eq!(replaced_len("Été 4B.\r"), 7, "Word counts UTF-16 characters");
+        for body in ["Glim edit test, CHANGED.\n\nSecond paragraph. And a third", "One line", "a\nb\n\nc"] {
+            assert_eq!(word_to_text(&format!("{}\r\r", text_to_word(body))), body, "{body:?}");
+        }
+    }
+
+    #[test]
+    fn the_email_just_drafted_is_remembered_by_its_id_for_ten_minutes_then_changed_in_place() {
+        use std::time::{Duration, Instant};
+        let o = outlook();
+        let p = pending(1, &Spoken { to: vec!["me".into()], subject: "Shift".into(), body: "The shift moves to Tuesday.".into(), ..Default::default() }, ME_ADDR, &BTreeMap::new(), search(&o));
+        let id = create(&o, ME_ADDR, &p, true).unwrap();
+        let t0 = Instant::now();
+        let last = Some((id.clone(), t0));
+        assert_eq!(recent(&last, t0 + Duration::from_secs(9 * 60)), Some(id.as_str()));
+        assert_eq!(recent(&last, t0 + EDIT_WINDOW), None, "after ten minutes it's forgotten");
+        assert_eq!(recent(&Some((String::new(), t0)), t0), None, "a dry run saved nothing to change");
+        assert_eq!(recent(&None, t0), None);
+        // Read back from Outlook (not from memory), changed on a card, updated in place.
+        let now = o.read_draft(&id).unwrap();
+        assert_eq!(now.body, "The shift moves to Tuesday.");
+        let card = edit_card(2, &id, &DraftText { subject: "Shift".into(), body: "The shift moves to Wednesday.".into() });
+        assert!(card.ready() && card.edit && card.recipients.is_empty());
+        let shown = serde_json::to_value(&card).unwrap();
+        assert!(shown.get("entry").is_none(), "the Outlook id never goes to the island");
+        assert_eq!(update(&o, &card), Ok(()));
+        assert_eq!(o.updated.lock().unwrap().clone(), vec![(id.clone(), "Shift".into(), "The shift moves to Wednesday.".into(), true)]);
+        assert_eq!(o.saved.lock().unwrap().len(), 1, "no second draft");
+        // A draft that's gone can't be changed.
+        let gone = edit_card(3, "fake-9", &DraftText { subject: "x".into(), body: "y".into() });
+        assert_eq!(update(&o, &gone), Err(DraftError::Gone));
+        assert_eq!(DryRun(&o).update_draft(&id, "a", "b", true), Err(DraftError::Gone), "the dry run changes nothing");
+    }
+
+    #[test]
     fn the_dry_run_saves_nothing() {
         let o = outlook();
         let p = pending(1, &Spoken { to: vec!["Sam".into()], body: "x".into(), ..Default::default() }, ME_ADDR, &BTreeMap::new(), search(&o));
-        assert_eq!(create(&DryRun(&o), ME_ADDR, &p, true), Ok(()));
+        assert_eq!(create(&DryRun(&o), ME_ADDR, &p, true), Ok(String::new()), "nothing saved: no id");
         assert!(o.saved.lock().unwrap().is_empty());
         assert_eq!(DryRun(&o).search("sam").unwrap().len(), 1);
     }

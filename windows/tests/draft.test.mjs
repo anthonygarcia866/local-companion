@@ -151,6 +151,38 @@ test("Cancel tells Rust and closes; a note closes by itself; every code has word
   State.mode = "hidden";
 });
 
+test("a change to the draft just made: the new text on the card, Update draft by id, then a note (fix b, 2026-10-17)", () => {
+  State.mode = "expanded";
+  State.view = "draft";
+  const edit = cardOf({ id: 7, edit: true, recipients: [], subject: "Shift", body: "The shift moves to Wednesday." });
+  State.draft = nextDraft(null, ev({ card: edit, ready: true }));
+  const { v } = view();
+  v.sync();
+  assert.match(v.el.textContent, /Change the draft/);
+  assert.match(v.el.textContent, /Subject: Shift/);
+  assert.match(v.el.textContent, /The shift moves to Wednesday\./);
+  assert.match(v.el.textContent, /Update draft puts this into the draft in Outlook and opens it there\. You send it yourself\./);
+  assert.deepEqual(v.el.find("button").map((b) => b.textContent), ["Update draft", "Cancel"], "no recipients to change, nothing that sends");
+  const n = sent("draft_create").length;
+  roles(v, "create")[0].fire("click");
+  roles(v, "create")[0].fire("click");
+  assert.deepEqual(sent("draft_create").slice(n), [{ id: 7 }], "once, by id: Rust holds the draft's Outlook id");
+  State.draft = nextDraft(State.draft, { phase: "updated", card: null, code: "", dryRun: false, ready: false });
+  v.sync();
+  assert.match(v.el.textContent, /Changed in Outlook's Drafts and opened there\. You send it from Outlook\./);
+  assert.equal(draftClock.running(), true, "the note closes by itself");
+  closeDraft(null);
+  // Nothing to change: a note says so.
+  State.draft = nextDraft(null, { phase: "closed", card: null, code: "draft-gone", dryRun: false, ready: false });
+  v.sync();
+  assert.match(v.el.textContent, /No draft from Glim in the last 10 minutes to change/);
+  closeDraft(null);
+  for (const code of ["draft-gone", "edit-failed"]) assert.ok(draftCodeText(code).length > 10, code);
+  const rust = read("src-tauri/src/voice/draft.rs") + read("src-tauri/src/voice/draft_worker.rs") + read("src-tauri/src/voice/run.rs");
+  for (const code of ["draft-gone", "edit-failed", "\"updated\""]) assert.ok(rust.includes(code), code);
+  State.mode = "hidden";
+});
+
 test("Settings → Email drafts: the sender's address is checked and stored; remembered names are forgotten through Rust", () => {
   assert.equal(DEFAULT_SETTINGS.draftFrom, "");
   for (const ok of ["a@b.co", "anthony@example.com"]) assert.ok(looksLikeAddress(ok), ok);

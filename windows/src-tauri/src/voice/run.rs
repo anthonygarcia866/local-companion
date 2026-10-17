@@ -291,6 +291,10 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             send(app, VoiceEvent { phase: "idle", ..Default::default() });
             super::draft_worker::begin(app, spoken);
         }
+        Decision::EditDraft { change } => {
+            crate::log::line("voice: edit_draft");
+            edit_last_draft(app, mode, &change).await;
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
@@ -304,10 +308,59 @@ fn known_repos() -> Vec<String> {
     crate::resume::repos(&[]).iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect()
 }
 
-/// The Claude clean-up, with 1c's checks first (key, cap; Brain = Local isn't
-/// built, so no clean-up), its spend recorded.
-async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
-    use crate::ai::{claude, dictate, key, rewrite, spend};
+/// "Change the email you just drafted" (fix b, 2026-10-17): the draft saved
+/// last is read back from Outlook, Claude applies the change, and the card
+/// shows it; Update draft on the card applies it. The log has codes only.
+async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
+    use crate::ai::{claude, dictate, spend};
+    let current = match super::draft_worker::read_last(app).await {
+        Ok(c) => c,
+        Err(e) => {
+            send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
+            super::draft_worker::note(app, e.code());
+            return;
+        }
+    };
+    let (config, api_key) = match api_ready() {
+        Ok(k) => k,
+        Err(f) => {
+            crate::log::line(format!("voice: edit_draft not sent ({})", f.code()));
+            send(app, VoiceEvent { phase: "failed", code: f.code(), mode: mode.as_str(), ..Default::default() });
+            return;
+        }
+    };
+    send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
+    let started = Instant::now();
+    let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
+        Ok(base) => dictate::revise(&base, &api_key, config.model, &current, change).await,
+        Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
+    };
+    drop(current);
+    if let Some(u) = &usage {
+        if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
+            crate::log::line(format!("voice: could not record the spend: {err}"));
+        }
+    }
+    let outcome = result.as_ref().err().map(CleanupFailed::code).unwrap_or_else(|| "ok".into());
+    crate::log::line(format!("voice: edit_draft {outcome} {:.1}s", started.elapsed().as_secs_f64()));
+    send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
+    match result {
+        // Claude's text is scanned like any before it's shown or saved.
+        Ok(new) if [new.subject.as_str(), new.body.as_str()].into_iter().any(crate::capture::sensitive::contains_sensitive_number) => {
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: mode.as_str(), ..Default::default() });
+        }
+        Ok(new) => super::draft_worker::show_edit(app, new),
+        Err(CleanupFailed::Outage(code)) if code == "sensitive" => {
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: mode.as_str(), ..Default::default() });
+        }
+        Err(_) => super::draft_worker::note(app, "edit-failed"),
+    }
+}
+
+/// 1c's checks before anything goes to Claude (key, cap; Brain = Local isn't
+/// built, so no clean-up): the model to use and the key.
+fn api_ready() -> Result<(crate::ai::rewrite::Config, crate::ai::key::ApiKey), CleanupFailed> {
+    use crate::ai::{key, rewrite, spend};
     let config = rewrite::config();
     let saved = key::load(&key::vault());
     let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
@@ -321,6 +374,13 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         });
     }
     let Ok(Some(api_key)) = saved else { return Err(CleanupFailed::NoKey) };
+    Ok((config, api_key))
+}
+
+/// The Claude clean-up, with 1c's checks first (api_ready), its spend recorded.
+async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
+    use crate::ai::{claude, dictate, spend};
+    let (config, api_key) = api_ready()?;
     send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
     let started = Instant::now();
     // The app and its kind (plan §4: "the focused app's exe and field kind"):
@@ -345,6 +405,7 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         Ok(Cleanup::Open(_)) => "open_app".to_string(),
         Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
+        Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

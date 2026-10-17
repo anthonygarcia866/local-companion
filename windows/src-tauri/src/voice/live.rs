@@ -101,6 +101,7 @@ fn whisper_on_this_pc() {
             super::Decision::Resume { .. } => "resume card",
             super::Decision::Open { .. } => "open app",
             super::Decision::Draft(_) => "draft card",
+            super::Decision::EditDraft { .. } => "edit card",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
@@ -151,6 +152,10 @@ fn claude_clean_up() {
         ("draft an email to me with the subject glim test one saying this is a test draft", "OUTLOOK.EXE", Ask),
         ("draft an email to myself saying the plumber comes tuesday", "notepad.exe", Ask),
         ("email jordan lee at example dot com saying the lease is ready", "OUTLOOK.EXE", Ask),
+        // Fix b: the 2026-10-17 retest's "edit the email you just drafted" got "no earlier draft".
+        ("edit the email you just drafted and add that the shift starts at nine", "OUTLOOK.EXE", Ask),
+        ("change the email you just drafted to say wednesday instead of tuesday", "notepad.exe", Ask),
+        ("add to that email that parking is in the back", "OUTLOOK.EXE", Ask),
     ] {
         let t0 = Instant::now();
         let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
@@ -170,6 +175,18 @@ fn claude_clean_up() {
             let resolved: Vec<_> = d.to.iter().filter_map(|t| super::draft::spoken_address(t)).collect();
             assert_eq!(resolved, ["jordanlee@example.com"], "as said, then normalized: {:?}", d.to);
         }
+        if said.contains("just drafted") || said.starts_with("add to that email") {
+            assert!(matches!(r, Ok(super::Cleanup::EditDraft(_))), "a change to the last draft, not a question: {said}: {r:?}");
+        }
     }
+    // The second request of an edit, on a made-up draft.
+    let current = super::draft::DraftText { subject: "Shift change".into(), body: "Hi Gabriela,\n\nThe shift moves to Tuesday.".into() };
+    let t0 = Instant::now();
+    let (r, usage) = block_on(dictate::revise(&base, &key, "claude-haiku-5-5", &current, "add that the shift starts at nine"));
+    nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
+    println!("revise → {r:?} in {:.2}s", t0.elapsed().as_secs_f64());
+    let new = r.expect("revised");
+    assert!(new.body.contains("Tuesday") && (new.body.contains('9') || new.body.to_lowercase().contains("nine")), "the change applied, the rest kept: {new:?}");
+    assert!(new.body.starts_with("Hi Gabriela,"), "kept as it was: {new:?}");
     println!("total ${:.5}", nanos as f64 / 1e9);
 }

@@ -131,6 +131,9 @@ pub enum Cleanup {
     Open(&'static str),
     /// `draft_email` (1.5d, decided 2026-10-16): names as said, subject, body.
     Draft(draft::Spoken),
+    /// `edit_draft` (fix b, 2026-10-17): a change to the email Glim just
+    /// drafted, in the user's words.
+    EditDraft(String),
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -179,6 +182,9 @@ pub enum Decision {
     /// The "Draft email" card: it waits for Create draft (plan §5); nothing
     /// is ever sent.
     Draft(draft::Spoken),
+    /// Change the email Glim just drafted: shown on the card first, then
+    /// updated in Outlook on a click. Nothing is ever sent.
+    EditDraft { change: String },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -234,6 +240,8 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
                 Decision::Draft(d)
             }
         }
+        Ok(Cleanup::EditDraft(change)) if crate::capture::sensitive::contains_sensitive_number(&change) => Decision::Sensitive,
+        Ok(Cleanup::EditDraft(change)) => Decision::EditDraft { change },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }

@@ -10,6 +10,10 @@
 //   (Settings → Email drafts → Your address), never another account (the
 //   shared leasing@ mailbox is never the sender, owner 2026-10-16), and open
 //   it in Outlook. Glim never sends: there is no Send call anywhere.
+// - change the draft it just saved (fix b, 2026-10-17): found again by its
+//   EntryID (kept in memory only, ~10 minutes), only while it's an unsent
+//   draft; the subject and the text above the signature are rewritten in
+//   its Word editor, the signature is left as it is.
 //
 // Outlook adds the user's default signature when a new message's window is
 // created; Glim creates it (GetInspector) before putting its text in, and
@@ -31,8 +35,10 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Ole::DISPID_PROPERTYPUT;
 use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BOOL, VT_BSTR, VT_I4};
 
-use crate::voice::draft::{looks_like_address, Contact, Draft, DraftError, Outlook};
+use crate::voice::draft::{looks_like_address, replaced_len, text_to_word, word_to_text, Contact, Draft, DraftError, DraftText, Outlook};
 
+/// The bookmark Outlook puts around the default signature in a message.
+const SIGNATURE_MARK: &str = "_MailAutoSig";
 /// Outlook's folder number for Drafts (olFolderDrafts).
 const DRAFTS: i32 = 16;
 /// olMailItem.
@@ -225,7 +231,7 @@ impl Outlook for ComOutlook {
         Ok(out)
     }
 
-    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<(), DraftError> {
+    fn save_draft(&self, from: &str, draft: &Draft, open: bool) -> Result<String, DraftError> {
         let account = self.account(from).ok_or(DraftError::NoAccount)?;
         let f = |_| DraftError::Failed;
         // In that account's own Drafts, sent (by the user) from that account.
@@ -251,11 +257,66 @@ impl Outlook for ComOutlook {
             mail.put("Body", VARIANT::from(draft.body.as_str())).map_err(f)?;
         }
         mail.call("Save", &[]).map_err(f)?;
+        let id = mail.text("EntryID");
+        if open {
+            mail.call("Display", &[boolean(false)]).map_err(f)?;
+        }
+        Ok(id)
+    }
+
+    fn read_draft(&self, id: &str) -> Result<DraftText, DraftError> {
+        let mail = self.draft_by_id(id)?;
+        let (doc, end) = above_signature(&mail)?;
+        let text = doc.call_obj("Range", &[int(0), int(end)]).map_err(|_| DraftError::Failed)?.text("Text");
+        Ok(DraftText { subject: mail.text("Subject"), body: word_to_text(&text) })
+    }
+
+    fn update_draft(&self, id: &str, subject: &str, body: &str, open: bool) -> Result<(), DraftError> {
+        let f = |_| DraftError::Failed;
+        let mail = self.draft_by_id(id)?;
+        let (doc, end) = above_signature(&mail)?;
+        let old = doc.call_obj("Range", &[int(0), int(end)]).map_err(f)?.text("Text");
+        let part = doc.call_obj("Range", &[int(0), int(replaced_len(&old) as i32)]).map_err(f)?;
+        part.put("Text", VARIANT::from(text_to_word(body).as_str())).map_err(f)?;
+        mail.put("Subject", VARIANT::from(subject)).map_err(f)?;
+        mail.call("Save", &[]).map_err(f)?;
         if open {
             mail.call("Display", &[boolean(false)]).map_err(f)?;
         }
         Ok(())
     }
+}
+
+impl ComOutlook {
+    /// The draft Glim saved as `id`, if it is still an unsent draft: deleted,
+    /// moved out of reach or already sent (by the user) is Gone, never changed.
+    fn draft_by_id(&self, id: &str) -> Result<Disp, DraftError> {
+        if id.is_empty() {
+            return Err(DraftError::Gone);
+        }
+        let mail = self.ns.call_obj("GetItemFromID", &[VARIANT::from(id)]).map_err(|_| DraftError::Gone)?;
+        let sent = mail.get("Sent").ok().and_then(|v| bool::try_from(&v).ok()).unwrap_or(true);
+        if sent {
+            return Err(DraftError::Gone);
+        }
+        Ok(mail)
+    }
+}
+
+/// The draft's Word editor (its window created, not shown) and where Glim's
+/// text ends: the start of the signature (Outlook marks it with the
+/// `_MailAutoSig` bookmark), or the end of the message when it has none.
+fn above_signature(mail: &Disp) -> Result<(Disp, i32), DraftError> {
+    let f = |_| DraftError::Failed;
+    let doc = mail.obj("GetInspector").and_then(|i| i.obj("WordEditor")).map_err(f)?;
+    let marks = doc.obj("Bookmarks").map_err(f)?;
+    let signed = marks.call("Exists", &[VARIANT::from(SIGNATURE_MARK)]).ok().and_then(|v| bool::try_from(&v).ok()).unwrap_or(false);
+    let end = if signed {
+        marks.call_obj("Item", &[VARIANT::from(SIGNATURE_MARK)]).and_then(|b| b.obj("Range")).map_err(f)?.int("Start")
+    } else {
+        doc.obj("Content").map_err(f)?.int("End")
+    };
+    Ok((doc, end))
 }
 
 #[cfg(test)]

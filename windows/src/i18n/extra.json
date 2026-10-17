@@ -5474,6 +5474,72 @@
    "pt-BR": "O Google Docs guarda o texto onde o Glim não alcança, mesmo com o suporte a leitor de tela ativado. O Glim continua revisando o que você escreve nos seus outros apps e sites.",
    "ru": "Google Документы хранят текст там, куда Glim не может добраться, даже с включённой поддержкой программ чтения с экрана. Glim по-прежнему проверяет ваш текст в других приложениях и на других сайтах.",
    "id": "Google Dokumen menyimpan teksnya di tempat yang tidak bisa dijangkau Glim, bahkan dengan dukungan pembaca layar aktif. Glim tetap memeriksa tulisan Anda di aplikasi dan situs lain."
+  },
+  "Change the draft": {
+   "zh-Hans": "修改草稿",
+   "hi": "ड्राफ़्ट बदलें",
+   "es": "Cambiar el borrador",
+   "ar": "تغيير المسودة",
+   "fr": "Modifier le brouillon",
+   "bn": "খসড়া বদলান",
+   "pt-BR": "Alterar o rascunho",
+   "ru": "Изменить черновик",
+   "id": "Ubah draf"
+  },
+  "Update draft": {
+   "zh-Hans": "更新草稿",
+   "hi": "ड्राफ़्ट अपडेट करें",
+   "es": "Actualizar borrador",
+   "ar": "تحديث المسودة",
+   "fr": "Mettre à jour le brouillon",
+   "bn": "খসড়া আপডেট করুন",
+   "pt-BR": "Atualizar rascunho",
+   "ru": "Обновить черновик",
+   "id": "Perbarui draf"
+  },
+  "Update draft puts this into the draft in Outlook and opens it there. You send it yourself.": {
+   "zh-Hans": "“更新草稿”会把这些内容放进 Outlook 中的草稿并在那里打开。由你自己发送。",
+   "hi": "“ड्राफ़्ट अपडेट करें” इसे Outlook के ड्राफ़्ट में डालकर वहीं खोलता है। भेजते आप खुद हैं।",
+   "es": "Actualizar borrador pone esto en el borrador de Outlook y lo abre allí. Lo envías tú.",
+   "ar": "يضع «تحديث المسودة» هذا في المسودة في Outlook ويفتحها هناك. أنت من يرسلها.",
+   "fr": "Mettre à jour le brouillon place ceci dans le brouillon d'Outlook et l'y ouvre. C'est vous qui l'envoyez.",
+   "bn": "“খসড়া আপডেট করুন” এটি Outlook-এর খসড়ায় বসিয়ে সেখানেই খোলে। পাঠান আপনি নিজে।",
+   "pt-BR": "Atualizar rascunho coloca isto no rascunho do Outlook e o abre lá. Você mesmo envia.",
+   "ru": "«Обновить черновик» вносит это в черновик в Outlook и открывает его там. Отправляете вы сами.",
+   "id": "Perbarui draf memasukkan ini ke draf di Outlook dan membukanya di sana. Anda sendiri yang mengirimnya."
+  },
+  "Changed in Outlook's Drafts and opened there. You send it from Outlook.": {
+   "zh-Hans": "已在 Outlook 的草稿中修改并在那里打开。请从 Outlook 发送。",
+   "hi": "Outlook के ड्राफ़्ट में बदला गया और वहीं खोला गया। इसे Outlook से भेजें।",
+   "es": "Cambiado en los Borradores de Outlook y abierto allí. Lo envías desde Outlook.",
+   "ar": "تم التغيير في مسودات Outlook وفُتحت هناك. أرسلها من Outlook.",
+   "fr": "Modifié dans les Brouillons d'Outlook et ouvert là-bas. Vous l'envoyez depuis Outlook.",
+   "bn": "Outlook-এর খসড়ায় বদলানো হয়েছে এবং সেখানেই খোলা হয়েছে। Outlook থেকে পাঠান।",
+   "pt-BR": "Alterado nos Rascunhos do Outlook e aberto lá. Você envia pelo Outlook.",
+   "ru": "Изменено в черновиках Outlook и открыто там. Отправьте его из Outlook.",
+   "id": "Diubah di Draf Outlook dan dibuka di sana. Anda mengirimnya dari Outlook."
+  },
+  "No draft from Glim in the last 10 minutes to change. Ask for the whole email again, or change it in Outlook.": {
+   "zh-Hans": "过去 10 分钟内没有 Glim 写的草稿可以修改。请重新说一遍整封邮件，或在 Outlook 中修改。",
+   "hi": "पिछले 10 मिनट में Glim का कोई ड्राफ़्ट नहीं है जिसे बदला जा सके। पूरा ईमेल फिर से कहें, या इसे Outlook में बदलें।",
+   "es": "No hay ningún borrador de Glim de los últimos 10 minutos que cambiar. Pide el correo entero de nuevo o cámbialo en Outlook.",
+   "ar": "لا توجد مسودة من Glim خلال آخر 10 دقائق لتغييرها. اطلب البريد كاملًا من جديد، أو غيّره في Outlook.",
+   "fr": "Aucun brouillon de Glim des 10 dernières minutes à modifier. Redemandez l'e-mail en entier, ou modifiez-le dans Outlook.",
+   "bn": "গত 10 মিনিটে Glim-এর কোনো খসড়া নেই যা বদলানো যায়। পুরো ইমেলটি আবার বলুন, অথবা Outlook-এ বদলান।",
+   "pt-BR": "Não há rascunho do Glim dos últimos 10 minutos para alterar. Peça o e-mail inteiro de novo ou altere-o no Outlook.",
+   "ru": "Нет черновика Glim за последние 10 минут, который можно изменить. Попросите письмо целиком ещё раз или измените его в Outlook.",
+   "id": "Tidak ada draf dari Glim dalam 10 menit terakhir untuk diubah. Minta seluruh email lagi, atau ubah di Outlook."
+  },
+  "Glim couldn't change the draft this time. Try again, or change it in Outlook.": {
+   "zh-Hans": "Glim 这次没能修改草稿。请再试一次，或在 Outlook 中修改。",
+   "hi": "Glim इस बार ड्राफ़्ट नहीं बदल सका। फिर से कोशिश करें, या इसे Outlook में बदलें।",
+   "es": "Glim no pudo cambiar el borrador esta vez. Inténtalo de nuevo o cámbialo en Outlook.",
+   "ar": "لم يتمكن Glim من تغيير المسودة هذه المرة. حاول مجددًا، أو غيّرها في Outlook.",
+   "fr": "Glim n'a pas pu modifier le brouillon cette fois. Réessayez, ou modifiez-le dans Outlook.",
+   "bn": "Glim এবার খসড়াটি বদলাতে পারেনি। আবার চেষ্টা করুন, অথবা Outlook-এ বদলান।",
+   "pt-BR": "O Glim não conseguiu alterar o rascunho desta vez. Tente de novo ou altere-o no Outlook.",
+   "ru": "Glim не удалось изменить черновик на этот раз. Попробуйте ещё раз или измените его в Outlook.",
+   "id": "Glim tidak bisa mengubah draf kali ini. Coba lagi, atau ubah di Outlook."
   }
  }
 }

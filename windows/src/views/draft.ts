@@ -53,6 +53,8 @@ export function draftCodeText(code: string): string {
     case "outlook-failed": return t("Outlook couldn't save the draft. Try again.");
     case "shared-account": return t("Drafts are never made in the shared leasing mailbox. Set your own address in Settings → Email drafts.");
     case "no-match": return t("No match for that. Say a name from the list, or an email address.");
+    case "draft-gone": return t("No draft from Glim in the last 10 minutes to change. Ask for the whole email again, or change it in Outlook.");
+    case "edit-failed": return t("Glim couldn't change the draft this time. Try again, or change it in Outlook.");
   }
   return "";
 }
@@ -114,7 +116,9 @@ export function buildDraft(host: AskHost): ViewHost {
       body.style.display = "none";
       searchBox.style.display = "none";
       note.textContent = d.phase === "created"
-        ? (d.dryRun ? t("Dry run: nothing was saved or opened.") : t("Saved in Outlook's Drafts and opened there. You send it from Outlook."))
+        ? (d.dryRun ? t("Dry run: nothing was saved or opened.")
+          : d.updated ? t("Changed in Outlook's Drafts and opened there. You send it from Outlook.")
+          : t("Saved in Outlook's Drafts and opened there. You send it from Outlook."))
         : draftCodeText(d.code);
       row.append(button(t("Close"), "close", () => closeDraft(host), "link-btn"));
       lendFocus(false);
@@ -123,6 +127,26 @@ export function buildDraft(host: AskHost): ViewHost {
     }
     draftClock.stop();
     const c: DraftCard = d.card;
+    if (c.edit) {
+      // A change to the draft Glim just saved: what it will say, then Update
+      // draft or Cancel. Its recipients stay as they are in Outlook.
+      title.textContent = t("Change the draft");
+      subject.textContent = c.subject ? t("Subject: {subject}", { subject: c.subject }) : t("No subject");
+      body.style.display = "";
+      body.textContent = c.body;
+      searchBox.style.display = "none";
+      lendFocus(false);
+      note.textContent = d.code ? draftCodeText(d.code) : t("Update draft puts this into the draft in Outlook and opens it there. You send it yourself.");
+      const update = button(t("Update draft"), "create", () => {
+        if (!State.draft?.ready || State.draft.busy) return;
+        State.draft = { ...State.draft, busy: true };
+        void Bridge.draftCreate(c.id);
+        sync();
+      });
+      update.disabled = !d.ready || d.busy;
+      row.append(update, button(t("Cancel"), "cancel", () => closeDraft(host), "link-btn"));
+      return;
+    }
     title.textContent = d.dryRun ? t("Draft email (dry run)") : t("Draft email");
     c.recipients.forEach((r, i) => {
       const line = h("div", { class: "draft-line" }, h("span", { class: "draft-label", text: lineLabel(r.line) }));

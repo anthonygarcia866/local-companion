@@ -7,6 +7,11 @@
 // nothing found, or Change recipient open), WAITING is set and the next
 // utterance from either voice key is its answer (voice::run → `answer`).
 //
+// Fix b (2026-10-17): the draft Glim saved last is remembered for
+// draft::EDIT_WINDOW by its Outlook id only (never its text), so "change the
+// email you just drafted" reads it back from Outlook, shows the change on the
+// card, and Update draft rewrites it in place. Nothing is ever sent.
+//
 // GLIM_DRAFT_DRY_RUN=1 (decided 2026-10-16, the testing plan): the address
 // book is searched for real, nothing is saved or opened.
 //
@@ -17,11 +22,12 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::draft::{self, DryRun, Outlook, Pending, Spoken};
+use super::draft::{self, DraftError, DraftText, DryRun, Outlook, Pending, Spoken};
 
 pub const EVENT: &str = "draft-email";
 
@@ -30,7 +36,7 @@ pub const EVENT: &str = "draft-email";
 #[serde(rename_all = "camelCase")]
 pub struct DraftEvent<'a> {
     /// "card" (show or redraw it), "created" (saved in Drafts and opened),
-    /// "closed".
+    /// "updated" (a change put into the draft, opened), "closed".
     pub phase: &'static str,
     pub card: Option<&'a Pending>,
     /// Why the last step didn't work ("no-outlook", "no-account",
@@ -51,6 +57,12 @@ enum Job {
     Cancel { id: u64 },
     /// A voice answer for the recipient the card is asking about.
     Answer { text: String },
+    /// The draft saved last (within EDIT_WINDOW), as Outlook has it now.
+    ReadLast { reply: Sender<Result<DraftText, DraftError>> },
+    /// A change to that draft, to show on the card before it's applied.
+    ShowEdit(DraftText),
+    /// A short note instead of a card ("draft-gone", "edit-failed").
+    Note(&'static str),
 }
 
 /// The card is up and still asking who an email goes to.
@@ -103,6 +115,26 @@ pub fn cancel(app: &AppHandle, id: u64) {
     post(app, Job::Cancel { id });
 }
 
+/// The draft Glim saved last, read back from Outlook (subject + the text
+/// above the signature); Err(Gone) when none was saved in the last
+/// EDIT_WINDOW, or it was deleted or sent since.
+pub async fn read_last(app: &AppHandle) -> Result<DraftText, DraftError> {
+    let (tx, rx) = channel();
+    post(app, Job::ReadLast { reply: tx });
+    // Outlook not reachable: the job is dropped unanswered.
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(30)).unwrap_or(Err(DraftError::NoOutlook))).await.unwrap_or(Err(DraftError::Failed))
+}
+
+/// Shows `new` as a change to the draft saved last; Update draft applies it.
+pub fn show_edit(app: &AppHandle, new: DraftText) {
+    post(app, Job::ShowEdit(new));
+}
+
+/// A note on the card's spot instead of a card.
+pub fn note(app: &AppHandle, code: &'static str) {
+    post(app, Job::Note(code));
+}
+
 /// The sender and the remembered picks, as settings have them now.
 fn settings(app: &AppHandle) -> (String, BTreeMap<String, String>) {
     app.try_state::<crate::Shared>()
@@ -125,6 +157,8 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
     let mut outlook: Option<crate::outlook::ComOutlook> = None;
     let mut card: Option<Pending> = None;
     let mut next_id = 0u64;
+    // The draft saved (or changed) last: its Outlook id and when. Memory only.
+    let mut last: Option<(String, Instant)> = None;
     while let Ok(job) = rx.recv() {
         // Outlook is started (in the background) the first time it's needed.
         if outlook.is_none() {
@@ -132,7 +166,7 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
                 Ok(o) => outlook = Some(o),
                 Err(e) => {
                     crate::log::line(format!("draft: {}", e.code()));
-                    if matches!(job, Job::Begin(_)) {
+                    if matches!(job, Job::Begin(_) | Job::ShowEdit(_) | Job::Note(_)) {
                         send(&app, "closed", None, e.code());
                     }
                     continue;
@@ -178,11 +212,28 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
                 }
                 send(&app, "card", card.as_ref(), "");
             }
+            Job::Create { id } if ours(id, &card) && card.as_ref().is_some_and(|c| c.edit) => {
+                let Some(c) = card.as_ref() else { continue };
+                match draft::update(o, c) {
+                    Ok(()) => {
+                        crate::log::line(format!("draft: changed in Drafts and opened{}", if dry_run() { " (dry run: not really)" } else { "" }));
+                        last = Some((c.entry.clone(), Instant::now()));
+                        send(&app, "updated", None, "");
+                        card = None;
+                    }
+                    Err(e) => {
+                        crate::log::line(format!("draft: not changed ({})", e.code()));
+                        send(&app, "card", card.as_ref(), e.code());
+                    }
+                }
+            }
             Job::Create { id } if ours(id, &card) => {
                 let (from, _) = settings(&app);
                 let Some(c) = card.as_ref() else { continue };
                 match draft::create(o, &from, c, true) {
-                    Ok(()) => {
+                    Ok(entry) => {
+                        // Only its Outlook id, for "change the email you just drafted".
+                        last = (!entry.is_empty()).then(|| (entry, Instant::now()));
                         let picks = c.remembered();
                         crate::log::line(format!("draft: saved in Drafts and opened{} ({} picks remembered)", if dry_run() { " (dry run: not really)" } else { "" }, picks.len()));
                         crate::remember_draft_picks(&app, &picks);
@@ -202,6 +253,28 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
                 crate::log::line(format!("draft: voice answer {}", if filled { "used" } else { "matched nothing" }));
                 // Nothing matched: the card says so, and still asks.
                 send(&app, "card", card.as_ref(), if filled { "" } else { "no-match" });
+            }
+            Job::ReadLast { reply } => {
+                let read = match draft::recent(&last, Instant::now()) {
+                    Some(entry) => o.read_draft(entry),
+                    None => Err(DraftError::Gone),
+                };
+                crate::log::line(format!("draft: read the last draft back ({})", match &read { Ok(_) => "ok", Err(e) => e.code() }));
+                let _ = reply.send(read);
+            }
+            Job::ShowEdit(new) => match draft::recent(&last, Instant::now()) {
+                Some(entry) => {
+                    next_id += 1;
+                    let p = draft::edit_card(next_id, entry, &new);
+                    crate::log::line("draft: change shown on the card");
+                    send(&app, "card", Some(&p), "");
+                    card = Some(p);
+                }
+                None => send(&app, "closed", None, DraftError::Gone.code()),
+            },
+            Job::Note(code) => {
+                card = None;
+                send(&app, "closed", None, code);
             }
             Job::Cancel { id } if ours(id, &card) => {
                 crate::log::line("draft: cancelled");

@@ -567,6 +567,10 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 9. **No address set:** clear Settings → Email drafts → Your address; Create draft says to add it; nothing saved. Put it back.
 9b. **Never leasing@:** (optional) set Your address to the leasing mailbox's address, draft to Sam, Create draft. **See:** "Drafts are never made in the shared leasing mailbox…"; nothing saved. Put your own address back.
 10. **Log:** `draft: card N names, M need a pick or a search`, `draft: saved in Drafts and opened (K picks remembered)`: never a name, an address, the subject or the body.
+11. **Change the email you just drafted (fix b, 2026-10-17):** right after step 5 (or 6), close the draft's Outlook window (Save is fine), hold **A** and say "edit the email you just drafted and add that the shift starts at nine". **See:** a **Change the draft** card with the subject and the whole new text (your earlier words kept, the change in), **Update draft** and **Cancel**; no recipients on it. Click **Update draft**: the same draft (not a second one) opens in Outlook with the new text above your signature, the signature unchanged; the card says "Changed in Outlook's Drafts and opened there". Nothing sent. Also try "change the email you just drafted to say Wednesday" and "add to that email that parking is in the back".
+    - **Cancel** on the card: the draft in Outlook is unchanged.
+    - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
+    - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
 
 ## After testing
 
