@@ -16,6 +16,7 @@ import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
 import type { WritingAsk } from "./ask";
 import { needsCard, type VoiceState } from "./voice";
+import type { DraftState } from "./draft";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -180,6 +181,10 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
+  draftFrom: string;
+  /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
+  draftRecipients?: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -212,6 +217,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  draftFrom: "",
 };
 
 type Listener = () => void;
@@ -353,6 +359,8 @@ class AppState {
   writingDocsTip = false;
   /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
   voice: VoiceState | null = null;
+  /** The "Draft email" card (core/draft.ts); null for none. */
+  draft: DraftState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -656,6 +664,7 @@ class AppState {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
     if (this.writingAsk) return "writingAsk";
     if (this.writingDocsTip) return "writingDocsTip";
+    if (this.draft) return "draft";
     if (needsCard(this.voice)) return "voice";
     if (this.writing.length > 0) return "suggestions";
     return null;

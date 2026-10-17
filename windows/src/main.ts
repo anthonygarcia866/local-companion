@@ -14,6 +14,7 @@ import { docsTipPlacement } from "./core/docs-tip";
 import { closeDocsTip } from "./views/docs-tip";
 import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "./core/voice";
 import { voiceShown } from "./views/voice";
+import { draftPlacement, nextDraft, type DraftEvent } from "./core/draft";
 import { withFirst } from "./views/resume";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -279,6 +280,19 @@ async function main() {
     }
     // A result that needed no card: the lantern goes back.
     if (State.voice && !running(State.voice) && !needsCard(State.voice)) State.voice = null;
+    State.notify();
+  });
+
+  // The Draft email card (1.5d, core/draft.ts): Rust's card, redrawn as it
+  // changes. It opens when it first comes (behind an approval if one is up).
+  await onEvent<DraftEvent>("draft-email", (e) => {
+    const had = State.draft !== null;
+    State.draft = nextDraft(State.draft, e);
+    if (State.draft && !had) {
+      const where = draftPlacement({ presence: presence.model.kind, approval: State.pendingApproval !== null });
+      if (where === "drop") State.draft = null;
+      else if (where === "show") island.alert("draft");
+    }
     State.notify();
   });
 
