@@ -547,20 +547,25 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 4. **Close** closes the card without opening anything.
 5. **A card number in a HANDOFF.md** (in a scratch repo, e.g. `~/resume-test/HANDOFF.md` with `## In progress` holding `4111 1111 1111 1111`): its row says "Part of it is withheld…" and doesn't show that section. Delete the scratch folder after.
 
-## 28. Draft an email (voice 1.5d, draft PR)
+## 28. Draft an email (voice 1.5d, draft PR #27, with the 4c fixes of 2026-10-17)
+
+> **4c (after the 2026-10-16 test, where every draft request came back as a question):** draft requests use **Ctrl+Alt+Shift+A** (Ask Glim). Claude now passes recipients as said ("me", a name, or a spoken address) and never asks for an address (live-checked 2026-10-17: "draft an email to me …" and "… to myself …" → a draft to "me"). "me"/"myself" = Settings → Email drafts → **Your address** (it was **empty** in your settings.json after last night's test: fill it in and reopen Settings to check it stayed). A spoken address ("jordan lee at example dot com") is joined up, then looked up in Outlook's address book: found → filled in; not found → one chip to confirm. While the card asks **who**, hold **either** voice key and say the answer (a name, "the second one", or an address). Never from leasing@ (refused even if Settings names it).
 
 *Where: branch `voice-draft-email`.* Needs classic Outlook, **open and signed in** (on 2026-10-15 a background start for COM never answered on this PC, see HANDOFF.md), and Settings → Writing → **Email drafts → Your address** = your own address. Glim never sends: every step ends in Outlook's Drafts at most.
 
 0. **The automated part first** (Claude Code runs it, with Outlook open): `GLIM_LIVE_ME=<your address> cargo test --lib outlook_live::dry_run_probe -- --ignored --nocapture --test-threads=1` (read-only: your account found, the address book counted, a first name with 2+ matches, whether Outlook adds your signature), then with `GLIM_LIVE_DRAFTS=1 GLIM_LIVE_AMBIGUOUS=<that name>` `outlook_live::three_test_drafts`: three **[GLIM TEST]** drafts to you, checked in your own Drafts (from your account, to you only, not sent), then deleted from Drafts and Deleted Items. If Outlook shows "A program is trying to access e-mail address information", say what it showed.
-1. **To one person:** hold Ctrl+Alt+Shift+V: "draft an email to <a colleague with a unique name> saying the plumber comes Tuesday at ten". **See:** the **Draft email** card: To with their name and address, a subject, the body; **Create draft** enabled; the card doesn't close by itself.
+1. **To one person:** hold **Ctrl+Alt+Shift+A**: "draft an email to <a colleague with a unique name> saying the plumber comes Tuesday at ten". **See:** the **Draft email** card: To with their name and address, a subject, the body; **Create draft** enabled; the card doesn't close by itself.
 2. **Ambiguous name:** "draft an email to <a first name two people share> about the lease". **See:** "Which <name>?" with a chip for each; Create draft greyed until you click one. Click one: Create draft lights up.
+2b. **Answer by voice (Decision B):** same again, but instead of clicking, hold **V or A** and say "the second one" (or the person's last name). **See:** the card says **Listening for your answer…** while you hold it, then that person fills the To line. Say something that matches nobody: "No match for that…", and the card still asks.
+2c. **A spoken address:** "draft an email to <a colleague's address, spoken: name at domain dot com> saying hello". **See:** in your address book → their name and address on To; not in it → one chip with the address: click it (or say "first") to use it.
 3. **Change recipient:** click it; a search box appears (the island takes the keyboard just for this); type part of a name; click a result: it replaces the name. Settings → Email drafts → **Remembered names** shows the pick only after step 5's Create draft.
 4. **CC only when said:** "… and cc Sam": a Cc line appears; without "cc" there is none. No attachments ever.
 5. **Create draft:** **See:** the card says it's saved and opened; classic Outlook opens the draft (your signature in it if you have one), in **Drafts** of your own account, **not** leasing@. **Send it yourself or delete it.** Nothing was sent by Glim.
-6. **"Draft an email to me":** To is your own address.
+6. **"Draft an email to me" / "to myself":** a draft card (not a question) with To = your own address. With Your address empty: the To line says "Add your email address in Settings → Email drafts first."
 7. **Cancel** closes the card; nothing is saved.
 8. **Card number:** "draft an email to Sam saying the card is 4111 1111 1111 1111": no card; "Not sent: … card, ID or bank number".
 9. **No address set:** clear Settings → Email drafts → Your address; Create draft says to add it; nothing saved. Put it back.
+9b. **Never leasing@:** (optional) set Your address to the leasing mailbox's address, draft to Sam, Create draft. **See:** "Drafts are never made in the shared leasing mailbox…"; nothing saved. Put your own address back.
 10. **Log:** `draft: card N names, M need a pick or a search`, `draft: saved in Drafts and opened (K picks remembered)`: never a name, an address, the subject or the body.
 
 ## After testing

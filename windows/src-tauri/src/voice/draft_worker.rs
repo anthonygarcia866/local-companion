@@ -3,6 +3,10 @@
 // owns Outlook and the card while it's up; the island sends ids, indexes and
 // a search's text (draft_* commands in lib.rs) and hears "draft-email".
 //
+// Decision B (2026-10-16): while the card still needs a recipient (a pick,
+// nothing found, or Change recipient open), WAITING is set and the next
+// utterance from either voice key is its answer (voice::run → `answer`).
+//
 // GLIM_DRAFT_DRY_RUN=1 (decided 2026-10-16, the testing plan): the address
 // book is searched for real, nothing is saved or opened.
 //
@@ -10,6 +14,7 @@
 // subject or the body.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
 
@@ -44,6 +49,22 @@ enum Job {
     Search { id: u64, query: String },
     Create { id: u64 },
     Cancel { id: u64 },
+    /// A voice answer for the recipient the card is asking about.
+    Answer { text: String },
+}
+
+/// The card is up and still asking who an email goes to.
+static WAITING: AtomicBool = AtomicBool::new(false);
+
+/// Whether the next utterance answers the draft card (voice::run).
+pub fn waiting() -> bool {
+    WAITING.load(Ordering::SeqCst)
+}
+
+/// A voice answer for the card (Decision B): matched against its chips, or
+/// looked up in the address book. Never logged.
+pub fn answer(app: &AppHandle, text: String) {
+    post(app, Job::Answer { text });
 }
 
 static JOBS: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
@@ -93,6 +114,7 @@ fn settings(app: &AppHandle) -> (String, BTreeMap<String, String>) {
 }
 
 fn send(app: &AppHandle, phase: &'static str, card: Option<&Pending>, code: &'static str) {
+    WAITING.store(phase == "card" && card.is_some_and(|c| c.asking().is_some()), Ordering::SeqCst);
     let e = DraftEvent { phase, card, code, dry_run: dry_run(), ready: card.is_some_and(Pending::ready) };
     let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
 }
@@ -173,6 +195,13 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
                         send(&app, "card", card.as_ref(), e.code());
                     }
                 }
+            }
+            Job::Answer { text } if card.is_some() => {
+                let (me, remembered) = settings(&app);
+                let filled = card.as_mut().is_some_and(|c| c.answer(&text, &me, &remembered, find));
+                crate::log::line(format!("draft: voice answer {}", if filled { "used" } else { "matched nothing" }));
+                // Nothing matched: the card says so, and still asks.
+                send(&app, "card", card.as_ref(), if filled { "" } else { "no-match" });
             }
             Job::Cancel { id } if ours(id, &card) => {
                 crate::log::line("draft: cancelled");

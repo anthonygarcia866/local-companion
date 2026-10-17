@@ -195,6 +195,7 @@ pub fn has_signature(body_text: &str) -> bool {
 impl Outlook for ComOutlook {
     fn search(&self, query: &str) -> Result<Vec<Contact>, DraftError> {
         let lists = self.ns.obj("AddressLists").map_err(|_| DraftError::Failed)?;
+        let by_address = looks_like_address(query);
         let mut out: Vec<Contact> = Vec::new();
         for l in 1..=lists.int("Count") {
             let Ok(list) = lists.item(l) else { continue };
@@ -202,10 +203,20 @@ impl Outlook for ComOutlook {
             for i in 1..=entries.int("Count").min(MAX_ENTRIES) {
                 let Ok(e) = entries.item(i) else { continue };
                 let name = e.text("Name");
-                if !name_matches(&name, query) {
-                    continue;
-                }
-                let address = ComOutlook::smtp(&e);
+                // An address (spoken or written, voice 4c) matches the entry's
+                // own address; anything else matches names.
+                let address = if by_address {
+                    let a = ComOutlook::smtp(&e);
+                    if !a.trim().eq_ignore_ascii_case(query.trim()) {
+                        continue;
+                    }
+                    a
+                } else {
+                    if !name_matches(&name, query) {
+                        continue;
+                    }
+                    ComOutlook::smtp(&e)
+                };
                 if looks_like_address(&address) && !out.iter().any(|c| c.address.eq_ignore_ascii_case(&address)) {
                     out.push(Contact { name, address });
                 }

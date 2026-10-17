@@ -137,7 +137,9 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
     let cfg = config(app, key);
     let vk = main_key_vk(&cfg.binding);
     let asked = waiting_question();
-    let mode = if asked.is_some() { Mode::Answer } else { key };
+    // The draft card asking who an email goes to takes the answer too (4c).
+    let draft = asked.is_none() && super::draft_worker::waiting();
+    let mode = if asked.is_some() || draft { Mode::Answer } else { key };
     let m = mode.as_str();
     // The capture thread notes whether an editable field has the focus now.
     request(Request::VoiceBegin);
@@ -173,7 +175,7 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
             return;
         }
         tauri::async_runtime::spawn(async move {
-            process(&app, pcm, held, cfg, mode, asked).await;
+            process(&app, pcm, held, cfg, mode, asked, draft).await;
             ACTIVE.store(false, Ordering::SeqCst);
         });
     });
@@ -196,7 +198,7 @@ pub fn answer_typed(app: &AppHandle, text: String) -> bool {
     true
 }
 
-async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mode: Mode, asked: Option<Asked>) {
+async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mode: Mode, asked: Option<Asked>, draft: bool) {
     let m = mode.as_str();
     send(app, VoiceEvent { phase: "transcribing", mode: m, ..Default::default() });
     let t0 = Instant::now();
@@ -215,6 +217,19 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
     crate::log::line(format!("voice: held {:.1}s, transcribed ({}) {:.1}s, {words} words, {m}", held.as_secs_f64(), cfg.size, t0.elapsed().as_secs_f64()));
     if words == 0 {
         send(app, VoiceEvent { phase: "failed", code: "nothing-heard".into(), mode: m, ..Default::default() });
+        return;
+    }
+    if draft {
+        // Straight to the card: matched against its chips or the address book,
+        // on this PC; nothing goes to Claude.
+        if crate::capture::sensitive::contains_sensitive_number(&transcript) {
+            crate::log::line("voice: not used (sensitive)");
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
+            return;
+        }
+        crate::log::line("voice: answer for the draft card");
+        super::draft_worker::answer(app, transcript);
+        send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
         return;
     }
     act(app, &transcript, mode, asked).await;

@@ -5244,17 +5244,6 @@
    "ru": "«Создать черновик» сохраняет его в черновиках Outlook и открывает там. Отправляете вы сами.",
    "id": "Buat draf menyimpannya di Draf Outlook dan membukanya di sana. Anda sendiri yang mengirim."
   },
-  "Pick who it goes to first.": {
-   "zh-Hans": "先选择收件人。",
-   "hi": "पहले चुनें कि यह किसे जाएगा।",
-   "es": "Primero elige a quién va.",
-   "ar": "اختر المستلم أولًا.",
-   "fr": "Choisissez d'abord le destinataire.",
-   "bn": "আগে বেছে নিন এটি কার কাছে যাবে।",
-   "pt-BR": "Primeiro escolha para quem vai.",
-   "ru": "Сначала выберите получателя.",
-   "id": "Pilih dulu penerimanya."
-  },
   "Create draft": {
    "zh-Hans": "创建草稿",
    "hi": "ड्राफ़्ट बनाएँ",
@@ -5452,6 +5441,39 @@
    "pt-BR": "Digite sua resposta",
    "ru": "Введите ответ",
    "id": "Ketik jawaban Anda"
+  },
+  "Drafts are never made in the shared leasing mailbox. Set your own address in Settings → Email drafts.": {
+   "zh-Hans": "草稿绝不会建在共享的租赁邮箱里。请在 设置 → 邮件草稿 中填写你自己的地址。",
+   "hi": "साझा लीज़िंग मेलबॉक्स में कभी ड्राफ़्ट नहीं बनते। सेटिंग्स → ईमेल ड्राफ़्ट में अपना पता डालें।",
+   "es": "Nunca se crean borradores en el buzón compartido de arrendamiento. Pon tu propia dirección en Configuración → Borradores de correo.",
+   "ar": "لا تُنشأ المسودات أبدًا في صندوق بريد التأجير المشترك. ضع عنوانك الخاص في الإعدادات ← مسودات البريد.",
+   "fr": "Aucun brouillon n'est jamais créé dans la boîte partagée de location. Indiquez votre propre adresse dans Réglages → Brouillons d'e-mail.",
+   "bn": "শেয়ার করা লিজিং মেইলবক্সে কখনো খসড়া তৈরি হয় না। সেটিংস → ইমেল খসড়া-তে নিজের ঠিকানা দিন।",
+   "pt-BR": "Rascunhos nunca são criados na caixa compartilhada de locação. Coloque seu próprio endereço em Configurações → Rascunhos de e-mail.",
+   "ru": "Черновики никогда не создаются в общем ящике аренды. Укажите свой адрес в Настройки → Черновики писем.",
+   "id": "Draf tidak pernah dibuat di kotak surat sewa bersama. Isi alamat Anda sendiri di Pengaturan → Draf email."
+  },
+  "No match for that. Say a name from the list, or an email address.": {
+   "zh-Hans": "没有找到匹配。请说出列表中的名字，或一个邮箱地址。",
+   "hi": "इसका कोई मेल नहीं मिला। सूची से कोई नाम या ईमेल पता बोलें।",
+   "es": "No hay coincidencias. Di un nombre de la lista o una dirección de correo.",
+   "ar": "لا توجد نتيجة مطابقة. قل اسمًا من القائمة أو عنوان بريد.",
+   "fr": "Aucune correspondance. Dites un nom de la liste ou une adresse e-mail.",
+   "bn": "কোনো মিল পাওয়া যায়নি। তালিকা থেকে একটি নাম বা একটি ইমেল ঠিকানা বলুন।",
+   "pt-BR": "Nenhuma correspondência. Diga um nome da lista ou um endereço de e-mail.",
+   "ru": "Совпадений нет. Назовите имя из списка или адрес электронной почты.",
+   "id": "Tidak ada yang cocok. Sebutkan nama dari daftar, atau alamat email."
+  },
+  "Pick who it goes to first, or hold a voice shortcut and say it.": {
+   "zh-Hans": "请先选择收件人，或按住语音快捷键说出来。",
+   "hi": "पहले चुनें कि यह किसे जाएगा, या वॉइस शॉर्टकट दबाकर बोलें।",
+   "es": "Primero elige a quién va, o mantén pulsado un atajo de voz y dilo.",
+   "ar": "اختر أولًا لمن تُرسل، أو اضغط مطولًا على اختصار صوتي وقله.",
+   "fr": "Choisissez d'abord le destinataire, ou maintenez un raccourci vocal et dites-le.",
+   "bn": "আগে বেছে নিন এটি কার কাছে যাবে, অথবা ভয়েস শর্টকাট চেপে ধরে বলুন।",
+   "pt-BR": "Escolha primeiro para quem vai, ou segure um atalho de voz e diga.",
+   "ru": "Сначала выберите получателя или удерживайте голосовое сочетание и скажите его.",
+   "id": "Pilih dulu tujuannya, atau tahan pintasan suara dan ucapkan."
   }
  }
 }

@@ -11,7 +11,8 @@ import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
 const { State, DEFAULT_SETTINGS } = await import("../src/core/state.ts");
-const { nextDraft, changeTarget, chipText, draftPlacement } = await import("../src/core/draft.ts");
+const { nextDraft, changeTarget, chipText, draftPlacement, meansMe } = await import("../src/core/draft.ts");
+const { nextVoice } = await import("../src/core/voice.ts");
 const { buildDraft, closeDraft, draftClock, draftCodeText } = await import("../src/views/draft.ts");
 const { draftGroup, looksLikeAddress } = await import("../src/settings/writing.ts");
 const { sent } = await import("./tauri.mjs");
@@ -83,7 +84,7 @@ test("chips pick by index; Create draft waits until every name has an address, t
   assert.match(v.el.textContent, /Which Maria\?/);
   assert.match(v.el.textContent, /Subject: Plumber Tuesday/);
   assert.match(v.el.textContent, /The plumber comes Tuesday at 10am\./);
-  assert.match(v.el.textContent, /Pick who it goes to first\./);
+  assert.match(v.el.textContent, /Pick who it goes to first, or hold a voice shortcut and say it\./);
   const create = roles(v, "create")[0];
   assert.equal(create.disabled, true);
   const n = sent("draft_pick").length;
@@ -140,7 +141,9 @@ test("Cancel tells Rust and closes; a note closes by itself; every code has word
   assert.equal(draftClock.running(), true);
   closeDraft(null);
   assert.equal(sent("draft_cancel").length, n + 1, "a note's close isn't a cancel");
-  for (const code of ["no-outlook", "no-account", "no-sender", "outlook-failed"]) assert.ok(draftCodeText(code).length > 10, code);
+  for (const code of ["no-outlook", "no-account", "no-sender", "outlook-failed", "shared-account", "no-match"]) assert.ok(draftCodeText(code).length > 10, code);
+  const rust = read("src-tauri/src/voice/draft.rs") + read("src-tauri/src/voice/draft_worker.rs");
+  for (const code of ["shared-account", "no-match"]) assert.ok(rust.includes(`"${code}"`), code);
   State.mode = "hidden";
 });
 
@@ -188,4 +191,47 @@ test("the island sends ids, indexes and a search's text only, never logs, and ha
   const lib = read("src-tauri/src/lib.rs");
   for (const cmd of ["draft_pick", "draft_change", "draft_search", "draft_create", "draft_cancel", "draft_forget"]) assert.ok(new RegExp(`\\n\\s+${cmd},\\n`).test(lib), cmd);
   assert.ok(lib.includes("settings.draft_recipients = current.draft_recipients.clone();"), "the page can't overwrite Rust's picks");
+});
+
+// ── 4c (2026-10-16 retest): "me", answers by voice, never the shared mailbox ──
+
+test("\"me\" with no address in Settings says where to put it, not \"not in your address book\"", () => {
+  for (const said of ["me", "Me.", "myself", " my email ", "MY ADDRESS"]) assert.equal(meansMe(said), true, said);
+  for (const said of ["Maria", "meet", "home", ""]) assert.equal(meansMe(said), false, said);
+  State.mode = "expanded";
+  State.view = "draft";
+  State.draft = nextDraft(null, ev({ card: cardOf({ recipients: [{ said: "me", line: "to", found: { kind: "none" } }] }) }));
+  const { v } = view();
+  v.sync();
+  assert.match(v.el.textContent, /Add your email address in Settings → Email drafts first\./);
+  assert.doesNotMatch(v.el.textContent, /No “me” in your address book/);
+  // Rust's list of words is the same.
+  const rust = read("src-tauri/src/voice/draft.rs");
+  assert.ok(rust.includes('const ME: [&str; 6] = ["me", "myself", "my self", "my email", "my address", "my own address"];'));
+  State.mode = "hidden";
+});
+
+test("while the card asks who, a voice answer from either key: Listening for your answer…", () => {
+  State.mode = "expanded";
+  State.view = "draft";
+  State.draft = nextDraft(null, ev({}));
+  State.voice = nextVoice(null, { phase: "listening", level: 0, cleaned: false, text: "", code: "", app: "", mode: "answer" });
+  const { v } = view();
+  v.sync();
+  assert.match(v.el.textContent, /Listening for your answer…/);
+  State.voice = nextVoice(State.voice, { phase: "transcribing", level: 0, cleaned: false, text: "", code: "", app: "", mode: "answer" });
+  v.sync();
+  assert.match(v.el.textContent, /Working on your answer…/);
+  // Rust answers with the card again; the note goes back to the card's own.
+  State.voice = null;
+  State.draft = nextDraft(State.draft, ev({ code: "no-match" }));
+  v.sync();
+  assert.match(v.el.textContent, /No match for that\. Say a name from the list, or an email address\./);
+  // Rust routes it: the worker says when it waits, and voice::run sends it there, never to Claude.
+  const worker = read("src-tauri/src/voice/draft_worker.rs");
+  assert.ok(worker.includes("WAITING.store(phase == \"card\" && card.is_some_and(|c| c.asking().is_some()), Ordering::SeqCst);"));
+  const run = read("src-tauri/src/voice/run.rs");
+  assert.ok(run.includes("let draft = asked.is_none() && super::draft_worker::waiting();"));
+  assert.ok(run.includes("super::draft_worker::answer(app, transcript);"));
+  State.mode = "hidden";
 });

@@ -147,6 +147,10 @@ fn claude_clean_up() {
         ("open outlook", "notepad.exe", Ask),
         ("send it", "OUTLOOK.EXE", Ask),
         ("where was I on dale cuts", "notepad.exe", Ask),
+        // 4c: the 2026-10-16 test's draft requests all came back as clarify.
+        ("draft an email to me with the subject glim test one saying this is a test draft", "OUTLOOK.EXE", Ask),
+        ("draft an email to myself saying the plumber comes tuesday", "notepad.exe", Ask),
+        ("email jordan lee at example dot com saying the lease is ready", "OUTLOOK.EXE", Ask),
     ] {
         let t0 = Instant::now();
         let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
@@ -156,6 +160,15 @@ fn claude_clean_up() {
         assert!(r.is_ok(), "{said}: {r:?}");
         if mode == Dictate {
             assert!(matches!(r, Ok(super::Cleanup::Dictate(_))), "dictation is always typed: {said}");
+        }
+        if said.contains("draft an email to me") || said.contains("myself") {
+            let Ok(super::Cleanup::Draft(d)) = &r else { panic!("a draft, not a question: {said}: {r:?}") };
+            assert!(d.to.iter().any(|t| super::draft::means_me(t)), "'me' passed as said: {:?}", d.to);
+        }
+        if said.contains(" at example dot com saying") {
+            let Ok(super::Cleanup::Draft(d)) = &r else { panic!("a draft: {r:?}") };
+            let resolved: Vec<_> = d.to.iter().filter_map(|t| super::draft::spoken_address(t)).collect();
+            assert_eq!(resolved, ["jordanlee@example.com"], "as said, then normalized: {:?}", d.to);
         }
     }
     println!("total ${:.5}", nanos as f64 / 1e9);

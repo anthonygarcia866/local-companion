@@ -56,6 +56,12 @@ export interface DraftState {
   choosing: boolean;
 }
 
+/** "me", "Me.", "myself", "my email": the sender (Rust's draft::means_me). */
+export function meansMe(said: string): boolean {
+  const key = said.trim().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").split(/\s+/).join(" ").toLowerCase();
+  return ["me", "myself", "my self", "my email", "my address", "my own address"].includes(key);
+}
+
 /** The state after an event. "closed" with no reason is just gone. */
 export function nextDraft(cur: DraftState | null, e: DraftEvent): DraftState | null {
   switch (e.phase) {

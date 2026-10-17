@@ -4,10 +4,14 @@
 // sends: Anthony sends it himself, in Outlook.
 //
 // This file holds the rules, pure and tested: how a spoken name becomes an
-// address (`resolve`: "me", a written address, a remembered pick, Outlook's
-// local address book: one match, several to pick from as chips, or none), the
-// card's state (`Pending`), and what Outlook is asked to do (`Outlook`, with
-// a fake for tests and a dry run that saves nothing).
+// address (`resolve`: "me", a spoken or written address checked against the
+// address book, a remembered pick, Outlook's local address book: one match,
+// several to pick from as chips, or none), the card's state (`Pending`, which a
+// voice answer can fill: Decision B), and what Outlook is asked to do
+// (`Outlook`, with a fake for tests and a dry run that saves nothing).
+//
+// Never guessed (2026-10-16): an address that isn't in the address book is
+// offered as a chip to confirm, never filled in by itself.
 //
 // Names and addresses are the user's contacts: shown on the card, kept in
 // memory while the card is up, remembered (a pick) only in settings.json,
@@ -73,6 +77,9 @@ pub enum DraftError {
     NoSender,
     /// Outlook refused or failed.
     Failed,
+    /// The sender is the shared leasing mailbox: drafts are never made there
+    /// (owner, 2026-10-16).
+    SharedAccount,
 }
 
 impl DraftError {
@@ -82,6 +89,7 @@ impl DraftError {
             DraftError::NoAccount => "no-account",
             DraftError::NoSender => "no-sender",
             DraftError::Failed => "outlook-failed",
+            DraftError::SharedAccount => "shared-account",
         }
     }
 }
@@ -97,7 +105,42 @@ pub struct Draft {
 }
 
 /// Words that mean the sender: "draft an email to me".
-const ME: [&str; 3] = ["me", "myself", "my self"];
+const ME: [&str; 6] = ["me", "myself", "my self", "my email", "my address", "my own address"];
+
+/// "me", "Me.", "myself!" → the sender (punctuation around it is dropped).
+pub fn means_me(said: &str) -> bool {
+    let key = memory_key(said.trim_matches(|c: char| !c.is_alphanumeric()));
+    ME.contains(&key.as_str())
+}
+
+/// Mailboxes a draft is never saved in or sent from, whatever Settings says:
+/// the shared leasing inbox (owner, 2026-10-16: "never from leasing@").
+const NEVER_FROM: [&str; 1] = ["leasing"];
+
+pub fn never_from(address: &str) -> bool {
+    address.trim().split_once('@').is_some_and(|(local, _)| NEVER_FROM.iter().any(|n| local.eq_ignore_ascii_case(n)))
+}
+
+/// A spoken email address, as whisper writes it, → the address: "jordan lee
+/// at example dot com" → "jordanlee@example.com".
+/// "at" → @, "dot" → ., "underscore" → _, "dash"/"hyphen" → -, spaces gone,
+/// lowercase. None unless the result is one address (a name stays a name:
+/// "Maria at the office" has no dot after the @).
+pub fn spoken_address(said: &str) -> Option<String> {
+    let mut out = String::new();
+    for w in said.trim().trim_end_matches(['.', ',', '!', '?']).split_whitespace() {
+        let lw = w.to_lowercase();
+        out.push_str(match lw.as_str() {
+            "at" => "@",
+            "dot" | "period" | "point" => ".",
+            "underscore" => "_",
+            "dash" | "hyphen" => "-",
+            _ => lw.as_str(),
+        });
+    }
+    let out = out.trim_end_matches('.').to_string();
+    looks_like_address(&out).then_some(out)
+}
 
 /// A written-out address ("maria@example.com"), loosely: one @, a dot after it,
 /// no spaces.
@@ -113,17 +156,21 @@ pub fn memory_key(said: &str) -> String {
     said.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
-/// A spoken name → where it stands: "me" is the sender's own address, a
-/// written address is taken as is, a remembered pick wins, then Outlook's
-/// address book (one match, several, none).
+/// A spoken name → where it stands: "me" is the sender's own address
+/// (Settings → Email drafts → Your address); an address, written or spoken, is
+/// looked up in the address book (found: filled in; not found: one chip to
+/// confirm, never filled in by itself); a remembered pick wins; then Outlook's
+/// address book by name (one match, several, none).
 pub fn resolve(said: &str, me: &str, remembered: &BTreeMap<String, String>, search: impl Fn(&str) -> Vec<Contact>) -> Found {
     let key = memory_key(said);
-    if ME.contains(&key.as_str()) {
+    if means_me(said) {
         return if looks_like_address(me) { Found::One { contact: Contact { name: me.into(), address: me.into() } } } else { Found::None };
     }
-    if looks_like_address(said) {
-        let a = said.trim().to_string();
-        return Found::One { contact: Contact { name: a.clone(), address: a } };
+    if let Some(address) = spoken_address(said) {
+        return match search(&address).into_iter().find(|c| c.address.eq_ignore_ascii_case(&address)) {
+            Some(contact) => Found::One { contact },
+            None => Found::Pick { choices: vec![Contact { name: address.clone(), address }] },
+        };
     }
     if let Some(address) = remembered.get(&key).filter(|a| looks_like_address(a)) {
         // The name as the address book has it, when it's still there.
@@ -190,6 +237,53 @@ impl Pending {
         true
     }
 
+    /// The recipient a voice answer is for: the one being changed, else the
+    /// first that still needs an address. None: nothing is being asked.
+    pub fn asking(&self) -> Option<usize> {
+        self.changing.or_else(|| self.recipients.iter().position(|r| !matches!(r.found, Found::One { .. })))
+    }
+
+    /// A voice answer (Decision B) for the recipient `asking()` names: a chip
+    /// by its name, address or place ("the second one"), else the words looked
+    /// up as a new name or address. False when nothing matched; the card
+    /// still asks.
+    pub fn answer(&mut self, said: &str, me: &str, remembered: &BTreeMap<String, String>, search: impl Fn(&str) -> Vec<Contact>) -> bool {
+        let Some(index) = self.asking() else { return false };
+        let choices: Vec<Contact> = if self.changing == Some(index) {
+            self.results.clone()
+        } else if let Some(Found::Pick { choices }) = self.recipients.get(index).map(|r| &r.found) {
+            choices.clone()
+        } else {
+            Vec::new()
+        };
+        if let Some(k) = choose(said, &choices) {
+            return self.pick(index, k);
+        }
+        match resolve(said, me, remembered, &search) {
+            Found::None => false,
+            Found::One { contact } => {
+                let r = &mut self.recipients[index];
+                // A spoken name that found one entry is remembered like a pick.
+                if !means_me(said) && spoken_address(said).is_none() {
+                    let key = memory_key(&r.said);
+                    self.picked.retain(|(s, _)| memory_key(s) != key);
+                    self.picked.push((r.said.clone(), contact.address.clone()));
+                }
+                r.found = Found::One { contact };
+                self.changing = None;
+                self.results.clear();
+                true
+            }
+            found @ Found::Pick { .. } => {
+                // New chips for the same recipient; the next answer picks one.
+                self.recipients[index].found = found;
+                self.changing = None;
+                self.results.clear();
+                true
+            }
+        }
+    }
+
     /// "Change recipient" on recipient `index`: its search opens (empty).
     pub fn change(&mut self, index: usize) -> bool {
         if index >= self.recipients.len() {
@@ -221,8 +315,46 @@ impl Pending {
     /// The picks to remember in settings ("Change recipient" or a chip): the
     /// spoken name → the address. "me" and written addresses aren't picks.
     pub fn remembered(&self) -> Vec<(String, String)> {
-        self.picked.iter().map(|(said, a)| (memory_key(said), a.clone())).filter(|(k, _)| !ME.contains(&k.as_str()) && !looks_like_address(k)).collect()
+        self.picked.iter().map(|(said, a)| (memory_key(said), a.clone())).filter(|(k, _)| !means_me(k) && !looks_like_address(k) && spoken_address(k).is_none()).collect()
     }
+}
+
+/// Which chip an answer means: its place ("first", "the second one", "2",
+/// "last"), its whole address (spoken or written), or the one chip whose name
+/// holds every word said. None when it's unclear: never guessed.
+pub fn choose(said: &str, choices: &[Contact]) -> Option<usize> {
+    if choices.is_empty() {
+        return None;
+    }
+    let plain = said.trim().trim_end_matches(['.', ',', '!', '?']);
+    let words = memory_key(&plain.replace(|c: char| !c.is_alphanumeric() && c != '@' && c != '.', " "));
+    const PLACES: [(&str, usize); 12] = [
+        ("first", 0), ("1st", 0), ("one", 0), ("1", 0), ("second", 1), ("2nd", 1), ("two", 1), ("2", 1), ("third", 2), ("3rd", 2), ("three", 2), ("3", 2),
+    ];
+    let stripped = words.trim_start_matches("the ").trim_end_matches(" one");
+    if let Some((_, k)) = PLACES.iter().find(|(w, _)| stripped == *w) {
+        return (*k < choices.len()).then_some(*k);
+    }
+    if stripped == "last" {
+        return Some(choices.len() - 1);
+    }
+    if let Some(address) = spoken_address(said) {
+        return choices.iter().position(|c| c.address.eq_ignore_ascii_case(&address));
+    }
+    let said_words: Vec<&str> = words.split(' ').filter(|w| !w.is_empty()).collect();
+    if said_words.is_empty() {
+        return None;
+    }
+    let hits: Vec<usize> = choices
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            let name = memory_key(&c.name);
+            said_words.iter().all(|w| name.split(' ').any(|n| n == *w))
+        })
+        .map(|(k, _)| k)
+        .collect();
+    (hits.len() == 1).then(|| hits[0])
 }
 
 /// The card for a `draft_email` call: each spoken name resolved.
@@ -251,6 +383,9 @@ pub fn create(outlook: &dyn Outlook, from: &str, pending: &Pending, open: bool) 
     if !looks_like_address(from) {
         return Err(DraftError::NoSender);
     }
+    if never_from(from) {
+        return Err(DraftError::SharedAccount);
+    }
     let draft = pending.draft().ok_or(DraftError::Failed)?;
     outlook.save_draft(from, &draft, open)
 }
@@ -269,6 +404,9 @@ pub struct FakeOutlook {
 #[cfg(test)]
 impl Outlook for FakeOutlook {
     fn search(&self, query: &str) -> Result<Vec<Contact>, DraftError> {
+        if looks_like_address(query) {
+            return Ok(self.book.iter().filter(|c| c.address.eq_ignore_ascii_case(query.trim())).cloned().collect());
+        }
         let q = memory_key(query);
         Ok(self.book.iter().filter(|c| memory_key(&c.name).split(' ').any(|w| w.starts_with(&q)) || memory_key(&c.name).starts_with(&q)).cloned().collect())
     }
@@ -346,10 +484,95 @@ mod tests {
         for said in ["me", "Me", "myself"] {
             assert_eq!(resolve(said, ME_ADDR, &mem, search(&o)), Found::One { contact: c(ME_ADDR, ME_ADDR) }, "{said}");
         }
+        for said in ["Me.", "myself!", "my email", " MY ADDRESS "] {
+            assert_eq!(resolve(said, ME_ADDR, &mem, search(&o)), Found::One { contact: c(ME_ADDR, ME_ADDR) }, "{said}");
+        }
         assert_eq!(resolve("me", "", &mem, search(&o)), Found::None, "no address set: nothing to fill in");
-        assert_eq!(resolve(" bob@example.com ", ME_ADDR, &mem, search(&o)), Found::One { contact: c("bob@example.com", "bob@example.com") });
+        // A written address: filled in when the address book has it …
+        assert_eq!(resolve(" sam@example.com ", ME_ADDR, &mem, search(&o)), Found::One { contact: c("Sam Nguyen", "sam@example.com") });
+        // … else one chip to confirm, never filled in by itself.
+        assert_eq!(resolve(" bob@example.com ", ME_ADDR, &mem, search(&o)), Found::Pick { choices: vec![c("bob@example.com", "bob@example.com")] });
         mem.insert("maria".into(), "mokafor@example.com".into());
         assert_eq!(resolve("Maria", ME_ADDR, &mem, search(&o)), Found::One { contact: c("Maria Okafor", "mokafor@example.com") });
+    }
+
+    #[test]
+    fn a_spoken_address_is_normalized_then_checked_against_the_address_book() {
+        assert_eq!(spoken_address("jordan lee at example dot com").as_deref(), Some("jordanlee@example.com"));
+        assert_eq!(spoken_address("Jordan Lee at Example dot com.").as_deref(), Some("jordanlee@example.com"));
+        assert_eq!(spoken_address("JordanLee@Example.com").as_deref(), Some("jordanlee@example.com"));
+        assert_eq!(spoken_address("maria underscore lopez at example dot co dot uk").as_deref(), Some("maria_lopez@example.co.uk"));
+        assert_eq!(spoken_address("sam dash n at example period com").as_deref(), Some("sam-n@example.com"));
+        for name in ["Maria", "Maria at the office", "at dot", "Sam Nguyen", "", "me"] {
+            assert_eq!(spoken_address(name), None, "{name}");
+        }
+        let mut o = outlook();
+        o.book.push(c("Anthony Garcia", "anthonygarcia@example.com"));
+        let none = BTreeMap::new();
+        assert_eq!(resolve("anthony garcia at example dot com", ME_ADDR, &none, search(&o)), Found::One { contact: c("Anthony Garcia", "anthonygarcia@example.com") });
+        // Not in the address book: a chip to confirm (whisper may have misheard).
+        assert_eq!(
+            resolve("tony at example dot com", ME_ADDR, &none, search(&o)),
+            Found::Pick { choices: vec![c("tony@example.com", "tony@example.com")] }
+        );
+        // A spoken address is never remembered as a name.
+        let call = Spoken { to: vec!["tony at example dot com".into()], body: "x".into(), ..Default::default() };
+        let mut p = pending(1, &call, ME_ADDR, &none, search(&o));
+        assert!(p.pick(0, 0));
+        assert!(p.remembered().is_empty());
+    }
+
+    #[test]
+    fn a_voice_answer_fills_the_card_and_never_guesses() {
+        let o = outlook();
+        let none = BTreeMap::new();
+        let call = Spoken { to: vec!["Maria".into()], cc: vec!["Zed".into()], body: "x".into(), ..Default::default() };
+        let mut p = pending(1, &call, ME_ADDR, &none, search(&o));
+        assert_eq!(p.asking(), Some(0), "Which Maria? comes first");
+        // Unclear: nothing changes.
+        assert!(!p.answer("the fifth one", ME_ADDR, &none, search(&o)));
+        assert!(!p.answer("Maria", ME_ADDR, &none, search(&o)) || matches!(p.recipients[0].found, Found::Pick { .. }), "both Marias: still a pick");
+        assert_eq!(p.asking(), Some(0));
+        // By name.
+        assert!(p.answer("Okafor", ME_ADDR, &none, search(&o)));
+        assert_eq!(p.recipients[0].found, Found::One { contact: c("Maria Okafor", "mokafor@example.com") });
+        // The next one: Zed isn't in the book; an answer looks the words up.
+        assert_eq!(p.asking(), Some(1));
+        assert!(!p.answer("nobody", ME_ADDR, &none, search(&o)));
+        assert!(p.answer("Sam", ME_ADDR, &none, search(&o)));
+        assert_eq!(p.recipients[1].found, Found::One { contact: c("Sam Nguyen", "sam@example.com") });
+        assert_eq!(p.asking(), None);
+        assert!(p.ready());
+        assert_eq!(p.remembered(), [("maria".to_string(), "mokafor@example.com".to_string()), ("zed".to_string(), "sam@example.com".to_string())]);
+        // By place, and "me".
+        let mut q = pending(2, &Spoken { to: vec!["Maria".into()], body: "x".into(), ..Default::default() }, ME_ADDR, &none, search(&o));
+        assert!(q.answer("the second one", ME_ADDR, &none, search(&o)));
+        assert_eq!(q.recipients[0].found, Found::One { contact: c("Maria Okafor", "mokafor@example.com") });
+        let mut r = pending(3, &Spoken { to: vec!["Zed".into()], body: "x".into(), ..Default::default() }, ME_ADDR, &none, search(&o));
+        assert!(r.answer("me", ME_ADDR, &none, search(&o)));
+        assert!(r.ready());
+        // A spoken address not in the book becomes a chip; "first" confirms it.
+        let mut s2 = pending(4, &Spoken { to: vec!["Zed".into()], body: "x".into(), ..Default::default() }, ME_ADDR, &none, search(&o));
+        assert!(s2.answer("zed at example dot com", ME_ADDR, &none, search(&o)));
+        assert!(!s2.ready(), "never filled in by itself");
+        assert!(s2.answer("first", ME_ADDR, &none, search(&o)));
+        assert!(s2.ready());
+    }
+
+    #[test]
+    fn choosing_a_chip_by_place_address_or_name() {
+        let chips = vec![c("Maria Lopez", "maria.lopez@example.com"), c("Maria Okafor", "mokafor@example.com")];
+        assert_eq!(choose("first", &chips), Some(0));
+        assert_eq!(choose("The second one.", &chips), Some(1));
+        assert_eq!(choose("2", &chips), Some(1));
+        assert_eq!(choose("last", &chips), Some(1));
+        assert_eq!(choose("third", &chips), None);
+        assert_eq!(choose("Lopez", &chips), Some(0));
+        assert_eq!(choose("maria okafor", &chips), Some(1));
+        assert_eq!(choose("Maria", &chips), None, "both: unclear");
+        assert_eq!(choose("maria at example dot com", &chips), None, "an address on no chip");
+        assert_eq!(choose("mokafor at example dot com", &chips), Some(1));
+        assert_eq!(choose("anything", &[]), None);
     }
 
     #[test]
@@ -400,6 +623,11 @@ mod tests {
         // An address with no account of its own: nothing saved anywhere.
         assert_eq!(create(&o, "someone@else.com", &p, true), Err(DraftError::NoAccount));
         assert_eq!(create(&o, "", &p, true), Err(DraftError::NoSender));
+        // Never from the shared leasing mailbox, even if Settings named it.
+        assert_eq!(create(&o, "leasing@example.com", &p, true), Err(DraftError::SharedAccount));
+        assert_eq!(create(&o, " Leasing@Example.com ", &p, true), Err(DraftError::SharedAccount));
+        assert_eq!(DraftError::SharedAccount.code(), "shared-account");
+        assert!(!never_from("leasingoffice@example.com") && !never_from("anthony@example.com"));
         assert_eq!(o.saved.lock().unwrap().len(), 1);
     }
 

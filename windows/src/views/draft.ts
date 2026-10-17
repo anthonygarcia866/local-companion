@@ -13,7 +13,8 @@ import { card, stack, type ViewHost } from "./views";
 import { Bridge } from "../core/bridge";
 import { State } from "../core/state";
 import { AskClock } from "../core/ask";
-import { DRAFT_NOTE_MS, changeTarget, chipText, type DraftCard, type DraftRecipient } from "../core/draft";
+import { DRAFT_NOTE_MS, changeTarget, chipText, meansMe, type DraftCard, type DraftRecipient } from "../core/draft";
+import { running } from "../core/voice";
 import type { AskHost } from "./ask";
 import { t } from "../i18n/i18n";
 
@@ -50,6 +51,8 @@ export function draftCodeText(code: string): string {
     case "no-account": return t("None of Outlook's accounts has your address. Check Settings → Email drafts.");
     case "no-sender": return t("Add your email address in Settings → Email drafts first.");
     case "outlook-failed": return t("Outlook couldn't save the draft. Try again.");
+    case "shared-account": return t("Drafts are never made in the shared leasing mailbox. Set your own address in Settings → Email drafts.");
+    case "no-match": return t("No match for that. Say a name from the list, or an email address.");
   }
   return "";
 }
@@ -126,6 +129,9 @@ export function buildDraft(host: AskHost): ViewHost {
       } else if (f.kind === "pick") {
         line.append(h("span", { class: "draft-ask", text: t("Which {name}?", { name: r.said }) }));
         f.choices.forEach((ch, k) => line.append(chip(chipText(ch), "draft-choice", () => void Bridge.draftPick(c.id, i, k))));
+      } else if (meansMe(r.said)) {
+        // "me" with no address in Settings: say where to put it.
+        line.append(h("span", { class: "draft-ask", text: t("Add your email address in Settings → Email drafts first.") }));
       } else {
         line.append(h("span", { class: "draft-ask", text: t("No “{name}” in your address book.", { name: r.said }) }));
       }
@@ -149,10 +155,14 @@ export function buildDraft(host: AskHost): ViewHost {
       search.value = "";
       lendFocus(false);
     }
-    note.textContent = d.code ? draftCodeText(d.code)
+    // A voice answer on its way (Decision B): either key answers this card.
+    const v = State.voice;
+    const hearing = !!v && running(v) && v.mode === "answer" && v.question === "";
+    note.textContent = hearing ? (v!.phase === "listening" ? t("Listening for your answer…") : t("Working on your answer…"))
+      : d.code ? draftCodeText(d.code)
       : d.choosing ? t("Click the name to change.")
       : d.ready ? t("Create draft saves it in Outlook's Drafts and opens it there. You send it yourself.")
-      : t("Pick who it goes to first.");
+      : t("Pick who it goes to first, or hold a voice shortcut and say it.");
     const create = button(t("Create draft"), "create", () => {
       if (!State.draft?.ready || State.draft.busy) return;
       State.draft = { ...State.draft, busy: true };
