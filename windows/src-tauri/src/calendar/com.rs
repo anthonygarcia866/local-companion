@@ -234,3 +234,55 @@ mod tests {
         assert!((-14 * 60..=14 * 60).contains(&o), "{o}");
     }
 }
+
+/// The read-only probe against the real calendar (owner's OK, 2026-10-17),
+/// run by hand, never in CI:
+///   GLIM_LIVE_CALENDAR=1 cargo test --lib calendar::com::live -- --ignored --nocapture
+/// Prints counts and times only: never a title, location, calendar name or link.
+#[cfg(test)]
+mod live {
+    use super::*;
+
+    #[test]
+    #[ignore = "live: reads the running Outlook's calendar (read only); needs GLIM_LIVE_CALENDAR=1"]
+    fn probe() {
+        assert_eq!(std::env::var("GLIM_LIVE_CALENDAR").as_deref(), Ok("1"));
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+        let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        let t0 = std::time::Instant::now();
+        let cal = match Calendar::attach() {
+            Ok(c) => c,
+            Err(e) => panic!("not attached: {}", e.code()),
+        };
+        let offset = utc_offset_minutes();
+        println!("attached in {:.2}s; UTC offset {offset} min", t0.elapsed().as_secs_f64());
+        let folders = cal.calendars();
+        println!("calendars found: {} (default first: {})", folders.len(), cal.default_calendar().is_some_and(|d| folders.first().is_some_and(|(p, _)| *p == d)));
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let t1 = std::time::Instant::now();
+        let read = cal.events(&[], now, now + crate::calendar::WINDOW_MS, offset).expect("read");
+        println!("default calendar: {} events overlapping the next 24 h, read in {:.2}s", read.len(), t1.elapsed().as_secs_f64());
+        let hm = |ms: i64| {
+            let local = ms + i64::from(offset) * 60_000;
+            let m = local.rem_euclid(86_400_000) / 60_000;
+            format!("{} {:02}:{:02}", crate::calendar::local_date(ms, offset), m / 60, m % 60)
+        };
+        for e in &read {
+            println!("  {} → {} ({} min){}{}", hm(e.start_ms), hm(e.end_ms), (e.end_ms - e.start_ms) / 60_000, if e.all_day { ", all day" } else { "" }, if e.join.is_some() { ", meeting link" } else { "" });
+        }
+        let shown = crate::calendar::in_window(read.clone(), now, true);
+        println!("shown (all-day hidden): {}; next: {}", shown.len(), crate::calendar::next(&shown, now).map(|(i, same)| format!("in {} min (+{same} at the same time)", (shown[i].start_ms - now) / 60_000)).unwrap_or_else(|| "none".into()));
+        // Every calendar, counts only.
+        let ids: Vec<String> = folders.iter().map(|(p, _)| p.clone()).collect();
+        let all = cal.events(&ids, now, now + crate::calendar::WINDOW_MS, offset).expect("read all");
+        println!("all {} calendars: {} events", ids.len(), all.len());
+        // A week ahead: occurrences of a recurring meeting come one by one
+        // (counted by repeated titles; the titles aren't printed).
+        let week = cal.events(&[], now, now + 7 * crate::calendar::WINDOW_MS, offset).expect("read week");
+        let mut titles: Vec<&str> = week.iter().map(|e| e.title.as_str()).collect();
+        titles.sort_unstable();
+        let total = titles.len();
+        titles.dedup();
+        println!("next 7 days: {total} events, {} distinct titles ({} repeated occurrences), {} all-day, {} with a meeting link", titles.len(), total - titles.len(), week.iter().filter(|e| e.all_day).count(), week.iter().filter(|e| e.join.is_some()).count());
+    }
+}
