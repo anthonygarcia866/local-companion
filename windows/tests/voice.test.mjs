@@ -13,6 +13,7 @@ const { State } = await import("../src/core/state.ts");
 const { nextVoice, needsCard, running, voiceLantern, voiceSending, voicePlacement, cardTimeoutMs, answering, modeLabel } = await import("../src/core/voice.ts");
 const { buildVoice, closeVoice, voiceClock, voiceShown, voiceText, failedText, notCleanedText, heardNote } = await import("../src/views/voice.ts");
 const { sent } = await import("./tauri.mjs");
+const { keyboardHolder } = await import("../src/core/keyboard.ts");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const ev = (o) => ({ phase: "idle", level: 0, cleaned: false, text: "", code: "", app: "", ...o });
@@ -369,6 +370,56 @@ test("the question card: Listening for your answer…, Cancel, and a typed answe
   assert.equal(State.voice, null);
   assert.equal(sent("voice_cancel").length, c + 1);
   State.mode = "hidden";
+});
+
+test("the answer box borrows the keyboard on a click and gives it back on Send, a spoken answer, Cancel or close (retest, 2026-10-17)", async () => {
+  const lent = () => sent("lend_keyboard").map((c) => c.on);
+  State.view = "voice";
+  State.mode = "expanded";
+  // Typed and sent with Enter.
+  State.voice = at({ phase: "question", text: "What should it say?", mode: "ask" });
+  voiceShown();
+  const { v } = card();
+  v.sync();
+  const box = v.el.find(".voice-answer")[0];
+  let n = sent("lend_keyboard").length;
+  v.sync();
+  assert.deepEqual(lent().slice(n), [], "showing the card never takes the keyboard");
+  box.fire("pointerdown");
+  assert.deepEqual(lent().slice(n), [true]);
+  assert.equal(keyboardHolder(), "voice");
+  box.value = "the shift moved to Tuesday";
+  box.fire("keydown", { key: "Enter" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(lent().slice(n), [true, false], "Send gives it back");
+  assert.equal(keyboardHolder(), null);
+  // Clicked, then answered by voice instead: the box goes, so does the keyboard.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  State.voice = nextVoice(State.voice, ev({ phase: "listening", mode: "answer" }));
+  v.sync();
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Clicked, then Cancel.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  v.el.find("button").find((b) => b.textContent === "Cancel").fire("click");
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Closed without a click: nothing was borrowed, nothing is given back.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  n = sent("lend_keyboard").length;
+  closeVoice(null);
+  assert.deepEqual(lent().slice(n), []);
+  State.mode = "hidden";
+  // Rust: island only, gives the keyboard back to the window it came from.
+  const lib = read("src-tauri/src/lib.rs");
+  const fn = lib.slice(lib.indexOf("fn lend_keyboard("), lib.indexOf("fn dock_drag_start("));
+  assert.ok(fn.includes("caller.label() != island::WINDOW_LABEL"), "only the island may ask");
+  assert.ok(fn.includes("platform::foreground_other_than(&win)") && fn.includes("platform::give_foreground_back(&win, to)"));
+  assert.ok(/\n\s+focus_window,\n\s+lend_keyboard,\n/.test(lib), "registered");
 });
 
 test("closing a question card tells Rust; other cards don't", () => {

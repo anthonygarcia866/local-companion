@@ -5,8 +5,9 @@
 // and sent in Outlook, never here.
 //
 // "Change recipient" opens a search of Outlook's address book; typing there is
-// the only time this card borrows the keyboard, and it gives it back on a
-// pick, on Cancel, or when the card closes.
+// the only time this card borrows the keyboard (core/keyboard.ts: a click in
+// the box borrows it too), and it gives it back to the user's app on a pick,
+// on Cancel, or when the card closes.
 
 import { h, clear } from "./dom";
 import { card, stack, type ViewHost } from "./views";
@@ -15,17 +16,16 @@ import { State } from "../core/state";
 import { AskClock } from "../core/ask";
 import { DRAFT_NOTE_MS, changeTarget, chipText, meansMe, type DraftCard, type DraftRecipient } from "../core/draft";
 import { running } from "../core/voice";
+import { borrowKeyboard, returnKeyboard } from "../core/keyboard";
 import type { AskHost } from "./ask";
 import { t } from "../i18n/i18n";
 
 /** Runs only for the "created" note and a failure (the card itself stays). */
 export const draftClock = new AskClock();
-let focused = false;
 
 function lendFocus(on: boolean) {
-  if (focused === on) return;
-  focused = on;
-  void Bridge.focusWindow(on);
+  if (on) borrowKeyboard("draft");
+  else returnKeyboard("draft");
 }
 
 /** Closes the card (Cancel tells Rust; a note just goes). */
@@ -67,6 +67,11 @@ export function buildDraft(host: AskHost): ViewHost {
   const subject = h("div", { class: "draft-subject one-line" });
   const body = h("div", { class: "rewrite-text draft-body" });
   const search = h("input", { class: "draft-search", type: "text", "data-role": "draft-search", maxlength: "80" }) as HTMLInputElement;
+  // Clicked back into after the user typed elsewhere: it borrows the keyboard again.
+  search.addEventListener("pointerdown", () => {
+    lendFocus(true);
+    window.setTimeout(() => search.focus(), 80);
+  });
   const results = h("div", { class: "draft-results" });
   const searchBox = h("div", { class: "draft-search-box", style: "display:none" }, search, results);
   const note = h("div", { class: "suggestion-more", role: "status" });

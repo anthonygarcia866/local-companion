@@ -108,20 +108,24 @@ test("Change recipient lends the keyboard for the search, sends its text, and a 
   State.draft = nextDraft(null, ev({ ready: true, card: cardOf({ recipients: [{ said: "Sam", line: "to", found: { kind: "one", contact: sam } }] }) }));
   const { v } = view();
   v.sync();
-  const f = sent("focus_window").length;
+  const f = sent("lend_keyboard").length;
   roles(v, "change")[0].fire("click");
   assert.deepEqual(sent("draft_change").at(-1), { id: 4, index: 0 });
-  assert.deepEqual(sent("focus_window").slice(f), [{ focused: true }]);
+  assert.deepEqual(sent("lend_keyboard").slice(f), [{ on: true }]);
   State.draft = nextDraft(State.draft, ev({ ready: true, card: cardOf({ recipients: [{ said: "Sam", line: "to", found: { kind: "one", contact: sam } }], changing: 0, results: [maria] }) }));
   v.sync();
   const input = v.el.find("input")[0];
+  // Clicked back into after typing elsewhere: it borrows the keyboard again.
+  const g = sent("lend_keyboard").length;
+  input.fire("pointerdown");
+  assert.deepEqual(sent("lend_keyboard").slice(g), [{ on: true }]);
   input.value = "mar";
   input.fire("input");
   await new Promise((r) => setTimeout(r, 350));
   assert.deepEqual(sent("draft_search").at(-1), { id: 4, query: "mar" });
   roles(v, "draft-result")[0].fire("click");
   assert.deepEqual(sent("draft_pick").at(-1), { id: 4, index: 0, choice: 0 });
-  assert.deepEqual(sent("focus_window").at(-1), { focused: false });
+  assert.deepEqual(sent("lend_keyboard").at(-1), { on: false }, "back to the user's app");
 });
 
 test("Cancel tells Rust and closes; a note closes by itself; every code has words", () => {
@@ -181,7 +185,7 @@ test("the island sends ids, indexes and a search's text only, never logs, and ha
     for (const banned of ["console.", "localStorage", "sessionStorage"]) assert.ok(!src.includes(banned), `${file}: ${banned}`);
   }
   const calls = read("src/views/draft.ts").match(/Bridge\.\w+\(/g);
-  assert.deepEqual([...new Set(calls)].sort(), ["Bridge.draftCancel(", "Bridge.draftChange(", "Bridge.draftCreate(", "Bridge.draftPick(", "Bridge.draftSearch(", "Bridge.focusWindow("]);
+  assert.deepEqual([...new Set(calls)].sort(), ["Bridge.draftCancel(", "Bridge.draftChange(", "Bridge.draftCreate(", "Bridge.draftPick(", "Bridge.draftSearch("]);
   const bridge = read("src/core/bridge.ts");
   assert.ok(!/draft\w*Send|sendMail|send_mail/i.test(bridge));
   const main = read("src/main.ts");

@@ -68,6 +68,9 @@ export const Bridge = {
 
   /** Give the window keyboard focus (chat field) and take it away again. */
   focusWindow: (focused: boolean) => call<void>("focus_window", { focused }),
+  /** A box on a card borrows the keyboard (`on`), then gives it back to the
+   *  window the user was typing in before (core/keyboard.ts). */
+  lendKeyboard: (on: boolean) => call<void>("lend_keyboard", { on }),
 
   reposition: () => call<void>("reposition"),
 

@@ -191,6 +191,37 @@ fn focus_window(app: AppHandle, caller: tauri::WebviewWindow, focused: bool) {
     }
 }
 
+/// The window a box on a card borrowed the keyboard from (lend_keyboard).
+static LENT_FROM: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
+
+/// A box on a card (the question card's answer, the draft card's search)
+/// borrows the keyboard on a click, and gives it back on Send, Cancel, a pick
+/// or the card closing: to the window the user was typing in before, so their
+/// next keys land there again (retest, 2026-10-17: they went to Outlook).
+#[tauri::command]
+fn lend_keyboard(app: AppHandle, caller: tauri::WebviewWindow, on: bool) {
+    if caller.label() != island::WINDOW_LABEL {
+        log::line(format!("lend_keyboard refused from window {:?}", caller.label()));
+        return;
+    }
+    let Some(win) = island::window(&app) else { return };
+    if on {
+        // Asked again while the island already has it: keep the first one.
+        if let Some(front) = platform::foreground_other_than(&win) {
+            *LENT_FROM.lock().unwrap() = Some(front);
+        }
+        let _ = win.set_focusable(true);
+        platform::set_activating(&win, true);
+        let _ = win.set_focus();
+    } else {
+        let _ = win.set_focusable(false);
+        platform::set_activating(&win, false);
+        if let Some(to) = LENT_FROM.lock().unwrap().take() {
+            platform::give_foreground_back(&win, to);
+        }
+    }
+}
+
 /// The pill was pressed and moved: the window follows the cursor from here.
 #[tauri::command]
 fn dock_drag_start(app: AppHandle) {
@@ -1189,6 +1220,7 @@ pub fn run() {
             set_collapsed,
             set_island_rect,
             focus_window,
+            lend_keyboard,
             reposition,
             dock_drag_start,
             set_visibility,
