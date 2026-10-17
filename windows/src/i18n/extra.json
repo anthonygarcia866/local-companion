@@ -3242,17 +3242,6 @@
    "ru": "Абзац слишком длинный для переписывания (больше 2 000 символов).",
    "id": "Paragraf itu terlalu panjang untuk ditulis ulang (lebih dari 2.000 karakter)."
   },
-  "Not sent: it looks like it has a card, SSN or bank number in it.": {
-   "zh-Hans": "未发送：其中似乎包含银行卡号、SSN 或银行账号。",
-   "hi": "नहीं भेजा गया: इसमें कार्ड, SSN या बैंक नंबर लगता है।",
-   "es": "No se envió: parece contener un número de tarjeta, SSN o cuenta bancaria.",
-   "ar": "لم يُرسل: يبدو أنه يحتوي على رقم بطاقة أو SSN أو حساب مصرفي.",
-   "fr": "Non envoyé : il semble contenir un numéro de carte, de SSN ou de compte bancaire.",
-   "bn": "পাঠানো হয়নি: এতে কার্ড, SSN বা ব্যাংক নম্বর আছে বলে মনে হচ্ছে।",
-   "pt-BR": "Não enviado: parece conter um número de cartão, SSN ou conta bancária.",
-   "ru": "Не отправлено: похоже, там номер карты, SSN или банковского счёта.",
-   "id": "Tidak dikirim: sepertinya berisi nomor kartu, SSN, atau rekening bank."
-  },
   "The rewrite was cut off. Try Shorter.": {
    "zh-Hans": "改写内容被截断了。试试“更简短”。",
    "hi": "दोबारा लिखा गया टेक्स्ट बीच में कट गया। छोटा आज़माएँ।",
@@ -4451,6 +4440,72 @@
    "pt-BR": "Solte um arquivo na pílula para entregá-lo ao Glim. Arrastos para qualquer outro lugar nunca são interrompidos.",
    "ru": "Перетащите файл на капсулу, чтобы передать его Glim. Перетаскивание в другие места никогда не перехватывается.",
    "id": "Lepas berkas di pil untuk menyerahkannya ke Glim. Seretan ke tempat lain tidak pernah dihentikan."
+  },
+  "Update hooks…": {
+   "zh-Hans": "更新 hooks…",
+   "hi": "hooks अपडेट करें…",
+   "es": "Actualizar hooks…",
+   "ar": "تحديث hooks…",
+   "fr": "Mettre à jour les hooks…",
+   "bn": "hooks হালনাগাদ করুন…",
+   "pt-BR": "Atualizar hooks…",
+   "ru": "Обновить hooks…",
+   "id": "Perbarui hooks…"
+  },
+  "No hooks": {
+   "zh-Hans": "没有 hooks",
+   "hi": "कोई hooks नहीं",
+   "es": "Sin hooks",
+   "ar": "لا توجد hooks",
+   "fr": "Pas de hooks",
+   "bn": "কোনো hooks নেই",
+   "pt-BR": "Sem hooks",
+   "ru": "Нет hooks",
+   "id": "Tidak ada hooks"
+  },
+  "Hooks out of date": {
+   "zh-Hans": "hooks 已过时",
+   "hi": "hooks पुराने हैं",
+   "es": "Hooks desactualizados",
+   "ar": "hooks قديمة",
+   "fr": "Hooks pas à jour",
+   "bn": "hooks পুরনো",
+   "pt-BR": "Hooks desatualizados",
+   "ru": "Hooks устарели",
+   "id": "Hooks usang"
+  },
+  "Claude config folders:": {
+   "zh-Hans": "Claude 配置文件夹：",
+   "hi": "Claude कॉन्फ़िग फ़ोल्डर:",
+   "es": "Carpetas de configuración de Claude:",
+   "ar": "مجلدات إعدادات Claude:",
+   "fr": "Dossiers de configuration de Claude :",
+   "bn": "Claude কনফিগ ফোল্ডার:",
+   "pt-BR": "Pastas de configuração do Claude:",
+   "ru": "Папки настроек Claude:",
+   "id": "Folder konfigurasi Claude:"
+  },
+  "Not every Claude config folder has Glim's current hooks. Update hooks to bring them all in line.": {
+   "zh-Hans": "并非每个 Claude 配置文件夹都有 Glim 的当前 hooks。更新 hooks 让它们保持一致。",
+   "hi": "हर Claude कॉन्फ़िग फ़ोल्डर में Glim के मौजूदा hooks नहीं हैं। सबको एक जैसा करने के लिए hooks अपडेट करें।",
+   "es": "No todas las carpetas de configuración de Claude tienen los hooks actuales de Glim. Actualiza los hooks para igualarlas.",
+   "ar": "ليست كل مجلدات إعدادات Claude تحتوي hooks الحالية من Glim. حدّث hooks لتوحيدها.",
+   "fr": "Tous les dossiers de configuration de Claude n'ont pas les hooks actuels de Glim. Mettez à jour les hooks pour les aligner.",
+   "bn": "প্রতিটি Claude কনফিগ ফোল্ডারে Glim-এর বর্তমান hooks নেই। সবগুলো মেলাতে hooks হালনাগাদ করুন।",
+   "pt-BR": "Nem toda pasta de configuração do Claude tem os hooks atuais do Glim. Atualize os hooks para alinhar todas.",
+   "ru": "Не во всех папках настроек Claude есть текущие hooks Glim. Обновите hooks, чтобы выровнять их.",
+   "id": "Tidak semua folder konfigurasi Claude memiliki hooks Glim terbaru. Perbarui hooks agar semuanya selaras."
+  },
+  "Not sent: this has a card, ID or bank number in it, or it's a payment field. Glim never reads or sends those.": {
+   "zh-Hans": "未发送：其中含有卡号、证件号或银行账号，或这是一个付款字段。Glim 从不读取或发送这些内容。",
+   "hi": "नहीं भेजा गया: इसमें कार्ड, पहचान या बैंक नंबर है, या यह भुगतान फ़ील्ड है। Glim इन्हें कभी नहीं पढ़ता या भेजता।",
+   "es": "No enviado: tiene un número de tarjeta, de identidad o bancario, o es un campo de pago. Glim nunca los lee ni los envía.",
+   "ar": "لم يُرسل: يحتوي على رقم بطاقة أو هوية أو حساب بنكي، أو هو حقل دفع. لا يقرأ Glim هذه ولا يرسلها أبدًا.",
+   "fr": "Non envoyé : il contient un numéro de carte, d'identité ou bancaire, ou c'est un champ de paiement. Glim ne les lit ni ne les envoie jamais.",
+   "bn": "পাঠানো হয়নি: এতে কার্ড, পরিচয় বা ব্যাংক নম্বর আছে, অথবা এটি একটি পেমেন্ট ফিল্ড। Glim এগুলো কখনো পড়ে না বা পাঠায় না।",
+   "pt-BR": "Não enviado: contém um número de cartão, de documento ou bancário, ou é um campo de pagamento. O Glim nunca lê nem envia isso.",
+   "ru": "Не отправлено: здесь номер карты, документа или банковского счёта, или это платёжное поле. Glim никогда их не читает и не отправляет.",
+   "id": "Tidak dikirim: ini berisi nomor kartu, identitas, atau rekening bank, atau ini kolom pembayaran. Glim tidak pernah membaca atau mengirimnya."
   }
  }
 }

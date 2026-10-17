@@ -331,7 +331,12 @@ export interface AiModel {
 }
 
 export interface HookStatus {
+  /** Glim's hooks are in at least one Claude config folder. */
   installed: boolean;
+  /** Every folder has Glim's current hooks: nothing to update. */
+  allUpToDate: boolean;
+  /** Every Claude config folder (~/.claude, CLAUDE_CONFIG_DIR, ~/.claude*), in order. */
+  folders: { settingsPath: string; installed: boolean; upToDate: boolean }[];
   /** The app's status line relay (plan usage) is the status line in settings.json. */
   planRelayInstalled: boolean;
   settingsPath: string;

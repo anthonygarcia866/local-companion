@@ -24,6 +24,7 @@ import { privacySection } from "./privacy";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
+import { folderRows, installLabel } from "./claude-folders";
 import {
   LANGUAGES, isRtl, onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t, tn,
 } from "../i18n/i18n";
@@ -183,10 +184,8 @@ function claudeSection(status: HookStatus): HTMLElement {
           ? t("Glim is hooked into your Claude Code sessions. Tool calls, questions and permission requests show up in the island, and you can answer them there.")
           : t("Install the hooks to see your Claude Code sessions in the island and approve permissions without leaving what you are doing."),
       }),
-      h("div", { class: "row" },
-        h("label", { text: "settings.json" }),
-        h("span", { class: "path", text: status.settingsPath }),
-      ),
+      h("div", { class: "hint", text: t("Claude config folders:") }),
+      ...folderRows(status),
       h("div", { class: "row" },
         h("label", { text: t("Relay") }),
         h("span", { class: "path", text: status.hookPath }),
@@ -204,7 +203,7 @@ function claudeSection(status: HookStatus): HTMLElement {
     const actions = h("div", { class: "row" });
     const install = h("button", {
       class: "primary",
-      text: status.installed ? t("Reinstall hooks…") : t("Install hooks…"),
+      text: installLabel(status),
       onclick: () => void reviewChange(body, HOOKS_CHANGE, true, redraw, () => void rebuild()),
     });
     // Writing hook commands that point at a relay which isn't there would give
@@ -1008,7 +1007,7 @@ async function main() {
 /** Reads what the sections show and draws them all. */
 async function render() {
   const status = (await Bridge.hooksStatus()) ?? {
-    installed: false, planRelayInstalled: false, settingsPath: "", hookPath: "", hookReady: false,
+    installed: false, allUpToDate: true, folders: [], planRelayInstalled: false, settingsPath: "", hookPath: "", hookReady: false,
   };
   const agents = await Bridge.agentHooksList();
 
