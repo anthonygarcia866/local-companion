@@ -218,8 +218,105 @@ pub fn open_url(url: &str) {
         .spawn();
 }
 
+/// Voice `open_app` (1.5c): opens an app Glim knows by its id, never a path
+/// from anywhere else. False when Windows can't find or start it.
+/// - "outlook": classic Outlook, through Windows' App Paths (`OUTLOOK.EXE`).
+/// - "codex", "claude_code" (owner, 2026-10-16: the desktop apps): the Codex
+///   app (package `OpenAI.Codex`, which Start lists as "ChatGPT") and the
+///   Claude app (package `Claude`, where Claude Code lives), started by their
+///   app ids, found on this PC (`package_family`).
+pub fn open_known_app(app: &str) -> bool {
+    use ::windows::core::w;
+    match app {
+        "outlook" => shell_open(w!("OUTLOOK.EXE")),
+        "codex" => activate_package("OpenAI.Codex", "App"),
+        "claude_code" => activate_package("Claude", "Claude"),
+        _ => false,
+    }
+}
+
+/// ShellExecute "open" on a file Windows resolves itself (App Paths); no shell.
+fn shell_open(file: ::windows::core::PCWSTR) -> bool {
+    use ::windows::core::w;
+    use ::windows::Win32::UI::Shell::ShellExecuteW;
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    // ShellExecute returns a value above 32 when it started the app.
+    let r = unsafe { ShellExecuteW(None, w!("open"), file, None, None, SW_SHOWNORMAL) };
+    r.0 as usize > 32
+}
+
+/// The family name of the installed package called `name` among the
+/// per-user package folders ("OpenAI.Codex" → "OpenAI.Codex_2p2nqsd0c76g0"):
+/// the name, an underscore, a 13-character publisher id. None when it isn't
+/// installed.
+pub fn package_family(folders: &[String], name: &str) -> Option<String> {
+    folders.iter().find(|f| {
+        f.strip_prefix(name).and_then(|rest| rest.strip_prefix('_')).is_some_and(|id| id.len() == 13 && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+    }).cloned()
+}
+
+/// Starts packaged app `name`'s application `app_id` through Windows' own
+/// activation (IApplicationActivationManager), on a thread of its own with
+/// COM. False when the package isn't there or Windows refuses.
+fn activate_package(name: &str, app_id: &str) -> bool {
+    let Some(packages) = data_base("LOCALAPPDATA").map(|d| d.join("Packages")) else { return false };
+    let folders: Vec<String> = std::fs::read_dir(packages).map(|r| r.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+    let Some(family) = package_family(&folders, name) else { return false };
+    let aumid: Vec<u16> = format!("{family}!{app_id}").encode_utf16().chain(Some(0)).collect();
+    std::thread::spawn(move || unsafe {
+        use ::windows::core::PCWSTR;
+        use ::windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED};
+        use ::windows::Win32::UI::Shell::{ApplicationActivationManager, IApplicationActivationManager, AO_NONE};
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let Ok(manager) = CoCreateInstance::<_, IApplicationActivationManager>(&ApplicationActivationManager, None, CLSCTX_LOCAL_SERVER) else { return false };
+        manager.ActivateApplication(PCWSTR(aumid.as_ptr()), PCWSTR::null(), AO_NONE).is_ok()
+    })
+    .join()
+    .unwrap_or(false)
+}
+
 pub fn reveal_folder(path: &str) {
     let _ = Command::new("explorer").arg(path).spawn();
+}
+
+/// Ties a child process's life to Glim's: it is put in a job object that
+/// kills it when Glim's handle to the job closes (Glim exits or crashes).
+/// The handle is kept for Glim's lifetime on purpose.
+pub fn kill_with_glim(child: &std::process::Child) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    unsafe {
+        let Ok(job) = CreateJobObjectW(None, None) else { return false };
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let set = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const core::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        set.is_ok() && AssignProcessToJobObject(job, windows::Win32::Foundation::HANDLE(child.as_raw_handle())).is_ok()
+    }
+}
+
+/// Claude Code in its own console window, in `folder`, with `prompt` as its
+/// first message (the resume card's click). No shell: the launcher is found
+/// on PATH (or in ~/.local/bin, where Claude Code's installer puts it) and
+/// the prompt is one argument.
+pub fn open_claude_code_in(folder: &std::path::Path, prompt: &str) -> bool {
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let claude = find_on_path("claude").or_else(|| {
+        let local = super::home_dir().join(".local").join("bin").join("claude.exe");
+        local.is_file().then_some(local)
+    });
+    let Some(claude) = claude else { return false };
+    if !folder.is_dir() {
+        return false;
+    }
+    Command::new(claude).current_dir(folder).arg(prompt).creation_flags(CREATE_NEW_CONSOLE).spawn().is_ok()
 }
 
 /// Our own `where`: walks %PATH% against %PATHEXT%, no shell involved.
@@ -685,6 +782,20 @@ pub fn set_layer_overlay(_win: &WebviewWindow, _on: bool) {}
 /// Layer-shell only (Linux): the logical size of the display the island is on.
 pub fn layer_display(_island: &WebviewWindow, _mochi: &WebviewWindow) -> Option<(f64, f64)> {
     None
+}
+
+#[cfg(test)]
+mod package_tests {
+    use super::package_family;
+
+    #[test]
+    fn a_package_is_found_by_its_name_and_publisher_id_only() {
+        let folders: Vec<String> = ["Claude_pzs8sxrjxfjjc", "ClaudeHelper_pzs8sxrjxfjjc", "OpenAI.Codex_2p2nqsd0c76g0", "OpenAI.Codex.Beta_2p2nqsd0c76g0", "Claude_short"].map(String::from).to_vec();
+        assert_eq!(package_family(&folders, "Claude").as_deref(), Some("Claude_pzs8sxrjxfjjc"));
+        assert_eq!(package_family(&folders, "OpenAI.Codex").as_deref(), Some("OpenAI.Codex_2p2nqsd0c76g0"));
+        assert_eq!(package_family(&folders, "Outlook"), None);
+        assert_eq!(package_family(&["Claude_short".to_string()], "Claude"), None);
+    }
 }
 
 #[cfg(test)]

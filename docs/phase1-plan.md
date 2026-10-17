@@ -533,7 +533,7 @@ Sources: platform.claude.com `about-claude/models/overview`, `about-claude/prici
 
 ## 14. 1d design: settings, pause, and what comes after (2026-10-12)
 
-Status: **design approved by the owner (2026-10-12, answers in 14.11), no code yet.** It extends §5 (which apps are on) and §8 (settings), and replaces them where they disagree. Written on `main`, where 1c is not merged yet: the rewrite tone setting (14.3) needs 1c (§13, branch `phase-1c-rewrite`) first.
+Status: **built 2026-10-13 on branch `phase-1d`** (one commit per item: 14.1 apps, 14.2 the prompt, 14.3 tones, 14.4 strictness, 14.5 pause list, 14.6 pause key), waiting for the owner's live test (`docs/manual-tests.md` §16–21). Design approved 2026-10-12 (answers in 14.11). It extends §5 (which apps are on) and §8 (settings), and replaces them where they disagree. Written on `main`, where 1c is not merged yet: the rewrite tone setting (14.3) needs 1c (§13, branch `phase-1c-rewrite`) first.
 
 **Order:** 1d is built after PR #15 (post-1b fixes) and the 1c PR are merged, as one PR with one commit per item, like the others.
 
@@ -600,6 +600,11 @@ For apps on **neither** list (§5: off by default, ask once).
 
 - **Chat apps keep their relaxed rules on top** (no capitalization, no chat words), whatever the level. A level can only make the checker quieter, never louder than Full.
 - **How it's built:** by Harper's `LintKind` (the `kind` each finding already carries), in `checker.rs`. A test lists every `LintKind` that Harper 2.11.0 has and the level it belongs to, so a Harper update that adds a kind fails the test instead of slipping in unsorted. The exact kind-to-level table is set at build time from that list.
+> **⚠ Retest note (Anthony's live test, 2026-10-14, §19 FAIL).** The wiring is right (a level only removes kinds), but two assumptions above were wrong:
+> - **Harper 2.11 doesn't catch some agreement errors at any level:** "Alex and I was" (a compound subject) and "issues that needs" (a "that" clause) give no finding. No newer Harper helps: 2.12.0 (2026-10-01) is only a GitHub tag, not on crates.io, and adds phrase fixes, no agreement rules. Glim stays on `=2.11.0`; a test (`known_agreement_gaps_stay_documented`) notices if a future Harper starts catching them.
+> - **Full looked the same as Standard** because the test paragraph had no style findings. Harper's Full-only rules are few (Redundancy like "8am in the morning" and "for free of charge", the Oxford comma). The §19 paragraph now has two, and a test asserts Full > Standard > Spelling on it.
+> - **Settings now says honestly what each level covers** (one line per level under the menu) and that agreement and meaning errors need the AI (for now: Rewrite). The real answer is "Check with AI" (§15.1), a separate PR after 1d.
+
 - **Global, not per app** (**decision 5**, decided): one setting is easy to understand, and the chat relaxation already covers the app that differs most. A per-app override could come later without changing the storage (`checkerStrictness: "spelling" | "standard" | "full"`).
 
 ### 14.5 The editable pause list
@@ -661,6 +666,8 @@ Settings gets a **Writing** section and a **Privacy** section:
 - **Shortcuts** gains Pause.
 - **Every new string** gets its 9 translations, as usual.
 
+> **⚠ Retest note (2026-10-14):** one long scroll was too much (Anthony). Settings now has a sidebar with search, and the page order is General · Presence · Writing (Apps, Tones, Strictness; the AI section under it) · Privacy · Shortcuts · Claude Code & Agents · About (`settings/nav.ts`).
+
 ### 14.9 Done when
 
 - [ ] Each app's switch takes effect within one reading (≤ 300 ms after the setting is saved), and an app switched off drops its suggestions and kept paragraph.
@@ -712,3 +719,35 @@ Settings gets a **Writing** section and a **Privacy** section:
 8. **"Not now":** ask again the next day at the earliest, never more than once a day per app (14.2). This replaces §5's "ask again next session".
 
 **Also settled for 1c (§13's open questions):** the hotkey opens the tone card, and a second press sends the default tone (14.3); refusal fallbacks stay off.
+
+## 15. Follow-ups after 1d (2026-10-14)
+
+### 15.0 Google Docs gives Glim no text (§20 blocked, 2026-10-14) — in #18
+
+- **What happened:** in Anthony's live test, typing in a Google Doc in Chrome gave no suggestions.
+- **What the log shows:** only what it can. glim.log (metadata only) has 30 s summaries: Chrome was focused often during the test (22:28–23:19), and checks ran in those windows (likely Gmail), but the log never said *why* a field wasn't checked, so the Docs moment can't be singled out. Nothing in it contradicts the hypothesis below; nothing proves it either.
+- **Hypothesis (very likely, to be confirmed live):** Docs draws its pages on a canvas (since 2021). What has focus is a hidden text-input target with little or no text, so UI Automation gives Glim nothing to check. Docs only exposes the document's text to assistive tech when **screen reader support** is on (Tools → Accessibility, Ctrl+Alt+Z, per document session).
+- **Added in #18:** when the focused field is in a `docs.google.com/document` page and gives no text (no text pattern, read-only, or empty) for 3 s, the island shows a one-time tip: "Turn on screen reader support (Ctrl+Alt+Z) so Glim can check your writing". **Got it** stores `writingDocsTipDismissed` (Rust-owned) and it never shows again; Not now or 30 s only close it (offered at most once per run; it shows only with the pill, not in Ember or Hidden). New log lines, metadata only: `writing: Google Docs field not readable (pattern X, read-only Y)` once per stay, `… tip offered`, `… tip dismissed`.
+- **Still unknown:** whether Docs with screen reader support on actually gives Glim the paragraph and caret (manual test §20 step 6), and whether typing fixes back works there. If it doesn't, the tip's text is wrong and must change before it ships.
+- **§20's paused-site test now uses Gmail** (`mail.google.com`).
+
+### 15.1 "Check with AI" (its own PR after 1d, not #18)
+
+Harper misses agreement and meaning errors ("Alex and I was", "issues that needs", the wrong word spelled right). The 1c Claude API path can catch them; this puts it behind a button.
+
+- **The button:** "Check with AI" at the foot of the suggestions list (the lantern's popover and the island's list).
+- **What is sent:** the current paragraph only, to the Claude API through `net::request` (Haiku, the 1c model setting), **only on that click**. The card/SSN/IBAN refusal from 1c applies first, with the same plain refusal message; a refused paragraph is never sent.
+- **While it runs:** the lantern shows **`s-delegate`** (data leaving the machine), as for a rewrite. Spend counts toward the 1c monthly cap, and a cap hit, missing key or outage says so on the card and leaves Harper's findings as they are.
+- **The answer:** asked for as a tool call (a list of `{start, end, message, replacement}`), validated against the paragraph (offsets in range, the quoted text matches), and shown as **normal suggestions** next to Harper's, marked as from the AI. Applying one is the usual apply path (`apply.rs`), with the usual stale-paragraph check. Nothing is applied automatically.
+- **Optional setting:** Settings → Writing → "Check with AI automatically when I pause typing", **default OFF**. When on: after ~2 s without typing, once per paragraph version, same refusal, same cap, same `s-delegate`. Off means the button is the only way text leaves.
+- **Logging:** as 1c: never the text, the answer or the replacements; only `ai-check: ok|refused|failed`, timings and counts.
+- **Tests:** a fake API server (as in 1c) for answer validation, refusal before sending, cap and failure paths; the setting's default; a live test in Outlook and Word with the two sentences above.
+
+> **Built (2026-10-14, branch `ai-check`, draft PR; not verified live).** Notes from building it:
+> - **⚠ Amended: quotes, not offsets.** Claude is asked for `{quote, replacement, message}`, not `{start, end, …}`: models give unreliable character offsets. Glim places each quote itself and drops any it can't find exactly once (also an unchanged or multi-line replacement, one holding a card/ID-like number, overlaps, more than 8). Still validated against the paragraph, word for word.
+> - **Always Haiku** (`ai::check::MODEL`), whatever Settings → AI's model is for rewrites (the work order: "the cheap Haiku model"). Same key, same spend file and monthly cap, same Brain setting (Local → "isn't built yet").
+> - **Next to Harper's:** an AI suggestion overlapping one of Harper's is left out; the rest are merged in reading order with kind `AI` (the island shows an **AI** mark). They are never "clear", so Apply all leaves them to the user. They belong to the paragraph version they were found in: an edit drops them.
+> - **Automatic check:** once per paragraph version, after 2 s of no change, only for 4+ words; a refusal (no key, cap) is logged once, not shown.
+> - **Decided (Anthony, 2026-10-14, on recommendation): the button must be reachable when Harper finds nothing** (grammar-only paragraphs are its main use). Built the least invasive option: in the open island, a lantern click with no card waiting and no suggestions opens the **empty list** ("Nothing to fix here." + Check with AI + Rewrite…), but only when the caret is in a checked paragraph (`Suggestions.checkable`, set by a check like the list itself, kept while the list stays, cleared on Pause, settings changes and a blank line). Before, that click did nothing; nothing else changed (the closed pill's click, the default view and the full lantern menu are as they were).
+> - The lantern's popover (1e) gets the same button when the bubble's window is built.
+

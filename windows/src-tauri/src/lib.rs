@@ -19,15 +19,18 @@ mod net;
 mod pipe;
 mod platform;
 mod recap;
+mod resume;
 mod session_window;
 mod settings;
 mod shortcuts;
 mod placement;
+mod pause;
 mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
 mod writing;
+mod voice;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -90,11 +93,16 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.desktop_mochi = current.desktop_mochi.clone();
         settings.docks = current.docks.clone();
         settings.visibility = current.visibility.clone();
+        // When each app was asked about is Rust's (writing_ask_shown/_answer).
+        settings.writing_apps_asked = current.writing_apps_asked.clone();
+        settings.writing_docs_tip_dismissed = current.writing_docs_tip_dismissed;
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
     let settings = shared.settings.lock().unwrap().clone();
+    shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -277,6 +285,32 @@ fn open_in_vscode(path: Option<String>) -> bool {
     false
 }
 
+// ── "Pick up from yesterday" (resume/, PR #21) ─────────────────────────────
+
+/// The resume card's rows: each repo's HANDOFF.md, newest first. Logged as
+/// names and counts only (resume::summary_line).
+#[tauri::command]
+fn resume_cards() -> Vec<resume::Card> {
+    let scan = resume::read_all(&resume::repos(&[]));
+    log::line(resume::summary_line(&scan));
+    resume::cards(&scan)
+}
+
+/// A click on a repo's row: Claude Code opens in that repo, told to read
+/// HANDOFF.md and continue (owner, 2026-10-13: only on that click). The
+/// island sends the repo's name; the folder is looked up among the repos Glim
+/// reads, never taken from the island.
+#[tauri::command]
+fn resume_open(repo: String) -> bool {
+    let Some(folder) = resume::folder_for(&repo, &resume::repos(&[])) else {
+        log::line("resume: open refused (not a repo Glim reads)");
+        return false;
+    };
+    let opened = platform::open_claude_code_in(&folder, resume::PROMPT);
+    log::line(format!("resume: {} Claude Code in {repo}", if opened { "opened" } else { "could not open" }));
+    opened
+}
+
 /// "Open terminal": brings forward the terminal or editor window the session
 /// runs in, when it was found (Windows, see session_window.rs); otherwise opens
 /// the folder in VS Code, as before.
@@ -327,6 +361,8 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    #[cfg(windows)]
+    voice::whisper::stop();
     app.exit(0);
 }
 
@@ -586,6 +622,122 @@ struct AiModel {
     prices_checked: &'static str,
 }
 
+/// Changes the settings in Rust's hands, saves them, puts the writing
+/// settings in force and tells both windows.
+fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Settings)) {
+    let updated = {
+        let mut current = shared.settings.lock().unwrap();
+        change(&mut current);
+        if let Err(err) = settings::save(&current) {
+            log::line(format!("could not save settings: {err}"));
+        }
+        current.clone()
+    };
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
+    let _ = app.emit("settings-changed", updated);
+}
+
+/// The island showed (or queued) "Check writing in [app]?" (1d, §14.2):
+/// today's date is kept for that app, so it is asked at most once a day.
+#[tauri::command]
+fn writing_ask_shown(app: AppHandle, shared: State<Shared>, exe: String) {
+    if !writing::ask::askable(&exe, &writing::prefs::get(), &writing::ask::today()) {
+        return;
+    }
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps_asked.insert(exe, writing::ask::today());
+    });
+}
+
+/// The answer to "Check writing in [app]?": "yes" turns the checker on
+/// there, "never" keeps it off for good (both listed in Settings → Writing →
+/// Apps), "later" asks again the next day at the earliest.
+#[tauri::command]
+fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer: String) {
+    if !writing::ask::valid_exe(&exe) || writing::apps::is_known(&exe) {
+        return;
+    }
+    let today = writing::ask::today();
+    log::line(format!("writing: asked about {exe}: {}", if matches!(answer.as_str(), "yes" | "never") { answer.as_str() } else { "later" }));
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        let on = match answer.as_str() {
+            "yes" => "on",
+            "never" => "off",
+            _ => {
+                s.writing_apps_asked.insert(exe, today);
+                return;
+            }
+        };
+        s.writing_apps.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps.insert(exe, on.to_string());
+    });
+}
+
+/// "Got it" on the Google Docs tip (writing::docs_tip): it never shows again.
+#[tauri::command]
+fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
+    log::line("writing: Google Docs tip dismissed");
+    update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
+}
+
+/// Push-to-talk's card (voice 1.5b): "Copy" on what was heard or not typed.
+/// The text came from Rust in the first place; it is only put on the
+/// clipboard, never logged. False: another app held the clipboard.
+#[tauri::command]
+fn voice_copy(text: String) -> bool {
+    #[cfg(windows)]
+    let copied = capture::fix::copy_to_clipboard(&text);
+    #[cfg(not(windows))]
+    let copied = { let _ = text; false };
+    log::line(format!("voice: copy {}", if copied { "ok" } else { "clipboard busy" }));
+    copied
+}
+
+/// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
+/// Windows' own microphone privacy page. A fixed settings link, nothing
+/// from the island; no network.
+#[tauri::command]
+fn open_mic_settings() {
+    log::line("voice: opened the microphone privacy settings");
+    #[cfg(windows)]
+    platform::open_url(MIC_SETTINGS);
+}
+
+/// Windows Settings → Privacy & security → Microphone.
+const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
+
+/// The Rewrite card's default tone for the field being written in (1d, §14.3).
+#[tauri::command]
+fn writing_rewrite_default() -> &'static str {
+    writing::tones::current_default().id()
+}
+
+/// Each category's built-in tone, for Settings → Writing → Rewrite tones.
+#[tauri::command]
+fn writing_tone_defaults() -> Vec<(&'static str, &'static str)> {
+    writing::tones::Category::ALL.iter().map(|c| (c.id(), c.builtin().id())).collect()
+}
+
+/// The built-in pause entries (locked), for Settings → Privacy (1d, §14.5).
+#[derive(serde::Serialize)]
+struct PauseBuiltins {
+    apps: Vec<&'static str>,
+    sites: Vec<&'static str>,
+}
+
+#[tauri::command]
+fn writing_pause_builtins() -> PauseBuiltins {
+    PauseBuiltins { apps: capture::sensitive::PAUSED_APPS.to_vec(), sites: capture::sensitive::PAUSED_SITES.to_vec() }
+}
+
+/// The apps Settings → Writing → Apps lists (1d): the built-in ones.
+#[tauri::command]
+fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
+    writing::apps::known()
+}
+
 #[tauri::command]
 fn ai_models() -> Vec<AiModel> {
     ai::claude::MODELS
@@ -613,6 +765,14 @@ fn writing_rewrite(tone: String) {
     capture::uia::request(capture::uia::Request::Rewrite { tone });
     #[cfg(not(windows))]
     let _ = tone;
+}
+
+/// "Check with AI" (docs/phase1-plan.md §15.1): the paragraph the caret is
+/// in goes to the Claude API (Haiku). The click is the user's request.
+#[tauri::command]
+fn writing_ai_check() {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::AiCheck { auto: false });
 }
 
 /// "Use this": types rewrite `id` in through 1b's apply path.
@@ -645,14 +805,6 @@ fn writing_rewrite_dismiss() {
 fn writing_dismiss() {
     #[cfg(windows)]
     capture::uia::request(capture::uia::Request::Dismiss);
-}
-
-/// The tray's Pause, from the island: nothing is read, checked, kept or typed.
-#[tauri::command]
-fn writing_set_paused(paused: bool) {
-    writing::set_paused(paused);
-    #[cfg(windows)]
-    capture::uia::request(capture::uia::Request::Wake);
 }
 
 // ── Global shortcuts ──────────────────────────────────────────────────────────
@@ -713,7 +865,7 @@ fn create_settings_window(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
         .title(i18n::t("Settings — Glim"))
-        .inner_size(560.0, 680.0)
+        .inner_size(780.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
         .visible(false)
@@ -869,12 +1021,20 @@ pub fn run() {
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     let gate = Arc::new(PollGate::new());
+    gate.drop_zone.store(loaded.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
+            // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card, as the
+            // tray item does (decided 2026-10-15).
+            if dev_session() && argv.iter().any(|a| a == "--resume-card") {
+                let _ = app.emit_to(island::WINDOW_LABEL, "resume-show", ());
+                return;
+            }
             if let Some(state) = dev_mascot_state(&argv) {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
@@ -967,12 +1127,23 @@ pub fn run() {
             ai_key_remove,
             ai_spend,
             ai_models,
+            writing_known_apps,
+            writing_pause_builtins,
+            writing_rewrite_default,
+            writing_tone_defaults,
+            writing_ask_shown,
+            writing_ask_answer,
+            writing_docs_tip_dismiss,
+            voice_copy,
+            open_mic_settings,
+            writing_ai_check,
+            resume_cards,
+            resume_open,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
-            writing_set_paused,
             chat_send,
             chat_models,
             local_connect,
@@ -1047,9 +1218,20 @@ pub fn run() {
             // The visibility hotkey works in Rust: it has to reach a hidden window.
             let cycle_handle = handle.clone();
             shortcuts::on_cycle_visibility(move || presence::cycle(&cycle_handle));
+            // So does the pause key (1d): it works with the island hidden.
+            let pause_handle = handle.clone();
+            shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
+            // And push-to-talk (voice 1.5b): Rust polls the key for its release.
+            #[cfg(windows)]
+            {
+                let voice_handle = handle.clone();
+                shortcuts::on_push_to_talk(move || voice::run::on_key_down(&voice_handle));
+            }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
+            // Every Claude config folder in sync? Logged only; Settings fixes it.
+            hooks::log_sync_state();
             pipe::start(handle.clone());
             shortcuts::apply(&handle, &loaded.shortcuts);
             Ok(())

@@ -2,6 +2,7 @@
 // colours and wording are copied from the Swift views so both platforms read
 // identically.
 
+import { AI_KIND, aiCheckNote, aiSending } from "../core/ai-check";
 import { h, svg, clear, dot } from "./dom";
 import { ICONS } from "./icons";
 import { Ticker } from "./ticker";
@@ -15,7 +16,11 @@ import { pillCard } from "./pill-card";
 import { pillDefinition, sessionSubtitle } from "../core/pills";
 import { PlanCard, buildPlanPill, claudePillVisible, planCardOpen } from "./usage";
 import { buildRewrite } from "./rewrite";
-import { chooseTone } from "../core/rewrite";
+import { buildAsk } from "./ask";
+import { buildResume } from "./resume";
+import { buildDocsTip } from "./docs-tip";
+import { buildVoice } from "./voice";
+import { openToneCard } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
@@ -788,7 +793,7 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   const rewriteTip = tl("Rewrite this paragraph with Claude (Ctrl+Alt+Shift+R)");
   const rewrite = h("button", { class: "rewrite-open", type: "button", title: rewriteTip, "aria-label": rewriteTip, text: tl("Rewrite…"), onclick: () => openRewrite() });
   const openRewrite = () => {
-    State.rewrite = chooseTone();
+    openToneCard();
     actions?.setView("rewrite");
   };
   const head = h("div", { class: "suggestion-head" }, title, rewrite, applyAll);
@@ -799,7 +804,14 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   const pages = h("div", { class: "suggestion-pages" }, prev, range, next);
   const note = h("div", { class: "suggestion-more", role: "status" });
   const dismiss = h("button", { class: "suggestion-dismiss", title: tl("Dismiss suggestions"), "aria-label": tl("Dismiss suggestions"), onclick: () => void Bridge.writingDismiss() }, svg(ICONS.xmark, 12));
-  const pager = h("div", { class: "suggestion-pager" }, pages, note, dismiss);
+  // §15.1: this paragraph to Claude (Haiku), for what Harper can't see.
+  const aiTip = tl("Send this paragraph to Claude to find grammar and meaning errors the checker misses");
+  const aiCheck = h("button", { class: "ai-check", type: "button", title: aiTip, "aria-label": aiTip, text: tl("Check with AI"), onclick: () => checkWithAi() }) as HTMLButtonElement;
+  const checkWithAi = () => {
+    if (aiSending(State.aiCheck)) return;
+    void Bridge.writingAiCheck();
+  };
+  const pager = h("div", { class: "suggestion-pager" }, pages, note, aiCheck, dismiss);
   const el = h("div", { class: "view" }, card(null, stack(98, 16, head, list, pager)));
   const sync = () => {
     const items = State.writing;
@@ -818,7 +830,10 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
     range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
     (prev as HTMLButtonElement).disabled = at.page === 0;
     (next as HTMLButtonElement).disabled = at.page === at.pages - 1;
-    note.textContent = suggestionNote(State.writingFix, State.writingResult, State.writingBusy);
+    // A fix on its way or just done says so first; then Check with AI's.
+    const fixNote = suggestionNote(State.writingFix, State.writingResult, State.writingBusy);
+    note.textContent = State.writingBusy || State.writingResult ? fixNote : aiCheckNote(State.aiCheck) || fixNote;
+    aiCheck.disabled = aiSending(State.aiCheck) || State.writingBusy;
     // Where fixes are typed, and only for two or more.
     const mode = State.writingFix.mode;
     applyAll.style.display = (mode === "apply" || mode === "away") && items.length > 1 ? "" : "none";
@@ -886,7 +901,12 @@ function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number
     button.disabled = mode === "away" || State.writingBusy;
     fixes.append(button);
   });
-  return h("div", { class: "suggestion" }, context, h("div", { class: "suggestion-message", text: s.message }), fixes);
+  // The AI's own findings (§15.1) say so.
+  const message = h("div", { class: "suggestion-message" },
+    ...(s.kind === AI_KIND ? [h("span", { class: "ai-badge", title: t("Found by Claude (Check with AI)"), text: t("AI") })] : []),
+    h("span", { text: s.message }),
+  );
+  return h("div", { class: "suggestion" }, context, message, fixes);
 }
 
 // ── In-island settings ────────────────────────────────────────────────────────
@@ -975,6 +995,10 @@ export function buildViews(
   map.set("recap", buildRecap(actions));
   map.set("suggestions", buildSuggestions(actions));
   map.set("rewrite", buildRewrite(actions));
+  map.set("writingAsk", buildAsk(actions));
+  map.set("resume", buildResume(actions));
+  map.set("writingDocsTip", buildDocsTip(actions));
+  map.set("voice", buildVoice(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));

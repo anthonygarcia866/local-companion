@@ -1,5 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
+import type { AiCheckEvent } from "./ai-check";
+import type { ResumeCard } from "../views/resume";
 import type { BotEmoteName, BotStateName, Dock, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
@@ -12,6 +14,8 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import type { WritingAsk } from "./ask";
+import { needsCard, type VoiceState } from "./voice";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -155,6 +159,27 @@ export interface Settings {
   aiModel: string;
   /** Monthly cap on Glim's API spend estimate, in US dollars; 0 = none. */
   aiMonthlyCapUsd: number;
+  /** Settings → Writing → Apps (1d): "on" / "off" by exe, only where it differs from the default. */
+  writingApps: Record<string, string>;
+  /** When each app on neither list was last asked about ("YYYY-MM-DD" by exe). Rust's. */
+  writingAppsAsked?: Record<string, string>;
+  /** The Google Docs tip was dismissed with "Got it" (core/docs-tip.ts). Rust's. */
+  writingDocsTipDismissed?: boolean;
+  /** Settings → Writing → Rewrite tones (1d): a tone id by category or exe, only where it differs. */
+  rewriteTones: Record<string, string>;
+  /** Settings → Writing → Strictness (1d): "spelling", "standard" or "full". */
+  checkerStrictness: "spelling" | "standard" | "full";
+  /** Settings → Privacy (1d): the user's own paused apps (exe names) and sites. */
+  pauseApps: string[];
+  pauseSites: string[];
+  /** Settings → General → File drop zone: the pill takes files dragged onto it. */
+  fileDropZone: boolean;
+  /** Settings → Writing → Check with AI automatically when I pause typing (§15.1). Off by default. */
+  aiAutoCheck: boolean;
+  /** Settings → Writing → Dictation → Speech model (voice 1.5b): whisper's "base" or "small". */
+  voiceModel: "base" | "small";
+  /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
+  voiceWords: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -178,6 +203,15 @@ export const DEFAULT_SETTINGS: Settings = {
   aiBrain: "claude",
   aiModel: "claude-haiku-5-5",
   aiMonthlyCapUsd: 0,
+  writingApps: {},
+  rewriteTones: {},
+  checkerStrictness: "full",
+  pauseApps: [],
+  pauseSites: [],
+  fileDropZone: true,
+  aiAutoCheck: false,
+  voiceModel: "base",
+  voiceWords: "",
 };
 
 type Listener = () => void;
@@ -254,6 +288,9 @@ export interface RewriteState {
   outcome: string;
   /** "Use this" or "Copy" is on its way. */
   busy: boolean;
+  /** The field's default tone (1d, §14.3): first and highlighted; a second
+   *  press of the hotkey sends it. "" until Rust says. */
+  defaultTone: string;
 }
 
 class AppState {
@@ -300,6 +337,22 @@ class AppState {
   writingBusy = false;
   /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
   rewrite: RewriteState | null = null;
+  /** "Check with AI" (core/ai-check.ts): the last check's phase; null for none. */
+  aiCheck: AiCheckEvent | null = null;
+  /**
+   * The caret is in a paragraph Glim checks, even with nothing found
+   * (Suggestions.checkable): a lantern click in the open island then opens
+   * the empty list, for Check with AI (owner, 2026-10-14).
+   */
+  writingCheckable = false;
+  /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
+  writingAsk: WritingAsk | null = null;
+  /** "Pick up where you left off" (views/resume.ts): the repos shown; null when closed. */
+  resume: ResumeCard[] | null = null;
+  /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
+  writingDocsTip = false;
+  /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
+  voice: VoiceState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -601,6 +654,9 @@ class AppState {
    */
   lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
+    if (this.writingAsk) return "writingAsk";
+    if (this.writingDocsTip) return "writingDocsTip";
+    if (needsCard(this.voice)) return "voice";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

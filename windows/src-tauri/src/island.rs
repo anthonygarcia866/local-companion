@@ -28,6 +28,11 @@ pub const WINDOW_LABEL: &str = "island";
 /// Wider than the macOS 6 pt because a click must never be swallowed.
 const HIT_MARGIN: f64 = 14.0;
 
+/// How near the pill or the ember a file drag from elsewhere has to come
+/// before the drop zone arms (1d retest, 2026-10-14: the whole 720x320 panel
+/// used to take every drag that crossed it).
+pub const DROP_ARM_MARGIN: f64 = 40.0;
+
 #[derive(Serialize, Clone)]
 pub struct CursorPayload {
     pub x: f64,
@@ -69,6 +74,9 @@ pub struct PollGate {
     /// The window is the ember dot (or the recording indicator): all of it
     /// takes the mouse, whatever island shape the page last pushed.
     pub ember: AtomicBool,
+    /// Settings → General → "File drop zone" (default on). Off: a file drag
+    /// never makes the window take the mouse.
+    pub drop_zone: AtomicBool,
 }
 
 impl PollGate {
@@ -81,6 +89,7 @@ impl PollGate {
             ignoring: AtomicBool::new(false),
             recheck: AtomicBool::new(false),
             ember: AtomicBool::new(false),
+            drop_zone: AtomicBool::new(true),
         }
     }
 
@@ -647,6 +656,10 @@ fn current_screen_key(app: &AppHandle) -> Option<(i32, i32, u32, u32, u64)> {
 pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
     std::thread::spawn(move || {
         let mut was_down = false;
+        // The press began on the island (a click, a selection, a slider):
+        // the window keeps the mouse until it is released.
+        let mut pressed_on_island = false;
+        let mut armed = false;
         // Without a cursor to read (Linux) there's nothing to do at 60 Hz.
         let period = if platform::CURSOR_POLL { 16 } else { 500 };
         loop {
@@ -689,21 +702,27 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 // ours before the file arrives.
                 let down = left_button_down();
                 if down && !was_down {
+                    pressed_on_island = on_island;
                     let handle = app.clone();
                     let _ = app.run_on_main_thread(move || platform::unblock_webview_drops(&handle));
                 }
                 was_down = down;
 
-                let dragging = down
-                    && x >= 0.0
-                    && x <= size.0
-                    && y >= 0.0
-                    && y <= size.1;
-
                 // The ember (and the recording indicator) fills its small
                 // window, whatever rect the page last sent: all of it is the dot.
                 let dot = crate::presence::current(&app).is_dot();
-                let accept = on_island || dragging || dot;
+                // A drag from elsewhere (a file from Explorer) passes through
+                // untouched: the window takes the mouse only near the pill or
+                // the ember, and only with the drop zone on.
+                let zone = if dot { IslandRect { x: 0.0, y: 0.0, w: size.0, h: size.1 } } else { r };
+                let now_armed = drop_zone_armed(zone, x, y, down && !pressed_on_island, gate.drop_zone.load(Ordering::Relaxed));
+                if armed && !now_armed {
+                    // Left the zone, dropped elsewhere or cancelled: the island
+                    // folds the bucket away at once.
+                    let _ = win.emit("file-drag-disarm", ());
+                }
+                armed = now_armed;
+                let accept = on_island || (down && pressed_on_island) || armed || dot;
                 if gate.ignoring.load(Ordering::Relaxed) == accept {
                     gate.ignoring.store(!accept, Ordering::Relaxed);
                     let _ = win.set_ignore_cursor_events(!accept);
@@ -713,6 +732,21 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
             }
         }
     });
+}
+
+/// Whether a file drag at (`x`, `y`) arms the drop zone: a drag from
+/// elsewhere (`dragging_in`: the button is held, and the press didn't start
+/// on the island) within DROP_ARM_MARGIN of the island shape `r`, with the
+/// drop zone switched on. Anywhere else the window stays click-through, so a
+/// drop reaches the folder or app under it.
+pub fn drop_zone_armed(r: IslandRect, x: f64, y: f64, dragging_in: bool, enabled: bool) -> bool {
+    enabled
+        && dragging_in
+        && r.w > 0.0
+        && x >= r.x - DROP_ARM_MARGIN
+        && x <= r.x + r.w + DROP_ARM_MARGIN
+        && y >= r.y - DROP_ARM_MARGIN
+        && y <= r.y + r.h + DROP_ARM_MARGIN
 }
 
 /// Whether the window takes the mouse at (`x`, `y`): over the island shape
@@ -764,3 +798,47 @@ pub fn set_ignore_cursor(app: &AppHandle, ignore: bool) {
         let _ = win.set_ignore_cursor_events(ignore);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PILL: IslandRect = IslandRect { x: 300.0, y: 10.0, w: 120.0, h: 36.0 };
+
+    /// The 1d retest bug: a file dragged across the top of the screen was
+    /// taken by the whole 720x320 panel.
+    #[test]
+    fn a_drag_elsewhere_never_arms_the_drop_zone() {
+        for (x, y) in [(0.0, 0.0), (700.0, 300.0), (100.0, 200.0), (360.0, 120.0), (300.0 - 41.0, 20.0)] {
+            assert!(!drop_zone_armed(PILL, x, y, true, true), "({x}, {y})");
+        }
+        // Nothing drawn yet: nothing arms.
+        assert!(!drop_zone_armed(IslandRect::default(), 10.0, 10.0, true, true));
+    }
+
+    #[test]
+    fn a_drag_onto_or_near_the_pill_arms_it() {
+        for (x, y) in [(360.0, 28.0), (300.0 - 40.0, 10.0), (420.0 + 40.0, 46.0 + 40.0), (330.0, 0.0)] {
+            assert!(drop_zone_armed(PILL, x, y, true, true), "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn it_disarms_when_the_drag_leaves_ends_or_the_switch_is_off() {
+        assert!(drop_zone_armed(PILL, 360.0, 28.0, true, true));
+        assert!(!drop_zone_armed(PILL, 360.0, 160.0, true, true), "left the area");
+        assert!(!drop_zone_armed(PILL, 360.0, 28.0, false, true), "dropped, cancelled, or a press that began on the island");
+        assert!(!drop_zone_armed(PILL, 360.0, 28.0, true, false), "File drop zone off");
+    }
+
+    #[test]
+    fn the_poll_only_widens_the_window_for_the_armed_zone_or_a_press_on_the_island() {
+        let src = include_str!("island.rs");
+        let poll = &src[src.find("pub fn spawn_cursor_poll").unwrap()..src.find("/// Whether a file drag at").unwrap()];
+        assert!(poll.contains("let accept = on_island || (down && pressed_on_island) || armed || dot;"));
+        assert!(!poll.contains("x <= size.0
+"), "no whole-panel rule");
+        assert!(poll.contains("\"file-drag-disarm\""));
+    }
+}
+

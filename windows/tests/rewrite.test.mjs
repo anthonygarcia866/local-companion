@@ -10,7 +10,7 @@ import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
 const { State } = await import("../src/core/state.ts");
-const { TONES, chooseTone, sending, nextRewrite, sendingToApi, costText } = await import("../src/core/rewrite.ts");
+const { TONES, chooseTone, sending, nextRewrite, sendingToApi, costText, orderedTones, rewriteKey } = await import("../src/core/rewrite.ts");
 const { buildRewrite, failureText, rewriteButtons, rewriteNote } = await import("../src/views/rewrite.ts");
 const { runGlobalShortcut } = await import("../src/island/shortcuts.ts");
 const { sent } = await import("./tauri.mjs");
@@ -71,8 +71,8 @@ test("a tone click sends the tone id only, once", () => {
   State.rewrite = chooseTone();
   const { v } = view();
   const tones = v.el.find(".rewrite-tone");
-  assert.deepEqual(tones.map((b) => b.textContent), ["Friendlier", "More formal", "Shorter", "Fix grammar"]);
-  assert.deepEqual([...TONES], ["friendlier", "formal", "shorter", "grammar"]);
+  assert.deepEqual(tones.map((b) => b.textContent), ["Friendlier", "More formal", "Shorter", "Fix grammar", "Casual"]);
+  assert.deepEqual([...TONES], ["friendlier", "formal", "shorter", "grammar", "casual"]);
   assert.match(v.el.find(".suggestion-more")[0].textContent, /Nothing is typed until you click Use this/);
   const n = sent("writing_rewrite").length;
   tones[1].fire("click");
@@ -83,6 +83,46 @@ test("a tone click sends the tone id only, once", () => {
   State.rewrite = sending("formal");
   v.sync();
   assert.equal(v.el.find(".rewrite-tone").length, 0);
+});
+
+test("the field's default tone is first and ringed, and Casual is the fifth tone (1d)", () => {
+  assert.deepEqual(orderedTones("casual"), ["casual", "friendlier", "formal", "shorter", "grammar"]);
+  assert.deepEqual(orderedTones("formal"), ["formal", "friendlier", "shorter", "grammar", "casual"]);
+  assert.deepEqual(orderedTones(""), [...TONES]);
+  assert.deepEqual(orderedTones("pirate"), [...TONES]);
+  State.rewrite = chooseTone("formal");
+  const { v } = view();
+  const tones = v.el.find(".rewrite-tone");
+  assert.equal(tones[0].getAttribute("data-tone"), "formal");
+  assert.ok(tones[0].classList.contains("default"));
+  assert.ok(!tones[1].classList.contains("default"));
+  assert.match(v.el.find(".suggestion-more")[0].textContent, /Press the shortcut again for More formal/);
+  // The default rides along through the answer, and back to the tones.
+  const r = nextRewrite(nextRewrite(sending("shorter", "formal"), ev("sending")), ev("done", { text: "x" }));
+  assert.equal(r.defaultTone, "formal");
+  assert.equal(nextRewrite(nextRewrite(sending("shorter", "formal"), ev("sending")), ev("stale")).defaultTone, "formal");
+});
+
+test("the first hotkey press opens the tones; a second press sends the default", () => {
+  State.rewrite = null;
+  assert.equal(rewriteKey(false), false, "opens the card");
+  assert.equal(State.rewrite.phase, "choose");
+  const n = sent("writing_rewrite").length;
+  State.rewrite = chooseTone("casual");
+  assert.equal(rewriteKey(true), true);
+  assert.deepEqual(sent("writing_rewrite").slice(n), [{ tone: "casual" }]);
+  assert.equal(State.rewrite.phase, "sending");
+  // No default known yet, or the card not open: nothing is sent.
+  State.rewrite = chooseTone("");
+  assert.equal(rewriteKey(true), false);
+  State.rewrite = chooseTone("formal");
+  assert.equal(rewriteKey(false), false);
+  assert.equal(sent("writing_rewrite").length, n + 1);
+  // A finished rewrite on the card: the key goes back to the tones.
+  State.rewrite = done();
+  assert.equal(rewriteKey(true), false);
+  assert.equal(State.rewrite.phase, "choose");
+  State.rewrite = null;
 });
 
 test("the rewrite shows as a suggestion; Use this and Copy send its id only", () => {
@@ -156,15 +196,18 @@ test("the card sends ids only and never logs; the event handler only stores", ()
   for (const banned of ["addEventListener", "console.", "localStorage", "keydown"]) assert.ok(!src.includes(banned), banned);
   assert.deepEqual(src.match(/Bridge\.\w+\([^)]*\)/g), [
     "Bridge.writingRewriteDismiss()",
-    "Bridge.writingRewrite(tone)",
     "Bridge.writingRewriteDismiss()",
     "Bridge.writingRewriteApply(r.id)",
     "Bridge.writingRewriteCopy(r.id)",
   ]);
+  // The tone (an id) goes from core/rewrite.ts; the default comes back as one.
+  const core = read("src/core/rewrite.ts");
+  assert.deepEqual(core.match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.writingRewriteDefault()", "Bridge.writingRewrite(tone)"]);
+  for (const banned of ["console.", "localStorage"]) assert.ok(!core.includes(banned), banned);
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"writing-rewrite"'));
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);
   for (const banned of ["Bridge.", "console.", "localStorage"]) assert.ok(!body.includes(banned), banned);
   // The data-leaving state is shown only while Rust is sending.
-  assert.match(read("src/island/island.ts"), /else if \(sendingToApi\(State\.rewrite\)\) this\.lantern\.showReserved\(DELEGATE_STATE, "api-request"\);/);
+  assert.match(read("src/island/island.ts"), /else if \(voiceSending\(State\.voice\) \|\| sendingToApi\(State\.rewrite\) \|\| aiSending\(State\.aiCheck\)\) this\.lantern\.showReserved\(DELEGATE_STATE, "api-request"\);/);
 });

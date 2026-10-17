@@ -11,7 +11,7 @@ import { ICONS } from "./icons";
 import { card, stack, outcomeNote, type ViewActions, type ViewHost } from "./views";
 import { Bridge } from "../core/bridge";
 import { State, type RewriteState } from "../core/state";
-import { TONES, costText, sending, chooseTone } from "../core/rewrite";
+import { costText, chooseTone, orderedTones, sendTone } from "../core/rewrite";
 import { t, tl, type Msg } from "../i18n/i18n";
 
 /** The tone buttons' labels, by Rust's tone id. */
@@ -21,6 +21,7 @@ export function toneLabel(tone: string): string {
     case "formal": return t("More formal");
     case "shorter": return t("Shorter");
     case "grammar": return t("Fix grammar");
+    case "casual": return t("Casual");
     default: return tone;
   }
 }
@@ -36,7 +37,7 @@ export function failureText(code: string, retryAfter: number | null): string {
     case "no-paragraph":
     case "empty": return t("Click in the paragraph you want rewritten first.");
     case "too-long": return t("That paragraph is too long to rewrite (over 2,000 characters).");
-    case "sensitive": return t("Not sent: it looks like it has a card, SSN or bank number in it.");
+    case "sensitive": return t("Not sent: this has a card, ID or bank number in it, or it's a payment field. Glim never reads or sends those.");
     case "truncated": return t("The rewrite was cut off. Try Shorter.");
     case "refused": return t("Claude declined to rewrite this.");
     case "bad-answer": return t("Claude's answer wasn't a paragraph. Try again.");
@@ -88,14 +89,12 @@ export function buildRewrite(actions: ViewActions): ViewHost {
     actions.setView(State.defaultView());
   };
   const pick = (tone: string) => {
-    if (State.rewrite?.phase === "sending") return;
-    State.rewrite = sending(tone);
+    sendTone(tone);
     sync();
-    void Bridge.writingRewrite(tone);
   };
   const again = () => {
     void Bridge.writingRewriteDismiss();
-    State.rewrite = chooseTone();
+    State.rewrite = chooseTone(State.rewrite?.defaultTone ?? "");
     sync();
   };
   const act = (what: "use" | "copy") => {
@@ -123,8 +122,14 @@ export function buildRewrite(actions: ViewActions): ViewHost {
     switch (r.phase) {
       case "choose":
         title.textContent = t("Rewrite this paragraph");
-        body.append(h("div", { class: "rewrite-tones" }, ...TONES.map((tone) => button(toneLabel(tone), () => pick(tone), "fix fix-btn rewrite-tone"))));
-        note.textContent = t("Sends this paragraph to Claude. Nothing is typed until you click Use this.");
+        body.append(h("div", { class: "rewrite-tones" }, ...orderedTones(r.defaultTone).map((tone) => {
+          const b = button(toneLabel(tone), () => pick(tone), tone === r.defaultTone ? "fix fix-btn rewrite-tone default" : "fix fix-btn rewrite-tone");
+          b.setAttribute("data-tone", tone);
+          return b;
+        })));
+        note.textContent = r.defaultTone
+          ? t("Sends this paragraph to Claude. Press the shortcut again for {tone}. Nothing is typed until you click Use this.", { tone: toneLabel(r.defaultTone) })
+          : t("Sends this paragraph to Claude. Nothing is typed until you click Use this.");
         break;
       case "sending":
         title.textContent = t("Rewriting with Claude…");

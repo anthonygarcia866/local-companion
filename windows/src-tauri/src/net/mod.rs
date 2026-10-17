@@ -95,6 +95,13 @@ pub fn join(base: &Url, tail: &str) -> String {
 // ── The allowlist ─────────────────────────────────────────────────────────────
 
 /// The local hosts a request may go to, over http or https on any port.
+/// A free port on 127.0.0.1, for a local child server Glim starts (voice:
+/// whisper.cpp's server). The probe listener is closed at once.
+pub fn free_loopback_port() -> Option<u16> {
+    let l = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).ok()?;
+    l.local_addr().ok().map(|a| a.port())
+}
+
 /// Exact names: not `::1`, not other 127.x addresses, not `*.localhost`.
 pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
 
@@ -302,6 +309,17 @@ pub(crate) mod tests {
 
     /// Like `serve_once`, and hands back the request it got (head and body
     /// as raw bytes), for tests of what a client sends (ai/claude.rs).
+    /// A server on 127.0.0.1 that accepts and never answers (timeouts).
+    pub(crate) fn serve_silent(for_secs: u64) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let _held = listener.accept();
+            std::thread::sleep(std::time::Duration::from_secs(for_secs));
+        });
+        url
+    }
+
     pub(crate) fn serve_capture(status: &str, headers: &str, body: Vec<u8>) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

@@ -1,0 +1,38 @@
+{
+  "_about": "The user's pause entries (1d, docs/phase1-plan.md §14.5): what each typed entry becomes, or why it is refused. Read by both checkers: src-tauri/src/capture/sensitive.rs and src/core/pause.ts.",
+  "apps": [
+    { "in": "Quicken.exe", "out": "Quicken.exe" },
+    { "in": "  quicken.EXE  ", "out": "quicken.EXE" },
+    { "in": "My Bank App.exe", "out": "My Bank App.exe" },
+    { "in": "", "reason": "empty" },
+    { "in": "   ", "reason": "empty" },
+    { "in": "Quicken", "reason": "not-exe" },
+    { "in": ".exe", "reason": "not-exe" },
+    { "in": "C:\\Program Files\\Quicken\\qw.exe", "reason": "bad-name" },
+    { "in": "apps/qw.exe", "reason": "bad-name" },
+    { "in": "q?w.exe", "reason": "bad-name" },
+    { "in": "KeePass.exe", "reason": "built-in" },
+    { "in": "1password.EXE", "reason": "built-in" }
+  ],
+  "sites": [
+    { "in": "example.com", "out": "example.com", "pauses": ["https://example.com/", "https://www.example.com/a"], "not": ["https://notexample.com/", "https://example.org/"] },
+    { "in": "  HTTPS://Portal.Example.com/  ", "out": "portal.example.com", "pauses": ["https://portal.example.com/login"], "not": ["https://example.com/"] },
+    { "in": "example.com/billing", "out": "example.com/billing", "pauses": ["https://example.com/billing/cards"], "not": ["https://example.com/blog"] },
+    { "in": "http://example.com/billing/", "out": "example.com/billing", "pauses": ["https://example.com/billing"], "not": [] },
+    { "in": "*/invoice", "out": "*/invoice", "pauses": ["https://any.example.net/a/invoice/1"], "not": ["https://any.example.net/invoices"] },
+    { "in": "my-bank.co.uk", "out": "my-bank.co.uk", "pauses": ["https://online.my-bank.co.uk/"], "not": [] },
+    { "in": "", "reason": "empty" },
+    { "in": "example", "reason": "bad-host" },
+    { "in": "-bad.com", "reason": "bad-host" },
+    { "in": "exa mple.com", "reason": "bad-site" },
+    { "in": "example.com/a?b=1", "reason": "bad-site" },
+    { "in": "example.com:8080", "reason": "bad-site" },
+    { "in": "user@example.com", "reason": "bad-site" },
+    { "in": "example.com/a//b", "reason": "bad-path" },
+    { "in": "*", "reason": "bad-segment" },
+    { "in": "*/", "reason": "bad-segment" },
+    { "in": "*/a/b", "reason": "bad-segment" },
+    { "in": "paypal.com", "reason": "built-in" },
+    { "in": "*/checkout", "reason": "built-in" }
+  ]
+}

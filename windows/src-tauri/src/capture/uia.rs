@@ -81,6 +81,15 @@ pub enum Request {
     RewriteCopy { id: u64 },
     /// 1c: the Rewrite card was closed.
     RewriteDismiss,
+    /// Voice: the push-to-talk key went down: note the field in front.
+    VoiceBegin,
+    /// Voice: type `text` into that field (1b's checks). `cleaned` false =
+    /// the raw transcript; `why` = the clean-up's failure code.
+    VoiceType { text: String, cleaned: bool, why: String },
+    /// "Check with AI" (§15.1): a click, or the automatic check.
+    AiCheck { auto: bool },
+    /// Its answer, from the async runtime.
+    AiCheckDone { id: u64, reply: crate::ai::check::CheckReply, elapsed: std::time::Duration },
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -134,8 +143,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // Glim's own process tree (glim.exe and its msedgewebview2.exe children):
     // nothing in it is ever read (super::OwnGuard).
     let mut guard = super::OwnGuard::default();
-    // Apps and sites never captured in (built in until Phase 1d's settings).
-    let pause = PauseList::default();
+    // Apps and sites never captured in: the built-ins and the user's own
+    // (1d), rebuilt whenever the settings change.
+    let prefs = crate::writing::prefs::get();
+    let mut pause = PauseList::with_user(&prefs.pause_apps, &prefs.pause_sites);
     // The writing checker: the field's text stays in this thread.
     let mut writer = crate::writing::Session::default();
     let results = results_path();
@@ -153,6 +164,16 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let send_rewrite = |e: crate::ai::rewrite::RewriteEvent| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::rewrite::EVENT, &e);
     };
+    let send_ai = |e: crate::ai::check::CheckEvent| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::check::EVENT, &e);
+    };
+    // The automatic check's last refusal before sending (no key, cap…):
+    // logged once, not at every pause in typing.
+    let mut auto_refused: Option<String> = None;
+    // Voice: the field that had the focus when push-to-talk went down, if it
+    // was one Glim may type in; and whether the last reading was such a field.
+    let mut voice_field: Option<(IUIAutomationElement, u32)> = None;
+    let mut last_typable = false;
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
     };
@@ -171,6 +192,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let (mut events, mut polls, mut by_event, mut by_poll) = (0u32, 0u32, 0u32, 0u32);
     let mut apps: Vec<String> = Vec::new();
     let mut report_at = std::time::Instant::now() + REPORT_EVERY;
+    // The writing settings in force (1d): a change drops what the checker
+    // shows and keeps, and the next reading starts afresh.
+    let mut prefs_version = crate::writing::prefs::version();
+    // The one-time "Check writing in [app]?" prompt (1d, §14.2).
+    let mut asker = crate::writing::ask::Asker::default();
+    let mut docs_tip = crate::writing::docs_tip::DocsTip::default();
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -238,7 +265,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         let spent = spend::current(&spend::path(), &spend::month_now());
                         let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
                             .map_err(String::from)
-                            .and_then(|()| writer.rewrite_begin(std::time::Instant::now()).map_err(|_| "no-paragraph".to_string()));
+                            .and_then(|()| {
+                                writer.rewrite_begin(std::time::Instant::now()).map_err(|o| {
+                                    // Withheld as sensitive: nothing of it was read or sent.
+                                    if o == crate::writing::Outcome::Blocked { "sensitive" } else { "no-paragraph" }.to_string()
+                                })
+                            });
                         match (begun, saved) {
                             (Ok(src), Ok(Some(api_key))) => {
                                 rewrite_field = last_field.clone();
@@ -318,6 +350,97 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         writer.rewrite_clear();
                         rewrite_field = None;
                     }
+                    Request::AiCheck { auto } => {
+                        use crate::ai::{check, claude, key, rewrite, spend};
+                        let config = rewrite::config();
+                        let saved = key::load(&key::vault());
+                        let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
+                        let spent = spend::current(&spend::path(), &spend::month_now());
+                        let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
+                            .map_err(String::from)
+                            .and_then(|()| writer.ai_begin(auto).map_err(|o| if o == crate::writing::Outcome::Blocked { "sensitive".to_string() } else { "no-paragraph".to_string() }));
+                        match (begun, saved) {
+                            (Ok(src), Ok(Some(api_key))) => {
+                                auto_refused = None;
+                                send_ai(check::CheckEvent { phase: "sending", id: src.id, auto, ..Default::default() });
+                                let (id, paragraph) = (src.id, src.paragraph);
+                                tauri::async_runtime::spawn(async move {
+                                    let started = std::time::Instant::now();
+                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                        Ok(base) => check::check(&base, &api_key, &paragraph).await,
+                                        Err(_) => check::CheckReply { result: Err(claude::Failure::Network), usage: None, dropped: 0 },
+                                    };
+                                    request(Request::AiCheckDone { id, reply, elapsed: started.elapsed() });
+                                });
+                            }
+                            (Err(code), _) if auto => {
+                                if auto_refused.as_deref() != Some(code.as_str()) {
+                                    crate::log::line(format!("ai-check: not sent ({code}) (auto)"));
+                                    auto_refused = Some(code);
+                                }
+                            }
+                            (Err(code), _) => {
+                                crate::log::line(format!("ai-check: not sent ({code}) (click)"));
+                                send_ai(check::CheckEvent { phase: "failed", code, ..Default::default() });
+                            }
+                            (Ok(src), _) => {
+                                writer.ai_clear(src.id);
+                                send_ai(check::CheckEvent { phase: "failed", id: src.id, auto, code: "no-key".into(), ..Default::default() });
+                            }
+                        }
+                    }
+                    Request::AiCheckDone { id, reply, elapsed } => {
+                        use crate::ai::{check, rewrite, spend};
+                        let auto = writer.ai_pending(id).unwrap_or(false);
+                        crate::log::line(check::log_line(&reply, elapsed, auto));
+                        if let Some(usage) = &reply.usage {
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
+                                crate::log::line(format!("ai-check: could not record the spend: {err}"));
+                            }
+                        }
+                        let event = match &reply.result {
+                            Ok(issues) => match writer.ai_answer(id, issues, send_list) {
+                                Some(added) => check::CheckEvent { phase: "done", id, auto, added, ..Default::default() },
+                                // The paragraph changed meanwhile: nothing to show.
+                                None => check::CheckEvent { phase: "failed", id, auto, code: "changed".into(), ..Default::default() },
+                            },
+                            Err(f) => {
+                                writer.ai_clear(id);
+                                let retry_after = match f {
+                                    crate::ai::claude::Failure::Api { retry_after, .. } => *retry_after,
+                                    _ => None,
+                                };
+                                check::CheckEvent { phase: "failed", id, auto, code: rewrite::failure_code(f), retry_after, ..Default::default() }
+                            }
+                        };
+                        send_ai(event);
+                    }
+                    Request::VoiceBegin => {
+                        voice_field = if last_typable { current.as_ref().map(|(e, _)| (e.clone(), foreground_pid())) } else { None };
+                        crate::voice::FIELD_AT_PRESS.store(voice_field.is_some(), std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Request::VoiceType { text, cleaned, why } => {
+                        use crate::voice::{VoiceEvent, EVENT};
+                        let (outcome, name) = match &voice_field {
+                            _ if crate::writing::paused() => (crate::writing::Outcome::Paused, String::new()),
+                            Some((element, pid)) => {
+                                let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                (crate::writing::apply::insert(&mut field, &text), crate::writing::apps::display_name(&process_name(*pid as i32)))
+                            }
+                            None => (crate::writing::Outcome::Away, String::new()),
+                        };
+                        crate::log::line(format!("voice: typed {} ({}) {}", outcome.code(), if cleaned { "cleaned" } else { "not cleaned up" }, name));
+                        let applied = outcome == crate::writing::Outcome::Applied;
+                        let e = if applied {
+                            VoiceEvent { phase: "typed", cleaned, code: why, app: name, ..Default::default() }
+                        } else {
+                            // Not typed: the card shows the text, to copy.
+                            VoiceEvent { phase: "not-typed", cleaned, text, code: outcome.code().into(), app: name, ..Default::default() }
+                        };
+                        let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+                        voice_field = None;
+                        writer.after_fix();
+                    }
                     Request::Wake => {}
                 }
                 "request"
@@ -341,9 +464,18 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             apps.clear();
             report_at = std::time::Instant::now() + REPORT_EVERY;
         }
+        if crate::writing::prefs::version() != prefs_version {
+            prefs_version = crate::writing::prefs::version();
+            let prefs = crate::writing::prefs::get();
+            pause = PauseList::with_user(&prefs.pause_apps, &prefs.pause_sites);
+            writer.settings_changed(send_list);
+            fix_field = None;
+            last_field = None;
+            rewrite_field = None;
+        }
         // Paused: nothing is read at all, and the checker drops what it kept.
         if crate::writing::paused() {
-            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true };
+            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false };
             writer.observe_in(&r, std::time::Instant::now(), send_list);
             fix_field = None;
             continue;
@@ -358,6 +490,24 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             continue;
         }
         let reading = read(&uia, &element, pid, &pause, dev);
+        let ask = reading.ask;
+        let mail_site = reading.mail_site;
+        // Google Docs with no text to check (canvas rendering, screen reader
+        // support off): one metadata line per stay, and the one-time tip.
+        let docs_unreadable = reading.docs_site
+            && crate::writing::apps::enabled(&reading.capture.meta.app)
+            && crate::writing::docs_tip::unreadable(&reading.capture.meta.pattern, reading.capture.meta.read_only, reading.text.as_deref());
+        let step = docs_tip.feed(docs_unreadable, crate::writing::prefs::get().docs_tip_dismissed, std::time::Instant::now());
+        if step.log {
+            crate::log::line(format!(
+                "writing: Google Docs field not readable (pattern {}, read-only {})",
+                reading.capture.meta.pattern, reading.capture.meta.read_only
+            ));
+        }
+        if step.offer {
+            crate::log::line("writing: Google Docs tip offered");
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::docs_tip::EVENT, ());
+        }
         let mut capture = reading.capture;
         capture.via = via.into();
         let same = current
@@ -369,6 +519,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     let _ = record_to(&results, &meta);
                 }
             }
+        }
+        let askable = ask.then_some(capture.meta.app.as_str());
+        if let Some(exe) = asker.feed(askable, same, std::time::Instant::now()) {
+            let name = app_description(pid).unwrap_or_else(|| crate::writing::apps::display_name(&exe));
+            crate::log::line(format!("writing: asking about {exe}"));
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::ask::EVENT, &crate::writing::ask::Ask { exe, name });
         }
         if !same && !apps.contains(&capture.meta.app) {
             apps.push(capture.meta.app.clone());
@@ -384,14 +540,25 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern, capture.meta.chat_site),
             app: &name,
             paused: false,
+            // Withheld for a card, SSN or IBAN (or a payment field), in an
+            // app the checker is on for.
+            sensitive: capture.meta.sensitive && crate::writing::apps::enabled(&capture.meta.app),
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
+        // "Check with AI automatically when I pause typing" (§15.1, off by
+        // default): once per paragraph version, the same path as a click.
+        if checked.is_some() && crate::writing::prefs::get().ai_auto_check && writer.ai_auto_take(std::time::Instant::now()) {
+            request(Request::AiCheck { auto: true });
+        }
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
         if checked.is_some() {
             last_field = Some((element.clone(), pid as u32));
+            let cat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site);
+            crate::writing::tones::set_focus(&capture.meta.app, cat);
         }
+        last_typable = checked.is_some() && !capture.meta.read_only && !capture.meta.password;
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }
@@ -411,9 +578,17 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
         return withheld(app, control_type_name(control), true).into();
     }
     let mut meta = CaptureMeta { app, control_type: control_type_name(control), pattern: "none".into(), ..Default::default() };
+    // An app on neither list (1d, §14.2): whether its field is one to ask
+    // about, from the password flag and the editable signals only.
+    let ask = !crate::writing::apps::enabled(&meta.app)
+        && crate::writing::ask::askable(&meta.app, &crate::writing::prefs::get(), &crate::writing::ask::today())
+        && !unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool())
+        && is_editable(&edit_signals(element, control));
     if !dev && !crate::writing::apps::enabled(&meta.app) {
         meta.pattern = SKIPPED_OFF.into();
-        return Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
+        let mut off: Reading = Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
+        off.ask = ask;
+        return off;
     }
 
     if unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool()) {
@@ -439,19 +614,26 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     // The window title is for the dev panel only.
     let window_title = if dev { foreground_title() } else { String::new() };
 
+    let docs_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::docs_tip::DOCS_SITES));
     if !is_editable(&edit_signals(element, control)) {
         // Read-only content (a web page, a document view): the writing layer
         // never reads it. Like a password field, nothing is read.
         meta.read_only = true;
         meta.pattern = SKIPPED_READ_ONLY.into();
-        return Capture { meta, window_title, excerpt: None, via: String::new() }.into();
+        let mut skipped: Reading = Capture { meta, window_title, excerpt: None, via: String::new() }.into();
+        skipped.docs_site = docs_site;
+        return skipped;
     }
 
+    let mail_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::tones::MAIL_SITES));
     let (pattern, text, caret) = read_text(element);
     meta.pattern = pattern.into();
     // Card numbers, SSNs and IBANs in the text are caught here, before the
     // reading goes anywhere.
-    finish(meta, window_title, text, caret)
+    let mut reading = finish(meta, window_title, text, caret);
+    reading.mail_site = mail_site;
+    reading.docs_site = docs_site;
+    reading
 }
 
 /// The field's labels from UI Automation, never its text.
@@ -645,6 +827,52 @@ pub(super) fn process_name(pid: i32) -> String {
         }
         let path = String::from_utf16_lossy(&buf[..len as usize]);
         path.rsplit(['\\', '/']).next().unwrap_or(&path).to_string()
+    }
+}
+
+/// The app's name from its executable's version info (FileDescription,
+/// "Adobe Acrobat"), for the one-time prompt. None when it has none.
+fn app_description(pid: i32) -> Option<String> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
+    let path = process_path(pid)?;
+    let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let size = GetFileVersionInfoSizeW(PCWSTR(wide.as_ptr()), None);
+        if size == 0 {
+            return None;
+        }
+        let mut data = vec![0u8; size as usize];
+        GetFileVersionInfoW(PCWSTR(wide.as_ptr()), None, size, data.as_mut_ptr().cast()).ok()?;
+        // The first language and code page the file lists.
+        let mut ptr = std::ptr::null_mut();
+        let mut len = 0u32;
+        let query: Vec<u16> = "\\VarFileInfo\\Translation\0".encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr().cast(), PCWSTR(query.as_ptr()), &mut ptr, &mut len).as_bool() || len < 4 {
+            return None;
+        }
+        let pair = std::slice::from_raw_parts(ptr as *const u16, 2);
+        let key = format!("\\StringFileInfo\\{:04x}{:04x}\\FileDescription\0", pair[0], pair[1]);
+        let query: Vec<u16> = key.encode_utf16().collect();
+        if !VerQueryValueW(data.as_ptr().cast(), PCWSTR(query.as_ptr()), &mut ptr, &mut len).as_bool() || len == 0 {
+            return None;
+        }
+        let chars = std::slice::from_raw_parts(ptr as *const u16, len as usize);
+        let end = chars.iter().position(|&c| c == 0).unwrap_or(chars.len());
+        let name = String::from_utf16_lossy(&chars[..end]).trim().to_string();
+        (!name.is_empty() && name.chars().count() <= 64 && !name.chars().any(char::is_control)).then_some(name)
+    }
+}
+
+/// The executable's full path for a process id.
+fn process_path(pid: i32) -> Option<String> {
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32).ok()?;
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = CloseHandle(h);
+        ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
     }
 }
 

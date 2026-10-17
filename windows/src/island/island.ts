@@ -3,15 +3,19 @@
 
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
+import { DropZoneSession } from "../core/drop-zone";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
   dockedBot, dockedSize, islandFrame, islandSize, isVerticalDock, pillGeometry,
   QUESTION_PICKER_H,
+  VOICE_QUESTION_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
 import { sendingToApi } from "../core/rewrite";
+import { aiSending } from "../core/ai-check";
+import { meterPercent, rawBadge, voiceLantern, voiceSending } from "../core/voice";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -19,7 +23,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
-import { tn } from "../i18n/i18n";
+import { t, tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -37,6 +41,7 @@ import {
   DELEGATE_STATE,
   lanternStateFor,
   withWritingSuggestions,
+  withPause,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -72,6 +77,10 @@ export class Island {
   private countdown!: HTMLElement;
   /** The writing suggestions' count on the pill. */
   private writingBadge!: HTMLElement;
+  /** "❚❚" by the lantern while the writing features are paused (1d). */
+  private pauseBadge!: HTMLElement;
+  private rawBadge!: HTMLElement;
+  private voiceMeter!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -259,6 +268,11 @@ export class Island {
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
     this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
+    this.pauseBadge = h("div", { id: "pause-badge", role: "status", style: "display:none", text: "❚❚" });
+    // Push-to-talk typed the raw transcript (plan §4.1): "not cleaned up".
+    this.rawBadge = h("div", { id: "voice-raw-badge", role: "status", style: "display:none", text: "~" });
+    // Push-to-talk's level meter, along the pill's bottom edge (plan §1.2).
+    this.voiceMeter = h("div", { id: "voice-meter", "aria-hidden": "true", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -293,6 +307,9 @@ export class Island {
       this.miniGrid,
       this.countdown,
       this.writingBadge,
+      this.pauseBadge,
+      this.rawBadge,
+      this.voiceMeter,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -400,7 +417,7 @@ export class Island {
    * A click (or Invoke, Enter, Space) on the lantern. The closed pill opens,
    * on defaultView. In the open island the lantern goes to what the badge
    * points at (a waiting card, then the writing suggestions); see
-   * State.lanternView.
+   * State.lanternView. With neither, in a checked paragraph, the empty list.
    */
   activateLantern() {
     if (this.uploadActive) return;
@@ -408,7 +425,10 @@ export class Island {
       this.fsm.click();
       return;
     }
-    const view = State.lanternView();
+    // Nothing waiting, but the caret is in a checked paragraph: the empty
+    // list ("Nothing to fix here.") with Check with AI and Rewrite… (§15.1;
+    // grammar-only paragraphs are Check with AI's main use, owner 2026-10-14).
+    const view = State.lanternView() ?? (State.writingCheckable ? "suggestions" : null);
     if (view && view !== State.view) this.setView(view);
   }
 
@@ -514,14 +534,17 @@ export class Island {
 
   // ── File drop ───────────────────────────────────────────────────────────────
 
+  /** How the island looked before the current file drag opened the bucket. */
+  private readonly dropZone = new DropZoneSession();
+
   private onDragDrop(e: { type: string; paths?: string[] }) {
     if (e.type !== "over") void Bridge.log(`drag ${e.type} ${e.paths?.length ?? 0} file(s)`);
-    if (State.paused) return;
     switch (e.type) {
       case "enter":
       case "over": {
-        if (State.fileDragOver) return;
+        if (State.fileDragOver || !State.settings.fileDropZone) return;
         State.fileDragOver = true;
+        this.dropZone.enter(State.mode === "expanded", State.view);
         this.engine.animateMorph(1);
         // enterZone must run before the island expands, so the sequence is
         // already active by the time the view becomes `upload`.
@@ -533,13 +556,18 @@ export class Island {
         if (!State.fileDragOver) return;
         State.fileDragOver = false;
         this.engine.animateMorph(0);
-        // The island deliberately stays open: the drag session is still alive.
         UploadSeq.exitZone();
+        // Left the zone (or dropped elsewhere, or Esc): the bucket folds away
+        // at once, so it never sits over where the file is going.
+        const next = this.dropZone.leave(State.view, State.mode === "expanded");
+        if (next === "collapse") this.collapse();
+        else if (next !== "stay") this.setView(next);
         State.notify();
         break;
       }
       case "drop": {
         State.fileDragOver = false;
+        this.dropZone.drop();
         const path = e.paths?.[0];
         if (!path) {
           this.engine.animateMorph(0);
@@ -632,6 +660,9 @@ export class Island {
     let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length, pillGeometry(State.settings.pillSize));
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
+    }
+    if (State.mode === "expanded" && State.view === "voice" && State.voice?.phase === "question") {
+      h = VOICE_QUESTION_H;
     }
     ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
@@ -862,7 +893,7 @@ export class Island {
       State.lastActivity = performance.now();
     });
 
-    void onDragDrop((e) => this.onDragDrop(e));
+    void onDragDrop((e) => this.onDragDrop(e), () => State.settings.fileDropZone !== false);
 
     // Outside Tauri (plain browser) drive the cursor from DOM events so the
     // island can be inspected with `npm run dev`.
@@ -1131,17 +1162,39 @@ export class Island {
     el.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
     this.lantern.setHeight(hPx);
     const forced = this.forcedLantern;
+    // Push-to-talk (voice 1.5b): s-hear while the key is held, s-think while
+    // whisper transcribes; data leaving while Claude cleans it up.
+    const voice = voiceLantern(State.voice);
+    const meter = meterPercent(State.voice);
+    this.voiceMeter.style.display = meter === null || State.mode === "hidden" ? "none" : "";
+    if (meter !== null) this.voiceMeter.style.width = `${meter}%`;
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
-    else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
-    else {
+    else if (voiceSending(State.voice) || sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
+    else if (voice && !forced) {
+      // The flame breathes with the microphone (glim-mascot.html's --mic-level).
+      el.style.setProperty("--mic-level", (State.voice?.level ?? 0).toFixed(2));
+      this.lantern.show(voice);
+    } else {
       const writing = State.writing.length;
-      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
+      const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
+      this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
+      // Dictation typed the raw transcript: its badge takes the spot for the
+      // few seconds its card is up (plan §4.1).
+      const raw = rawBadge(State.voice) && State.mode !== "hidden" && !State.mochiOnDesktop;
+      const rawEl = this.rawBadge;
+      rawEl.style.display = raw ? "" : "none";
+      if (raw) {
+        rawEl.setAttribute("aria-label", t("Not cleaned up"));
+        rawEl.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        rawEl.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
       const badge = this.writingBadge;
-      const shown = writing > 0 && State.mode !== "hidden" && !State.mochiOnDesktop;
+      const shown = !raw && writing > 0 && State.mode !== "hidden" && !State.mochiOnDesktop;
       badge.style.display = shown ? "" : "none";
       if (shown) {
         badge.textContent = writing > 99 ? "99+" : String(writing);
@@ -1149,6 +1202,16 @@ export class Island {
         badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
         badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
         badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+      // Paused (1d): the pause badge where the count goes, so it's clear the
+      // writing help is off even while an agent's state has the lantern.
+      const pause = this.pauseBadge;
+      const paused = !raw && State.paused && State.mode !== "hidden" && !State.mochiOnDesktop;
+      pause.style.display = paused ? "" : "none";
+      if (paused) {
+        pause.setAttribute("aria-label", t("Writing help paused"));
+        pause.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        pause.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
       }
     }
   }

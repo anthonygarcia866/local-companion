@@ -114,9 +114,11 @@ test("the suggestion list sends ids only and never logs", () => {
   for (const banned of ["addEventListener", "console.", "keydown", "localStorage"]) {
     assert.ok(!section.includes(banned), `the suggestion list uses ${banned}`);
   }
-  // Its only calls to Rust: a fix, Apply all, a copy, dismiss; with ids, never words.
+  // Its only calls to Rust: a fix, Apply all, a copy, dismiss, Check with
+  // AI; with ids (or nothing), never words.
   assert.deepEqual(section.match(/Bridge\.\w+\([^)]*\)/g), [
     "Bridge.writingDismiss()",
+    "Bridge.writingAiCheck()",
     "Bridge.writingFixAll(fix.checkId)",
     "Bridge.writingFix(fix.checkId, index, choice)",
     "Bridge.writingCopy(fix.checkId, index, choice)",
@@ -261,11 +263,13 @@ test("after Apply all the note says how many went in, that Ctrl+Z undoes one per
   assert.match(rust, /pub done: usize,\r?\n\s+pub total: usize,/);
 });
 
-test("Rust's answer clears Fixing… and shows the outcome; Pause reaches Rust", () => {
+test("Rust's answer clears Fixing… and shows the outcome; Pause comes from Rust", () => {
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"writing-fix"'));
   assert.match(handler, /State\.writingBusy = false;\n\s+State\.writingResult = result;/);
-  assert.match(main, /State\.paused = on;\n\s+\/\/ [^\n]*\n\s+void Bridge\.writingSetPaused\(on\);/);
+  // Pause is Rust's (pause.rs): the island only follows it.
+  assert.match(main, /onEvent<boolean>\("paused", \(on\) => \{\n\s+State\.paused = on;\n\s+presence\.setPaused\(on\);/);
+  assert.ok(!main.includes("writingSetPaused"));
   // The last fix empties the list: the view stays, so "Fixed…" is seen.
   assert.match(main, /State\.view === "suggestions" && State\.writingResult\?\.outcome !== "applied"\) State\.view = State\.defaultView\(\);/);
   assert.equal(suggestionNote({ checkId: 0, mode: "view", app: "" }, { outcome: "applied", app: "Notepad" }, false), "Fixed. Ctrl+Z in Notepad undoes it.");
@@ -277,6 +281,17 @@ test("the pill's count is announced and visible to UI Automation", () => {
   const island = read("src/island/island.ts");
   assert.match(island, /h\("div", \{ id: "writing-count", role: "status"/);
   assert.match(island, /badge\.setAttribute\("aria-label", tn\("\{count\} writing suggestion", "\{count\} writing suggestions", writing\)\)/);
+});
+
+test("paused: the lantern goes grey unless an agent has it, and the ember shows the pause badge", async () => {
+  const { withPause } = await import("../src/mascot/lantern.ts");
+  for (const s of ["idle", "listen", "done"]) assert.equal(withPause(s, true), "paused", s);
+  for (const s of ["think", "suggest", "error", "paused"]) assert.equal(withPause(s, true), s, `${s}: agents win`);
+  assert.equal(withPause("idle", false), "idle");
+  assert.deepEqual(emberWriting(3, true, true), { lit: false, badge: "❚❚" });
+  const island = read("src/island/island.ts");
+  assert.match(island, /withPause\(withWritingSuggestions\(/);
+  assert.match(island, /h\("div", \{ id: "pause-badge", role: "status"/);
 });
 
 test("the ember brightens and counts while suggestions wait (9+ past nine)", () => {
@@ -364,7 +379,7 @@ test("the lantern is a button: mouse, Invoke and keys all go through activateLan
   assert.match(read("src/style.css"), /#bot-lantern \{\n  position: absolute;\n  pointer-events: none;/);
   assert.match(island, /if \(e\.button === 0 && this\.botPress && State\.mode === "expanded" && this\.isBotHit\(e\.clientX, e\.clientY\)\) \{\n\s+this\.activateLantern\(\);/);
   // Closed pill: open (on defaultView). Open island: lanternView.
-  assert.match(island, /activateLantern\(\) \{\n\s+if \(this\.uploadActive\) return;\n\s+if \(State\.mode !== "expanded"\) \{\n\s+this\.fsm\.click\(\);\n\s+return;\n\s+\}\n\s+const view = State\.lanternView\(\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
+  assert.match(island, /activateLantern\(\) \{\n\s+if \(this\.uploadActive\) return;\n\s+if \(State\.mode !== "expanded"\) \{\n\s+this\.fsm\.click\(\);\n\s+return;\n\s+\}(\n\s+\/\/[^\n]*)*\n\s+const view = State\.lanternView\(\) \?\? \(State\.writingCheckable \? "suggestions" : null\);\n\s+if \(view && view !== State\.view\) this\.setView\(view\);/);
   // Hidden from readers only while it's invisible.
   assert.match(island, /const hidden = visible \? "false" : "true";/);
   assert.match(read("src/core/state.ts"), /return this\.lanternView\(\) \?\? \(this\.tasks\.length === 0 \? "empty" : "overview"\);/);

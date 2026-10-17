@@ -1,5 +1,7 @@
-// Which apps the writing checker works in. Hardcoded for 1a; Phase 1d's
-// settings make it editable and ask once about apps on neither list.
+// Which apps the writing checker works in: these defaults, and on top the
+// user's switches in Settings → Writing → Apps (1d, docs/phase1-plan.md
+// §14.1, read through writing::prefs). Apps on neither list are off until the
+// user answers the one-time prompt (§14.2).
 
 /// On by default: email, documents, browsers (Gmail, web forms), Notepad and
 /// chat apps.
@@ -11,9 +13,8 @@ pub const ON: [&str; 15] = [
 
 /// Off by default, named so the choice is on record: editors and terminals
 /// (code and commands, and terminals expose their whole scrollback). Password
-/// managers are never read at all (capture::sensitive::PauseList). Read by
-/// the tests now and by 1d's settings later.
-#[allow(dead_code)]
+/// managers are never read at all (capture::sensitive::PauseList), whatever
+/// their switch says.
 pub const OFF: [&str; 9] = [
     "Code.exe", "Cursor.exe", "devenv.exe", "WindowsTerminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe",
     "conhost.exe", "OpenConsole.exe",
@@ -68,6 +69,13 @@ pub fn display_name(exe: &str) -> String {
         "claude.exe" => "Claude",
         "chatgpt.exe" => "ChatGPT",
         "grok bot.exe" => "Grok",
+        "code.exe" => "VS Code",
+        "cursor.exe" => "Cursor",
+        "devenv.exe" => "Visual Studio",
+        "windowsterminal.exe" => "Windows Terminal",
+        "cmd.exe" => "Command Prompt",
+        "powershell.exe" | "pwsh.exe" => "PowerShell",
+        "conhost.exe" | "openconsole.exe" => "Console",
         _ => return exe.strip_suffix(".exe").or_else(|| exe.strip_suffix(".EXE")).unwrap_or(exe).to_string(),
     };
     name.to_string()
@@ -82,9 +90,54 @@ pub fn rules(exe: &str) -> super::Rules {
     }
 }
 
-/// Whether the checker works in this app. Apps on neither list are off.
-pub fn enabled(exe: &str) -> bool {
+/// Whether the checker is on in this app by default. Apps on neither list
+/// are off.
+pub fn on_by_default(exe: &str) -> bool {
     ON.iter().any(|a| a.eq_ignore_ascii_case(exe))
+}
+
+/// Whether the checker works in this app: the user's switch (Settings →
+/// Writing → Apps), else the default.
+pub fn enabled(exe: &str) -> bool {
+    enabled_in(exe, &super::prefs::get().apps)
+}
+
+/// `enabled`, with the switches given (by lowercase exe).
+pub fn enabled_in(exe: &str, switches: &std::collections::BTreeMap<String, bool>) -> bool {
+    switches.get(&exe.to_ascii_lowercase()).copied().unwrap_or_else(|| on_by_default(exe))
+}
+
+/// Whether the app is on either built-in list.
+pub fn is_known(exe: &str) -> bool {
+    ON.iter().chain(OFF.iter()).any(|a| a.eq_ignore_ascii_case(exe))
+}
+
+/// One built-in app, as Settings → Writing → Apps lists it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownApp {
+    pub exe: &'static str,
+    pub name: String,
+    pub default_on: bool,
+    /// Relaxed chat rules.
+    pub chat: bool,
+    /// Fixes are typed (else suggestions only).
+    pub fixes: bool,
+}
+
+/// The apps Glim knows: the on list, then the off list.
+pub fn known() -> Vec<KnownApp> {
+    ON.iter()
+        .map(|&exe| (exe, true))
+        .chain(OFF.iter().map(|&exe| (exe, false)))
+        .map(|(exe, default_on)| KnownApp {
+            exe,
+            name: display_name(exe),
+            default_on,
+            chat: CHAT.iter().any(|a| a.eq_ignore_ascii_case(exe)),
+            fixes: default_on && fixes(exe),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -95,7 +148,7 @@ mod tests {
     #[test]
     fn chat_apps_get_relaxed_rules_and_the_rest_full() {
         for exe in CHAT {
-            assert!(enabled(exe), "{exe} is on");
+            assert!(on_by_default(exe), "{exe} is on");
             assert_eq!(rules(exe), Rules::Chat, "{exe}");
         }
         assert_eq!(rules("SLACK.exe"), Rules::Chat);
@@ -107,16 +160,44 @@ mod tests {
     #[test]
     fn email_documents_browsers_notepad_and_chat_are_on() {
         for exe in ["OUTLOOK.EXE", "outlook.exe", "olk.exe", "WINWORD.EXE", "chrome.exe", "msedge.exe", "Notepad.exe", "slack.exe", "ms-teams.exe", "claude.exe"] {
-            assert!(enabled(exe), "{exe}");
+            assert!(on_by_default(exe), "{exe}");
         }
     }
 
     #[test]
     fn editors_terminals_password_managers_and_unknown_apps_are_off() {
         for exe in OFF.iter().copied().chain(["1Password.exe", "KeePass.exe", "glim.exe", "explorer.exe", "SomeNewApp.exe"]) {
-            assert!(!enabled(exe), "{exe}");
+            assert!(!on_by_default(exe), "{exe}");
         }
         assert!(OFF.iter().all(|o| !ON.iter().any(|a| a.eq_ignore_ascii_case(o))));
+    }
+
+    #[test]
+    fn the_users_switches_win_over_the_defaults_in_any_case() {
+        let switches: std::collections::BTreeMap<String, bool> =
+            [("winword.exe".to_string(), false), ("code.exe".to_string(), true), ("acrobat.exe".to_string(), true)].into_iter().collect();
+        assert!(!enabled_in("WINWORD.EXE", &switches), "a default-on app turned off");
+        assert!(enabled_in("Code.exe", &switches), "a default-off app turned on");
+        assert!(enabled_in("ACROBAT.exe", &switches), "an answered app");
+        assert!(enabled_in("OUTLOOK.EXE", &switches), "no switch: the default");
+        assert!(!enabled_in("SomeNewApp.exe", &switches));
+    }
+
+    #[test]
+    fn settings_lists_every_built_in_app_once_with_its_tags() {
+        let apps = known();
+        assert_eq!(apps.len(), ON.len() + OFF.len());
+        let word = apps.iter().find(|a| a.exe == "WINWORD.EXE").unwrap();
+        assert!(word.default_on && word.fixes && !word.chat && word.name == "Word");
+        let slack = apps.iter().find(|a| a.exe == "slack.exe").unwrap();
+        assert!(slack.default_on && slack.chat && !slack.fixes);
+        let code = apps.iter().find(|a| a.exe == "Code.exe").unwrap();
+        assert!(!code.default_on && !code.fixes && code.name == "VS Code");
+        for a in &apps {
+            assert!(!a.name.to_ascii_lowercase().ends_with(".exe"), "{}", a.exe);
+            assert!(is_known(&a.exe.to_ascii_uppercase()));
+        }
+        assert!(!is_known("Acrobat.exe"));
     }
 
     /// The owner, 2026-10-11: fixes only in the tested apps; chat apps, Edge
@@ -124,12 +205,12 @@ mod tests {
     #[test]
     fn fixes_are_typed_only_in_the_tested_apps() {
         for exe in ["Notepad.exe", "WINWORD.EXE", "winword.exe", "OUTLOOK.EXE", "chrome.exe"] {
-            assert!(fixes(exe) && enabled(exe), "{exe}");
+            assert!(fixes(exe) && on_by_default(exe), "{exe}");
         }
         for exe in CHAT.iter().copied().chain(["msedge.exe", "olk.exe", "Code.exe", "SomeNewApp.exe"]) {
             assert!(!fixes(exe), "{exe}");
         }
-        assert!(FIXES.iter().all(|f| enabled(f)));
+        assert!(FIXES.iter().all(|f| on_by_default(f)));
     }
 
     /// The owner, 2026-10-11: fix buttons showed in claude.ai's chat box in

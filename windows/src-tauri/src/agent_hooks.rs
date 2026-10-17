@@ -58,7 +58,8 @@ fn read_json(path: &PathBuf) -> Value {
 
 /// Pill ID → connected, for every hook-driven pill.
 pub fn status() -> HashMap<String, bool> {
-    let claude = claude_hooks_present(&read_json(&crate::hooks::settings_path()));
+    // In any Claude config folder (~/.claude, CLAUDE_CONFIG_DIR, ~/.claude*).
+    let claude = crate::hooks::config_dirs().iter().any(|d| claude_hooks_present(&read_json(&d.join("settings.json"))));
     let mut out = HashMap::new();
     out.insert("integration_claude".to_string(), claude);
     for agent in crate::agents::list() {

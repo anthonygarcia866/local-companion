@@ -76,6 +76,42 @@ pub struct Settings {
     /// The monthly cap on Glim's API spend estimate, in US dollars; 0 = none
     /// (ai/spend.rs).
     pub ai_monthly_cap_usd: f64,
+    /// Settings → Writing → Apps (1d, docs/phase1-plan.md §14.1): "on" or
+    /// "off" by exe, only where it differs from writing::apps' defaults. Any
+    /// other value reads as the default.
+    pub writing_apps: BTreeMap<String, String>,
+    /// The one-time prompt (§14.2): the local date ("YYYY-MM-DD") each app on
+    /// neither list was last asked about, by exe. Nothing else: no title, no
+    /// text. Yes and Never remove the app's entry.
+    pub writing_apps_asked: BTreeMap<String, String>,
+    /// The Google Docs tip ("Turn on screen reader support…",
+    /// writing::docs_tip) was dismissed with "Got it": it never shows again.
+    /// Rust-owned, like `writing_apps_asked`.
+    pub writing_docs_tip_dismissed: bool,
+    /// Settings → Writing → Rewrite tones (§14.3): a tone id ("formal"…) by
+    /// category ("email", "documents", "chat", "other") or by exe, only
+    /// where it differs from writing::tones' defaults.
+    pub rewrite_tones: BTreeMap<String, String>,
+    /// Settings → Writing → Strictness (§14.4): "spelling", "standard" or
+    /// "full" (the default); anything else reads as "full".
+    pub checker_strictness: String,
+    /// Settings → Privacy → Paused apps and sites (§14.5): the user's own
+    /// entries only; the built-in ones stay in code (capture::sensitive).
+    pub pause_apps: Vec<String>,
+    pub pause_sites: Vec<String>,
+    /// Settings → General → "File drop zone" (1d retest): the pill takes
+    /// files dragged onto it. Off: file drags never stop at Glim.
+    pub file_drop_zone: bool,
+    /// Settings → Writing → "Check with AI automatically when I pause
+    /// typing" (docs/phase1-plan.md §15.1): off by default. Off, only the
+    /// button sends text.
+    pub ai_auto_check: bool,
+    /// Settings → Writing → Dictation → Speech model (voice 1.5b): "base"
+    /// (default) or "small"; anything else reads as "base".
+    pub voice_model: String,
+    /// Settings → Writing → Dictation → Words Glim should know: names and
+    /// terms, comma separated; whisper's prompt (it never leaves the PC).
+    pub voice_words: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -121,6 +157,17 @@ impl Default for Settings {
             ai_brain: "claude".into(),
             ai_model: crate::ai::claude::DEFAULT_MODEL.into(),
             ai_monthly_cap_usd: 0.0,
+            writing_apps: BTreeMap::new(),
+            writing_apps_asked: BTreeMap::new(),
+            writing_docs_tip_dismissed: false,
+            rewrite_tones: BTreeMap::new(),
+            checker_strictness: "full".into(),
+            pause_apps: Vec::new(),
+            pause_sites: Vec::new(),
+            file_drop_zone: true,
+            ai_auto_check: false,
+            voice_model: "base".into(),
+            voice_words: String::new(),
         }
     }
 }
@@ -396,7 +443,18 @@ mod tests {
   "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } },
   "aiBrain": "local",
   "aiModel": "claude-sonnet-5-5",
-  "aiMonthlyCapUsd": 7.5
+  "aiMonthlyCapUsd": 7.5,
+  "writingApps": { "WINWORD.EXE": "off", "Acrobat.exe": "on" },
+  "writingAppsAsked": { "WordPad.exe": "2026-10-12" },
+  "writingDocsTipDismissed": true,
+  "rewriteTones": { "email": "friendlier", "OUTLOOK.EXE": "shorter" },
+  "checkerStrictness": "standard",
+  "pauseApps": ["Quicken.exe"],
+  "pauseSites": ["portal.example.com", "*/invoice"],
+  "fileDropZone": false,
+  "aiAutoCheck": true,
+  "voiceModel": "small",
+  "voiceWords": "Glim, HOA, Okafor"
 }"##;
 
     fn custom() -> Value {
@@ -506,6 +564,18 @@ mod tests {
         // No key ever goes in here.
         let json = serde_json::to_string(&Settings::default()).unwrap().to_lowercase();
         assert!(!json.contains("apikey") && !json.contains("sk-ant"), "{json}");
+    }
+
+    #[test]
+    fn a_file_from_before_1d_has_every_app_at_its_default() {
+        let loaded = parse(br#"{"screen":"active"}"#).unwrap();
+        assert!(loaded.writing_apps.is_empty() && loaded.writing_apps_asked.is_empty() && loaded.rewrite_tones.is_empty());
+        assert_eq!(loaded.checker_strictness, "full");
+        assert!(loaded.pause_apps.is_empty() && loaded.pause_sites.is_empty());
+        // Not a map of strings: the switches fall back, and nothing else does.
+        let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
+        assert!(loaded.writing_apps.is_empty());
+        assert_eq!(loaded.screen, "cursor");
     }
 
     #[test]
@@ -809,6 +879,17 @@ mod tests {
                 "aiBrain",
                 "aiModel",
                 "aiMonthlyCapUsd",
+                "writingApps",
+                "writingAppsAsked",
+                "writingDocsTipDismissed",
+                "rewriteTones",
+                "checkerStrictness",
+                "pauseApps",
+                "pauseSites",
+                "fileDropZone",
+                "aiAutoCheck",
+                "voiceModel",
+                "voiceWords",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

@@ -49,6 +49,10 @@ windows = { version = "0.61", features = [
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  # Voice 1.5b: the microphone (voice/mic.rs, waveIn) and the whisper
+  # server's lifetime tied to Glim's (a job object kills it with Glim).
+  "Win32_Media_Audio",
+  "Win32_System_JobObjects",
   "Win32_System_Pipes",
   # Launch at startup (autostart.rs): the HKCU Run entry.
   "Win32_System_Registry",
@@ -58,6 +62,8 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
   # Fullscreen detection (presence.rs): SHQueryUserNotificationState.
   "Win32_UI_Shell",
+  # The one-time writing prompt's app name (capture/uia.rs): FileDescription.
+  "Win32_Storage_FileSystem",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
