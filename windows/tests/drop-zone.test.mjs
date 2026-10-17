@@ -10,17 +10,55 @@ import { readFileSync } from "node:fs";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { afterDragLeave } = await import("../src/core/drop-zone.ts");
+const { DropZoneSession } = await import("../src/core/drop-zone.ts");
 const { DEFAULT_SETTINGS } = await import("../src/core/state.ts");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
-test("leaving the zone folds the bucket away, back to what was waiting", () => {
-  assert.equal(afterDragLeave("upload", true, null), "collapse");
-  assert.equal(afterDragLeave("upload", true, "approval"), "approval");
-  assert.equal(afterDragLeave("upload", true, "suggestions"), "suggestions");
-  assert.equal(afterDragLeave("uploading", true, null), "stay", "a file already taken carries on");
-  assert.equal(afterDragLeave("upload", false, null), "stay");
+// Retest defect (2026-10-16): a drag that passed near the pill opened the
+// bucket, and leaving went to "what was waiting", which is nearly always the
+// writing suggestions, so the island stayed open. Now it goes back to exactly
+// how it looked before the drag.
+test("pass near, then drop elsewhere: the pill folds back even with suggestions waiting", () => {
+  const s = new DropZoneSession();
+  s.enter(false, "suggestions");
+  // Rust's disarm (the drop landed elsewhere) reaches the island as a leave.
+  assert.equal(s.leave("upload", true), "collapse");
+});
+
+test("pass near, then Esc: the pill folds back", () => {
+  const s = new DropZoneSession();
+  s.enter(false, "empty");
+  assert.equal(s.leave("upload", true), "collapse");
+});
+
+test("an island that was open before the drag goes back to the same view", () => {
+  const s = new DropZoneSession();
+  s.enter(true, "overview");
+  assert.equal(s.leave("upload", true), "overview");
+});
+
+test("only the first enter counts: repeated overs don't overwrite what was there", () => {
+  const s = new DropZoneSession();
+  s.enter(false, "suggestions");
+  s.enter(true, "upload");
+  assert.equal(s.leave("upload", true), "collapse");
+});
+
+test("drop on the bucket still works: the file carries on, a later leave changes nothing", () => {
+  const s = new DropZoneSession();
+  s.enter(false, "suggestions");
+  s.drop();
+  assert.equal(s.leave("uploading", true), "stay", "a file already taken carries on");
+  assert.equal(s.leave("upload", false), "stay");
+});
+
+test("the island wires the session into enter, leave and drop", () => {
+  const island = read("src/island/island.ts");
+  assert.ok(island.includes('this.dropZone.enter(State.mode === "expanded", State.view);'));
+  assert.ok(island.includes('this.dropZone.leave(State.view, State.mode === "expanded")'));
+  assert.ok(island.includes("this.dropZone.drop();"));
+  assert.ok(!island.includes("afterDragLeave"));
 });
 
 test("the File drop zone switch is on by default and turns the zone off entirely", () => {
