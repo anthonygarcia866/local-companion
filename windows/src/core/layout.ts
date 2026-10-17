@@ -25,7 +25,9 @@ export type IslandViewName =
   | "suggestions"
   | "rewrite"
   | "writingAsk"
-  | "writingDocsTip";
+  | "resume"
+  | "writingDocsTip"
+  | "voice";
 
 export type BotStateName =
   | "idle"
@@ -182,13 +184,25 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   rewrite: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // "Check writing in [app]?" (1d, views/ask.ts): a title, one line, three buttons.
   writingAsk: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // "Pick up where you left off" (views/resume.ts): up to three repos.
+  resume: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // The Google Docs tip (views/docs-tip.ts): a title, one line, two buttons.
   writingDocsTip: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // Push-to-talk's result (views/voice.ts): a title, what was heard (up to
+  // ~3 lines, scrolls past that), a note and a row of buttons.
+  voice: { height: 190, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
 // dropped the whole sequence — Mochi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
+
+/**
+ * Push-to-talk's card holding Claude's question: taller than a result, so a
+ * question of ~5 wrapped lines fits; past that it scrolls (style.css
+ * .voice-question). Never cut off (retest, 2026-10-16).
+ */
+export const VOICE_QUESTION_H = 240;
 
 /** The question view with options to pick from: room for two rows of them. */
 export const QUESTION_PICKER_H = 200;

@@ -211,6 +211,37 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
     Outcome::Applied
 }
 
+/// Voice dictation (1.5b, docs/voice-actions-plan.md §4): types `text` at the
+/// user's caret in the field, through a fix's checks: the same field, in
+/// front, allowed (steps 1-2: not a password or payment field, not paused, an
+/// app Glim types in, editable), nothing held (step 6), all again just before
+/// typing; then the field is read back for the text (step 8). Nothing is
+/// selected or replaced: dictation adds at the caret.
+pub fn insert<F: Field>(f: &mut F, text: &str) -> Outcome {
+    if text.is_empty() {
+        return Outcome::Changed;
+    }
+    if let Err(o) = f.gate() {
+        return o;
+    }
+    let before = f.document().and_then(|d| f.text(&d));
+    if let Err(o) = f.keys_ready().and_then(|_| f.gate()) {
+        return o;
+    }
+    if !f.type_over(text) {
+        return Outcome::Unsupported;
+    }
+    for _ in 0..SETTLE_TRIES {
+        match f.document().and_then(|d| f.text(&d)) {
+            // An app that can't read its text back: typed, not verified.
+            None => return Outcome::Applied,
+            Some(after) if after.contains(text) && Some(&after) != before.as_ref() => return Outcome::Applied,
+            Some(_) => f.pause(),
+        }
+    }
+    Outcome::Unsupported
+}
+
 /// "Apply all": the jobs in order (Session::jobs_all: from the end of the
 /// paragraph backward), each through every step of `run`, stopping at the
 /// first that doesn't apply. Returns how many applied, and the outcome that
@@ -328,7 +359,8 @@ mod tests {
                 return false;
             }
             self.typed.push(text.to_string());
-            let (s, e) = self.sel.take().unwrap();
+            // No selection (dictation): typed at the caret.
+            let (s, e) = self.sel.take().unwrap_or((self.caret, self.caret));
             let lands = self.lands.clone().unwrap_or_else(|| text.to_string());
             if self.lag > 0 {
                 // The first key has landed, the rest are on their way.
@@ -588,4 +620,45 @@ Anthony");
         assert_eq!((done, outcome), (1, Outcome::Changed));
         assert_eq!(f.typed, ["possible"]);
     }
+
+    // ── Voice dictation: insert at the caret ─────────────────────────────────
+
+    #[test]
+    fn dictation_is_typed_at_the_caret_after_the_checks() {
+        let mut f = Fake::new(DOC, "payment ");
+        assert_eq!(insert(&mut f, "Thanks for the quick turnaround. "), Outcome::Applied);
+        assert!(f.text().contains("payment Thanks for the quick turnaround. today"), "{}", f.text());
+        assert_eq!(f.selects, 0, "nothing selected or replaced");
+        // Keys landing a little later still count.
+        let mut f = Fake::new(DOC, "payment ");
+        f.lag = 3;
+        assert_eq!(insert(&mut f, "more words "), Outcome::Applied);
+        assert!(f.text().contains("payment more words today"));
+    }
+
+    #[test]
+    fn dictation_stops_at_every_check_and_types_nothing() {
+        for o in [Outcome::Away, Outcome::Blocked, Outcome::Paused] {
+            let mut f = Fake::new(DOC, "payment ");
+            f.gate = vec![Err(o)];
+            assert_eq!(insert(&mut f, "hello"), o);
+            assert!(f.typed.is_empty(), "{o:?}");
+            // The second look, just before typing.
+            let mut f = Fake::new(DOC, "payment ");
+            f.gate = vec![Ok(()), Err(o)];
+            assert_eq!(insert(&mut f, "hello"), o);
+            assert!(f.typed.is_empty());
+        }
+        let mut f = Fake::new(DOC, "payment ");
+        f.keys = Err(Outcome::KeysHeld);
+        assert_eq!(insert(&mut f, "hello"), Outcome::KeysHeld);
+        assert!(f.typed.is_empty());
+        let mut f = Fake::new(DOC, "payment ");
+        assert_eq!(insert(&mut f, ""), Outcome::Changed);
+        // Keys that never land.
+        let mut f = Fake::new(DOC, "payment ");
+        f.lands = Some(String::new());
+        assert_eq!(insert(&mut f, "hello"), Outcome::Unsupported);
+    }
 }
+

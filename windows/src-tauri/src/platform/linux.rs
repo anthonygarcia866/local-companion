@@ -254,6 +254,13 @@ pub fn reveal_folder(path: &str) {
 }
 
 /// Our own `which`: the first executable file named `stem` on $PATH.
+/// Claude Code in `folder` with `prompt` as its first message (the resume
+/// card's click). Linux: no terminal is picked for it yet, so it isn't
+/// opened (Windows is the platform this is built for).
+pub fn open_claude_code_in(_folder: &std::path::Path, _prompt: &str) -> bool {
+    false
+}
+
 pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     let dirs = std::env::var_os("PATH")?;
     std::env::split_paths(&dirs)

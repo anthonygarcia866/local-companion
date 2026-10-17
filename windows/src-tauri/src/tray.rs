@@ -1,4 +1,5 @@
-// Notification-area icon: Open, Weekly recap, Settings, Pause (Resume while
+// Notification-area icon: Open, Weekly recap, Pick up where you left off
+// (the resume card, decided 2026-10-15), Settings, Pause (Resume while
 // paused, 1d), Quit Glim.
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -10,11 +11,12 @@ use crate::island::WINDOW_LABEL;
 
 /// The menu's items, id and English label, in order. The labels are shown in
 /// the interface language (i18n.rs) and follow it when it changes.
-const ITEMS: [(&str, &str); 5] = [
+const ITEMS: [(&str, &str); 6] = [
     ("open", n_("Open Glim")),
     ("recap", n_("Weekly recap")),
+    ("resume", n_("Pick up where you left off")),
     ("settings", n_("Settings…")),
-    ("pause", n_("Pause")),
+    ("pause", PAUSE),
     ("quit", n_("Quit Glim")),
 ];
 
@@ -26,25 +28,29 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     for (id, label) in ITEMS {
         items.push((label, MenuItem::with_id(app, id, t(label), true, None::<&str>)?));
     }
-    let [open, recap, settings, pause, quit] = [0, 1, 2, 3, 4].map(|i| &items[i].1);
+    let [open, recap, resume, settings, pause, quit] = [0, 1, 2, 3, 4, 5].map(|i| &items[i].1);
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(app, &[open, recap, &sep1, settings, pause, &sep2, quit])?;
+    let menu = Menu::with_items(app, &[open, recap, resume, &sep1, settings, pause, &sep2, quit])?;
     app.manage(Items(items));
 
     let mut builder = TrayIconBuilder::with_id("glim")
         .tooltip("Glim")
         .menu(&menu)
         .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
+            "quit" => {
+                #[cfg(windows)]
+                crate::voice::whisper::stop();
+                app.exit(0);
+            }
             "settings" => crate::show_settings_window(app),
             // Pause is Rust's (pause.rs): the island hears the result.
             "pause" => crate::pause::toggle(app),
             id => {
-                // The way back from Hidden (and Ember): opening Glim from the
-                // tray brings the pill back first.
-                if id == "open" && crate::presence::current(app) != crate::presence::Presence::Pill {
+                // The way back from Hidden (and Ember): opening Glim, or the
+                // resume card, from the tray brings the pill back first.
+                if (id == "open" || id == "resume") && crate::presence::current(app) != crate::presence::Presence::Pill {
                     crate::presence::set_visibility(app, crate::presence::Visibility::Normal);
                 }
                 let _ = app.emit_to(WINDOW_LABEL, "tray", id.to_string());
@@ -59,9 +65,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+const PAUSE: &str = n_("Pause");
+
 /// The Pause item's label: "Resume" while paused.
 fn label_for(label: &'static str, paused: bool) -> &'static str {
-    if label == ITEMS[3].1 && paused {
+    if label == PAUSE && paused {
         n_("Resume")
     } else {
         label

@@ -474,6 +474,33 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **See:** the bucket folds away at once; dropping somewhere else then works normally.
 5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
 
+## 24. Check with AI (§15.1, draft PR)
+
+*Where: branch `ai-check`.* Needs the Anthropic API key from section 12 and **Brain: Claude API**. Each check costs a fraction of a cent (Haiku).
+
+Use this paragraph in Notepad (it has one spelling mistake, so the suggestions list appears):
+
+`Alex and I was at the unit on Monday, and we recieved the keys. There are a few issues that needs fixing.`
+
+1. **Harper first:** the list shows only "recieved". At its foot, next to the dismiss ×, there is **Check with AI**.
+2. **Click Check with AI.**
+   - **See:** the lantern turns to the data-leaving state while it runs, the note says "Checking with Claude…", and the button is greyed.
+   - **See (in a second or two):** "Alex and I was" and "issues that needs" are added to the list, each with a small **AI** mark, and the note says "Claude found 2 more suggestions." "recieved" is still there, unmarked.
+3. **Apply one:** click "Alex and I were". It is typed into Notepad like any fix; **Ctrl+Z** undoes it.
+4. **Edit while it runs:** click Check with AI and type a word straight away. **See:** "The paragraph changed while Claude was checking. Check again." and no AI suggestions for the old text.
+5. **Nothing to find:** a correct paragraph with one typo (`We recieved the keys on Monday.`), Check with AI: "Claude found nothing more to fix."
+6. **Cap:** Settings → AI, set the monthly cap below what's spent, click Check with AI: "This month's spending cap is reached…", nothing sent. Put the cap back.
+7. **No key:** (optional) with no key saved: "Add your Anthropic API key in Settings → AI first."
+8. **Card and ID numbers:** add `4111 1111 1111 1111` to the paragraph. Glim doesn't read a paragraph holding one, so there is no list and nothing can be sent (and the automatic check doesn't run either). Remove it.
+9. **Automatic check (off by default):** Settings → Writing → **Check with AI automatically when I pause typing** is **off**. Turn it on. In Notepad, type `Alex and I was at the unit on Monday.` (no typo) and stop typing.
+   - **See:** about 2 s later the lantern delegates briefly and the AI's suggestion appears with its AI mark, though Harper found nothing. It doesn't go again until you change the paragraph.
+   - Turn it **off** again: pausing never sends anything; only the button does.
+10. **Log:** glim.log has `ai-check: ok issues=2 dropped=0 (click) claude-haiku-5-5 in=… out=… $… …s` (and `(auto)` for step 9): numbers only, never your text. Settings → AI's spend went up a little.
+
+11. **Nothing found, still reachable (decided 2026-10-14):** setting **off**. In Notepad type `Alex and I was at the unit on Monday.` (no typo: no count). Open the island and **click the lantern**.
+   - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
+   - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
+
 ## 25. The mini lantern beside the field (1e, PR #22)
 
 *Where: `phase-1-bubble`.* Settings → Writing → **Show the mini lantern next to the text field** is **off** by default: check that first, with it off nothing appears beside any field. Turn it **on**.
@@ -498,6 +525,44 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 8. **Ignore (both lists, decided 2026-10-15):** with the setting on again, type `We recieved the keys and recieved the deposit.` in Notepad. Open the popover: each row has **Ignore** at its right. Click it on "recieved": the row goes, the badge recounts, and the island's list loses it too. Type `recieved` in another paragraph: not flagged. Do the same from the island's own list with another typo. **Quit Glim and start it again:** "recieved" is flagged again (nothing was saved). glim.log says `writing: ignore ok (1 ignored this run)`, never the word.
 
 **Not in this build:** per-row **Ignore** (open question).
+
+## 26. Dictation, push-to-talk (voice 1.5b, draft PR)
+
+*Where: branch `voice-dictation`.* Needs, put there by hand (Glim downloads nothing): `whisper-server.exe` and its DLLs from whisper.cpp **b5454** (the Windows x64 zip), and `ggml-base.en-q5_1.bin`, all in `%LOCALAPPDATA%\Glim\whisper\`. Claude clean-up needs the API key from section 12 and **Brain: Claude API**; each utterance costs a fraction of a cent (Haiku). **Ctrl+Alt+Shift+V takes Word's InsertAutoText on that key** (decided 2026-10-14).
+
+> **Pre-checked by Claude, 2026-10-15 (no voice, no Glim rebuild):** the files are in place (whisper.cpp b5454 `whisper-server.exe`, `whisper.dll`, the 11 `ggml*.dll`; `ggml-base.en-q5_1.bin`, SHA-256 matching the GitHub release digest and Hugging Face). `cargo test --lib voice::live -- --ignored --nocapture --test-threads=1` ran Glim's own code against a copy of that folder: no files → "no-whisper"; base found, small reported missing; one server, **listening on 127.0.0.1 only** (netstat), reused for 20 synthetic clips (~0.5-0.75 s each, 1.1 s for the first with the model load); all 10 command clips → the "heard" card under the no-Claude rule; `stop()` kills it. With `GLIM_LIVE_CLAUDE=1`: dictation cleaned up, "open outlook" → an action, "send it" → "Click Send on the draft to send it.", 0.7-1.1 s each, $0.00041 in all. **Not checked yet (needs a build with this branch + your voice and hands):** every numbered step below.
+
+1. **Settings → Writing → Dictation:** Speech model **Base (faster)**; the hint names `ggml-base.en-q5_1.bin` and the folder. Type `Glim, HOA, Okafor` in **Words Glim should know** and click away.
+2. **Dictate, cleaned up:** click in Notepad, **hold Ctrl+Alt+Shift+V**, say "um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", let go.
+   - **See while held:** the lantern turns teal and its flame moves with your voice (s-hear), and a thin teal bar along the pill's bottom edge grows and shrinks with your voice (silent: a sliver). **After:** thinking, then the data-leaving state briefly, then `Thanks for the quick turnaround on unit 4B. We'll get the lease to you by Friday.` is typed at the caret. No card. **Ctrl+Z** undoes it.
+3. **Too short:** tap the key (under 0.4 s). Nothing happens, nothing is sent.
+4. **No clean-up (raw text):** Settings → AI, set the cap below what's spent. Dictate "the plumber comes tuesday at ten". **See:** the words typed exactly as whisper heard them, a card "Typed in Notepad, not cleaned up" saying the cap is reached, and a grey **~** badge at the lantern's top right (where the count goes) until that card closes (~8 s). The typed text has no marker. Put the cap back.
+5. **A command is never typed raw:** with the cap still blocking, dictate "open outlook". **See:** nothing typed; card "Here's what I heard (couldn't act on it)" with the words and **Copy**. Click Copy, paste somewhere: the words.
+6. **A command with Claude:** cap back to normal, dictate "open outlook". **See (branch `voice-open-app`):** classic Outlook opens, no card, nothing typed (on `voice-dictation` alone: the "couldn't act on it" card). Dictate "open codex": the Codex app opens (Start calls it ChatGPT). Dictate "open claude code": the Claude app opens. No card for either. (Not installed: "Couldn't open … Is it installed?")
+6b. **Pick up where you left off, by voice (decided 2026-10-15, branch `voice-resume`):** dictate "where was I on dale cuts". **See:** nothing typed; the "Pick up where you left off" card (§27) opens with **dale-cuts first**, the other repos after it. "pick up from yesterday" opens it newest first. Nothing opens until you click a row's Open in Claude Code. glim.log: `voice: resume_work (a repo first)`, never the repo's name or your words.
+7. **Not in a field:** click the desktop, dictate a sentence. **See:** "couldn't act on it" card, "Click in a text field first to dictate."
+8. **Paused:** Ctrl+Alt+Shift+P, dictate in Notepad. **See:** "Not typed", "Glim is paused.", with Copy. Resume.
+9. **Card number:** dictate "my card is 4111 1111 1111 1111". **See:** "Nothing was typed" and the "Not sent: … card, ID or bank number" line; nothing sent to Claude.
+9b. **Microphone blocked:** Windows Settings → Privacy & security → Microphone → turn off **Let desktop apps access your microphone**, dictate. **See:** "Windows is blocking the microphone, or another app is using it…" with **Open microphone settings**: click it, that Settings page opens. Turn access back on.
+10. **No model:** rename the `whisper` folder, dictate. **See:** "Dictation needs the speech model on this PC…". Rename it back.
+11. **Hidden:** Ctrl+Alt+Shift+Space until Glim is hidden, dictate into Notepad: the text is typed; a card result (step 7) still shows.
+12. **Quit:** tray → Quit Glim. Task Manager: no `whisper-server.exe` left.
+13. **Network and log:** while dictating, `netstat -ano` for glim.exe and whisper-server.exe shows only 127.0.0.1 and api.anthropic.com. glim.log has `voice: held …s, transcribed (base) …s, N words`, `voice: typed applied (cleaned) Notepad` and the like: never your words.
+
+## 27. Pick up where you left off (resume card, PR #21)
+
+*Where: `voice-resume-reader`.* **How it's shown (decided 2026-10-15):** the tray icon's **Pick up where you left off** (right-click Glim's tray icon); later also by voice ("pick up from yesterday", `resume_work`, on the voice branch). Never by itself. The dev switch `glim.exe --resume-card` (with `GLIM_DEV=1`) still works.
+
+0. **From the tray:** right-click Glim's tray icon: **Pick up where you left off** sits under Weekly recap. Click it: the card below opens. With Glim **Hidden** first (Ctrl+Alt+Shift+Space until it's gone), the pill comes back and the card opens, as Open Glim does. Pause in the tray still says Pause / Resume correctly.
+
+1. **The card:** "Pick up where you left off", with one row per folder under your home folder that has a HANDOFF.md, **the most recently updated first** (local-companion today). Each row: the repo's name, where it stopped (In progress, else Goal), the branch, "Has open questions" if any, and **Open in Claude Code**.
+   - **See:** nothing opens by itself: no console, no Claude Code, until you click.
+2. **Click Open in Claude Code** on local-companion.
+   - **See:** a console window opens in `C:\Users\antho\local-companion` running Claude Code, whose first message is "Read HANDOFF.md first, check it against git status, and continue from In progress." The card says "Opening Claude Code in local-companion…" and closes.
+   - glim.log: `resume: 1 read [...]` (names and counts only) and `resume: opened Claude Code in local-companion`. No HANDOFF text in the log.
+3. **Not installed:** (optional) if `claude` isn't on PATH or in `~/.local/bin`, the card says "Couldn't open Claude Code in local-companion. Is it installed?" and nothing else happens.
+4. **Close** closes the card without opening anything.
+5. **A card number in a HANDOFF.md** (in a scratch repo, e.g. `~/resume-test/HANDOFF.md` with `## In progress` holding `4111 1111 1111 1111`): its row says "Part of it is withheld…" and doesn't show that section. Delete the scratch folder after.
 
 ## After testing
 

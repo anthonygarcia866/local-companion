@@ -48,8 +48,8 @@ test("every group and class the design names is in the port", () => {
   }
 });
 
-test("the CSS has a rule for each of the nine states, compact, and reduced motion", () => {
-  assert.equal(LANTERN_STATES.length, 9);
+test("the CSS has a rule for each of the ten states (s-hear since 2026-10-14), compact, and reduced motion", () => {
+  assert.equal(LANTERN_STATES.length, 10);
   const css = read("src/mascot/lantern.css");
   for (const s of LANTERN_STATES) assert.ok(css.includes(`.lantern.s-${s} `), s);
   assert.ok(css.includes(".lantern.compact "));

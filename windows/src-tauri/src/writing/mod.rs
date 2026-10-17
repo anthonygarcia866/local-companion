@@ -115,6 +115,10 @@ pub struct Suggestions {
     /// The app's short name ("Word"), for the island's notes.
     pub app: String,
     pub items: Vec<Suggestion>,
+    /// The caret is in a paragraph of a field the checker is on, even with
+    /// nothing found: the island lets a lantern click open the (empty) list
+    /// for "Check with AI" (§15.1; owner 2026-10-14).
+    pub checkable: bool,
 }
 
 impl std::fmt::Debug for Suggestions {
@@ -283,6 +287,11 @@ impl Debouncer {
     pub fn key(&self) -> Option<u64> {
         self.key
     }
+
+    /// How long the watched paragraph has stayed the same.
+    pub fn stable_for(&self, now: Instant) -> Option<Duration> {
+        self.since.map(|s| now.duration_since(s))
+    }
 }
 
 fn key_of(p: &Paragraph) -> u64 {
@@ -320,6 +329,17 @@ pub struct Session {
     current: Option<Current>,
     /// The rewrite asked for or shown (1c): one at a time.
     rewrite: Option<RewriteKept>,
+    /// "Check with AI" on its way (docs/phase1-plan.md §15.1): one at a time.
+    ai: Option<AiPending>,
+    /// The AI's suggestions for one paragraph version (its key): shown with
+    /// Harper's while that paragraph stays as it is.
+    ai_found: Option<(u64, Vec<Suggestion>)>,
+    /// The paragraph version the automatic check last went out for: once
+    /// per version.
+    ai_auto_done: Option<u64>,
+    /// The last checked field had a paragraph to check (Suggestions::checkable):
+    /// set by a check, like the list, and kept while the list stays.
+    checkable: bool,
     /// The focused field's last reading was withheld: a payment or ID field,
     /// or text holding a card, SSN or IBAN. A rewrite asked for there says
     /// so (owner, 2026-10-13) instead of "click in the paragraph".
@@ -330,6 +350,8 @@ pub struct Session {
 struct Current {
     text: String,
     start: usize,
+    /// key_of the paragraph: which version of it this is.
+    key: u64,
     mode: FixMode,
     app: String,
 }
@@ -344,6 +366,30 @@ struct RewriteKept {
     app: String,
     text: Option<String>,
     at: Instant,
+}
+
+/// The kind of a suggestion from "Check with AI": the island marks it.
+pub const AI_KIND: &str = "AI";
+/// "Check automatically when I pause typing": how long a pause.
+pub const AI_AUTO_AFTER: Duration = Duration::from_secs(2);
+/// Not for a word or two: nothing worth a request yet.
+pub const AI_AUTO_MIN_WORDS: usize = 4;
+
+/// A "Check with AI" request on its way: its id, the paragraph version.
+struct AiPending {
+    id: u64,
+    key: u64,
+    auto: bool,
+}
+
+/// Harper's suggestions plus the AI's that don't overlap any of them, in
+/// reading order.
+fn merged(mut harper: Vec<Suggestion>, ai: &[Suggestion]) -> Vec<Suggestion> {
+    harper.retain(|s| s.kind != AI_KIND);
+    let extra: Vec<Suggestion> = ai.iter().filter(|a| !harper.iter().any(|h| a.start < h.end && h.start < a.end)).cloned().collect();
+    harper.extend(extra);
+    harper.sort_by_key(|s| (s.start, s.end));
+    harper
 }
 
 /// A rewrite about to be sent: its id and the paragraph.
@@ -412,6 +458,9 @@ impl Session {
             self.kept = None;
             self.current = None;
             self.rewrite = None;
+            self.ai = None;
+            self.ai_found = None;
+            self.checkable = false;
             self.debounce.reset();
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
@@ -445,10 +494,11 @@ impl Session {
             self.debounce.reset();
             self.kept = None;
             self.current = None;
+            self.checkable = false;
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         };
-        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, mode: r.mode, app: r.app.to_string() });
+        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
         if self.rewrite.as_ref().is_some_and(|w| now.duration_since(w.at) >= KEEP_FOR) {
             self.rewrite = None;
         }
@@ -460,8 +510,15 @@ impl Session {
         if self.dismissed.is_some_and(|d| d != key) {
             self.dismissed = None;
         }
+        if self.ai_found.as_ref().is_some_and(|(k, _)| *k != key) {
+            self.ai_found = None;
+        }
         if self.debounce.feed(key, now) == Step::Check && self.dismissed.is_none() {
+            self.checkable = true;
             let mut found = self.check(&paragraph, r.rules);
+            if let Some((_, ai)) = &self.ai_found {
+                found.items = merged(found.items, ai);
+            }
             found.app = r.app.to_string();
             let mut mode = r.mode;
             if mode == FixMode::Apply && !found.items.is_empty() {
@@ -486,6 +543,9 @@ impl Session {
         self.kept = None;
         self.current = None;
         self.rewrite = None;
+        self.ai = None;
+        self.ai_found = None;
+        self.checkable = false;
         self.dismissed = None;
         self.debounce.reset();
         self.show(Suggestions::default(), FixMode::View, &mut emit);
@@ -495,6 +555,7 @@ impl Session {
     pub fn dismiss(&mut self, mut emit: impl FnMut(&Suggestions)) {
         self.dismissed = self.debounce.key();
         self.kept = None;
+        self.ai_found = None;
         self.show(Suggestions::default(), FixMode::View, &mut emit);
     }
 
@@ -510,7 +571,7 @@ impl Session {
         self.ignored.insert(ignore_key(item));
         let items: Vec<Suggestion> = self.shown.items.iter().filter(|s| !self.ignored.contains(&ignore_key(s))).cloned().collect();
         let mode = self.checked_mode;
-        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items };
+        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items, checkable: false };
         self.show(s, mode, &mut emit);
         Ok(())
     }
@@ -660,6 +721,105 @@ impl Session {
         self.rewrite = None;
     }
 
+    // ── "Check with AI" (docs/phase1-plan.md §15.1) ─────────────────────────
+
+    /// "Check with AI" was clicked (or is due automatically): the paragraph
+    /// the caret is in goes out, under a new id. Away when there is none;
+    /// Blocked when the field was withheld as sensitive (nothing was read).
+    pub fn ai_begin(&mut self, auto: bool) -> Result<RewriteSource, Outcome> {
+        let none = if self.withheld { Outcome::Blocked } else { Outcome::Away };
+        let c = self.current.as_ref().ok_or(none)?;
+        if c.text.trim().is_empty() {
+            return Err(Outcome::Away);
+        }
+        if auto {
+            self.ai_auto_done = Some(c.key);
+        }
+        self.next_id += 1;
+        let id = self.next_id;
+        self.ai = Some(AiPending { id, key: c.key, auto });
+        Ok(RewriteSource { id, paragraph: c.text.clone() })
+    }
+
+    /// Whether `id` is the check on its way, and whether it was automatic.
+    pub fn ai_pending(&self, id: u64) -> Option<bool> {
+        self.ai.as_ref().filter(|a| a.id == id).map(|a| a.auto)
+    }
+
+    /// The AI's answer for check `id`. Shown with Harper's suggestions when
+    /// the paragraph is still the version that was sent; None when it isn't
+    /// (edited, another field, or another check since). Some(n): n new
+    /// suggestions (those overlapping Harper's are left out).
+    pub fn ai_answer(&mut self, id: u64, issues: &[crate::ai::check::Issue], mut emit: impl FnMut(&Suggestions)) -> Option<usize> {
+        if self.ai.as_ref().is_none_or(|a| a.id != id) {
+            return None;
+        }
+        let pending = self.ai.take()?;
+        let c = self.current.as_ref().filter(|c| c.key == pending.key)?;
+        let chars: Vec<char> = c.text.chars().collect();
+        let found: Vec<Suggestion> = issues
+            .iter()
+            .filter(|i| i.end <= chars.len() && i.start < i.end)
+            .map(|i| {
+                let f = Finding { start: i.start, end: i.end, kind: AI_KIND.into(), message: i.message.clone(), replacements: vec![i.replacement.clone()], clear: false };
+                suggestion(&chars, c.start, &f)
+            })
+            .collect();
+        // Harper's list for this version, if it is the one shown.
+        let harper: Vec<Suggestion> = if self.debounce.key() == Some(pending.key) {
+            self.shown.items.iter().filter(|s| s.kind != AI_KIND).cloned().collect()
+        } else {
+            Vec::new()
+        };
+        let items = merged(harper.clone(), &found);
+        let added = items.len() - harper.len();
+        let (text, start, key, mode, app) = (c.text.clone(), c.start, c.key, c.mode, c.app.clone());
+        self.ai_found = Some((key, found));
+        self.dismissed = None;
+        let mut mode = mode;
+        if mode == FixMode::Apply && !items.is_empty() {
+            if crate::capture::sensitive::contains_sensitive_number(&text) {
+                return Some(0);
+            }
+            self.kept = Some(Kept { text, start, key, at: Instant::now() });
+        } else if items.is_empty() {
+            mode = FixMode::View;
+        }
+        self.show(Suggestions { items, app, ..Default::default() }, mode, &mut emit);
+        Some(added)
+    }
+
+    /// The check `id` failed, or its answer is gone: nothing pending.
+    pub fn ai_clear(&mut self, id: u64) {
+        if self.ai.as_ref().is_some_and(|a| a.id == id) {
+            self.ai = None;
+        }
+    }
+
+    /// With "check automatically" on: the paragraph the caret is in has
+    /// stayed the same for AI_AUTO_AFTER, and this version hasn't gone out.
+    pub fn ai_auto_due(&self, now: Instant) -> bool {
+        let Some(c) = self.current.as_ref() else { return false };
+        !self.withheld
+            && self.ai.is_none()
+            && self.dismissed.is_none()
+            && self.ai_auto_done != Some(c.key)
+            && self.ai_found.as_ref().is_none_or(|(k, _)| *k != c.key)
+            && c.text.split_whitespace().count() >= AI_AUTO_MIN_WORDS
+            && self.debounce.key() == Some(c.key)
+            && self.debounce.stable_for(now).is_some_and(|d| d >= AI_AUTO_AFTER)
+    }
+
+    /// `ai_auto_due`, and if so the version is marked as gone out: the
+    /// capture thread asks for the check once.
+    pub fn ai_auto_take(&mut self, now: Instant) -> bool {
+        if !self.ai_auto_due(now) {
+            return false;
+        }
+        self.ai_auto_done = self.current.as_ref().map(|c| c.key);
+        true
+    }
+
     /// The replacement to copy, for a Copy button (§7.7).
     pub fn copy_text(&self, check_id: u64, index: usize, choice: usize) -> Result<String, Outcome> {
         if check_id != self.shown.check_id {
@@ -719,7 +879,7 @@ impl Session {
     /// paragraph is no longer kept.
     fn refresh(&mut self, emit: &mut impl FnMut(&Suggestions)) {
         let mode = self.checked_mode;
-        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items: self.shown.items.clone() };
+        let s = Suggestions { check_id: 0, mode, app: self.shown.app.clone(), items: self.shown.items.clone(), checkable: false };
         self.show(s, mode, emit);
     }
 
@@ -732,6 +892,7 @@ impl Session {
             s.mode = FixMode::View;
             s.app.clear();
         }
+        s.checkable = self.checkable;
         let same_list = s.items == self.shown.items && s.app == self.shown.app;
         s.check_id = if s.items.is_empty() {
             0
@@ -1409,7 +1570,7 @@ Anthony", word.to_uppercase());
 
     #[test]
     fn formatting_suggestions_never_shows_their_words() {
-        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
+        let s = Suggestions { check_id: 1, mode: FixMode::Apply, app: "Word".into(), checkable: true, items: vec![Suggestion { start: 0, end: 1, problem: "SENTINEL-p".into(), before: "SENTINEL-b".into(), after: "SENTINEL-a".into(), kind: "Spelling".into(), message: "SENTINEL-m".into(), replacements: vec!["SENTINEL-r".into()], clear: true }] };
         let shown = format!("{s:?} {:?} {:#?}", s.items[0], s);
         assert!(!shown.contains("SENTINEL"), "{shown}");
     }
@@ -1440,4 +1601,155 @@ Anthony", word.to_uppercase());
             }
         }
     }
+
+    // ── "Check with AI" (docs/phase1-plan.md §15.1) ─────────────────────────
+
+    const AGREE: &str = "Alex and I was at the unit, and we recieved the keys.";
+
+    fn issue(text: &str, quote: &str, replacement: &str) -> crate::ai::check::Issue {
+        let chars: Vec<char> = text.chars().collect();
+        let q: Vec<char> = quote.chars().collect();
+        let start = (0..chars.len()).find(|&i| chars[i..].starts_with(&q)).unwrap();
+        crate::ai::check::Issue { start, end: start + q.len(), message: "AI says so.".into(), replacement: replacement.into() }
+    }
+
+    /// Checked by Harper in an Apply field (one finding: "recieved").
+    fn harper_checked(text: &str) -> (Session, Instant) {
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(text), Some(3), FixMode::Apply, false, t0);
+        feed(&mut s, true, Some(text), Some(3), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        (s, t0 + DEBOUNCE)
+    }
+
+    #[test]
+    fn the_ais_suggestions_join_harpers_marked_and_fixable() {
+        let (mut s, _) = harper_checked(AGREE);
+        assert_eq!(s.shown.items.iter().map(|i| i.problem.as_str()).collect::<Vec<_>>(), ["recieved"]);
+        let src = s.ai_begin(false).unwrap();
+        assert_eq!(src.paragraph, AGREE);
+        assert_eq!(s.ai_pending(src.id), Some(false));
+        // One new problem, one on Harper's span (left out).
+        let issues = [issue(AGREE, "Alex and I was", "Alex and I were"), issue(AGREE, "recieved", "got")];
+        let mut got = None;
+        assert_eq!(s.ai_answer(src.id, &issues, |x| got = Some(x.clone())), Some(1));
+        let list = got.unwrap();
+        assert_eq!(list.mode, FixMode::Apply);
+        assert_eq!(list.items.iter().map(|i| (i.problem.as_str(), i.kind.as_str())).collect::<Vec<_>>(), [("Alex and I was", AI_KIND), ("recieved", "Spelling")]);
+        assert!(!list.items[0].clear, "Apply all leaves the AI's to the user");
+        // Applying it is the usual path, word for word.
+        let job = s.job(list.check_id, 0, 0).unwrap();
+        assert_eq!((job.start, job.end, job.replacement.as_str()), (0, 14, "Alex and I were"));
+        assert_eq!(s.ai_pending(src.id), None, "answered");
+    }
+
+    #[test]
+    fn the_ai_finds_something_when_harper_found_nothing() {
+        let text = "Alex and I was at the unit on Monday.";
+        let (mut s, _) = in_field(FixMode::Apply, text);
+        assert!(s.shown.items.is_empty());
+        let src = s.ai_begin(false).unwrap();
+        let mut got = None;
+        assert_eq!(s.ai_answer(src.id, &[issue(text, "Alex and I was", "Alex and I were")], |x| got = Some(x.clone())), Some(1));
+        let list = got.unwrap();
+        assert_eq!((list.mode, list.items.len()), (FixMode::Apply, 1));
+        assert!(s.kept.is_some(), "kept for the fix");
+        // Nothing found: nothing changes, and it says 0.
+        let src = s.ai_begin(false).unwrap();
+        assert_eq!(s.ai_answer(src.id, &[], |_| {}), Some(0));
+    }
+
+    #[test]
+    fn an_answer_for_an_edited_paragraph_or_an_older_check_is_dropped() {
+        let (mut s, t) = harper_checked(AGREE);
+        let src = s.ai_begin(false).unwrap();
+        let edited = "Alex and I was at the unit, and we recieved the key.";
+        feed(&mut s, true, Some(edited), Some(3), FixMode::Apply, false, t);
+        let mut emitted = false;
+        assert_eq!(s.ai_answer(src.id, &[issue(AGREE, "Alex and I was", "x")], |_| emitted = true), None);
+        assert!(!emitted);
+        // Two clicks: only the latest counts.
+        let (mut s, _) = harper_checked(AGREE);
+        let first = s.ai_begin(false).unwrap();
+        let second = s.ai_begin(false).unwrap();
+        assert_eq!(s.ai_answer(first.id, &[], |_| {}), None);
+        assert_eq!(s.ai_answer(second.id, &[], |_| {}), Some(0));
+    }
+
+    #[test]
+    fn the_ais_suggestions_stay_with_their_paragraph_version_only() {
+        let (mut s, t) = harper_checked(AGREE);
+        let src = s.ai_begin(false).unwrap();
+        s.ai_answer(src.id, &[issue(AGREE, "Alex and I was", "Alex and I were")], |_| {});
+        // Checked again (after a fix elsewhere): still there.
+        s.after_fix();
+        let again = feed(&mut s, true, Some(AGREE), Some(3), FixMode::Apply, false, t);
+        let items = again.map(|g| g.items).unwrap_or_else(|| s.shown.items.clone());
+        assert!(items.iter().any(|i| i.kind == AI_KIND), "{items:?}");
+        // Edited: gone with the old version.
+        let edited = "Alex and I were at the unit, and we recieved the keys.";
+        feed(&mut s, true, Some(edited), Some(3), FixMode::Apply, false, t);
+        let got = feed(&mut s, true, Some(edited), Some(3), FixMode::Apply, false, t + DEBOUNCE).unwrap();
+        assert!(got.items.iter().all(|i| i.kind != AI_KIND));
+    }
+
+    #[test]
+    fn the_automatic_check_waits_for_a_pause_and_goes_once_per_version() {
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        feed(&mut s, true, Some(AGREE), Some(3), FixMode::Apply, false, t0);
+        assert!(!s.ai_auto_take(t0 + Duration::from_millis(1900)), "still typing");
+        assert!(s.ai_auto_take(t0 + AI_AUTO_AFTER));
+        assert!(!s.ai_auto_take(t0 + Duration::from_secs(10)), "once per version");
+        let src = s.ai_begin(true).unwrap();
+        assert_eq!(s.ai_pending(src.id), Some(true));
+        // A new version waits again.
+        let t1 = t0 + Duration::from_secs(20);
+        let edited = "Alex and I were at the unit, and we recieved the keys.";
+        s.ai_clear(src.id);
+        feed(&mut s, true, Some(edited), Some(3), FixMode::Apply, false, t1);
+        assert!(!s.ai_auto_take(t1 + Duration::from_secs(1)));
+        assert!(s.ai_auto_take(t1 + AI_AUTO_AFTER));
+        // Too short to bother.
+        let (mut s, t) = in_field(FixMode::Apply, "Thanks!");
+        assert!(!s.ai_auto_take(t + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn nothing_goes_to_the_ai_from_a_withheld_field_or_while_paused() {
+        let (mut s, t) = in_field(FixMode::Apply, AGREE);
+        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true };
+        s.observe_in(&withheld, t, |_| {});
+        assert_eq!(s.ai_begin(false).unwrap_err(), Outcome::Blocked);
+        assert!(!s.ai_auto_take(t + Duration::from_secs(5)));
+        let (mut s, t) = in_field(FixMode::Apply, AGREE);
+        let src = s.ai_begin(false).unwrap();
+        feed(&mut s, true, Some(AGREE), Some(3), FixMode::Apply, true, t);
+        assert_eq!(s.ai_pending(src.id), None, "Pause drops it");
+        assert_eq!(s.ai_begin(false).unwrap_err(), Outcome::Away);
+    }
+
+    /// Owner, 2026-10-14: Check with AI must be reachable when Harper finds
+    /// nothing. The list says whether the caret is in a checked paragraph.
+    #[test]
+    fn the_list_says_when_a_clean_paragraph_can_still_be_checked() {
+        let mut s = Session::default();
+        let t0 = Instant::now();
+        let clean = "Alex and I was at the unit on Monday.";
+        feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, false, t0);
+        let got = feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, false, t0 + DEBOUNCE).unwrap();
+        assert!(got.items.is_empty() && got.checkable, "{got:?}");
+        // Another app: the list (and this) stays, like the suggestions do.
+        assert!(feed(&mut s, false, None, None, FixMode::View, false, t0 + DEBOUNCE).is_none());
+        assert!(s.shown.checkable);
+        // A checked field with no paragraph under the caret: not checkable.
+        let blank = feed(&mut s, true, Some("
+
+"), Some(1), FixMode::Apply, false, t0 + DEBOUNCE);
+        assert!(blank.is_none_or(|b| !b.checkable) && !s.shown.checkable);
+        // Paused: never.
+        let paused = feed(&mut s, true, Some(clean), Some(3), FixMode::Apply, true, t0 + DEBOUNCE);
+        assert!(paused.is_none_or(|p| !p.checkable) && !s.shown.checkable);
+    }
 }
+

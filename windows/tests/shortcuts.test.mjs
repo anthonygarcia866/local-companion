@@ -19,7 +19,7 @@ const MAC_IDS = [
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
 /** Glim's own actions, after the Mac ones. */
-const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle"];
+const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
@@ -88,7 +88,7 @@ test("only the island toggle is off by default; the four not in this version are
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
     "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "rewrite", "denyApproval",
-    "pauseToggle",
+    "pauseToggle", "pushToTalk",
   ]);
 });
 

@@ -19,6 +19,7 @@ mod net;
 mod pipe;
 mod platform;
 mod recap;
+mod resume;
 mod session_window;
 mod settings;
 mod shortcuts;
@@ -31,6 +32,7 @@ mod webview_drop;
 #[cfg(windows)]
 mod bubble_window;
 mod writing;
+mod voice;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -285,6 +287,32 @@ fn open_in_vscode(path: Option<String>) -> bool {
     false
 }
 
+// ── "Pick up from yesterday" (resume/, PR #21) ─────────────────────────────
+
+/// The resume card's rows: each repo's HANDOFF.md, newest first. Logged as
+/// names and counts only (resume::summary_line).
+#[tauri::command]
+fn resume_cards() -> Vec<resume::Card> {
+    let scan = resume::read_all(&resume::repos(&[]));
+    log::line(resume::summary_line(&scan));
+    resume::cards(&scan)
+}
+
+/// A click on a repo's row: Claude Code opens in that repo, told to read
+/// HANDOFF.md and continue (owner, 2026-10-13: only on that click). The
+/// island sends the repo's name; the folder is looked up among the repos Glim
+/// reads, never taken from the island.
+#[tauri::command]
+fn resume_open(repo: String) -> bool {
+    let Some(folder) = resume::folder_for(&repo, &resume::repos(&[])) else {
+        log::line("resume: open refused (not a repo Glim reads)");
+        return false;
+    };
+    let opened = platform::open_claude_code_in(&folder, resume::PROMPT);
+    log::line(format!("resume: {} Claude Code in {repo}", if opened { "opened" } else { "could not open" }));
+    opened
+}
+
 /// "Open terminal": brings forward the terminal or editor window the session
 /// runs in, when it was found (Windows, see session_window.rs); otherwise opens
 /// the folder in VS Code, as before.
@@ -335,6 +363,8 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    #[cfg(windows)]
+    voice::whisper::stop();
     app.exit(0);
 }
 
@@ -654,6 +684,32 @@ fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
     update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
 }
 
+/// Push-to-talk's card (voice 1.5b): "Copy" on what was heard or not typed.
+/// The text came from Rust in the first place; it is only put on the
+/// clipboard, never logged. False: another app held the clipboard.
+#[tauri::command]
+fn voice_copy(text: String) -> bool {
+    #[cfg(windows)]
+    let copied = capture::fix::copy_to_clipboard(&text);
+    #[cfg(not(windows))]
+    let copied = { let _ = text; false };
+    log::line(format!("voice: copy {}", if copied { "ok" } else { "clipboard busy" }));
+    copied
+}
+
+/// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
+/// Windows' own microphone privacy page. A fixed settings link, nothing
+/// from the island; no network.
+#[tauri::command]
+fn open_mic_settings() {
+    log::line("voice: opened the microphone privacy settings");
+    #[cfg(windows)]
+    platform::open_url(MIC_SETTINGS);
+}
+
+/// Windows Settings → Privacy & security → Microphone.
+const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
+
 /// The mini lantern's popover opened or closed (1e, §7a.3): the window is
 /// laid out again at once.
 #[tauri::command]
@@ -731,6 +787,14 @@ fn writing_rewrite(tone: String) {
     capture::uia::request(capture::uia::Request::Rewrite { tone });
     #[cfg(not(windows))]
     let _ = tone;
+}
+
+/// "Check with AI" (docs/phase1-plan.md §15.1): the paragraph the caret is
+/// in goes to the Claude API (Haiku). The click is the user's request.
+#[tauri::command]
+fn writing_ai_check() {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::AiCheck { auto: false });
 }
 
 /// "Use this": types rewrite `id` in through 1b's apply path.
@@ -996,6 +1060,12 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
+            // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card, as the
+            // tray item does (decided 2026-10-15).
+            if dev_session() && argv.iter().any(|a| a == "--resume-card") {
+                let _ = app.emit_to(island::WINDOW_LABEL, "resume-show", ());
+                return;
+            }
             if let Some(state) = dev_mascot_state(&argv) {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
@@ -1095,6 +1165,11 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            voice_copy,
+            open_mic_settings,
+            writing_ai_check,
+            resume_cards,
+            resume_open,
             bubble_popover,
             bubble_rewrite,
             writing_rewrite_apply,
@@ -1180,6 +1255,12 @@ pub fn run() {
             // So does the pause key (1d): it works with the island hidden.
             let pause_handle = handle.clone();
             shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
+            // And push-to-talk (voice 1.5b): Rust polls the key for its release.
+            #[cfg(windows)]
+            {
+                let voice_handle = handle.clone();
+                shortcuts::on_push_to_talk(move || voice::run::on_key_down(&voice_handle));
+            }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

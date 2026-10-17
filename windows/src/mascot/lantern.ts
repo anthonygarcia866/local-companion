@@ -16,7 +16,7 @@ import { LANTERN_IDS, LANTERN_MARKUP, LANTERN_VIEWBOX } from "./lantern-svg";
 import type { BotStateName } from "../core/layout";
 
 export const LANTERN_STATES = [
-  "idle", "listen", "think", "suggest", "record", "paused", "delegate", "done", "error",
+  "idle", "listen", "think", "suggest", "record", "paused", "delegate", "done", "error", "hear",
 ] as const;
 export type LanternState = (typeof LANTERN_STATES)[number];
 

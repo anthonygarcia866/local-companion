@@ -88,6 +88,10 @@ pub const ACTIONS: &[ActionDef] = &[
     // with the island in any mode, so it is handled here in Rust. Free
     // system-wide when probed with RegisterHotKey (2026-10-13).
     action("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
+    // Voice 1.5b: hold to dictate (docs/voice-actions-plan.md §1). Free
+    // system-wide when probed (2026-10-14); Word maps it to InsertAutoText,
+    // and Anthony chose to take it anyway (2026-10-14). Handled in Rust.
+    action("pushToTalk", "Ctrl+Alt+Shift+V", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -303,6 +307,13 @@ pub fn on_pause_toggle(f: impl Fn() + Send + Sync + 'static) {
     let _ = PAUSE_TOGGLE.set(Box::new(f));
 }
 
+/// What the push-to-talk key runs (set up in lib.rs; voice::run).
+static PUSH_TO_TALK: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_push_to_talk(f: impl Fn() + Send + Sync + 'static) {
+    let _ = PUSH_TO_TALK.set(Box::new(f));
+}
+
 /// Hands an action to the island; the visibility cycle runs here.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
@@ -314,6 +325,12 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     }
     if action == "pauseToggle" {
         if let Some(f) = PAUSE_TOGGLE.get() {
+            f();
+        }
+        return;
+    }
+    if action == "pushToTalk" {
+        if let Some(f) = PUSH_TO_TALK.get() {
             f();
         }
         return;
@@ -441,7 +458,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 4] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle"];
+    const GLIM_IDS: [&str; 5] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None

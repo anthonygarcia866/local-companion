@@ -104,5 +104,13 @@
 @keyframes lantern-ignite-glow{0%{opacity:0}100%{opacity:.4}}
 .lantern.ignite .tone{animation:lantern-ignite-tone .8s ease-out}
 @keyframes lantern-ignite-tone{0%{filter:grayscale(1) brightness(.55)}100%{filter:brightness(.85)}}
+.lantern.s-hear .tone,.lantern.s-hear .glow,.lantern.s-hear .flame-g{filter:hue-rotate(150deg) saturate(.9)}
+.lantern.s-hear .glow{opacity:calc(.55 + var(--mic-level,0) * .45)}
+.lantern.s-hear .flame-g{transform:scale(calc(.92 + var(--mic-level,0) * .2));transition:transform .07s linear}
+.lantern.s-hear .eyes{transform:translateY(-2.2px)}
+.lantern.s-hear .brows{opacity:1}
+.lantern.s-hear .brow{transform:translateY(-1.2px)}
+.lantern.compact.s-hear .eyes{transform:translateY(-3px)}
+@media (prefers-reduced-motion: reduce){.s-hear .flame-g{transform:none;transition:none}.s-hear .glow{opacity:.9}}
 @media (prefers-reduced-motion: reduce){.lantern.pop,.lantern.pop-record{animation:none}.lantern.pop .glow,.lantern.pop-record .glow{opacity:1}}
 @media (prefers-reduced-motion: reduce){.lantern *{animation:none !important}}

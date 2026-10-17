@@ -83,6 +83,15 @@ pub enum Request {
     RewriteCopy { id: u64 },
     /// 1c: the Rewrite card was closed.
     RewriteDismiss,
+    /// Voice: the push-to-talk key went down: note the field in front.
+    VoiceBegin,
+    /// Voice: type `text` into that field (1b's checks). `cleaned` false =
+    /// the raw transcript; `why` = the clean-up's failure code.
+    VoiceType { text: String, cleaned: bool, why: String },
+    /// "Check with AI" (§15.1): a click, or the automatic check.
+    AiCheck { auto: bool },
+    /// Its answer, from the async runtime.
+    AiCheckDone { id: u64, reply: crate::ai::check::CheckReply, elapsed: std::time::Duration },
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -157,6 +166,16 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let send_rewrite = |e: crate::ai::rewrite::RewriteEvent| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::rewrite::EVENT, &e);
     };
+    let send_ai = |e: crate::ai::check::CheckEvent| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::check::EVENT, &e);
+    };
+    // The automatic check's last refusal before sending (no key, cap…):
+    // logged once, not at every pause in typing.
+    let mut auto_refused: Option<String> = None;
+    // Voice: the field that had the focus when push-to-talk went down, if it
+    // was one Glim may type in; and whether the last reading was such a field.
+    let mut voice_field: Option<(IUIAutomationElement, u32)> = None;
+    let mut last_typable = false;
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
         // The mini lantern's popover shows the same rows (if its window exists).
@@ -344,6 +363,97 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         writer.rewrite_clear();
                         rewrite_field = None;
                     }
+                    Request::AiCheck { auto } => {
+                        use crate::ai::{check, claude, key, rewrite, spend};
+                        let config = rewrite::config();
+                        let saved = key::load(&key::vault());
+                        let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
+                        let spent = spend::current(&spend::path(), &spend::month_now());
+                        let begun = rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent)
+                            .map_err(String::from)
+                            .and_then(|()| writer.ai_begin(auto).map_err(|o| if o == crate::writing::Outcome::Blocked { "sensitive".to_string() } else { "no-paragraph".to_string() }));
+                        match (begun, saved) {
+                            (Ok(src), Ok(Some(api_key))) => {
+                                auto_refused = None;
+                                send_ai(check::CheckEvent { phase: "sending", id: src.id, auto, ..Default::default() });
+                                let (id, paragraph) = (src.id, src.paragraph);
+                                tauri::async_runtime::spawn(async move {
+                                    let started = std::time::Instant::now();
+                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                        Ok(base) => check::check(&base, &api_key, &paragraph).await,
+                                        Err(_) => check::CheckReply { result: Err(claude::Failure::Network), usage: None, dropped: 0 },
+                                    };
+                                    request(Request::AiCheckDone { id, reply, elapsed: started.elapsed() });
+                                });
+                            }
+                            (Err(code), _) if auto => {
+                                if auto_refused.as_deref() != Some(code.as_str()) {
+                                    crate::log::line(format!("ai-check: not sent ({code}) (auto)"));
+                                    auto_refused = Some(code);
+                                }
+                            }
+                            (Err(code), _) => {
+                                crate::log::line(format!("ai-check: not sent ({code}) (click)"));
+                                send_ai(check::CheckEvent { phase: "failed", code, ..Default::default() });
+                            }
+                            (Ok(src), _) => {
+                                writer.ai_clear(src.id);
+                                send_ai(check::CheckEvent { phase: "failed", id: src.id, auto, code: "no-key".into(), ..Default::default() });
+                            }
+                        }
+                    }
+                    Request::AiCheckDone { id, reply, elapsed } => {
+                        use crate::ai::{check, rewrite, spend};
+                        let auto = writer.ai_pending(id).unwrap_or(false);
+                        crate::log::line(check::log_line(&reply, elapsed, auto));
+                        if let Some(usage) = &reply.usage {
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
+                                crate::log::line(format!("ai-check: could not record the spend: {err}"));
+                            }
+                        }
+                        let event = match &reply.result {
+                            Ok(issues) => match writer.ai_answer(id, issues, send_list) {
+                                Some(added) => check::CheckEvent { phase: "done", id, auto, added, ..Default::default() },
+                                // The paragraph changed meanwhile: nothing to show.
+                                None => check::CheckEvent { phase: "failed", id, auto, code: "changed".into(), ..Default::default() },
+                            },
+                            Err(f) => {
+                                writer.ai_clear(id);
+                                let retry_after = match f {
+                                    crate::ai::claude::Failure::Api { retry_after, .. } => *retry_after,
+                                    _ => None,
+                                };
+                                check::CheckEvent { phase: "failed", id, auto, code: rewrite::failure_code(f), retry_after, ..Default::default() }
+                            }
+                        };
+                        send_ai(event);
+                    }
+                    Request::VoiceBegin => {
+                        voice_field = if last_typable { current.as_ref().map(|(e, _)| (e.clone(), foreground_pid())) } else { None };
+                        crate::voice::FIELD_AT_PRESS.store(voice_field.is_some(), std::sync::atomic::Ordering::SeqCst);
+                    }
+                    Request::VoiceType { text, cleaned, why } => {
+                        use crate::voice::{VoiceEvent, EVENT};
+                        let (outcome, name) = match &voice_field {
+                            _ if crate::writing::paused() => (crate::writing::Outcome::Paused, String::new()),
+                            Some((element, pid)) => {
+                                let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                (crate::writing::apply::insert(&mut field, &text), crate::writing::apps::display_name(&process_name(*pid as i32)))
+                            }
+                            None => (crate::writing::Outcome::Away, String::new()),
+                        };
+                        crate::log::line(format!("voice: typed {} ({}) {}", outcome.code(), if cleaned { "cleaned" } else { "not cleaned up" }, name));
+                        let applied = outcome == crate::writing::Outcome::Applied;
+                        let e = if applied {
+                            VoiceEvent { phase: "typed", cleaned, code: why, app: name, ..Default::default() }
+                        } else {
+                            // Not typed: the card shows the text, to copy.
+                            VoiceEvent { phase: "not-typed", cleaned, text, code: outcome.code().into(), app: name, ..Default::default() }
+                        };
+                        let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+                        voice_field = None;
+                        writer.after_fix();
+                    }
                     Request::Wake => {}
                 }
                 "request"
@@ -455,6 +565,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             sensitive: capture.meta.sensitive && crate::writing::apps::enabled(&capture.meta.app),
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
+        // "Check with AI automatically when I pause typing" (§15.1, off by
+        // default): once per paragraph version, the same path as a click.
+        if checked.is_some() && crate::writing::prefs::get().ai_auto_check && writer.ai_auto_take(std::time::Instant::now()) {
+            request(Request::AiCheck { auto: true });
+        }
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
@@ -463,6 +578,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             let cat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site);
             crate::writing::tones::set_focus(&capture.meta.app, cat);
         }
+        last_typable = checked.is_some() && !capture.meta.read_only && !capture.meta.password;
         // The mini lantern (§7a): every condition, then where it goes.
         let prefs = crate::writing::prefs::get();
         if prefs.bubble || bubble_last.as_ref().is_some_and(|d| d.window.is_some()) {

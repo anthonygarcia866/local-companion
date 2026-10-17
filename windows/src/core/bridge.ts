@@ -2,6 +2,7 @@
 // page is opened in a plain browser, so the island can be iterated on with
 // `npm run dev` alone.
 
+import type { ResumeCard } from "../views/resume";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -127,6 +128,8 @@ export const Bridge = {
   // The rewrite (1c): a tone id, or which rewrite; never text.
   /** A tone on the Rewrite card: sends the paragraph to the Claude API. */
   writingRewrite: (tone: string) => call<void>("writing_rewrite", { tone }),
+  /** "Check with AI": the paragraph the caret is in goes to Claude (Haiku). */
+  writingAiCheck: () => call<void>("writing_ai_check"),
   /** "Use this": types rewrite `id` in (1b's apply path). */
   writingRewriteApply: (id: number) => call<void>("writing_rewrite_apply", { id }),
   writingRewriteCopy: (id: number) => call<void>("writing_rewrite_copy", { id }),
@@ -158,10 +161,18 @@ export const Bridge = {
   writingToneDefaults: () => call<[string, string][]>("writing_tone_defaults"),
   /** "Check writing in [app]?" is in sight (or queued): asked today (1d). */
   writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
+  /** "Pick up where you left off": each repo's HANDOFF.md, newest first. */
+  resumeCards: () => call<ResumeCard[]>("resume_cards"),
+  /** A click on a repo's row: Claude Code opens there (the name only; Rust finds the folder). */
+  resumeOpen: (repo: string) => call<boolean>("resume_open", { repo }),
   /** Its answer: "yes", "later" or "never". */
   writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
   /** "Got it" on the Google Docs tip: it never shows again (1d retest). */
   writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
+  /** Push-to-talk's card: copies what was heard. False: the clipboard was busy. */
+  voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
+  /** Windows' microphone privacy page (a fixed link in Rust). */
+  openMicSettings: () => call<void>("open_mic_settings"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

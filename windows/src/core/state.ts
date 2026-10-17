@@ -1,5 +1,7 @@
 // App state — mirror of AppState.swift (the parts the island needs).
 
+import type { AiCheckEvent } from "./ai-check";
+import type { ResumeCard } from "../views/resume";
 import type { BotEmoteName, BotStateName, Dock, IslandMode, IslandViewName, PillSize } from "./layout";
 import type { EyeShape } from "../mochi/engine";
 import {
@@ -13,6 +15,7 @@ import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
 import type { WritingAsk } from "./ask";
+import { needsCard, type VoiceState } from "./voice";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -171,6 +174,12 @@ export interface Settings {
   pauseSites: string[];
   /** Settings → General → File drop zone: the pill takes files dragged onto it. */
   fileDropZone: boolean;
+  /** Settings → Writing → Check with AI automatically when I pause typing (§15.1). Off by default. */
+  aiAutoCheck: boolean;
+  /** Settings → Writing → Dictation → Speech model (voice 1.5b): whisper's "base" or "small". */
+  voiceModel: "base" | "small";
+  /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
+  voiceWords: string;
   /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
   writingBubble: boolean;
 }
@@ -202,6 +211,9 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseApps: [],
   pauseSites: [],
   fileDropZone: true,
+  aiAutoCheck: false,
+  voiceModel: "base",
+  voiceWords: "",
   writingBubble: false,
 };
 
@@ -328,10 +340,22 @@ class AppState {
   writingBusy = false;
   /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
   rewrite: RewriteState | null = null;
+  /** "Check with AI" (core/ai-check.ts): the last check's phase; null for none. */
+  aiCheck: AiCheckEvent | null = null;
+  /**
+   * The caret is in a paragraph Glim checks, even with nothing found
+   * (Suggestions.checkable): a lantern click in the open island then opens
+   * the empty list, for Check with AI (owner, 2026-10-14).
+   */
+  writingCheckable = false;
   /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
   writingAsk: WritingAsk | null = null;
+  /** "Pick up where you left off" (views/resume.ts): the repos shown; null when closed. */
+  resume: ResumeCard[] | null = null;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
   writingDocsTip = false;
+  /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
+  voice: VoiceState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -635,6 +659,7 @@ class AppState {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
     if (this.writingAsk) return "writingAsk";
     if (this.writingDocsTip) return "writingDocsTip";
+    if (needsCard(this.voice)) return "voice";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

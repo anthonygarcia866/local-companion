@@ -173,6 +173,27 @@ body {
   width: 0;
 }
 
+/* Push-to-talk's level meter (voice plan §1.2), where the countdown runs,
+   in s-hear's teal; above the countdown while the key is held. */
+#voice-meter {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(94, 214, 200, 0.9);
+  transition: width 80ms linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #voice-meter {
+    transition: none;
+  }
+}
+
 /* Compact 2×2 mini grid, to the right of the notch. */
 #mini-grid {
   position: absolute;
@@ -763,6 +784,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+/* Push-to-talk's question (views/voice.ts): always in full. It wraps, and
+   only a very long one scrolls inside the cap (the card grows to
+   VOICE_QUESTION_H for it). */
+.title.voice-question {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  max-height: 102px;
+  overflow-y: auto;
 }
 
 .sub {
@@ -2462,6 +2494,21 @@ html:not([data-presence="pill"]) #lantern-menu {
 
 /* The count on the pill, at the lantern's top right. */
 /* The writing features are paused (1d): a grey "❚❚" where the count goes. */
+/* Dictation typed the raw transcript (voice plan §4.1): "not cleaned up". */
+#voice-raw-badge {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #8a8f98;
+  color: #16181c;
+  font: 800 11px/14px var(--font);
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 #pause-badge {
   position: absolute;
   min-width: 15px;
@@ -2560,7 +2607,8 @@ html:not([data-presence="pill"]) #lantern-menu {
 
 button.fix-btn,
 button.apply-all,
-button.rewrite-open {
+button.rewrite-open,
+button.ai-check {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2573,13 +2621,15 @@ button.rewrite-open {
 
 button.fix-btn:hover:not(:disabled),
 button.apply-all:hover:not(:disabled),
-button.rewrite-open:hover:not(:disabled) {
+button.rewrite-open:hover:not(:disabled),
+button.ai-check:hover:not(:disabled) {
   background: rgba(242, 177, 76, 0.32);
 }
 
 button.fix-btn:focus-visible,
 button.apply-all:focus-visible,
 button.rewrite-open:focus-visible,
+button.ai-check:focus-visible,
 .suggestion-dismiss:focus-visible {
   outline: 2px solid #f2b14c;
   outline-offset: 1px;
@@ -2588,7 +2638,8 @@ button.rewrite-open:focus-visible,
 /* "Click in the field first" (away) or a fix on its way. */
 button.fix-btn:disabled,
 button.apply-all:disabled,
-button.rewrite-open:disabled {
+button.rewrite-open:disabled,
+button.ai-check:disabled {
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.45);
@@ -2609,7 +2660,8 @@ button.rewrite-open:disabled {
 }
 
 button.apply-all,
-button.rewrite-open {
+button.rewrite-open,
+button.ai-check {
   flex: none;
   height: 24px;
   padding: 0 10px;
@@ -2719,6 +2771,25 @@ button.rewrite-tone.default {
   text-overflow: ellipsis;
 }
 
+/* "Check with AI" at the foot of the list, after the note (§15.1). */
+.suggestion-pager button.ai-check {
+  margin-left: auto;
+  height: 22px;
+}
+
+/* An AI finding's mark, before its message. */
+.ai-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font: 700 9.5px/15px var(--font);
+  letter-spacing: 0.04em;
+  color: #0b0c0e;
+  background: #c9b8ff;
+  vertical-align: 1px;
+}
+
 .suggestion-range {
   font: 600 12px var(--font);
   color: rgba(255, 255, 255, 0.92);
@@ -2751,4 +2822,44 @@ button.rewrite-tone.default {
   background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.3);
   cursor: default;
+}
+
+/* "Pick up where you left off" (views/resume.ts). */
+.resume-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.resume-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.resume-repo {
+  font: 600 12.5px var(--font);
+  color: #fff;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resume-where {
+  font: 400 11.5px/1.35 var(--font);
+  color: rgba(255, 255, 255, 0.82);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.resume-meta {
+  font: 400 10.5px var(--font);
+  color: var(--dim-2);
 }
