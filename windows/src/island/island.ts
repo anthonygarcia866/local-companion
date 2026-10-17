@@ -15,7 +15,7 @@ import {
 import { State } from "../core/state";
 import { sendingToApi } from "../core/rewrite";
 import { aiSending } from "../core/ai-check";
-import { meterPercent, rawBadge, voiceLantern, voiceSending } from "../core/voice";
+import { answering, meterPercent, modeLabel, rawBadge, voiceLantern, voiceSending } from "../core/voice";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -81,6 +81,7 @@ export class Island {
   private pauseBadge!: HTMLElement;
   private rawBadge!: HTMLElement;
   private voiceMeter!: HTMLElement;
+  private voiceMode!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -273,6 +274,8 @@ export class Island {
     this.rawBadge = h("div", { id: "voice-raw-badge", role: "status", style: "display:none", text: "~" });
     // Push-to-talk's level meter, along the pill's bottom edge (plan §1.2).
     this.voiceMeter = h("div", { id: "voice-meter", "aria-hidden": "true", style: "display:none" });
+    // Which voice key is held (Decision A): "Dictating" or "Ask Glim".
+    this.voiceMode = h("div", { id: "voice-mode", role: "status", style: "display:none" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -310,6 +313,7 @@ export class Island {
       this.pauseBadge,
       this.rawBadge,
       this.voiceMeter,
+      this.voiceMode,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -661,7 +665,7 @@ export class Island {
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
     }
-    if (State.mode === "expanded" && State.view === "voice" && State.voice?.phase === "question") {
+    if (State.mode === "expanded" && State.view === "voice" && (State.voice?.phase === "question" || answering(State.voice))) {
       h = VOICE_QUESTION_H;
     }
     ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
@@ -699,6 +703,9 @@ export class Island {
     const upright = isVerticalDock(State.dock) && State.mode !== "expanded";
     this.miniGrid.style.left = `${upright ? w / 2 - 14.5 : w - 40 - 14.5}px`;
     this.miniGrid.style.top = `${upright ? hh - 40 - 14.5 : hh / 2 - 14.5}px`;
+    // The voice mode label sits right of the lantern, where the pill is empty.
+    this.voiceMode.style.left = `${this.botCx.value + 26}px`;
+    this.voiceMode.style.top = `${hh / 2 - 8}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.placeWakeStrip();
 
@@ -1168,6 +1175,11 @@ export class Island {
     const meter = meterPercent(State.voice);
     this.voiceMeter.style.display = meter === null || State.mode === "hidden" ? "none" : "";
     if (meter !== null) this.voiceMeter.style.width = `${meter}%`;
+    // An upright pill has no room beside the lantern: s-hear and the meter say it.
+    const label = modeLabel(State.voice);
+    const showLabel = label !== null && State.mode === "compact" && !isVerticalDock(State.dock);
+    this.voiceMode.style.display = showLabel ? "" : "none";
+    if (showLabel && this.voiceMode.textContent !== t(label)) this.voiceMode.textContent = t(label);
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
