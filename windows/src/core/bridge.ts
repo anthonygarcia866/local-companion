@@ -215,6 +215,8 @@ export const Bridge = {
   /** "The card is up" — until this lands the relay only waits a moment. */
   approvalAck: (requestId: string) => call<void>("approval_ack", { requestId }),
   /** Answers a question Claude Code asked: question text → chosen label. */
+  /** The command patterns of the user's Claude Code "ask" rules (fix e): never allowed by the Allow key. */
+  approvalAskRules: () => call<string[]>("approval_ask_rules"),
   approvalAnswer: (requestId: string, answers: Record<string, string | string[]>) =>
     call<void>("approval_answer", { requestId, answers }),
 

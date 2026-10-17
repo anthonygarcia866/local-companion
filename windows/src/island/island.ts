@@ -4,6 +4,7 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
+import { allowCheck, cardOffScreen, liveRules, onScreen } from "../core/allow";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
@@ -529,6 +530,23 @@ export class Island {
     if (!req || req.questions) return;
     void Bridge.log(`decide deny (key) req=${req.requestId}`);
     void Bridge.approvalDecision(req.requestId, "deny");
+    this.closeApproval();
+  }
+
+  /** The global Allow key (fix e): what the card's Allow button does, but
+   *  only with the card open showing the whole command for ~1.5 s, and never
+   *  for a command an "ask" rule names (core/allow.ts). Anything else: no. */
+  allowApproval() {
+    const req = State.pendingApproval;
+    const seen = req ? onScreen(req.requestId, performance.now()) : { shownMs: 0, fullyShown: false };
+    const check = allowCheck({ request: req, open: State.mode === "expanded" && State.view === "approval", ...seen, live: liveRules() });
+    if (!req || check !== "ok") {
+      if (req) void Bridge.log(`allow key refused (${check}) req=${req.requestId}`);
+      this.emote("annoyed");
+      return;
+    }
+    void Bridge.log(`decide allow (key) req=${req.requestId}`);
+    void Bridge.approvalDecision(req.requestId, "allow");
     this.closeApproval();
   }
 
@@ -1266,6 +1284,8 @@ export class Island {
     this.header.el.style.pointerEvents = live ? "auto" : "none";
 
     this.header.sync();
+    // The Allow key's clock runs only while the approval card is open (fix e).
+    if (!(expanded && State.view === "approval")) cardOffScreen();
     for (const [name, view] of this.views) {
       const on = name === State.view;
       view.el.classList.toggle("on", on);

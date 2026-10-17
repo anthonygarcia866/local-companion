@@ -430,6 +430,40 @@ pub fn write(install: bool, fingerprint: &str) -> Result<String, String> {
 // goes through the same hardened writer (config_file.rs): strict read, diff,
 // fingerprint, dated backup, then the write.
 
+/// The command patterns of the user's Claude Code "ask" rules, from every
+/// config folder's settings.json (`permissions.ask`: "Bash(git merge*)",
+/// "PowerShell(*rm -rf *)"), the part inside the parentheses. Read only, on
+/// each new approval card: a command matching one is never allowed by the
+/// Allow key (fix e, 2026-10-17), only by a click.
+pub fn ask_patterns() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for dir in config_dirs() {
+        let Ok(bytes) = std::fs::read(dir.join("settings.json")) else { continue };
+        let Ok(v) = serde_json::from_slice::<Value>(&bytes) else { continue };
+        for p in ask_patterns_in(&v) {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// `permissions.ask`'s command rules: "Bash(x)" / "PowerShell(x)" → "x".
+/// Rules for other tools (Edit, WebFetch…) have no command to match.
+pub fn ask_patterns_in(settings: &Value) -> Vec<String> {
+    let rules = settings.pointer("/permissions/ask").and_then(Value::as_array).cloned().unwrap_or_default();
+    rules
+        .iter()
+        .filter_map(Value::as_str)
+        .filter_map(|r| ["Bash(", "PowerShell("].iter().find_map(|t| r.strip_prefix(t)))
+        .filter_map(|r| r.strip_suffix(')'))
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// Where the user's own status line waits while the relay stands in for it.
 pub fn status_line_previous_path() -> PathBuf {
     settings::hook_exe_path().with_file_name("statusline-previous.json")
@@ -622,6 +656,18 @@ fn install_relay(src: &Path, dest: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fix e: the Allow key never allows what an "ask" rule names.
+    #[test]
+    fn the_ask_rules_command_patterns_are_read_as_written() {
+        let s = json!({ "permissions": {
+            "ask": ["Bash(git merge*)", "PowerShell(*Remove-Item* -Recurse*-Force*)", "Bash(*DROP TABLE*)", "Edit(*.env)", "WebFetch", 7, "Bash()"],
+            "allow": ["Bash(ls *)"],
+        } });
+        assert_eq!(ask_patterns_in(&s), ["git merge*", "*Remove-Item* -Recurse*-Force*", "*DROP TABLE*"]);
+        assert!(ask_patterns_in(&json!({})).is_empty());
+        assert!(ask_patterns_in(&json!({ "permissions": { "ask": "Bash(x)" } })).is_empty());
+    }
 
     #[test]
     fn the_hooks_leave_the_status_line_alone() {

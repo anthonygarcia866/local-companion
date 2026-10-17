@@ -5551,6 +5551,28 @@
    "pt-BR": "O Glim também sempre conhece estas: {words}.",
    "ru": "Glim всегда знает и эти: {words}.",
    "id": "Glim juga selalu mengenali ini: {words}."
+  },
+  "Allow the waiting permission": {
+   "zh-Hans": "允许等待中的权限请求",
+   "hi": "प्रतीक्षा में अनुमति दें",
+   "es": "Permitir el permiso pendiente",
+   "ar": "السماح بالإذن المنتظر",
+   "fr": "Autoriser la permission en attente",
+   "bn": "অপেক্ষমাণ অনুমতি দিন",
+   "pt-BR": "Permitir a permissão pendente",
+   "ru": "Разрешить ожидающий запрос",
+   "id": "Izinkan izin yang menunggu"
+  },
+  "Click Allow to allow this one: it matches your Claude Code “ask” rules, so the Allow key won't.": {
+   "zh-Hans": "请点击“允许”来允许这一项：它符合你的 Claude Code “ask” 规则，所以“允许”快捷键不会生效。",
+   "hi": "इसे अनुमति देने के लिए Allow पर क्लिक करें: यह आपके Claude Code “ask” नियमों से मेल खाता है, इसलिए Allow कुंजी काम नहीं करेगी।",
+   "es": "Haz clic en Permitir para permitir esta: coincide con tus reglas “ask” de Claude Code, así que la tecla de Permitir no lo hará.",
+   "ar": "انقر على «سماح» للسماح بهذا: إنه يطابق قواعد “ask” في Claude Code، لذلك لن يسمح به مفتاح السماح.",
+   "fr": "Cliquez sur Autoriser pour autoriser celle-ci : elle correspond à vos règles “ask” de Claude Code, donc la touche Autoriser ne le fera pas.",
+   "bn": "এটি অনুমতি দিতে Allow-এ ক্লিক করুন: এটি আপনার Claude Code-এর “ask” নিয়মের সাথে মেলে, তাই Allow কী কাজ করবে না।",
+   "pt-BR": "Clique em Permitir para permitir esta: ela corresponde às suas regras “ask” do Claude Code, então a tecla de Permitir não vai.",
+   "ru": "Нажмите «Разрешить», чтобы разрешить это: команда подпадает под ваши правила “ask” в Claude Code, поэтому клавиша разрешения не сработает.",
+   "id": "Klik Izinkan untuk mengizinkan yang ini: perintah ini cocok dengan aturan “ask” Claude Code Anda, jadi tombol Izinkan tidak akan berfungsi."
   }
  }
 }
