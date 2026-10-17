@@ -140,6 +140,17 @@ export function withWritingSuggestions(state: AppLanternState, count: number): A
   return state === "idle" || state === "listen" || state === "done" ? "suggest" : state;
 }
 
+/**
+ * The lantern while the writing features are paused (1d, §14.6): s-paused
+ * (grey, flame out) when nothing else is going on. Agent states (an
+ * approval or question waiting, work, an error, a rate limit) still win:
+ * agents aren't paused. The pause badge tells it apart from a rate limit.
+ */
+export function withPause(state: AppLanternState, paused: boolean): AppLanternState {
+  if (!paused) return state;
+  return state === "idle" || state === "listen" || state === "done" ? "paused" : state;
+}
+
 /** How long the attention pop lasts (the design's `.pop`: 400 ms). */
 export const POP_MS = 450;
 /** The startup ignite: dark for IGNITE_DARK_MS, then the flame lights over

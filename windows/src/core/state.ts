@@ -12,6 +12,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import type { WritingAsk } from "./ask";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -155,6 +156,21 @@ export interface Settings {
   aiModel: string;
   /** Monthly cap on Glim's API spend estimate, in US dollars; 0 = none. */
   aiMonthlyCapUsd: number;
+  /** Settings → Writing → Apps (1d): "on" / "off" by exe, only where it differs from the default. */
+  writingApps: Record<string, string>;
+  /** When each app on neither list was last asked about ("YYYY-MM-DD" by exe). Rust's. */
+  writingAppsAsked?: Record<string, string>;
+  /** The Google Docs tip was dismissed with "Got it" (core/docs-tip.ts). Rust's. */
+  writingDocsTipDismissed?: boolean;
+  /** Settings → Writing → Rewrite tones (1d): a tone id by category or exe, only where it differs. */
+  rewriteTones: Record<string, string>;
+  /** Settings → Writing → Strictness (1d): "spelling", "standard" or "full". */
+  checkerStrictness: "spelling" | "standard" | "full";
+  /** Settings → Privacy (1d): the user's own paused apps (exe names) and sites. */
+  pauseApps: string[];
+  pauseSites: string[];
+  /** Settings → General → File drop zone: the pill takes files dragged onto it. */
+  fileDropZone: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -178,6 +194,12 @@ export const DEFAULT_SETTINGS: Settings = {
   aiBrain: "claude",
   aiModel: "claude-haiku-5-5",
   aiMonthlyCapUsd: 0,
+  writingApps: {},
+  rewriteTones: {},
+  checkerStrictness: "full",
+  pauseApps: [],
+  pauseSites: [],
+  fileDropZone: true,
 };
 
 type Listener = () => void;
@@ -254,6 +276,9 @@ export interface RewriteState {
   outcome: string;
   /** "Use this" or "Copy" is on its way. */
   busy: boolean;
+  /** The field's default tone (1d, §14.3): first and highlighted; a second
+   *  press of the hotkey sends it. "" until Rust says. */
+  defaultTone: string;
 }
 
 class AppState {
@@ -300,6 +325,10 @@ class AppState {
   writingBusy = false;
   /** The Rewrite card (1c, core/rewrite.ts); null when it is closed. */
   rewrite: RewriteState | null = null;
+  /** "Check writing in [app]?" (1d, core/ask.ts), waiting for an answer; null for none. */
+  writingAsk: WritingAsk | null = null;
+  /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
+  writingDocsTip = false;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -601,6 +630,8 @@ class AppState {
    */
   lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
+    if (this.writingAsk) return "writingAsk";
+    if (this.writingDocsTip) return "writingDocsTip";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

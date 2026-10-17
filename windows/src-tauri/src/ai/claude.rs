@@ -68,17 +68,18 @@ pub fn cost_nanos(model: &Model, input_tokens: u64, output_tokens: u64) -> u64 {
     input_tokens * i + output_tokens * o
 }
 
-/// The four rewrites.
+/// The five rewrites (Casual since 1d, docs/phase1-plan.md §14.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
     Friendlier,
     Formal,
     Shorter,
     Grammar,
+    Casual,
 }
 
 impl Tone {
-    pub const ALL: [Tone; 4] = [Tone::Friendlier, Tone::Formal, Tone::Shorter, Tone::Grammar];
+    pub const ALL: [Tone; 5] = [Tone::Friendlier, Tone::Formal, Tone::Shorter, Tone::Grammar, Tone::Casual];
 
     /// The id the island sends.
     pub fn id(self) -> &'static str {
@@ -87,6 +88,7 @@ impl Tone {
             Tone::Formal => "formal",
             Tone::Shorter => "shorter",
             Tone::Grammar => "grammar",
+            Tone::Casual => "casual",
         }
     }
 
@@ -100,6 +102,7 @@ impl Tone {
             Tone::Formal => "Rewrite it to sound more formal and polished.",
             Tone::Shorter => "Rewrite it shorter and more direct, keeping every fact.",
             Tone::Grammar => "Fix only spelling, grammar and punctuation. Change nothing else.",
+            Tone::Casual => "Rewrite it to sound casual and relaxed, like a quick message to a colleague.",
         }
     }
 }
@@ -412,9 +415,12 @@ mod tests {
     #[test]
     fn each_tone_has_its_own_instruction() {
         let ids: Vec<_> = Tone::ALL.iter().map(|t| t.id()).collect();
-        assert_eq!(ids, ["friendlier", "formal", "shorter", "grammar"]);
+        assert_eq!(ids, ["friendlier", "formal", "shorter", "grammar", "casual"]);
         let instructions: std::collections::HashSet<_> = Tone::ALL.iter().map(|t| t.instruction()).collect();
-        assert_eq!(instructions.len(), 4);
+        assert_eq!(instructions.len(), 5);
+        assert_eq!(Tone::from_id("casual"), Some(Tone::Casual));
+        let body = request_body(DEFAULT_MODEL, Tone::Casual, "Thanks for the update.").to_string();
+        assert!(body.contains("casual and relaxed"), "{body}");
         assert_eq!(Tone::from_id("formal"), Some(Tone::Formal));
         assert_eq!(Tone::from_id("pirate"), None);
     }

@@ -31,6 +31,23 @@ export interface BootInfo {
   cursorPoll: boolean;
 }
 
+/** The built-in pause entries, locked (src-tauri/src/capture/sensitive.rs). */
+export interface PauseBuiltins {
+  apps: string[];
+  sites: string[];
+}
+
+/** A built-in app of the writing checker (src-tauri/src/writing/apps.rs). */
+export interface KnownApp {
+  exe: string;
+  name: string;
+  defaultOn: boolean;
+  /** Relaxed chat rules. */
+  chat: boolean;
+  /** Fixes are typed (else suggestions only). */
+  fixes: boolean;
+}
+
 export const Bridge = {
   boot: () => call<BootInfo>("boot"),
   /** The system's languages as the webview sees them, for Rust's own texts (i18n.rs). */
@@ -110,8 +127,6 @@ export const Bridge = {
   writingRewriteDismiss: () => call<void>("writing_rewrite_dismiss"),
   /** Dismiss: the list goes until the text changes. */
   writingDismiss: () => call<void>("writing_dismiss"),
-  /** The tray's Pause: Rust stops reading, checking and typing. */
-  writingSetPaused: (paused: boolean) => call<void>("writing_set_paused", { paused }),
 
   openSettingsWindow: () => call<void>("open_settings_window"),
 
@@ -127,6 +142,20 @@ export const Bridge = {
   aiKeyRemove: () => callOrThrow<AiKeyStatus>("ai_key_remove"),
   aiSpend: () => call<AiSpend>("ai_spend"),
   aiModels: () => call<AiModel[]>("ai_models"),
+  /** The built-in apps of Settings → Writing → Apps (1d). */
+  writingKnownApps: () => call<KnownApp[]>("writing_known_apps"),
+  /** The built-in paused apps and sites, for Settings → Privacy (1d). */
+  writingPauseBuiltins: () => call<PauseBuiltins>("writing_pause_builtins"),
+  /** The Rewrite card's default tone for the field being written in (1d). */
+  writingRewriteDefault: () => call<string>("writing_rewrite_default"),
+  /** Each category's built-in tone: [category, tone] (1d). */
+  writingToneDefaults: () => call<[string, string][]>("writing_tone_defaults"),
+  /** "Check writing in [app]?" is in sight (or queued): asked today (1d). */
+  writingAskShown: (exe: string) => call<void>("writing_ask_shown", { exe }),
+  /** Its answer: "yes", "later" or "never". */
+  writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
+  /** "Got it" on the Google Docs tip: it never shows again (1d retest). */
+  writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */
@@ -372,7 +401,7 @@ interface WebView2Bridge {
  * the drop hands the File objects to Rust, which answers with their real paths
  * as a `file-drag` event. Elsewhere (Linux) Tauri's own drag events still do it.
  */
-export async function onDragDrop(handler: (e: DragDropPayload) => void) {
+export async function onDragDrop(handler: (e: DragDropPayload) => void, enabled: () => boolean = () => true) {
   if (!IS_TAURI) return () => {};
   const webview = (window as unknown as { chrome?: { webview?: WebView2Bridge } }).chrome?.webview;
   if (!webview) {
@@ -384,13 +413,14 @@ export async function onDragDrop(handler: (e: DragDropPayload) => void) {
   // dragenter/dragleave fire for every element crossed; only the outermost pair counts.
   let depth = 0;
 
+  // "File drop zone" off: the page doesn't accept the drag (no-drop cursor).
   const onEnter = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || !enabled()) return;
     e.preventDefault();
     if (depth++ === 0) handler({ type: "enter" });
   };
   const onOver = (e: DragEvent) => {
-    if (!hasFiles(e)) return;
+    if (!hasFiles(e) || !enabled()) return;
     // Without this WebView2 refuses the drop — or navigates to the file.
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
@@ -416,7 +446,15 @@ export async function onDragDrop(handler: (e: DragDropPayload) => void) {
   window.addEventListener("dragleave", onLeave);
   window.addEventListener("drop", onDrop);
   const unlisten = await listen<DragDropPayload>("file-drag", (e) => handler(e.payload));
+  // Rust disarmed the zone (the drag left it, ended elsewhere or was
+  // cancelled): a leave, even if the page never saw one.
+  const unlistenDisarm = await listen("file-drag-disarm", () => {
+    if (depth === 0) return;
+    depth = 0;
+    handler({ type: "leave" });
+  });
   return () => {
+    unlistenDisarm();
     window.removeEventListener("dragenter", onEnter);
     window.removeEventListener("dragover", onOver);
     window.removeEventListener("dragleave", onLeave);

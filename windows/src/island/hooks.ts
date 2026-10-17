@@ -312,13 +312,8 @@ function handleHook(island: Island, payload: HookPayload) {
     return;
   }
 
-  if (State.paused) {
-    // Silence here used to cost Claude Code nearly two minutes: the relay waited
-    // for a decision from an island that had already decided not to look. Say so,
-    // and the terminal takes the question immediately.
-    if (payload.request_id) void Bridge.approvalDecline(payload.request_id);
-    return;
-  }
+  // Pause stops the writing features only (1d, §14.6): agents carry on, and a
+  // permission request that comes while paused shows here as usual.
 
   const name = payload.hook_event_name ?? "";
   const cwd = payload.cwd ?? "";

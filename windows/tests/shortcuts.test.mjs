@@ -19,7 +19,7 @@ const MAC_IDS = [
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
 /** Glim's own actions, after the Mac ones. */
-const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval"];
+const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
@@ -42,6 +42,7 @@ test("Glim's own keys are Ctrl+Alt+Shift: Space = show/hide, C = chat, R = rewri
   assert.equal(keys.cycleVisibility, "Ctrl+Alt+Shift+Space");
   assert.equal(keys.openChat, "Ctrl+Alt+Shift+C");
   assert.equal(keys.rewrite, "Ctrl+Alt+Shift+R");
+  assert.equal(keys.pauseToggle, "Ctrl+Alt+Shift+P");
   // Shift+AltGr is another layer: the unshifted table doesn't apply to it.
   assert.deepEqual(altGrClashes("Ctrl+Alt+Shift+C"), []);
   assert.ok(altGrClashes("Ctrl+Alt+C").includes("Brazilian (ABNT2)"));
@@ -87,6 +88,7 @@ test("only the island toggle is off by default; the four not in this version are
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
     "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "rewrite", "denyApproval",
+    "pauseToggle",
   ]);
 });
 

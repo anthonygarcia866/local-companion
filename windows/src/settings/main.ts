@@ -19,6 +19,9 @@ import {
 import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
+import { writingSection } from "./writing";
+import { privacySection } from "./privacy";
+import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import {
@@ -542,7 +545,8 @@ function declaredChanged() {
 /** Keeps Settings' visibility picker in step with the hotkey and the ember. */
 let visibilityListener: (() => void) | null = null;
 
-function generalSection(): HTMLElement {
+/** Settings → General and Settings → Presence (how and where Glim shows). */
+function generalSections(): [HTMLElement, HTMLElement] {
   const autoClose = h("input", {
     type: "number", min: "5", max: "120", step: "1",
     value: String(Math.round(settings.autoCloseInterval)),
@@ -620,39 +624,50 @@ function generalSection(): HTMLElement {
   visibilityListener = () => (visibility.value = settings.visibility ?? "normal");
   visibility.addEventListener("change", () => void Bridge.setVisibility(visibility.value));
 
-  return h(
+  const general = h(
     "section",
-    {},
+    { id: "settings-general" },
     h("h2", {}, h("span", { text: t("General") })),
+    h("div", { class: "row" },
+      h("label", { text: t("Launch at startup") }),
+      toggle(settings.autostart, (v) => { settings.autostart = v; void save(); }),
+    ),
+    languageRow(),
+    h("div", { class: "row" },
+      h("label", { text: t("File drop zone") }),
+      toggle(settings.fileDropZone !== false, (v) => { settings.fileDropZone = v; void save(); }),
+      h("span", { class: "hint", text: t("Drop a file on the pill to hand it to Glim. Drags anywhere else are never stopped.") }),
+    ),
     h("div", { class: "row" },
       h("label", { text: t("Auto-close") }),
       autoClose,
       h("span", { class: "hint", text: t("seconds after you leave the island") }),
     ),
-    h("div", { class: "row" },
-      h("label", { text: t("Island lives on") }),
-      screen,
-    ),
-    h("div", { class: "row" },
-      h("label", { text: t("Pill size") }),
-      pillSize,
-    ),
-    h("div", { class: "row" },
-      h("label", { text: t("Position") }),
-      position,
-    ),
+    ...recapRows(),
+  );
+  const presence = h(
+    "section",
+    { id: "settings-presence" },
+    h("h2", {}, h("span", { text: t("Presence") })),
     h("div", { class: "row" },
       h("label", { text: t("Show Glim as") }),
       visibility,
       h("span", { class: "hint", text: t("Hidden: bring it back from the tray icon or with the shortcut") }),
     ),
     h("div", { class: "row" },
-      h("label", { text: t("Launch at startup") }),
-      toggle(settings.autostart, (v) => { settings.autostart = v; void save(); }),
+      h("label", { text: t("Island lives on") }),
+      screen,
     ),
-    ...recapRows(),
-    languageRow(),
+    h("div", { class: "row" },
+      h("label", { text: t("Position") }),
+      position,
+    ),
+    h("div", { class: "row" },
+      h("label", { text: t("Pill size") }),
+      pillSize,
+    ),
   );
+  return [general, presence];
 }
 
 /**
@@ -1003,26 +1018,94 @@ async function render() {
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
   const ai = await aiSection({ settings: () => settings, save });
+  const knownApps = (await Bridge.writingKnownApps()) ?? [];
+  const toneDefaults = (await Bridge.writingToneDefaults()) ?? [];
+  const pauseBuiltins = (await Bridge.writingPauseBuiltins()) ?? { apps: [], sites: [] };
 
   declaredViews.length = 0;
   localRedraw = null;
   shortcutsListener = null;
-  clear(root);
-  root.append(
-    h("h1", {}, h("span", { text: "Glim" }), h("span", { class: "version", text: version })),
-    claudeSection(status),
-    agentsSection(agents),
-    planSection(status),
-    ai,
-    localSection(),
-    activePillsSection(connected),
-    generalSection(),
-    shortcutsSection(shortcutReport),
+  const writing = writingSection({ settings: () => settings, save, watch: (redraw) => declaredViews.push(redraw) }, knownApps, toneDefaults);
+  const [general, presence] = generalSections();
+  const privacy = privacySection({ settings: () => settings, save }, pauseBuiltins);
+  privacy.id = "settings-privacy";
+  const shortcuts = shortcutsSection(shortcutReport);
+  shortcuts.id = "settings-shortcuts";
+  const about = h("section", { id: "settings-about" },
+    h("h2", {}, h("span", { text: t("About") })),
+    h("div", { class: "row" }, h("label", { text: "Glim" }), h("span", { class: "version", text: version })),
     h("div", {
       class: "hint",
       text: t("No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com."),
     }),
   );
+  // In the sidebar's order (settings/nav.ts NAV).
+  sections = [
+    general,
+    presence,
+    h("div", { class: "settings-group", id: "settings-writing" }, writing, ai),
+    privacy,
+    shortcuts,
+    h("div", { class: "settings-group", id: "settings-agents" },
+      claudeSection(status),
+      agentsSection(agents),
+      planSection(status),
+      activePillsSection(connected),
+      localSection(),
+    ),
+    about,
+  ];
+  const nav = settingsNav();
+  clear(content);
+  content.append(h("h1", {}, h("span", { text: "Glim" }), h("span", { class: "version", text: version })), nav.empty, ...sections);
+  nav.refilter();
+  spy();
+}
+
+// ── Section navigation (settings/nav.ts) ──────────────────────────────────────
+
+/** The page's sections, in order; what the search filters. */
+let sections: HTMLElement[] = [];
+const content = h("main", { class: "settings-content" });
+let navView: Nav | null = null;
+
+/** The sidebar, built once: a redraw keeps what was typed in the search. */
+function settingsNav(): Nav {
+  if (navView) return navView;
+  navView = buildNav((id) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.scrollIntoView({ block: "start" });
+    // Keyboard users land on the section: its heading takes the focus.
+    const heading = (target.querySelector("h2") ?? target.querySelector("h3") ?? target) as HTMLElement;
+    heading.setAttribute("tabindex", "-1");
+    heading.focus({ preventScroll: true });
+  }, () => sections);
+  clear(root);
+  root.append(h("div", { class: "settings-layout" }, navView.el, content));
+  window.addEventListener("scroll", spy, { passive: true });
+  window.addEventListener("resize", spy, { passive: true });
+  // Ctrl+F searches the settings.
+  document.addEventListener("keydown", (ev) => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "f") {
+      ev.preventDefault();
+      navView?.search.focus();
+      navView?.search.select();
+    }
+  });
+  return navView;
+}
+
+/** Marks the sidebar entry for the part of the page on screen. */
+function spy() {
+  if (!navView) return;
+  const tops = flatNav()
+    .map((e) => ({ id: e.id, el: document.getElementById(e.id) }))
+    .filter((e): e is { id: string; el: HTMLElement } => e.el !== null && !e.el.hidden)
+    .map((e) => ({ id: e.id, top: e.el.getBoundingClientRect().top }));
+  // Scrolled to the bottom: the last section, even if it is too short to reach the top.
+  const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+  navView.mark(atEnd && tops.length ? tops[tops.length - 1].id : currentSection(tops));
 }
 
 void main();

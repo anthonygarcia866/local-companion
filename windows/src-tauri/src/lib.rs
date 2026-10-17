@@ -23,6 +23,7 @@ mod session_window;
 mod settings;
 mod shortcuts;
 mod placement;
+mod pause;
 mod presence;
 mod tray;
 #[cfg(windows)]
@@ -90,11 +91,16 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.desktop_mochi = current.desktop_mochi.clone();
         settings.docks = current.docks.clone();
         settings.visibility = current.visibility.clone();
+        // When each app was asked about is Rust's (writing_ask_shown/_answer).
+        settings.writing_apps_asked = current.writing_apps_asked.clone();
+        settings.writing_docs_tip_dismissed = current.writing_docs_tip_dismissed;
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
     let settings = shared.settings.lock().unwrap().clone();
+    shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -586,6 +592,96 @@ struct AiModel {
     prices_checked: &'static str,
 }
 
+/// Changes the settings in Rust's hands, saves them, puts the writing
+/// settings in force and tells both windows.
+fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Settings)) {
+    let updated = {
+        let mut current = shared.settings.lock().unwrap();
+        change(&mut current);
+        if let Err(err) = settings::save(&current) {
+            log::line(format!("could not save settings: {err}"));
+        }
+        current.clone()
+    };
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
+    let _ = app.emit("settings-changed", updated);
+}
+
+/// The island showed (or queued) "Check writing in [app]?" (1d, §14.2):
+/// today's date is kept for that app, so it is asked at most once a day.
+#[tauri::command]
+fn writing_ask_shown(app: AppHandle, shared: State<Shared>, exe: String) {
+    if !writing::ask::askable(&exe, &writing::prefs::get(), &writing::ask::today()) {
+        return;
+    }
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps_asked.insert(exe, writing::ask::today());
+    });
+}
+
+/// The answer to "Check writing in [app]?": "yes" turns the checker on
+/// there, "never" keeps it off for good (both listed in Settings → Writing →
+/// Apps), "later" asks again the next day at the earliest.
+#[tauri::command]
+fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer: String) {
+    if !writing::ask::valid_exe(&exe) || writing::apps::is_known(&exe) {
+        return;
+    }
+    let today = writing::ask::today();
+    log::line(format!("writing: asked about {exe}: {}", if matches!(answer.as_str(), "yes" | "never") { answer.as_str() } else { "later" }));
+    update_settings(&app, &shared, |s| {
+        s.writing_apps_asked.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        let on = match answer.as_str() {
+            "yes" => "on",
+            "never" => "off",
+            _ => {
+                s.writing_apps_asked.insert(exe, today);
+                return;
+            }
+        };
+        s.writing_apps.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
+        s.writing_apps.insert(exe, on.to_string());
+    });
+}
+
+/// "Got it" on the Google Docs tip (writing::docs_tip): it never shows again.
+#[tauri::command]
+fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>) {
+    log::line("writing: Google Docs tip dismissed");
+    update_settings(&app, &shared, |s| s.writing_docs_tip_dismissed = true);
+}
+
+/// The Rewrite card's default tone for the field being written in (1d, §14.3).
+#[tauri::command]
+fn writing_rewrite_default() -> &'static str {
+    writing::tones::current_default().id()
+}
+
+/// Each category's built-in tone, for Settings → Writing → Rewrite tones.
+#[tauri::command]
+fn writing_tone_defaults() -> Vec<(&'static str, &'static str)> {
+    writing::tones::Category::ALL.iter().map(|c| (c.id(), c.builtin().id())).collect()
+}
+
+/// The built-in pause entries (locked), for Settings → Privacy (1d, §14.5).
+#[derive(serde::Serialize)]
+struct PauseBuiltins {
+    apps: Vec<&'static str>,
+    sites: Vec<&'static str>,
+}
+
+#[tauri::command]
+fn writing_pause_builtins() -> PauseBuiltins {
+    PauseBuiltins { apps: capture::sensitive::PAUSED_APPS.to_vec(), sites: capture::sensitive::PAUSED_SITES.to_vec() }
+}
+
+/// The apps Settings → Writing → Apps lists (1d): the built-in ones.
+#[tauri::command]
+fn writing_known_apps() -> Vec<writing::apps::KnownApp> {
+    writing::apps::known()
+}
+
 #[tauri::command]
 fn ai_models() -> Vec<AiModel> {
     ai::claude::MODELS
@@ -647,14 +743,6 @@ fn writing_dismiss() {
     capture::uia::request(capture::uia::Request::Dismiss);
 }
 
-/// The tray's Pause, from the island: nothing is read, checked, kept or typed.
-#[tauri::command]
-fn writing_set_paused(paused: bool) {
-    writing::set_paused(paused);
-    #[cfg(windows)]
-    capture::uia::request(capture::uia::Request::Wake);
-}
-
 // ── Global shortcuts ──────────────────────────────────────────────────────────
 
 /// How each global shortcut went: registered, taken by another app, and so on.
@@ -713,7 +801,7 @@ fn create_settings_window(app: &AppHandle) {
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
         .title(i18n::t("Settings — Glim"))
-        .inner_size(560.0, 680.0)
+        .inner_size(780.0, 680.0)
         .min_inner_size(460.0, 480.0)
         .resizable(true)
         .visible(false)
@@ -869,7 +957,9 @@ pub fn run() {
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
+    writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     let gate = Arc::new(PollGate::new());
+    gate.drop_zone.store(loaded.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -967,12 +1057,18 @@ pub fn run() {
             ai_key_remove,
             ai_spend,
             ai_models,
+            writing_known_apps,
+            writing_pause_builtins,
+            writing_rewrite_default,
+            writing_tone_defaults,
+            writing_ask_shown,
+            writing_ask_answer,
+            writing_docs_tip_dismiss,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
-            writing_set_paused,
             chat_send,
             chat_models,
             local_connect,
@@ -1047,6 +1143,9 @@ pub fn run() {
             // The visibility hotkey works in Rust: it has to reach a hidden window.
             let cycle_handle = handle.clone();
             shortcuts::on_cycle_visibility(move || presence::cycle(&cycle_handle));
+            // So does the pause key (1d): it works with the island hidden.
+            let pause_handle = handle.clone();
+            shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);

@@ -3,6 +3,7 @@
 
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
+import { DropZoneSession } from "../core/drop-zone";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
@@ -19,7 +20,7 @@ import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
 import { h } from "../views/dom";
-import { tn } from "../i18n/i18n";
+import { t, tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
@@ -37,6 +38,7 @@ import {
   DELEGATE_STATE,
   lanternStateFor,
   withWritingSuggestions,
+  withPause,
   type LanternState,
 } from "../mascot/lantern";
 
@@ -72,6 +74,8 @@ export class Island {
   private countdown!: HTMLElement;
   /** The writing suggestions' count on the pill. */
   private writingBadge!: HTMLElement;
+  /** "❚❚" by the lantern while the writing features are paused (1d). */
+  private pauseBadge!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
   private header!: ViewHost;
@@ -259,6 +263,7 @@ export class Island {
     this.miniGrid = h("div", { id: "mini-grid" });
     this.countdown = h("div", { id: "countdown" });
     this.writingBadge = h("div", { id: "writing-count", role: "status", style: "display:none" });
+    this.pauseBadge = h("div", { id: "pause-badge", role: "status", style: "display:none", text: "❚❚" });
 
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
@@ -293,6 +298,7 @@ export class Island {
       this.miniGrid,
       this.countdown,
       this.writingBadge,
+      this.pauseBadge,
     );
 
     this.root.append(this.wakeStrip, this.islandEl, this.menu.el);
@@ -514,14 +520,17 @@ export class Island {
 
   // ── File drop ───────────────────────────────────────────────────────────────
 
+  /** How the island looked before the current file drag opened the bucket. */
+  private readonly dropZone = new DropZoneSession();
+
   private onDragDrop(e: { type: string; paths?: string[] }) {
     if (e.type !== "over") void Bridge.log(`drag ${e.type} ${e.paths?.length ?? 0} file(s)`);
-    if (State.paused) return;
     switch (e.type) {
       case "enter":
       case "over": {
-        if (State.fileDragOver) return;
+        if (State.fileDragOver || !State.settings.fileDropZone) return;
         State.fileDragOver = true;
+        this.dropZone.enter(State.mode === "expanded", State.view);
         this.engine.animateMorph(1);
         // enterZone must run before the island expands, so the sequence is
         // already active by the time the view becomes `upload`.
@@ -533,13 +542,18 @@ export class Island {
         if (!State.fileDragOver) return;
         State.fileDragOver = false;
         this.engine.animateMorph(0);
-        // The island deliberately stays open: the drag session is still alive.
         UploadSeq.exitZone();
+        // Left the zone (or dropped elsewhere, or Esc): the bucket folds away
+        // at once, so it never sits over where the file is going.
+        const next = this.dropZone.leave(State.view, State.mode === "expanded");
+        if (next === "collapse") this.collapse();
+        else if (next !== "stay") this.setView(next);
         State.notify();
         break;
       }
       case "drop": {
         State.fileDragOver = false;
+        this.dropZone.drop();
         const path = e.paths?.[0];
         if (!path) {
           this.engine.animateMorph(0);
@@ -862,7 +876,7 @@ export class Island {
       State.lastActivity = performance.now();
     });
 
-    void onDragDrop((e) => this.onDragDrop(e));
+    void onDragDrop((e) => this.onDragDrop(e), () => State.settings.fileDropZone !== false);
 
     // Outside Tauri (plain browser) drive the cursor from DOM events so the
     // island can be inspected with `npm run dev`.
@@ -1137,7 +1151,9 @@ export class Island {
     else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else {
       const writing = State.writing.length;
-      this.lantern.show(forced ?? withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), writing));
+      // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
+      const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
+      this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
       const badge = this.writingBadge;
@@ -1149,6 +1165,16 @@ export class Island {
         badge.setAttribute("aria-label", tn("{count} writing suggestion", "{count} writing suggestions", writing));
         badge.style.left = `${this.botCx.value + wPx * 0.22}px`;
         badge.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+      }
+      // Paused (1d): the pause badge where the count goes, so it's clear the
+      // writing help is off even while an agent's state has the lantern.
+      const pause = this.pauseBadge;
+      const paused = State.paused && State.mode !== "hidden" && !State.mochiOnDesktop;
+      pause.style.display = paused ? "" : "none";
+      if (paused) {
+        pause.setAttribute("aria-label", t("Writing help paused"));
+        pause.style.left = `${this.botCx.value + wPx * 0.22}px`;
+        pause.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
       }
     }
   }

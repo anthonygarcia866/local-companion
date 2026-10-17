@@ -23,7 +23,9 @@ export type IslandViewName =
   | "settings"
   | "recap"
   | "suggestions"
-  | "rewrite";
+  | "rewrite"
+  | "writingAsk"
+  | "writingDocsTip";
 
 export type BotStateName =
   | "idle"
@@ -178,6 +180,10 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // The Rewrite card (1c, views.ts buildRewrite): the title, the rewritten
   // paragraph (up to ~5 lines, scrolls past that) and a row of buttons.
   rewrite: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // "Check writing in [app]?" (1d, views/ask.ts): a title, one line, three buttons.
+  writingAsk: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // The Google Docs tip (views/docs-tip.ts): a title, one line, two buttons.
+  writingDocsTip: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually

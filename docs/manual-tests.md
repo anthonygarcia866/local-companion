@@ -7,9 +7,8 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 ## Before you start
 
 - **Know which build is installed.** Features on a branch that isn't merged are only there if that branch was built and installed.
-  - Today `main` has everything up to 1b (fixes).
-  - PR #15 (`post-1b-fixes`) adds Apply all, the approval queue, a pill per session, the Deny key, top-bar dragging, the usage-limit card and the Harper message fix.
-  - `phase-1c-rewrite` adds the Claude rewrite.
+  - Today `main` has everything up to 1c: the checker, fixes, Apply all, the approval queue, a pill per session, the Deny key, and the Claude rewrite (PR #16, 2026-10-13).
+  - The `phase-1d` branch adds sections 16–21 below: per-app switches, the one-time prompt, rewrite tones and Casual, strictness, the editable pause list, and the pause key. It also changes section 11 (Pause).
   - Ask Claude Code to build and install a branch; it tells you the build time. The file is `%LOCALAPPDATA%\Glim\glim.exe`.
 - **Glim's log** is `%LOCALAPPDATA%\Glim\glim.log`. Several checks below look at its last lines. To read them, open PowerShell and run:
 
@@ -241,19 +240,21 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ## 11. Pause (tray)
 
-*Where: main. 1d will change this; see `docs/phase1-plan.md` §14.*
+*Where: main hides Glim on Pause. On `phase-1d`, Glim stays and greys out instead; see section 21 for the key.*
 
 1. **Pause:** tray icon → **Pause**.
-   - **See:** Glim hides.
+   - **See (main):** Glim hides.
+   - **See (`phase-1d`):** Glim stays where it is: the lantern goes grey (flame out) and a small grey **❚❚** badge sits where the count goes. The tray menu now says **Resume**, and hovering the tray icon says "Glim (paused)".
    - **See:** type the test sentence in Notepad; no count appears anywhere, and nothing is read.
-2. **Resume:** tray icon → **Pause** again (or **Open Glim**).
-   - **See:** Glim comes back, and the sentence gets its count within a second.
+2. **Resume:** tray icon → **Resume** (main: **Pause** again or **Open Glim**).
+   - **See:** the lantern lights again, and the sentence gets its count within a second.
+   - **See (`phase-1d`):** opening Glim, Settings or the chat no longer lifts Pause; only Resume or the pause key do.
 
 **Cleanup:** make sure Glim isn't left paused.
 
 ## 12. The rewrite: setup (1c)
 
-*Where: the `phase-1c-rewrite` branch.* You need an Anthropic API key:
+*Where: main (since PR #16).* You need an Anthropic API key:
 
 1. **Get a key:**
    - Sign in at **console.anthropic.com** and add a payment method or credits under **Billing**.
@@ -270,10 +271,11 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ## 13. The rewrite: using it (1c)
 
-*Where: `phase-1c-rewrite`.* Do it in **Outlook (classic)**, **Word** and **Gmail in Chrome**.
+*Where: main (since PR #16).* Do it in **Outlook (classic)**, **Word** and **Gmail in Chrome**.
 
 1. **Open the card:** write a short paragraph, leave the caret in it, and press **Ctrl+Alt+Shift+R**.
-   - **See:** the **Rewrite this paragraph** card with four tones: Friendlier, More formal, Shorter, Fix grammar.
+   - **See (main):** the **Rewrite this paragraph** card with four tones: Friendlier, More formal, Shorter, Fix grammar.
+   - **See (`phase-1d`):** five tones (Casual is new), with this app's default first and ringed; see section 18.
    - **See:** nothing has been sent yet (the lantern isn't in its "sending" look).
 2. **Send it:** click **More formal**.
    - **See:** "Rewriting with Claude…", and the lantern switches to its **sending look** (reserved for data leaving your PC) until the answer arrives.
@@ -285,7 +287,7 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 4. **Refused after an edit:** rewrite again, but **edit the paragraph** before clicking **Use this**.
    - **See:** nothing is typed, and the card says the text changed.
 5. **Try another tone:** from a result, click **Try another tone**.
-   - **See:** you're back to the four tones.
+   - **See:** you're back to the tones.
 6. **From the suggestion card:** with mistakes showing, open the list and click **Rewrite…**.
    - **See:** the same Rewrite card.
 7. **Chat apps:** in Slack or Teams, rewrite a message.
@@ -298,10 +300,11 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 ## 14. The rewrite: refusals (1c)
 
-*Where: `phase-1c-rewrite`.* For each, open the Rewrite card and click a tone.
+*Where: main (since PR #16).* For each, open the Rewrite card and click a tone.
 
 1. **Sensitive numbers:** a paragraph with the test card number.
-   - **See:** "Not sent: it looks like it has a card, SSN or bank number in it." Same for the SSN and the IBAN.
+   - **See:** **Not rewritten**, and nothing is sent. Because capture never reads a paragraph holding a card, SSN or IBAN, the card says "Click in the paragraph you want rewritten first." and the log says `rewrite: not sent (no-paragraph)` (2026-10-13, live). The "it looks like it has a card…" message is the last-look check before sending, which a live test doesn't reach. Same for the SSN and the IBAN.
+   - **See:** Settings → AI → Spend: the request count hasn't gone up.
 2. **No key:** Settings → AI → **Remove**, then rewrite.
    - **See:** "Add your Anthropic API key in Settings → AI first." Save the key again afterwards.
 3. **The monthly cap:** set **Monthly cap ($)** to `0.0001`, rewrite once (it goes through), then rewrite again.
@@ -332,12 +335,144 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess -and $_.RemoteAddress -notin '127.0.0.1','::1','0.0.0.0','::' } | Select-Object RemoteAddress, RemotePort, State
    ```
 
-   - **See (main / PR #15):** nothing listed.
-   - **See (1c, during a rewrite):** only connections on port **443**. To check they're Anthropic's, run `Resolve-DnsName api.anthropic.com`; the addresses should match.
+   - **See (no rewrite running):** nothing listed.
+   - **See (during a rewrite):** only connections on port **443**. To check they're Anthropic's, run `Resolve-DnsName api.anthropic.com`; the addresses should match.
 
 **Cleanup:** none.
 
+## 16. Which apps are checked (1d)
+
+*Where: `phase-1d`.* Settings… → **Writing → Apps**.
+
+1. **The list:** every app Glim knows, each with a switch. Outlook, Word, Chrome, Edge, Notepad and the chat apps are on. VS Code, Cursor, Visual Studio and the terminals are off.
+   - **See:** chat apps say "chat rules"; Edge, new Outlook and the chat apps say "suggestions only".
+2. **Switch one off:** turn **Word** off, then type the test sentence in Word.
+   - **See:** no count, within a second of the switch. Any count that was showing for Word goes.
+3. **Back on:** turn Word on again and type in it.
+   - **See:** the count comes back.
+4. **Outlook and Gmail:** do steps 2–3 in Outlook (classic) and Gmail in Chrome.
+
+**Cleanup:** every switch back as it was.
+
+## 17. "Check writing in [app]?" (1d)
+
+*Where: `phase-1d`.* You need an app Glim has never asked about, such as **WordPad** (`wordpad.exe`) or **Acrobat**.
+
+1. **The question:** with Glim in **Normal**, click in a text field of that app and wait 2–3 seconds.
+   - **See:** a card "Check writing in **[app's name]**?" with **Yes**, **Not now** and **Never**, and the lantern pops once.
+   - **See:** your caret stays in the app; keep typing if you want.
+   - **See:** the log has `writing: asking about wordpad.exe` and **no text or window title**.
+2. **Not now:** click **Not now**, or wait 30 seconds.
+   - **See:** the card goes. Clicking in the app again **today** doesn't ask again.
+3. **Yes:** test this on another day, or on a second unknown app. Click **Yes**, then type the test sentence there.
+   - **See:** it gets a count (view-only, no fix buttons).
+   - **See:** the app shows in Settings → Writing → Apps, switched on.
+4. **Never:** on a third unknown app, click **Never**.
+   - **See:** it's never asked about again, including after a restart, and it's listed in Settings, switched off.
+5. **Ember:** switch Glim to **Ember** and click in a new unknown app.
+   - **See:** the ember shows **?**. Click it to get the card.
+6. **Hidden and fullscreen:** in **Hidden**, or with a fullscreen app in front, nothing asks.
+7. **Never asked:** File Explorer's address bar, the Start menu search, and password managers.
+8. **Behind an approval:** if a Claude Code permission card is up, the question waits until you answer it.
+
+**Cleanup:** Settings → Writing → Apps, switch off any test app you said Yes to.
+
+## 18. Rewrite tones and Casual (1d)
+
+*Where: `phase-1d`.* Settings… → **Writing → Rewrite tones**.
+
+1. **The defaults:** Email (Outlook, Gmail) = More formal; Documents (Word) = More formal; Chat apps and chat sites = **Casual**; Everything else = Fix grammar.
+2. **First and ringed:** in Outlook, press **Ctrl+Alt+Shift+R**.
+   - **See:** **More formal** comes first, with a ring. In Slack or claude.ai it's **Casual**; in Notepad it's **Fix grammar**.
+3. **Second press sends:** with the card open on the tones, press **Ctrl+Alt+Shift+R** again.
+   - **See:** it sends the ringed tone, exactly as clicking it would.
+4. **Casual:** in Word, pick **Casual**.
+   - **See:** a relaxed rewrite; **Use this** works as for the other tones.
+5. **Change a default:** set Chat apps to **Friendlier**, then press the key in Slack.
+   - **See:** Friendlier comes first.
+6. **One app:** under **For one app**, pick **Word** and **Shorter**, then **Add**. In Word, **Shorter** comes first; Outlook still has More formal.
+
+**Cleanup:** set the tones back as you like them; the app's own tone has "Its kind's tone" to remove it.
+
+## 19. Strictness (1d)
+
+*Where: `phase-1d`.* Settings… → **Writing → Strictness**. Under the menu, one line per level says what it covers; the chosen level's line is marked. Use this paragraph in Notepad (retest 2026-10-14: the old one had nothing only Full finds):
+
+`Hi Sarah, I recieved the the lease. Their is a few things to do before friday , ok? The plumber can come at 8am in the morning, and the repair is for free of charge.`
+
+1. **Full (default):** everything below, **plus** "am in the morning" and "for free of charge" (wordiness).
+2. **Standard:** those two go; still "recieved", "the the", "Their" and the space before the comma.
+3. **Spelling only:** only "recieved" and "the the".
+4. **Chat:** in Slack, at any level, "u", "lol" and lowercase sentence starts are never flagged.
+5. **Known gap, at every level:** `Alex and I was at the unit. There are a few issues that needs fixing.` gives **no** suggestion. That is Harper, not the level; the note under the levels says so (agreement and meaning errors need the AI; for now, Rewrite fixes them).
+
+**Cleanup:** back to **Full** (or what you prefer).
+
+## 20. Paused apps and sites (1d)
+
+*Where: `phase-1d`.* Settings… → **Privacy**.
+
+1. **Built in, locked:** the password managers and the payment and banking sites are listed under "Built in, always paused" with a lock, and have no Remove.
+2. **Add an app:** type `notepad.exe`, then **Add**. Type the test sentence in Notepad.
+   - **See:** no count; Notepad isn't read at all.
+3. **Refused:** try `Notepad`, `C:\Windows\notepad.exe` and `KeePass.exe`.
+   - **See:** each is refused, with the reason under the box.
+4. **Add a site:** type `mail.google.com`, then **Add**, and write an email in Gmail in Chrome. *(Retest 2026-10-14: Google Docs can't be used for this, see step 6.)*
+   - **See:** nothing is checked there. Outlook (and claude.ai) still are.
+5. **Remove** both; Notepad gets its count again within a second, and Gmail within a second of typing.
+6. **Google Docs (needs screen reader support):** open a Google Doc in Chrome **with screen reader support off** (Tools → Accessibility; Ctrl+Alt+Z toggles it) and type the test sentence.
+   - **See:** after ~3 s, Glim shows **"Google Docs: Glim can't read this document"** with "Turn on screen reader support (Ctrl+Alt+Z)…" and **Got it** / **Not now**. glim.log has `writing: Google Docs field not readable (pattern …, read-only …)` and `writing: Google Docs tip offered` (no text).
+   - Click **Not now**. Press **Ctrl+Alt+Z** in the Doc, type the test sentence again.
+   - **See (to be found out):** whether Glim now gets a count. Tell Claude either way, with the log's `Google Docs field not readable` lines, if any.
+   - Quit and restart Glim, go back to a Doc with support off: the tip comes back (Not now isn't a dismissal). Click **Got it**: restart again, and it never comes back (log: `writing: Google Docs tip dismissed`).
+
+**Cleanup:** remove your test entries.
+
+## 21. The pause key (1d)
+
+*Where: `phase-1d`.* **Ctrl+Alt+Shift+P** pauses and resumes the writing help, from any app.
+
+1. **From Word, Normal:** press it while typing in Word.
+   - **See:** the paused look from section 11 (grey lantern, ❚❚, tray says Resume). The count and suggestions go.
+   - **See:** Word does nothing of its own with the key. *(Claude couldn't check Word's key table: you were using the PC.)*
+2. **Press again:** the lantern pops back, and the paragraph is checked again at once.
+3. **Ember:** switch to Ember and press it. The ember goes grey with ❚❚. Press again to resume.
+4. **Hidden:** switch to Hidden and press it. Nothing shows, but the tray icon's tooltip says "Glim (paused)". Press again.
+5. **Nothing while paused:** paused, type the test sentence, try Ctrl+Alt+Shift+R and a tone. You get no count and "Glim is paused."; the log has no `rewrite: ok` line.
+6. **Agents carry on:** paused, let a Claude Code session ask for a permission.
+   - **See:** the approval card shows in Glim as usual, instead of going back to the terminal. The ❚❚ badge stays.
+7. **Restart:** pause, quit Glim, start it again.
+   - **See:** Glim starts **unpaused**.
+8. **Settings → Shortcuts** lists **Pause or resume writing help** with Ctrl+Alt+Shift+P, rebindable like the others.
+
+**Cleanup:** Glim not paused.
+
 ---
+
+## 22. Settings navigation (1d retest)
+
+*Where: `phase-1d`.* Open Settings…
+
+1. **Sidebar:** on the left: a search box, then General, Presence, Writing (Apps, Tones, Strictness), Privacy, Shortcuts, Claude Code & Agents, About. The page's sections come in the same order.
+2. **Jump:** click **Strictness**. The page scrolls to it, and Strictness is marked in the sidebar. Scroll by hand: the mark follows the section on screen.
+3. **Keyboard:** Tab to the sidebar, move with Tab, press Enter on **Privacy**: it scrolls there, and the next Tab continues inside Privacy.
+4. **Search:** press **Ctrl+F**, type `ember`: only the "Show Glim as" row (Presence) stays. Type `apps`: Writing's whole Apps list shows. Type `zzz`: "No setting matches “zzz”." Press **Esc**: everything is back.
+5. **Narrow:** make the window narrow (under ~640 px): the sidebar becomes a bar on top with the sections side by side; clicking one still jumps there and the heading isn't hidden under the bar.
+6. **Language:** switch to Français and back: the sidebar and search are translated, and what you typed in the search stays.
+
+## 23. File drags pass Glim by (1d retest)
+
+*Where: `phase-1d`.* Glim running as the pill, top centre.
+
+1. **Into another folder:** drag a file from one Explorer window to another folder, passing the mouse **across the top of the screen near (not onto) the pill** on the way.
+   - **See:** Glim doesn't change, no "Drop your files here"; the file lands in the folder.
+2. **Into Outlook:** drag a file onto a new email in Outlook (attach it).
+   - **See:** it attaches; Glim never opens.
+3. **Onto the lantern:** drag a file onto the pill.
+   - **See:** the bucket ("Drop your files here", PDF / Images / Code / Docs) appears as you get close; drop it on a target: it is taken as before.
+4. **Change your mind:** drag a file onto the pill until the bucket opens, then move away (or press **Esc**).
+   - **See:** the bucket folds away at once; dropping somewhere else then works normally.
+5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
 
 ## After testing
 

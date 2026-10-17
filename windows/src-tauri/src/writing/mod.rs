@@ -13,8 +13,12 @@
 
 pub mod apply;
 pub mod apps;
+pub mod ask;
 pub mod checker;
+pub mod docs_tip;
+pub mod prefs;
 pub mod text;
+pub mod tones;
 
 use serde::Serialize;
 use std::time::{Duration, Instant};
@@ -458,6 +462,17 @@ impl Session {
         }
     }
 
+    /// The writing settings changed (an app switched off, 1d): everything
+    /// shown, kept or remembered goes, and the field is looked at afresh.
+    pub fn settings_changed(&mut self, mut emit: impl FnMut(&Suggestions)) {
+        self.kept = None;
+        self.current = None;
+        self.rewrite = None;
+        self.dismissed = None;
+        self.debounce.reset();
+        self.show(Suggestions::default(), FixMode::View, &mut emit);
+    }
+
     /// Dismissed from the island: nothing shown or kept until the text changes.
     pub fn dismiss(&mut self, mut emit: impl FnMut(&Suggestions)) {
         self.dismissed = self.debounce.key();
@@ -638,7 +653,7 @@ impl Session {
     fn check(&mut self, p: &Paragraph, rules: Rules) -> Suggestions {
         let checker = self.checker.get_or_insert_with(Checker::new);
         let t = Instant::now();
-        let findings = checker.check(&p.text, rules);
+        let findings = checker.check_at(&p.text, rules, prefs::get().strictness);
         self.times.push(t.elapsed().as_micros());
         self.lengths.push(p.text.chars().count());
         let chars: Vec<char> = p.text.chars().collect();
@@ -1261,7 +1276,10 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
             assert!(lib.contains(cmd), "{cmd}");
         }
         assert!(lib.contains("fn writing_dismiss() {"));
-        assert!(lib.contains("fn writing_set_paused(paused: bool) {"));
+        // Pause is Rust's own since 1d (pause.rs): the island has no command for it.
+        assert!(!lib.contains("fn writing_set_paused("));
+        // The one-time prompt's answer: the app's exe and a word, nothing else.
+        assert!(lib.contains("fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer: String) {"));
     }
 
     #[test]
