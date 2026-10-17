@@ -58,8 +58,8 @@ pub fn tools() -> Value {
     json!([
         { "name": "dictate", "description": "Type cleaned-up dictated text into the field the user is in.",
           "input_schema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
-        { "name": "open_app", "description": "Open an app.",
-          "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": ["claude_code", "codex", "outlook"] } }, "required": ["app"] } },
+        { "name": "open_app", "description": "Open an app: outlook (classic Outlook), codex (the Codex app), claude (the Claude chat app), claude_code (Claude Code).",
+          "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": ["claude_code", "claude", "codex", "outlook"] } }, "required": ["app"] } },
         { "name": "resume_work", "description": "Pick up where the user left off in a repo (from its HANDOFF.md).",
           "input_schema": { "type": "object", "properties": { "repo": { "type": "string" } } } },
         { "name": "draft_email", "description": "Create a draft email (never sent).",
@@ -150,6 +150,7 @@ pub fn parse_answer(body: &[u8], model: &str, mode: Mode) -> (Result<Cleanup, Cl
             "outlook" => Ok(Cleanup::Open("outlook")),
             "codex" => Ok(Cleanup::Open("codex")),
             "claude_code" => Ok(Cleanup::Open("claude_code")),
+            "claude" => Ok(Cleanup::Open("claude")),
             _ => Err(CleanupFailed::Outage("bad-answer".into())),
         },
         "resume_work" => Ok(Cleanup::Resume(Some(field("repo")).filter(|r| !r.is_empty()).map(str::to_string))),
@@ -279,6 +280,7 @@ mod tests {
         assert_eq!(parse_answer(&answer("open_app", json!({ "app": "outlook" })), "m", Mode::Dictate).0, Err(CleanupFailed::Outage("bad-answer".into())));
         assert_eq!(p("open_app", json!({ "app": "outlook" })), Ok(Cleanup::Open("outlook")));
         assert_eq!(p("open_app", json!({ "app": "claude_code" })), Ok(Cleanup::Open("claude_code")));
+        assert_eq!(p("open_app", json!({ "app": "claude" })), Ok(Cleanup::Open("claude")));
         for app in ["notepad", "C:\\Windows\\System32\\cmd.exe", ""] {
             assert_eq!(p("open_app", json!({ "app": app })), Err(CleanupFailed::Outage("bad-answer".into())), "{app}: never a free path");
         }
