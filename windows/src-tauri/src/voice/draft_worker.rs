@@ -63,6 +63,8 @@ enum Job {
     ShowEdit(DraftText),
     /// A short note instead of a card ("draft-gone", "edit-failed").
     Note(&'static str),
+    /// A spoken "never mind": the card closes as on Cancel.
+    Dismiss,
 }
 
 /// The card is up and still asking who an email goes to.
@@ -135,6 +137,11 @@ pub fn note(app: &AppHandle, code: &'static str) {
     post(app, Job::Note(code));
 }
 
+/// A spoken "never mind" (fix c): the card, if one is up, closes as on Cancel.
+pub fn dismiss(app: &AppHandle) {
+    post(app, Job::Dismiss);
+}
+
 /// The sender and the remembered picks, as settings have them now.
 fn settings(app: &AppHandle) -> (String, BTreeMap<String, String>) {
     app.try_state::<crate::Shared>()
@@ -160,6 +167,22 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
     // The draft saved (or changed) last: its Outlook id and when. Memory only.
     let mut last: Option<(String, Instant)> = None;
     while let Ok(job) = rx.recv() {
+        // Not connected yet means no card and no draft saved this run: a
+        // "never mind", a read-back or a note never starts Outlook.
+        if outlook.is_none() {
+            match job {
+                Job::Dismiss => continue,
+                Job::ReadLast { reply } => {
+                    let _ = reply.send(Err(DraftError::Gone));
+                    continue;
+                }
+                Job::Note(code) => {
+                    send(&app, "closed", None, code);
+                    continue;
+                }
+                _ => {}
+            }
+        }
         // Outlook is started (in the background) the first time it's needed.
         if outlook.is_none() {
             match crate::outlook::ComOutlook::connect() {
@@ -275,6 +298,11 @@ fn worker(app: AppHandle, rx: std::sync::mpsc::Receiver<Job>) {
             Job::Note(code) => {
                 card = None;
                 send(&app, "closed", None, code);
+            }
+            Job::Dismiss if card.is_some() => {
+                crate::log::line("draft: cancelled (never mind)");
+                card = None;
+                send(&app, "closed", None, "");
             }
             Job::Cancel { id } if ours(id, &card) => {
                 crate::log::line("draft: cancelled");

@@ -227,6 +227,10 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
             return;
         }
+        if super::dismisses(&transcript) {
+            dismiss(app, mode);
+            return;
+        }
         crate::log::line("voice: answer for the draft card");
         super::draft_worker::answer(app, transcript);
         send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
@@ -239,6 +243,12 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
 /// voice::decide, and what follows.
 async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>) {
     let m = mode.as_str();
+    // "Never mind" (fix c): the card closes, nothing goes to Claude, nothing
+    // is asked back. Dictation still types those words.
+    if mode != Mode::Dictate && super::dismisses(transcript) {
+        dismiss(app, mode);
+        return;
+    }
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
@@ -300,6 +310,16 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
         }
     }
+}
+
+/// A spoken "never mind": the waiting question ends, the voice card and the
+/// draft card close (Cancel), and the voice keys go back to dictating and
+/// asking.
+fn dismiss(app: &AppHandle, mode: Mode) {
+    crate::log::line("voice: dismissed (never mind)");
+    set_question(None);
+    super::draft_worker::dismiss(app);
+    send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
 }
 
 /// The repos Glim reads (resume::repos), by folder name: the clean-up's

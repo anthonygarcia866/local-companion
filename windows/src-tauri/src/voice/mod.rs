@@ -90,6 +90,28 @@ pub fn starts_like_command(transcript: &str) -> bool {
     COMMAND_WORDS.iter().any(|c| t == *c || t.starts_with(&format!("{c} ")))
 }
 
+/// Whole utterances that mean "close it, nothing else" (fix c, retest
+/// 2026-10-17: "never mind" got "Is there something else you'd like me to
+/// do?"). Matched on the whole utterance, after filler, so "never mind the
+/// plumber, say Tuesday" is still a request.
+const DISMISS: [&str; 16] = [
+    "never mind", "nevermind", "never mind then", "cancel", "cancel that", "cancel it", "forget it", "forget about it",
+    "no thanks", "no thank you", "nothing", "that's all", "thats all", "stop", "dismiss", "close it",
+];
+
+/// The utterance only says "close the card": no clean-up, no question back.
+pub fn dismisses(transcript: &str) -> bool {
+    let mut t = words(transcript);
+    for f in FILLER.iter().chain(&["oh", "oops", "actually", "ah"]) {
+        if let Some(rest) = t.strip_prefix(&format!("{f} ")) {
+            t = rest.to_string();
+        }
+    }
+    // "never mind, thanks" as well as "no thanks" (where "thanks" is the word).
+    let polite = t.trim_end_matches(" thanks").trim_end_matches(" thank you").trim_end_matches(" please");
+    DISMISS.contains(&t.as_str()) || DISMISS.contains(&polite)
+}
+
 /// Which key started the utterance (Decision A, 2026-10-16), or that it
 /// answers a waiting question card (Decision B).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -411,6 +433,31 @@ pub(crate) mod tests {
         assert_eq!(Mode::Dictate.as_str(), "dictate");
         assert_eq!(Mode::Ask.as_str(), "ask");
         assert_eq!(Mode::Answer.as_str(), "answer");
+    }
+
+    /// Fix c (retest 2026-10-17): "never mind" got a follow-up question.
+    #[test]
+    fn never_mind_closes_the_card_and_nothing_else() {
+        for said in ["Never mind.", "never mind", "Nevermind!", "Cancel.", "cancel that", "Forget it", "um never mind", "oh, cancel", "no thanks", "never mind, thanks", "That's all."] {
+            assert!(dismisses(said), "{said}");
+        }
+        // A request that only starts that way is still a request.
+        for said in ["never mind the plumber, say Tuesday", "cancel the meeting with Sam", "stop by the office", "open outlook", "", "nothing works in Docs"] {
+            assert!(!dismisses(said), "{said}");
+        }
+        // Before Claude: act() returns on a dismissal (Ask and answers only;
+        // the dictation key types the words), and the draft card's answer too.
+        let run = include_str!("run.rs");
+        let act = &run[run.find("async fn act(").unwrap()..];
+        let check = act.find("if mode != Mode::Dictate && super::dismisses(transcript)").expect("checked in act");
+        assert!(check < act.find("clean_up(app, mode, transcript").unwrap(), "before anything goes to Claude");
+        let process = &run[run.find("async fn process(").unwrap()..run.find("async fn act(").unwrap()];
+        assert!(process.find("super::dismisses(&transcript)").unwrap() < process.find("draft_worker::answer(app, transcript)").unwrap());
+        let dismiss = &run[run.find("fn dismiss(app: &AppHandle, mode: Mode)").unwrap()..];
+        let dismiss = &dismiss[..dismiss.find("\n}\n").unwrap()];
+        for step in ["set_question(None);", "super::draft_worker::dismiss(app);", "phase: \"idle\""] {
+            assert!(dismiss.contains(step), "{step}");
+        }
     }
 
     #[test]

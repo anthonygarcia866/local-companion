@@ -14,6 +14,7 @@ import { docsTipPlacement } from "./core/docs-tip";
 import { closeDocsTip } from "./views/docs-tip";
 import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "./core/voice";
 import { voiceShown } from "./views/voice";
+import { returnKeyboard } from "./core/keyboard";
 import { draftPlacement, nextDraft, type DraftEvent } from "./core/draft";
 import { withFirst } from "./views/resume";
 import { isLanternState } from "./mascot/lantern";
@@ -265,9 +266,20 @@ async function main() {
   // Push-to-talk (voice 1.5b, core/voice.ts): Rust's phases. While the key
   // is held the mic level comes ~10 times a second; the lantern reads it each
   // frame, so those need no redraw.
+  /** Rust took a card away (a spoken "never mind", fix c; or its answer
+   *  needed no card): the island leaves it rather than show it emptied. */
+  const cardGone = (view: "voice" | "draft") => {
+    returnKeyboard(view);
+    if (State.mode !== "expanded" || State.view !== view) return;
+    const next = State.lanternView();
+    if (next) island.setView(next);
+    else island.collapse();
+  };
+
   await onEvent<VoiceEvent>("voice", (e) => {
     const was = State.voice;
     State.voice = nextVoice(State.voice, e);
+    if (e.phase === "idle" && was) cardGone("voice");
     if (e.phase === "listening" && was?.phase === "listening") return;
     const v = State.voice;
     if (v && !running(v)) {
@@ -288,6 +300,7 @@ async function main() {
   await onEvent<DraftEvent>("draft-email", (e) => {
     const had = State.draft !== null;
     State.draft = nextDraft(State.draft, e);
+    if (had && !State.draft) cardGone("draft");
     if (State.draft && !had) {
       const where = draftPlacement({ presence: presence.model.kind, approval: State.pendingApproval !== null });
       if (where === "drop") State.draft = null;

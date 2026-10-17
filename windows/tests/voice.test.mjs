@@ -422,6 +422,17 @@ test("the answer box borrows the keyboard on a click and gives it back on Send, 
   assert.ok(/\n\s+focus_window,\n\s+lend_keyboard,\n/.test(lib), "registered");
 });
 
+test("a spoken never mind: Rust ends the question and the island leaves the card, no follow-up (fix c, 2026-10-17)", () => {
+  // Rust sends "idle" (voice) and "closed" (draft); the island leaves those
+  // views instead of showing them emptied, and gives back a borrowed keyboard.
+  const main = read("src/main.ts");
+  const gone = main.slice(main.indexOf("const cardGone = "), main.indexOf('await onEvent<VoiceEvent>("voice"'));
+  for (const step of ["returnKeyboard(view);", "State.view !== view", "State.lanternView()", "island.setView(next)", "island.collapse()"]) assert.ok(gone.includes(step), step);
+  assert.ok(main.includes('if (e.phase === "idle" && was) cardGone("voice");'));
+  assert.ok(main.includes('if (had && !State.draft) cardGone("draft");'));
+  assert.equal(nextVoice(at({ phase: "question", text: "Is there something else?" }), ev({ phase: "idle" })), null, "idle clears the card");
+});
+
 test("closing a question card tells Rust; other cards don't", () => {
   const cases = [
     [at({ phase: "question", text: "Which app?" }), 1],
