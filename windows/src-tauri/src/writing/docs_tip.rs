@@ -1,41 +1,38 @@
-// Google Docs draws its pages on a canvas: unless the document has screen
-// reader support on (Tools → Accessibility, Ctrl+Alt+Z), UI Automation finds
-// no text in the field the user types in, so Glim has nothing to check
-// (Anthony's live test, 2026-10-14, docs/manual-tests.md §20). When that
-// happens, the island shows a one-time tip; "Got it" stores that it was
-// dismissed (`writingDocsTipDismissed`, Rust-owned like the ask dates), and
-// it never shows again. Only the site and whether the field gave any text
-// are looked at: nothing of the text is kept or logged.
+// Google Docs is not supported yet (Decision D, 2026-10-17): Docs draws its
+// pages on a canvas and types into a hidden helper field, so UI Automation
+// never gives Glim the document's text, even with screen reader support on
+// (Anthony's tests 2026-10-14 and 2026-10-16; docs/capture-results.md, "Google
+// Docs"). Glim reads nothing in a Docs document (capture::uia::read skips it)
+// and shows a one-time notice, "Glim can't read Google Docs yet", once a Docs
+// document has had the focus for AFTER. "Got it" stores that it was dismissed
+// (`writingDocsTipDismissed`, Rust-owned like the ask dates); "Not now" just
+// closes it (it may come back next run). Only the site is looked at.
 
 use std::time::{Duration, Instant};
 
-/// The island's event: the tip, no payload.
+/// The island's event: the notice, no payload.
 pub const EVENT: &str = "writing-docs-tip";
 
 /// A Google Docs document (Sheets and Slides are other editors).
 pub const DOCS_SITES: [&str; 1] = ["docs.google.com/document"];
 
-/// How long the field has to stay unreadable before the tip shows: a new,
-/// empty document the user is only looking at shouldn't get it at once.
+/// How long a Docs document has to keep the focus before the notice shows:
+/// passing through a Docs tab shouldn't get it at once.
 pub const AFTER: Duration = Duration::from_secs(3);
 
-/// A field that gave no text to check: read-only to UI Automation, no text
-/// pattern at all, or a pattern with nothing (or only spaces) in it. A
-/// reading dropped for a card number is not "unreadable": it had text.
-pub fn unreadable(pattern: &str, read_only: bool, text: Option<&str>) -> bool {
-    read_only || pattern == "none" || text.is_some_and(|t| t.trim().is_empty())
-}
+/// What the capture panel and the log call a Docs field: nothing is read.
+pub const SKIPPED_DOCS: &str = "skipped (Google Docs)";
 
 /// What a reading in Docs leads to.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Step {
-    /// Log one metadata line: an unreadable Docs field was just entered.
+    /// Log one metadata line: a Docs document just got the focus.
     pub log: bool,
-    /// Show the tip now.
+    /// Show the notice now.
     pub offer: bool,
 }
 
-/// The tip's clock, in the capture thread: offered at most once per run,
+/// The notice's clock, in the capture thread: offered at most once per run,
 /// and never once dismissed.
 #[derive(Default)]
 pub struct DocsTip {
@@ -44,10 +41,11 @@ pub struct DocsTip {
 }
 
 impl DocsTip {
-    /// `unreadable_docs`: this reading is a Docs field with no text to
-    /// check (and the checker is on in the browser).
-    pub fn feed(&mut self, unreadable_docs: bool, dismissed: bool, now: Instant) -> Step {
-        if !unreadable_docs {
+    /// `in_docs`: the focus is in a Google Docs document (and the checker
+    /// is on in the browser). Anything in the document counts, so typing
+    /// never restarts the wait (what kept the old tip from ever showing).
+    pub fn feed(&mut self, in_docs: bool, dismissed: bool, now: Instant) -> Step {
+        if !in_docs {
             self.since = None;
             return Step::default();
         }
@@ -64,17 +62,6 @@ impl DocsTip {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn unreadable_means_no_text_to_check() {
-        assert!(unreadable("none", false, None));
-        assert!(unreadable("skipped (read-only)", true, None));
-        assert!(unreadable("TextPattern", false, Some("")));
-        assert!(unreadable("TextPattern2", false, Some("  ")));
-        assert!(!unreadable("TextPattern2", false, Some("Hi Sarah")));
-        // Dropped for a card number: it had text, so no tip.
-        assert!(!unreadable("withheld", false, None));
-    }
 
     #[test]
     fn only_a_google_docs_document_counts() {
@@ -100,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    fn readable_text_restarts_the_wait() {
+    fn leaving_docs_restarts_the_wait() {
         let t0 = Instant::now();
         let mut tip = DocsTip::default();
         tip.feed(true, false, t0);

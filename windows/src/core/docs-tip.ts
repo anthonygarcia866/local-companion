@@ -1,8 +1,9 @@
-// The Google Docs tip (1d retest, 2026-10-14; src-tauri/src/writing/docs_tip.rs).
-// Docs draws its pages on a canvas, so without screen reader support Glim
-// finds no text to check there. Rust offers the tip once per run, after 3 s
-// in a Docs field with no text; "Got it" stores that it was dismissed and it
-// never comes back. "Not now", or 30 s with no answer, just closes it.
+// The Google Docs notice (Decision D, 2026-10-17; src-tauri/src/writing/docs_tip.rs).
+// Google Docs isn't supported yet: UI Automation never gives Glim the
+// document's text, even with screen reader support on. Rust reads nothing
+// there and offers the notice once per run, after 3 s in a Docs document;
+// "Got it" stores that it was dismissed and it never comes back. "Not now",
+// or 30 s with no answer, just closes it.
 
 import type { PresenceKind } from "../island/presence";
 

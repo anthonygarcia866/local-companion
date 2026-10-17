@@ -86,6 +86,29 @@ So the `cc-*` autocomplete hints can't be used, but sites that reuse them as ids
 
 None of the fake numbers appeared in the panel's text, the results log or glim.log.
 
+## Google Docs: not supported yet (Decision D, diagnosed 2026-10-17)
+
+**Result:** Glim can't read Google Docs, with or without screen reader support. Since branch `docs-unsupported`, Glim reads nothing in a Docs document and shows a one-time notice, "Glim can't read Google Docs yet".
+
+**Evidence (metadata only, never document text):**
+- **Anthony's live tests:** 2026-10-14 gave no count in Docs. On 2026-10-16 the old tip never appeared, including with screen reader support on.
+- **glim.log, 2026-10-16 22:01–22:10:** five `writing: Google Docs field not readable` lines. Docs was detected correctly from the page address (`docs.google.com/document`), and the focused element was one of three things:
+  - read-only content (`skipped (read-only content)`, the canvas page);
+  - an editable element with `TextPattern` but no text;
+  - an element with no text pattern at all.
+- **No `Google Docs tip offered` line.** The old tip needed 3 unbroken seconds of "no text", and something kept restarting that wait.
+- **The cause:** Docs draws pages on a canvas and takes keystrokes in a hidden helper element (the "text event target"). That element holds only the last few characters typed, and Docs clears them. Between those moments the field looked *readable* to Glim, which reset the tip's wait. And those characters are not the document.
+- **Screen reader support (Ctrl+Alt+Z)** makes Docs announce changes to screen readers. It does not put the document's text in the focused element.
+
+**What was changed:**
+- `capture::uia::read` returns `skipped (Google Docs)` for any element in a Docs document, before any text is read. So Glim never checks or rewrites the stray helper characters.
+- `writing::docs_tip` counts any focus in a Docs document. After 3 s, once per run, it shows the notice. "Got it" means never again; "Not now" means it may come back next run.
+
+**Not tried, for a future attempt (needs Anthony at the PC; no document text in logs):**
+- Docs' **braille support** (Tools → Accessibility → braille). It may mirror the current line or paragraph into the focused element.
+- Walking Chrome's UIA tree for the `kix` document region with screen reader support on. Docs exposes an annotated copy of the document to assistive technology there; reading it would mean a new reading path, off the focused element.
+- Either would need its own privacy review, because it reads more than the field the user types in.
+
 ## Model latency vs. context (gemma3:4b, this machine, CPU)
 
 Ollama 0.40.2, `gemma3:4b` (3.4 GB), a grammar fix of one sentence with N characters of surrounding context (synthetic text), reply ~20 tokens. Model loaded, median of 3, each run with a unique prompt so nothing is served from cache.

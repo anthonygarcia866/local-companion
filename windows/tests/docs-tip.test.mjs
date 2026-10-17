@@ -47,7 +47,8 @@ test("Got it dismisses it for good; Not now only closes it", () => {
     State.mode = "expanded";
     const { v, calls } = card();
     v.sync();
-    assert.match(v.el.textContent, /screen reader support \(Ctrl\+Alt\+Z\)/);
+    assert.match(v.el.textContent, /Glim can't read Google Docs yet/);
+    assert.doesNotMatch(v.el.textContent, /Ctrl\+Alt\+Z/, "no more advice that doesn't work (Decision D)");
     const n = sent("writing_docs_tip_dismiss").length;
     v.el.find("button").find((b) => b.textContent === label).fire("click");
     assert.equal(sent("writing_docs_tip_dismiss").length - n, dismissed, label);
@@ -77,4 +78,16 @@ test("dismissal is Rust's: a save from Settings can't bring the tip back", () =>
   const lib = read("src-tauri/src/lib.rs");
   assert.ok(lib.includes("settings.writing_docs_tip_dismissed = current.writing_docs_tip_dismissed;"));
   assert.ok(lib.includes("fn writing_docs_tip_dismiss(app: AppHandle, shared: State<Shared>)"));
+});
+
+// Decision D (2026-10-17): Docs is unsupported, so Rust reads nothing there and
+// the notice follows the document's focus, not whether a field looked readable.
+test("Google Docs is never read, and the notice doesn't depend on a readable field", () => {
+  const uia = read("src-tauri/src/capture/uia.rs");
+  const docs = uia.slice(uia.indexOf("    if docs_site {"), uia.indexOf("    if !is_editable(&edit_signals(element, control)) {"));
+  assert.match(docs, /meta\.pattern = crate::writing::docs_tip::SKIPPED_DOCS\.into\(\);/);
+  assert.match(docs, /return skipped;/);
+  assert.ok(!docs.includes("read_text("), "nothing is read in Docs");
+  assert.ok(uia.includes("let in_docs = reading.docs_site && crate::writing::apps::enabled(&reading.capture.meta.app);"));
+  assert.ok(!uia.includes("docs_tip::unreadable("), "the old readability test is gone");
 });
