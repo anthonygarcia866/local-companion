@@ -31,6 +31,7 @@ mod tray;
 mod webview_drop;
 mod writing;
 mod voice;
+mod calendar;
 #[cfg(windows)]
 mod outlook;
 #[cfg(all(test, windows))]
@@ -103,7 +104,14 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         // The draft card's remembered picks are Rust's (voice::draft_worker,
         // draft_forget).
         settings.draft_recipients = current.draft_recipients.clone();
+        // The day the calendar's morning summary was last shown is Rust's.
+        settings.calendar_summary_shown = current.calendar_summary_shown.clone();
+        let calendar_changed = (current.calendar_on, current.calendar_hide_all_day, current.calendar_summary, &current.calendar_ids)
+            != (settings.calendar_on, settings.calendar_hide_all_day, settings.calendar_summary, &settings.calendar_ids);
         *current = settings;
+        if calendar_changed {
+            calendar::worker::refresh(&app);
+        }
         (screen_changed, autostart_changed, shortcuts_changed)
     };
     let settings = shared.settings.lock().unwrap().clone();
@@ -825,6 +833,30 @@ fn draft_forget(app: AppHandle, shared: State<Shared>, name: String) {
 
 /// The card's picks, remembered once its draft is created (the spoken name,
 /// lowercased → the address). Never logged.
+/// The calendar glance's morning summary was shown today (local date).
+pub(crate) fn calendar_summary_shown(app: &AppHandle, date: &str) {
+    let Some(shared) = app.try_state::<Shared>() else { return };
+    update_settings(app, &shared, |s| s.calendar_summary_shown = date.to_string());
+}
+
+/// Settings → Calendar: the calendars classic Outlook has open (empty when
+/// it isn't running; it is never started for this).
+#[tauri::command]
+async fn calendar_calendars(app: AppHandle) -> Vec<calendar::worker::CalendarFolder> {
+    calendar::worker::list(&app).await
+}
+
+/// The island's Join button: event `index` of read `generation`. Rust holds
+/// the link and opens it only if it is a checked Teams/Zoom meeting link.
+#[tauri::command]
+fn calendar_join(app: AppHandle, caller: tauri::WebviewWindow, generation: u64, index: usize) {
+    if caller.label() != island::WINDOW_LABEL {
+        log::line(format!("calendar_join refused from window {:?}", caller.label()));
+        return;
+    }
+    calendar::worker::join(&app, generation, index);
+}
+
 pub(crate) fn remember_draft_picks(app: &AppHandle, picks: &[(String, String)]) {
     if picks.is_empty() {
         return;
@@ -1221,6 +1253,8 @@ pub fn run() {
             set_island_rect,
             focus_window,
             lend_keyboard,
+            calendar_calendars,
+            calendar_join,
             reposition,
             dock_drag_start,
             set_visibility,
@@ -1372,6 +1406,9 @@ pub fn run() {
             hooks::log_sync_state();
             pipe::start(handle.clone());
             shortcuts::apply(&handle, &loaded.shortcuts);
+            // The calendar glance: reads only while its setting is on, and
+            // only an Outlook that is already running.
+            calendar::worker::start(&handle);
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -120,6 +120,19 @@ pub struct Settings {
     /// → the address. Rust's: added on Create draft, removed with Forget in
     /// Settings (lib.rs keeps it when the page saves).
     pub draft_recipients: BTreeMap<String, String>,
+    /// Settings → Calendar (calendar glance): show the next Outlook event.
+    /// Off until the owner's live test passes.
+    pub calendar_on: bool,
+    /// Minutes before an event the lantern starts to glow.
+    pub calendar_lead_min: u32,
+    /// All-day events stay out of the glance (default).
+    pub calendar_hide_all_day: bool,
+    /// A summary of the day once a morning (off by default).
+    pub calendar_summary: bool,
+    /// Which calendars (Outlook folder paths); empty = the default calendar.
+    pub calendar_ids: Vec<String>,
+    /// The local date the morning summary was last shown. Rust-owned.
+    pub calendar_summary_shown: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -178,6 +191,12 @@ impl Default for Settings {
             voice_words: String::new(),
             draft_from: String::new(),
             draft_recipients: BTreeMap::new(),
+            calendar_on: false,
+            calendar_lead_min: 10,
+            calendar_hide_all_day: true,
+            calendar_summary: false,
+            calendar_ids: Vec::new(),
+            calendar_summary_shown: String::new(),
         }
     }
 }
@@ -466,7 +485,13 @@ mod tests {
   "voiceModel": "small",
   "voiceWords": "Glim, HOA, Okafor",
   "draftFrom": "me@example.com",
-  "draftRecipients": { "maria": "maria.lopez@example.com" }
+  "draftRecipients": { "maria": "maria.lopez@example.com" },
+  "calendarOn": true,
+  "calendarLeadMin": 5,
+  "calendarHideAllDay": false,
+  "calendarSummary": true,
+  "calendarIds": ["\\\\me@example.com\\Calendar"],
+  "calendarSummaryShown": "2026-10-17"
 }"##;
 
     fn custom() -> Value {
@@ -904,6 +929,12 @@ mod tests {
                 "voiceWords",
                 "draftFrom",
                 "draftRecipients",
+                "calendarOn",
+                "calendarLeadMin",
+                "calendarHideAllDay",
+                "calendarSummary",
+                "calendarIds",
+                "calendarSummaryShown",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
