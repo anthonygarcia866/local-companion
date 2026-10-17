@@ -271,16 +271,94 @@ The design was approved as written, with these answers:
 6. **Privacy (added by the owner):** the kept paragraph is dropped when the suggestions are dismissed, when the user moves to different text, when Glim is paused, and after 10 minutes at most; the sensitive-data check runs before it is kept; a test for each (§7.2).
 7. **Testing:** unit tests and read-only checks first. The typed self-test runs in **Notepad only**, only after the owner says in chat that they're away from the keyboard. The owner tests Outlook, Word and Gmail by hand.
 
-## 7a. The floating bubble at the field (1b, owner 2026-10-10)
+## 7a. The floating mini lantern at the field (PR "1e", after 1d)
 
-A Grammarly-style marker where the user is typing, so suggestions don't need a trip to the top of the screen:
+Status: **design approved by the owner 2026-10-13 (decisions in §7a.9). Logic and unit tests built in PR #22 (draft; `writing::bubble`, `src/core/bubble.ts`), except §7a.1 rule 3 (tall fields), its follow-up. No window yet.** The first sketch (owner, 2026-10-10) is kept in its decisions: the real lantern, not a dot; a count badge; a popover right there; it never takes focus. §14.7 made it its own PR (1e), right after 1d. It is written against `phase-1d` (PR #18), since it uses 1d's app switches and its pause.
 
-- **A mini version of the Glim lantern with a count badge** (owner, 2026-10-10: not a plain dot), anchored to the edge of the focused text field (bottom right, inside the field's bounds). It is the real lantern, ported from `docs/brand/glim-mascot.html` like the others (never redrawn), at a small size, in `s-suggest`, with the same amber badge as the pill. It is placed from the field's and the caret's bounding rectangles (UIA `BoundingRectangle`, TextPattern `GetBoundingRectangles` on the caret range). It shows the count only, no text.
-- **Clicking it opens the suggestions in a popover right there**, next to the bubble (the same rows as the island's list, with paging). In 1b, clicking a fix applies it in place through §7's path.
-- **Never steals focus:** a separate, non-activating (`WS_EX_NOACTIVATE`), topmost, tool window; the popover too. The text field keeps focus and the caret throughout.
-- **Hidden** in password fields, read-only content and everything PR #8 skips (it only exists when the checker has suggestions, which those fields never produce), when the field loses focus, and while there are no suggestions.
-- **Follows the field** as it moves or scrolls (re-placed on each reading, every 300 ms, and on UIA bounding-rectangle changes), and hides when the field is off screen or covered by a fullscreen app.
-- To check in 1b: per-monitor DPI, fields inside browser pages (bounds in screen pixels), multi-line fields where the caret's rectangle is the better anchor, and that the bubble never covers the text being typed.
+Goal: a Grammarly-style marker where the user types, so a suggestion doesn't need a trip to the top of the screen. The island's list stays exactly as it is. The mini lantern is a second way into the same suggestions, not a replacement.
+
+### 7a.1 Anchoring: where it sits
+
+- **New capture data, rectangles only.** Each reading the capture thread already takes adds two rectangles: the field's (UIA `CurrentBoundingRectangle`) and, when the field has TextPattern, the caret's (`GetSelection()[0]`, collapsed, `GetBoundingRectangles()`). Both are in **physical screen pixels**. No text is added to what the capture sends. A rectangle is a geometry fact, so it can go into the panel event; the sensitive-field rules don't change.
+- **The monitor and the visible part** (amended 2026-10-13, accepted by Anthony; built in PR #22). The monitor is the one holding the caret's centre (a field can span two), else the one holding the field's centre. The field is **clipped to that monitor's work area**, and everything below uses that **visible part**. The lantern is **hidden only when none of the field is visible, or the caret's line has scrolled out of the visible part.** (The first draft hid it when the field was "more than half outside its monitor"; that would hide it in long Gmail and Word bodies taller than the screen, exactly where it's wanted.)
+- **The anchor**, in order (sizes and gaps are logical px × the monitor's scale):
+  1. **Single-line field** (visible height under 2.5 caret heights; without a caret, 40 px or less): just outside the right edge, 4 px from it, vertically centred on the field. If that would cross the monitor's right edge, just inside the field's right end instead (6 px in).
+  2. **Multi-line field** (bodies of Outlook mail, Word, Gmail compose): the visible part's bottom-right corner, 6 px in. If the caret's line is within 24 px of that corner, or the lantern would touch the caret (grown by 4 px), it moves up to sit just above the caret's line.
+  3. **Tall field** (added 2026-10-13, Anthony): a multi-line field cut off by the monitor's edge, or taller than half the monitor's work area. The lantern sits **in the visible part, at its right edge (6 px in), level with the caret's line**, not in a corner of the field, so it stays next to where the user is typing as they scroll. If that would touch the caret (the caret is at the right edge), it goes just above the caret's line, or just below it when there's no room above. Without a caret, rule 2 applies. **Not in PR #22 yet:** #22 places a tall field like rule 2, at the visible part's bottom-right; this rule is its follow-up commit.
+  4. **No field rectangle** (some Chromium fields report none or 0×0): 8 px right of the caret, centred on its line. With neither, **don't show it** (the island still has the list).
+- **Kept on the monitor:** the result is clamped inside the monitor's work area.
+- **The rule that wins over all others:** the lantern never covers the caret's rectangle, grown by 4 px. If the chosen place would (for example a short field with the caret on its first line, or a caret at the monitor's edge), it's not shown for that reading.
+- **Scrolling and moving.** Re-placed on each reading (today every 300 ms) and on UIA `BoundingRectangle` property changes for the focused element, when the app sends them. A move of 2 px or less is ignored (no twitching); a bigger one jumps there, with no animation. **Hidden while the field's rectangle moves** between readings (scrolling, a dragged window), and shown again after one reading where it held still. A newly focused field shows at once.
+- **Multi-monitor and DPI.** The monitor is chosen as above (in code: by work-area rectangles; the window step may use `MonitorFromPoint`). The lantern's window size is set in that monitor's pixels: 22 logical px × that monitor's scale (from `GetDpiForMonitor`, the same scale the island uses). Moving to a monitor with another scale resizes it before showing it there. Rectangles from browsers are already in screen pixels (checked in 1a for the panel), so no page-zoom correction. To check live: a 125% monitor beside a 100% one (the owner's DISPLAY1 is 125%).
+
+### 7a.2 Size and states
+
+- **The real lantern**, the same component as the pill and the ember (`Lantern`, `detail: "notch"`, class `compact`), at **22 logical px** tall. Ported from `docs/brand/glim-mascot.html` like the others, never redrawn.
+- **States:**
+  - `s-suggest` with the **count badge** (the pill's amber badge; "9+" past nine) while the field has suggestions.
+  - `s-delegate` during a rewrite of this field (the 1c rule: data leaving the machine).
+  - Nothing else. Agent states (approval, question, error) stay on the island; the mini lantern is about this field only.
+- **Reduced motion** is respected as everywhere: no glance, no pop.
+- **The attention pop** plays once, when this field goes from 0 to more than 0 suggestions (as the pill does).
+
+### 7a.3 The popover
+
+- Opens on a **click on the mini lantern**, next to it: below it if there's room on that monitor, else above, and left-aligned to it, kept inside the work area.
+- **Contents:** the island's suggestion rows, unchanged: the problem in context, the message, up to three replacements; **reading order** (start of the paragraph first); **three rows a page** with Previous / Next (32×28 px, amber) and "1–3 of 12".
+- **Per row: the replacements** (a click applies it through §7's path, with all its checks: the app in front, the text unchanged since the check) and **Ignore** (adds it to the session's ignored list, as in the island). After a fix, the row says "Fixed" and the list recounts.
+- **Footer:** **Rewrite…** (opens 1c's tones for this paragraph, the same as Ctrl+Alt+Shift+R) and **Close**.
+- **Width** 320 logical px; height fits 3 rows. Never scrolls, as in the island: the window can't take focus, so the mouse wheel isn't reliable.
+- **Closes** when: Close; the caret leaves the field; the field loses focus; Escape is *not* used (Glim registers no keyboard hook for it); 20 s with no pointer over it; the last suggestion is fixed or ignored.
+
+### 7a.4 Focus rules
+
+- **Never takes focus.** The mini lantern and its popover are one window: topmost, tool window, `WS_EX_NOACTIVATE`, created with `BROWSER_ARGS` like every other webview. The text field keeps focus and its caret throughout, including during a click on a replacement.
+- **Clicks only, no keyboard.** No keys are registered for it. The rewrite hotkey stays the keyboard path.
+- **A test guards it:** the window's creation flags (as the island's guard test does), and a source test that it never calls `set_focus`.
+- **The 1b finding stays true:** a UI Automation Invoke on a Chromium window activates it. Tests click through the dev switch (`--dev-fix`), not UIA Invoke.
+
+### 7a.5 When it hides
+
+It is shown only when **all** of these hold, checked on every reading:
+
+- the field has suggestions (count > 0), or a rewrite of it is running;
+- the field is editable and not a password field (`IsPassword`), and capture read it (never in what PR #8 skips: sensitive labels, payment fields, withheld readings);
+- the app is switched on in Settings → Writing → Apps (1d §14.1), and isn't on the pause list (§14.5);
+- Glim isn't **paused** (Ctrl+Alt+Shift+P, §14.6);
+- presence isn't **Hidden**, and no fullscreen app is in front on that monitor (the same check the island uses);
+- the field has focus, and its app's window is the foreground window;
+- the setting (7a.6) is on.
+
+Any of them failing hides it within one reading (≤300 ms). Hiding never touches the island's list.
+
+### 7a.6 Setting
+
+- Settings → Writing: **"Show the mini lantern next to the text field"** (one switch, `writingBubble`). **Off by default in the first build**, on by default once the owner's live tests pass in Outlook, Word and Gmail (§14.7). New strings get their 9 translations.
+
+### 7a.7 Build steps (one commit each)
+
+1. Capture: field and caret rectangles in the reading; unit tests with fake rectangles.
+2. `bubble::place` (pure function: rectangles, monitors and scales in, a position or "don't show" out) with table tests.
+3. The window: creation flags, sizing per monitor, show/hide from the 7a.5 conditions.
+4. The popover: the island's rows reused, paging, apply, ignore, Rewrite….
+5. The setting, translations, docs (PROJECT_STATUS, manual tests).
+
+### 7a.8 Test plan
+
+- **Unit (Rust):** `place` table tests: single- and multi-line fields; field at each monitor edge; caret in the bottom-right corner; no field rectangle; neither rectangle; a field taller than the screen (placed in its visible part) and its caret scrolled out (hidden); a tall field with the caret mid-screen (level with the caret's line, rule 3); a field across two monitors (follows the caret); 100% vs 125% monitors; negative coordinates (the owner's DISPLAY1 is left of the main one, at −1536). Each 7a.5 condition alone hides it. A rectangle that changes across two readings hides it; one stable reading shows it again.
+- **Unit (TS):** the popover's rows come out in reading order, 3 a page; the badge count matches; Ignore and Fixed recount; the pop plays only on 0 → more.
+- **Guards:** the window's flags (`WS_EX_NOACTIVATE`, tool window, topmost), `BROWSER_ARGS`, no `set_focus`; no text in the new capture fields.
+- **Live (owner, away from the keyboard or at their say-so):** Outlook (new mail body), Word, Gmail compose in Chrome, Notepad. In each: it appears next to the field with the right count; never covers the line being typed; follows a scroll (hides while moving); a click opens the popover and the caret stays in the field (typing continues where it was); a fix applies and Ctrl+Z undoes it; Ignore works; it hides on Ctrl+Alt+Shift+P, in a password field, in an app switched off, in Hidden, and behind a fullscreen video; the 125% monitor.
+
+### 7a.9 Decided 2026-10-13 (Anthony)
+
+1. **Single-line fields:** the mini lantern sits **outside the right edge**; inside only at a monitor edge.
+2. **Size:** **22 logical px**.
+3. **The setting** (`writing_bubble`, stored as `writingBubble`): **off** in the first build, turned on once Anthony's live tests pass.
+4. **The popover's footer has "Rewrite…"** (the same 1c flow as Ctrl+Alt+Shift+R).
+5. **The popover auto-closes after 20 s with no pointer over it.**
+6. **Off screen (amendment, accepted):** clip the field to its monitor; hide only when none of the field is visible or the caret's line has scrolled out of view (§7a.1).
+7. **Tall fields:** the lantern sits in the visible part, level with the caret's line, not in a corner of the field (§7a.1 rule 3).
 
 ## 8. Settings (1d) and Windows' own suggestions
 
