@@ -840,6 +840,17 @@ body {
   min-width: 0;
 }
 
+/* Push-to-talk's question (views/voice.ts): always in full. It wraps, and
+   only a very long one scrolls inside the cap (the card grows to
+   VOICE_QUESTION_H for it). */
+.title.voice-question {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  max-height: 102px;
+  overflow-y: auto;
+}
+
 .sub {
   font: 400 13px var(--font);
   color: var(--dim);

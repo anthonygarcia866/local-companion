@@ -243,3 +243,41 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   assert.equal(settings.voiceWords, "Glim, HOA board");
   assert.equal(saves, 2);
 });
+
+// Retest defect (2026-10-16): the question sat in a one-line title and was
+// cut off ("open an ap…", "draft it as…"). A question always shows in full:
+// it wraps, and only a very long one scrolls inside a capped box.
+test("a long question wraps and shows in full, never cut off", () => {
+  const long = "Do you want me to open an app, or should I draft it as an email to the tenant about the updated lease before Friday afternoon, with the signature added?";
+  State.voice = at({ phase: "question", text: long });
+  State.view = "voice";
+  State.mode = "expanded";
+  const { v } = card();
+  v.sync();
+  const q = v.el.find(".voice-question")[0];
+  assert.ok(q, "the question has its own wrapping line");
+  assert.equal(q.textContent, long, "the whole question, not a shortened one");
+  assert.equal(q.classList.contains("one-line"), false);
+  const title = v.el.find(".title")[0];
+  assert.equal(title.classList.contains("one-line"), false, "no ellipsis on a question");
+  const css = read("src/style.css");
+  const rule = css.slice(css.indexOf(".voice-question {"), css.indexOf("}", css.indexOf(".voice-question {")));
+  assert.match(rule, /white-space: normal/);
+  assert.match(rule, /overflow-wrap: anywhere/);
+  assert.match(rule, /max-height: \d+px/, "a sensible cap");
+  assert.match(rule, /overflow-y: auto/, "scrolls only past the cap");
+  assert.doesNotMatch(rule, /ellipsis|nowrap/);
+  // Back to a short-title result: the one-line title returns.
+  State.voice = at({ phase: "heard", text: "open outlook" });
+  v.sync();
+  assert.equal(v.el.find(".title")[0].classList.contains("one-line"), true);
+});
+
+test("the card grows for a question, so a wrapped one fits before it ever scrolls", async () => {
+  const { VOICE_QUESTION_H, VIEW_LAYOUTS } = await import("../src/core/layout.ts");
+  assert.ok(VOICE_QUESTION_H > VIEW_LAYOUTS.voice.height);
+  assert.ok(VOICE_QUESTION_H <= 320, "still inside the island's window");
+  const island = read("src/island/island.ts");
+  assert.ok(island.includes('State.view === "voice" && State.voice?.phase === "question"'));
+  assert.match(island, /h = VOICE_QUESTION_H;/);
+});
