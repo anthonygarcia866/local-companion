@@ -702,6 +702,26 @@ fn voice_copy(text: String) -> bool {
     copied
 }
 
+/// An answer typed into Glim's question card (Decision B, 2026-10-16). False:
+/// no question waits any more (closed or timed out), or nothing was typed.
+/// The text goes to the clean-up like a spoken answer; it is never logged.
+#[tauri::command]
+fn voice_answer(app: AppHandle, text: String) -> bool {
+    #[cfg(windows)]
+    let ok = voice::run::answer_typed(&app, text);
+    #[cfg(not(windows))]
+    let ok = { let _ = (app, text); false };
+    ok
+}
+
+/// Cancel or Close on the question card (or its timeout): the voice keys go
+/// back to dictating and asking.
+#[tauri::command]
+fn voice_cancel() {
+    #[cfg(windows)]
+    voice::run::cancel_question();
+}
+
 /// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
 /// Windows' own microphone privacy page. A fixed settings link, nothing
 /// from the island; no network.
@@ -1213,6 +1233,8 @@ pub fn run() {
             writing_ask_answer,
             writing_docs_tip_dismiss,
             voice_copy,
+            voice_answer,
+            voice_cancel,
             open_mic_settings,
             draft_pick,
             draft_change,
@@ -1309,7 +1331,7 @@ pub fn run() {
             #[cfg(windows)]
             {
                 let voice_handle = handle.clone();
-                shortcuts::on_push_to_talk(move || voice::run::on_key_down(&voice_handle));
+                shortcuts::on_push_to_talk(move |ask| voice::run::on_key_down(&voice_handle, if ask { voice::Mode::Ask } else { voice::Mode::Dictate }));
             }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));

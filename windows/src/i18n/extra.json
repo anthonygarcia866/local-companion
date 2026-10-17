@@ -4749,17 +4749,6 @@
    "ru": "Ничего не напечатано. Сначала щёлкните в текстовом поле, чтобы диктовать.",
    "id": "Tidak ada yang diketik. Klik di kolom teks dulu untuk mendikte."
   },
-  "Hold the dictation shortcut again to answer.": {
-   "zh-Hans": "再次按住听写快捷键来回答。",
-   "hi": "जवाब देने के लिए बोलकर लिखने का शॉर्टकट फिर से दबाकर रखें।",
-   "es": "Mantén pulsado de nuevo el atajo de dictado para responder.",
-   "ar": "اضغط مطولًا على اختصار الإملاء مرة أخرى للإجابة.",
-   "fr": "Maintenez à nouveau le raccourci de dictée pour répondre.",
-   "bn": "উত্তর দিতে আবার বলে লেখার শর্টকাট চেপে ধরে রাখুন।",
-   "pt-BR": "Segure o atalho de ditado de novo para responder.",
-   "ru": "Чтобы ответить, снова удерживайте сочетание для диктовки.",
-   "id": "Tahan lagi pintasan dikte untuk menjawab."
-  },
   "Nothing was typed": {
    "zh-Hans": "没有输入任何内容",
    "hi": "कुछ भी टाइप नहीं हुआ",
@@ -5375,6 +5364,94 @@
    "pt-BR": "Nomes lembrados",
    "ru": "Запомненные имена",
    "id": "Nama yang diingat"
+  },
+  "Hold to ask Glim": {
+   "zh-Hans": "按住以询问 Glim",
+   "hi": "Glim से पूछने के लिए दबाकर रखें",
+   "es": "Mantén pulsado para preguntar a Glim",
+   "ar": "اضغط مطولًا لسؤال Glim",
+   "fr": "Maintenir pour demander à Glim",
+   "bn": "Glim-কে জিজ্ঞেস করতে চেপে ধরে রাখুন",
+   "pt-BR": "Segure para pedir ao Glim",
+   "ru": "Удерживайте, чтобы спросить Glim",
+   "id": "Tahan untuk bertanya ke Glim"
+  },
+  "Dictating": {
+   "zh-Hans": "正在听写",
+   "hi": "बोलकर लिख रहे हैं",
+   "es": "Dictando",
+   "ar": "جارٍ الإملاء",
+   "fr": "Dictée",
+   "bn": "বলে লেখা হচ্ছে",
+   "pt-BR": "Ditando",
+   "ru": "Диктовка",
+   "id": "Mendikte"
+  },
+  "Ask Glim": {
+   "zh-Hans": "询问 Glim",
+   "hi": "Glim से पूछें",
+   "es": "Preguntar a Glim",
+   "ar": "اسأل Glim",
+   "fr": "Demander à Glim",
+   "bn": "Glim-কে জিজ্ঞেস করুন",
+   "pt-BR": "Pedir ao Glim",
+   "ru": "Спросить Glim",
+   "id": "Tanya Glim"
+  },
+  "Hold either voice shortcut and say your answer, or type it below.": {
+   "zh-Hans": "按住任一语音快捷键说出你的回答，或在下方输入。",
+   "hi": "किसी भी वॉइस शॉर्टकट को दबाकर अपना जवाब बोलें, या नीचे टाइप करें।",
+   "es": "Mantén pulsado cualquiera de los atajos de voz y di tu respuesta, o escríbela abajo.",
+   "ar": "اضغط مطولًا على أي من اختصارَي الصوت وقل إجابتك، أو اكتبها أدناه.",
+   "fr": "Maintenez l'un des raccourcis vocaux et dites votre réponse, ou tapez-la ci-dessous.",
+   "bn": "যেকোনো ভয়েস শর্টকাট চেপে ধরে উত্তর বলুন, অথবা নিচে টাইপ করুন।",
+   "pt-BR": "Segure qualquer um dos atalhos de voz e diga sua resposta, ou digite abaixo.",
+   "ru": "Удерживайте любое голосовое сочетание клавиш и произнесите ответ или введите его ниже.",
+   "id": "Tahan salah satu pintasan suara dan ucapkan jawaban Anda, atau ketik di bawah."
+  },
+  "Listening for your answer…": {
+   "zh-Hans": "正在听你的回答…",
+   "hi": "आपका जवाब सुन रहे हैं…",
+   "es": "Escuchando tu respuesta…",
+   "ar": "جارٍ الاستماع إلى إجابتك…",
+   "fr": "À l'écoute de votre réponse…",
+   "bn": "আপনার উত্তর শুনছি…",
+   "pt-BR": "Ouvindo sua resposta…",
+   "ru": "Слушаю ваш ответ…",
+   "id": "Mendengarkan jawaban Anda…"
+  },
+  "Working on your answer…": {
+   "zh-Hans": "正在处理你的回答…",
+   "hi": "आपके जवाब पर काम हो रहा है…",
+   "es": "Procesando tu respuesta…",
+   "ar": "جارٍ العمل على إجابتك…",
+   "fr": "Traitement de votre réponse…",
+   "bn": "আপনার উত্তর নিয়ে কাজ চলছে…",
+   "pt-BR": "Processando sua resposta…",
+   "ru": "Обрабатываю ваш ответ…",
+   "id": "Memproses jawaban Anda…"
+  },
+  "Not typed: without the clean-up, words that start like a command aren't typed. Copy it if you meant it.": {
+   "zh-Hans": "未输入：没有整理时，以命令开头的话不会被输入。如果你确实想输入，请复制它。",
+   "hi": "टाइप नहीं हुआ: सफ़ाई के बिना, कमांड की तरह शुरू होने वाले शब्द टाइप नहीं होते। अगर आप यही चाहते थे तो इसे कॉपी करें।",
+   "es": "No se escribió: sin la limpieza, las palabras que empiezan como una orden no se escriben. Cópialo si era lo que querías.",
+   "ar": "لم تُكتب: من دون التنظيف، لا تُكتب الكلمات التي تبدأ كأمر. انسخها إن كنت تقصدها.",
+   "fr": "Pas tapé : sans le nettoyage, les mots qui commencent comme une commande ne sont pas tapés. Copiez-le si c'était voulu.",
+   "bn": "টাইপ হয়নি: পরিষ্কার না করা অবস্থায় কমান্ডের মতো শুরু হওয়া কথা টাইপ হয় না। আপনি এটাই চাইলে কপি করুন।",
+   "pt-BR": "Não digitado: sem a limpeza, palavras que começam como um comando não são digitadas. Copie se era isso que você queria.",
+   "ru": "Не введено: без обработки слова, которые начинаются как команда, не вводятся. Скопируйте, если вы это имели в виду.",
+   "id": "Tidak diketik: tanpa perapian, kata-kata yang diawali seperti perintah tidak diketik. Salin jika memang itu maksud Anda."
+  },
+  "Type your answer": {
+   "zh-Hans": "输入你的回答",
+   "hi": "अपना जवाब टाइप करें",
+   "es": "Escribe tu respuesta",
+   "ar": "اكتب إجابتك",
+   "fr": "Tapez votre réponse",
+   "bn": "আপনার উত্তর টাইপ করুন",
+   "pt-BR": "Digite sua resposta",
+   "ru": "Введите ответ",
+   "id": "Ketik jawaban Anda"
   }
  }
 }
