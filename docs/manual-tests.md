@@ -501,6 +501,31 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
    - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
    - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
 
+## 25. The mini lantern beside the field (1e, PR #22)
+
+*Where: `phase-1-bubble`.* Settings → Writing → **Show the mini lantern next to the text field** is **off** by default: check that first, with it off nothing appears beside any field. Turn it **on**.
+
+Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
+
+1. **Single-line field** (Outlook's subject line, a browser search box): type `teh lease`.
+   - **See:** a small lantern, 22 px, just **outside the field's right end**, vertically centred, with an amber count. It never covers the text.
+   - Move the window so the field touches the screen's right edge: the lantern moves **inside** the field's right end.
+2. **Multi-line body** (Outlook new mail, Notepad): paste the paragraph.
+   - **See:** the lantern at the body's bottom-right corner. Type on the last line near that corner: it moves up, just above your line, never over the caret.
+3. **Tall body** (a long Word document or an Outlook body taller than the screen): the lantern sits at the **right edge of the visible part, level with the line you're typing**, and follows that line as you move up and down. Scroll: it hides while the page moves and comes back when it stops.
+4. **Click the lantern:**
+   - **See:** the popover opens below it (above it near the bottom of the screen) with the same rows as the island's list, 3 a page, "1–3 of N", and **Rewrite…** / **Close** at the bottom. **The caret stays in your text**: type a letter, it goes into the field.
+   - Click a replacement: it's typed in (Ctrl+Z undoes it), the count drops.
+   - **Rewrite…**: the island's Rewrite card opens, as with Ctrl+Alt+Shift+R; the mini lantern shows the data-leaving look while the rewrite is sent.
+   - **Close** closes it. Open it again and move the mouse away for **20 s**: it closes by itself. With the mouse resting on it, it stays.
+   - Click into another field: the popover closes.
+5. **Hidden when it should be:** Ctrl+Alt+Shift+P (paused), a password field, an app switched off in Settings → Writing → Apps, Settings → Show Glim as **Hidden**, a fullscreen video in front. In each it disappears within a moment; the island's list is unchanged.
+6. **The 125% monitor:** drag Outlook to DISPLAY1 (left, 125%): the lantern is a little bigger (28 px) and still placed right.
+7. **Turn the setting off:** the lantern disappears at the next reading and never comes back while it's off.
+8. **Ignore (both lists, decided 2026-10-15):** with the setting on again, type `We recieved the keys and recieved the deposit.` in Notepad. Open the popover: each row has **Ignore** at its right. Click it on "recieved": the row goes, the badge recounts, and the island's list loses it too. Type `recieved` in another paragraph: not flagged. Do the same from the island's own list with another typo. **Quit Glim and start it again:** "recieved" is flagged again (nothing was saved). glim.log says `writing: ignore ok (1 ignored this run)`, never the word.
+
+**Not in this build:** per-row **Ignore** (open question).
+
 ## 26. Dictation, push-to-talk (voice 1.5b, draft PR)
 
 *Where: branch `voice-dictation`.* Needs, put there by hand (Glim downloads nothing): `whisper-server.exe` and its DLLs from whisper.cpp **b5454** (the Windows x64 zip), and `ggml-base.en-q5_1.bin`, all in `%LOCALAPPDATA%\Glim\whisper\`. Claude clean-up needs the API key from section 12 and **Brain: Claude API**; each utterance costs a fraction of a cent (Haiku). **Ctrl+Alt+Shift+V takes Word's InsertAutoText on that key** (decided 2026-10-14).

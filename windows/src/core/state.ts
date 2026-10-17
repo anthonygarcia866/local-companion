@@ -180,6 +180,8 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -212,6 +214,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  writingBubble: false,
 };
 
 type Listener = () => void;

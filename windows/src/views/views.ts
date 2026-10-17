@@ -21,6 +21,7 @@ import { buildResume } from "./resume";
 import { buildDocsTip } from "./docs-tip";
 import { buildVoice } from "./voice";
 import { openToneCard } from "../core/rewrite";
+import { suggestionPage } from "../core/paging";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
@@ -690,20 +691,8 @@ function buildNote(): ViewHost {
 
 // ── Writing suggestions (1a list, 1b fixes) ───────────────────────────────────
 
-/** Suggestions shown at once; Previous / Next page through the rest. */
-export const SUGGESTIONS_SHOWN = 3;
-
-/**
- * Which suggestions a page shows: `page` clamped to the pages there are,
- * and `from`-`to` (1-based, for "1–3 of 12"). Paging is by buttons only: the
- * island's window never takes focus, so the mouse wheel can't be relied on.
- */
-export function suggestionPage(total: number, page: number): { page: number; pages: number; from: number; to: number } {
-  const pages = Math.max(1, Math.ceil(total / SUGGESTIONS_SHOWN));
-  const p = Math.min(Math.max(0, page), pages - 1);
-  const from = total === 0 ? 0 : p * SUGGESTIONS_SHOWN + 1;
-  return { page: p, pages, from, to: Math.min(total, (p + 1) * SUGGESTIONS_SHOWN) };
-}
+// Paging is shared with the mini lantern's popover (1e): core/paging.ts.
+export { SUGGESTIONS_SHOWN, suggestionPage } from "../core/paging";
 
 /**
  * The note under the list: "Fixing…" while a fix is on its way, the last
@@ -825,7 +814,7 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
       ? tn("{count} writing suggestion", "{count} writing suggestions", items.length)
       : t("Nothing to fix here.");
     clear(list);
-    items.slice(at.from - 1, at.to).forEach((s, i) => list.append(suggestionRow(s, at.from - 1 + i, pick)));
+    items.slice(at.from - 1, at.to).forEach((s, i) => list.append(suggestionRow(s, at.from - 1 + i, pick, ignore)));
     pages.style.display = at.pages > 1 ? "" : "none";
     range.textContent = t("{from}–{to} of {total}", { from: at.from, to: at.to, total: items.length });
     (prev as HTMLButtonElement).disabled = at.page === 0;
@@ -860,6 +849,11 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
     wait(State.writing.length);
     void Bridge.writingFixAll(fix.checkId);
   };
+  // Ignore on row `index` (§7a.3): Rust drops it and sends the list again.
+  const ignore = (index: number) => {
+    if (State.writingBusy) return;
+    void Bridge.writingIgnore(State.writingFix.checkId, index);
+  };
   // A replacement was clicked: row `index` of the whole list, replacement `choice`.
   const pick = (index: number, choice: number) => {
     const fix = State.writingFix;
@@ -874,7 +868,12 @@ export function buildSuggestions(actions?: ViewActions): ViewHost {
   return { el, sync };
 }
 
-function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void): HTMLElement {
+/**
+ * One suggestion: the word in its context, the message, the replacements
+ * and, with `ignore`, an Ignore link (§7a.3: that word isn't flagged again
+ * until Glim quits). The island and the mini lantern's popover share it.
+ */
+export function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number, choice: number) => void, ignore?: (index: number) => void): HTMLElement {
   const context = h(
     "div",
     { class: "suggestion-context" },
@@ -901,6 +900,12 @@ function suggestionRow(s: WritingSuggestion, index: number, pick: (index: number
     button.disabled = mode === "away" || State.writingBusy;
     fixes.append(button);
   });
+  if (ignore) {
+    const tip = t("Ignore “{word}” until Glim quits", { word: s.problem });
+    const b = h("button", { class: "link-btn suggestion-ignore", type: "button", "data-role": "ignore", title: tip, "aria-label": tip, text: t("Ignore"), onclick: () => ignore(index) }) as HTMLButtonElement;
+    b.disabled = State.writingBusy;
+    fixes.append(b);
+  }
   // The AI's own findings (§15.1) say so.
   const message = h("div", { class: "suggestion-message" },
     ...(s.kind === AI_KIND ? [h("span", { class: "ai-badge", title: t("Found by Claude (Check with AI)"), text: t("AI") })] : []),

@@ -2581,6 +2581,19 @@ html:not([data-presence="pill"]) #lantern-menu {
   overflow: hidden;
 }
 
+/* Ignore (§7a.3): last, kept in sight when the replacements run long. */
+.suggestion-fixes .suggestion-ignore {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.suggestion-fixes .suggestion-ignore:hover:not(:disabled) {
+  color: rgba(255, 255, 255, 0.86);
+}
+
 /* A replacement: a plain chip where fixes are view-only, a button (1b) where
    a click types it or copies it. */
 .suggestion-fixes .fix {
