@@ -37,6 +37,21 @@ pub const MAX_HELD_MS: u64 = 60_000;
 /// The microphone's format: 16 kHz, mono, 16-bit (what whisper wants).
 pub const SAMPLE_RATE: u32 = 16_000;
 
+/// The `open_app` apps Glim opens: classic Outlook, and the Codex and Claude
+/// desktop apps (owner, 2026-10-16: "the apps", found on the PC the way
+/// Outlook is; platform::open_known_app).
+pub const OPENABLE: [&str; 3] = ["outlook", "codex", "claude_code"];
+
+/// An `open_app` app's name for the card.
+pub fn app_label(app: &str) -> &'static str {
+    match app {
+        "outlook" => "Outlook",
+        "codex" => "Codex",
+        "claude_code" => "Claude Code",
+        _ => "that app",
+    }
+}
+
 /// Leading filler dropped before the command check (§4.1).
 const FILLER: [&str; 7] = ["hey glim", "hi glim", "ok glim", "okay", "um", "uh", "so"];
 /// The command words (§4.1, confirmed as-is by Anthony 2026-10-14).
@@ -82,8 +97,10 @@ pub enum Cleanup {
     /// `resume_work` (1.5c, decided 2026-10-15): the "Pick up where you left
     /// off" card, with this repo first when Claude named one.
     Resume(Option<String>),
-    /// An action tool not built yet (`open_app`, `draft_email`): "couldn't
-    /// act on it".
+    /// `open_app` (1.5c): one of the schema's enum, "outlook", "codex" or
+    /// "claude_code" (anything else doesn't validate).
+    Open(&'static str),
+    /// An action tool not built yet (`draft_email`): "couldn't act on it".
     Command(&'static str),
 }
 
@@ -127,6 +144,9 @@ pub enum Decision {
     /// Open the resume card (it only reads; opening Claude Code in a repo
     /// still waits for a click on its row, decision 10).
     Resume { repo: Option<String> },
+    /// Open an app Glim knows how to open (only classic Outlook so far): low
+    /// risk, no confirmation (plan §5).
+    Open { app: &'static str },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -149,7 +169,9 @@ pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_a
         }
         Ok(Cleanup::Clarify(question)) => Decision::Question { question },
         Ok(Cleanup::Resume(repo)) => Decision::Resume { repo },
-        Ok(Cleanup::Command(_)) => Decision::Heard { transcript: transcript.to_string() },
+        Ok(Cleanup::Open(app)) if OPENABLE.contains(&app) => Decision::Open { app },
+        // Codex and a bare "open Claude Code" wait for the owner (HANDOFF.md).
+        Ok(Cleanup::Open(_)) | Ok(Cleanup::Command(_)) => Decision::Heard { transcript: transcript.to_string() },
         // §4.1: dictation types the raw transcript; a command never is.
         Err(_) if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
         Err(_) => Decision::Heard { transcript: transcript.to_string() },
@@ -287,6 +309,24 @@ mod tests {
     }
 
     #[test]
+    fn open_app_opens_three_known_apps_by_fixed_names_only() {
+        assert_eq!(OPENABLE, ["outlook", "codex", "claude_code"]);
+        // Anything else returns before Windows is asked to start anything.
+        #[cfg(windows)]
+        for app in ["notepad", r"C:\Windows\System32\cmd.exe", ""] {
+            assert!(!crate::platform::open_known_app(app), "{app}");
+        }
+        let src = include_str!("../platform/windows.rs");
+        let f = &src[src.find("pub fn open_known_app(").unwrap()..];
+        let f = &f[..f.find("\n}").unwrap()];
+        assert!(f.contains(r#""outlook" => shell_open(w!("OUTLOOK.EXE")),"#));
+        assert!(f.contains(r#""codex" => activate_package("OpenAI.Codex", "App"),"#));
+        assert!(f.contains(r#""claude_code" => activate_package("Claude", "Claude"),"#));
+        assert!(f.contains("_ => false,"));
+        assert!(!f.contains("Command::new"), "no shell, no child Glim spawns itself");
+    }
+
+    #[test]
     fn a_heard_card_says_why() {
         assert_eq!(heard_code("cap", true), "cap");
         assert_eq!(heard_code("timeout", false), "timeout");
@@ -320,7 +360,10 @@ mod tests {
             Decision::Type { text: "Thanks for the quick turnaround.".into(), cleaned: true }
         );
         // A command Glim can't carry out: heard, nothing typed.
-        assert_eq!(decide("open outlook", Ok(Cleanup::Command("open_app")), field), Decision::Heard { transcript: "open outlook".into() });
+        assert_eq!(decide("open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
+        assert_eq!(decide("open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
+        assert_eq!(decide("open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
+        assert_eq!(decide("draft an email", Ok(Cleanup::Command("draft_email")), field), Decision::Heard { transcript: "draft an email".into() });
         assert_eq!(decide("send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
         // Clean-up failed: dictation types the raw transcript (marker on Glim only) …
         for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {

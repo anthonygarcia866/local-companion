@@ -99,6 +99,7 @@ fn whisper_on_this_pc() {
             super::Decision::Sensitive => "sensitive",
             super::Decision::Question { .. } => "question",
             super::Decision::Resume { .. } => "resume card",
+            super::Decision::Open { .. } => "open app",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
