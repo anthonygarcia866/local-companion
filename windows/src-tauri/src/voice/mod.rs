@@ -87,6 +87,32 @@ pub fn starts_like_command(transcript: &str) -> bool {
     COMMAND_WORDS.iter().any(|c| t == *c || t.starts_with(&format!("{c} ")))
 }
 
+/// Which key started the utterance (Decision A, 2026-10-16), or that it
+/// answers a waiting question card (Decision B).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// Ctrl+Alt+Shift+V: always text to type, never a command. Claude is
+    /// offered only the `dictate` tool.
+    Dictate,
+    /// Ctrl+Alt+Shift+A: always a request to Glim, never typed. Claude is
+    /// offered every tool but `dictate`.
+    Ask,
+    /// A question card was waiting: this utterance (from either key) or the
+    /// card's typed answer answers it. Never typed, like Ask.
+    Answer,
+}
+
+impl Mode {
+    /// The island's name for it ("dictate" / "ask" / "answer").
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Mode::Dictate => "dictate",
+            Mode::Ask => "ask",
+            Mode::Answer => "answer",
+        }
+    }
+}
+
 /// The clean-up step's answer (ai::dictate), already validated.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cleanup {
@@ -152,10 +178,23 @@ pub enum Decision {
 /// Everything §4.1 decides, after the transcript and the clean-up.
 /// `field_at_press`: an editable, non-password field had the focus when the
 /// key went down (the capture thread's last reading).
-pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_at_press: bool) -> Decision {
+///
+/// Dictate types (cleaned, or the raw transcript when there's no clean-up and
+/// it doesn't start like a command: the command words now apply only there).
+/// Ask and Answer never type: anything Glim can't act on is "heard".
+pub fn decide(mode: Mode, transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_at_press: bool) -> Decision {
     if crate::capture::sensitive::contains_sensitive_number(transcript) {
         return Decision::Sensitive;
     }
+    match mode {
+        Mode::Dictate => decide_dictation(transcript, cleanup, field_at_press),
+        Mode::Ask | Mode::Answer => decide_request(transcript, cleanup),
+    }
+}
+
+/// The dictation key: only `dictate` is valid (anything else is treated as no
+/// clean-up, so the words are still typed, never acted on).
+fn decide_dictation(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_at_press: bool) -> Decision {
     match cleanup {
         Ok(Cleanup::Dictate(text)) => {
             // Claude's text is scanned again before typing.
@@ -167,27 +206,34 @@ pub fn decide(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, field_a
                 Decision::Heard { transcript: transcript.to_string() }
             }
         }
+        // §4.1: no clean-up types the raw transcript; one that starts like a
+        // command is still held back (the command words' only use now).
+        _ if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
+        _ => Decision::Heard { transcript: transcript.to_string() },
+    }
+}
+
+/// The Ask Glim key, or an answer to a question card: never typed.
+fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> Decision {
+    match cleanup {
         Ok(Cleanup::Clarify(question)) => Decision::Question { question },
         Ok(Cleanup::Resume(repo)) => Decision::Resume { repo },
         Ok(Cleanup::Open(app)) if OPENABLE.contains(&app) => Decision::Open { app },
-        // Codex and a bare "open Claude Code" wait for the owner (HANDOFF.md).
-        Ok(Cleanup::Open(_)) | Ok(Cleanup::Command(_)) => Decision::Heard { transcript: transcript.to_string() },
-        // §4.1: dictation types the raw transcript; a command never is.
-        Err(_) if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
-        Err(_) => Decision::Heard { transcript: transcript.to_string() },
+        // `dictate` isn't offered to Ask; an action not built yet; no clean-up.
+        Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::Command(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }
 }
 
 /// Why a transcript was heard but not acted on, for the card: the clean-up's
-/// failure code when there was no clean-up; else "command" (Claude chose an
-/// action, not built yet) or "no-field" (dictation with no field to type in).
-pub fn heard_code(cleanup_failure: &str, field_at_press: bool) -> String {
-    if !cleanup_failure.is_empty() {
-        cleanup_failure.to_string()
-    } else if field_at_press {
-        "command".into()
-    } else {
-        "no-field".into()
+/// failure code when there was no clean-up; else "command" (Ask: an action
+/// not built yet), "no-field" (dictation with no field to type in) or
+/// "command-words" (dictation without a clean-up that starts like a command).
+pub fn heard_code(mode: Mode, cleanup_failure: &str, field_at_press: bool) -> String {
+    match mode {
+        Mode::Dictate if !field_at_press => "no-field".into(),
+        Mode::Dictate => "command-words".into(),
+        _ if !cleanup_failure.is_empty() => cleanup_failure.to_string(),
+        _ => "command".into(),
     }
 }
 
@@ -219,6 +265,9 @@ pub struct VoiceEvent {
     pub cleaned: bool,
     /// "heard": the transcript; "question": Claude's question.
     pub text: String,
+    /// Which key (Decision A) or "answer" (a question card was waiting):
+    /// "dictate", "ask", "answer"; the pill's label while listening.
+    pub mode: &'static str,
     /// "failed" / "typed" outcome codes ("no-whisper", "sensitive", "paused",
     /// an apply Outcome code…); "heard"/"typed": why it wasn't cleaned up.
     pub code: String,
@@ -289,17 +338,19 @@ pub fn prompt_from(words: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
     fn resume_work_opens_the_card_with_or_without_a_field() {
         for field in [true, false] {
-            assert_eq!(decide("pick up from yesterday", Ok(Cleanup::Resume(None)), field), Decision::Resume { repo: None });
-            assert_eq!(decide("where was I on dale cuts", Ok(Cleanup::Resume(Some("dale-cuts".into()))), field), Decision::Resume { repo: Some("dale-cuts".into()) });
+            for mode in [Mode::Ask, Mode::Answer] {
+                assert_eq!(decide(mode, "pick up from yesterday", Ok(Cleanup::Resume(None)), field), Decision::Resume { repo: None });
+                assert_eq!(decide(mode, "where was I on dale cuts", Ok(Cleanup::Resume(Some("dale-cuts".into()))), field), Decision::Resume { repo: Some("dale-cuts".into()) });
+            }
         }
         // A card number still stops everything.
-        assert_eq!(decide("resume 4111 1111 1111 1111", Ok(Cleanup::Resume(None)), true), Decision::Sensitive);
+        assert_eq!(decide(Mode::Ask, "resume 4111 1111 1111 1111", Ok(Cleanup::Resume(None)), true), Decision::Sensitive);
         let known = vec!["dale-cuts".to_string(), "local-companion".to_string(), "dalebooking-crm".to_string()];
         assert_eq!(match_repo("dale cuts", &known).as_deref(), Some("dale-cuts"));
         assert_eq!(match_repo("Local Companion", &known).as_deref(), Some("local-companion"));
@@ -328,10 +379,15 @@ mod tests {
 
     #[test]
     fn a_heard_card_says_why() {
-        assert_eq!(heard_code("cap", true), "cap");
-        assert_eq!(heard_code("timeout", false), "timeout");
-        assert_eq!(heard_code("", true), "command");
-        assert_eq!(heard_code("", false), "no-field");
+        assert_eq!(heard_code(Mode::Ask, "cap", true), "cap");
+        assert_eq!(heard_code(Mode::Answer, "timeout", false), "timeout");
+        assert_eq!(heard_code(Mode::Ask, "", true), "command");
+        assert_eq!(heard_code(Mode::Ask, "", false), "command");
+        assert_eq!(heard_code(Mode::Dictate, "timeout", false), "no-field");
+        assert_eq!(heard_code(Mode::Dictate, "timeout", true), "command-words");
+        assert_eq!(Mode::Dictate.as_str(), "dictate");
+        assert_eq!(Mode::Ask.as_str(), "ask");
+        assert_eq!(Mode::Answer.as_str(), "answer");
     }
 
     #[test]
@@ -351,40 +407,61 @@ mod tests {
         }
     }
 
+    /// The two sentences the router hijacked in Anthony's 2026-10-16 test,
+    /// dictated with V: typed as cleaned, never a card, whatever else.
+    pub(crate) const HIJACKED: [&str; 2] = [
+        "This is a test of Glim dictation in my own voice",
+        "Please send the updated lease to the tenant before Friday afternoon",
+    ];
+
     #[test]
-    fn decide_follows_the_approved_rules() {
-        let field = true;
-        // Cleaned up: typed as Claude wrote it.
-        assert_eq!(
-            decide("thanks for the quick turnaround", Ok(Cleanup::Dictate("Thanks for the quick turnaround.".into())), field),
-            Decision::Type { text: "Thanks for the quick turnaround.".into(), cleaned: true }
-        );
-        // A command Glim can't carry out: heard, nothing typed.
-        assert_eq!(decide("open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
-        assert_eq!(decide("open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
-        assert_eq!(decide("open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
-        assert_eq!(decide("draft an email", Ok(Cleanup::Command("draft_email")), field), Decision::Heard { transcript: "draft an email".into() });
-        assert_eq!(decide("send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
-        // Clean-up failed: dictation types the raw transcript (marker on Glim only) …
-        for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {
-            assert_eq!(
-                decide(" thanks for the quick turnaround ", Err(f.clone()), field),
-                Decision::Type { text: "thanks for the quick turnaround".into(), cleaned: false },
-                "{f:?}"
-            );
-            // … a command never: the card, nothing typed …
-            assert_eq!(decide("open outlook", Err(f.clone()), field), Decision::Heard { transcript: "open outlook".into() });
-            // … and nothing without an editable field at the press.
-            assert_eq!(decide("thanks for the update", Err(f), false), Decision::Heard { transcript: "thanks for the update".into() });
+    fn dictation_always_types_and_never_acts() {
+        for said in HIJACKED {
+            let cleaned = format!("{said}.");
+            assert_eq!(decide(Mode::Dictate, said, Ok(Cleanup::Dictate(cleaned.clone())), true), Decision::Type { text: cleaned, cleaned: true }, "{said}");
+            // Whatever comes back that isn't `dictate` (it is never offered):
+            // still typed, raw, never a question or an action.
+            for other in [Cleanup::Clarify("What would you like me to do?".into()), Cleanup::Command("draft_email"), Cleanup::Open("outlook"), Cleanup::Resume(None)] {
+                assert_eq!(decide(Mode::Dictate, said, Ok(other.clone()), true), Decision::Type { text: said.into(), cleaned: false }, "{said} / {other:?}");
+            }
+            for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {
+                assert_eq!(decide(Mode::Dictate, said, Err(f), true), Decision::Type { text: said.into(), cleaned: false });
+            }
         }
-        // No field at the press: even a cleaned dictation isn't typed.
-        assert_eq!(decide("thanks", Ok(Cleanup::Dictate("Thanks.".into())), false), Decision::Heard { transcript: "thanks".into() });
+        // No clean-up: words that start like a command still aren't typed (the
+        // command list's only use now) …
+        assert_eq!(decide(Mode::Dictate, "open outlook", Err(CleanupFailed::Timeout), true), Decision::Heard { transcript: "open outlook".into() });
+        // … but with a clean-up, they are: V means "type this".
+        assert_eq!(decide(Mode::Dictate, "open outlook", Ok(Cleanup::Dictate("Open Outlook.".into())), true), Decision::Type { text: "Open Outlook.".into(), cleaned: true });
+        // No field at the press: nothing typed.
+        assert_eq!(decide(Mode::Dictate, "thanks", Ok(Cleanup::Dictate("Thanks.".into())), false), Decision::Heard { transcript: "thanks".into() });
+        assert_eq!(decide(Mode::Dictate, "thanks", Err(CleanupFailed::Timeout), false), Decision::Heard { transcript: "thanks".into() });
+    }
+
+    #[test]
+    fn ask_glim_never_types() {
+        for mode in [Mode::Ask, Mode::Answer] {
+            for field in [true, false] {
+                assert_eq!(decide(mode, "open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
+                assert_eq!(decide(mode, "open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
+                assert_eq!(decide(mode, "open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
+                assert_eq!(decide(mode, "send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
+                assert_eq!(decide(mode, "draft an email", Ok(Cleanup::Command("draft_email")), field), Decision::Heard { transcript: "draft an email".into() });
+                // Even a `dictate` (never offered to Ask) or no clean-up: heard, not typed.
+                assert_eq!(decide(mode, HIJACKED[1], Ok(Cleanup::Dictate("x".into())), field), Decision::Heard { transcript: HIJACKED[1].into() });
+                for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {
+                    assert_eq!(decide(mode, "thanks for the update", Err(f), field), Decision::Heard { transcript: "thanks for the update".into() });
+                }
+            }
+        }
     }
 
     #[test]
     fn card_and_id_numbers_are_never_sent_or_typed() {
-        assert_eq!(decide("my card is 4111 1111 1111 1111", Err(CleanupFailed::Timeout), true), Decision::Sensitive);
-        assert_eq!(decide("the number is", Ok(Cleanup::Dictate("The number is 123-45-6789.".into())), true), Decision::Sensitive);
+        for mode in [Mode::Dictate, Mode::Ask, Mode::Answer] {
+            assert_eq!(decide(mode, "my card is 4111 1111 1111 1111", Err(CleanupFailed::Timeout), true), Decision::Sensitive);
+        }
+        assert_eq!(decide(Mode::Dictate, "the number is", Ok(Cleanup::Dictate("The number is 123-45-6789.".into())), true), Decision::Sensitive);
     }
 
     #[test]

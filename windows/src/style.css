@@ -194,6 +194,18 @@ body {
   }
 }
 
+/* Which voice key is held (Decision A, 2026-10-16), right of the lantern, in
+   s-hear's teal: "Dictating" or "Ask Glim". */
+#voice-mode {
+  position: absolute;
+  height: 16px;
+  font: 600 12px/16px var(--font);
+  color: rgba(94, 214, 200, 0.95);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* Compact 2×2 mini grid, to the right of the notch. */
 #mini-grid {
   position: absolute;
@@ -795,6 +807,24 @@ body {
   line-height: 1.35;
   max-height: 102px;
   overflow-y: auto;
+}
+
+/* Decision B: an answer typed into Glim's question card. */
+.voice-answer {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 2px;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: 13px/18px var(--font);
+  outline: none;
+}
+
+.voice-answer:focus {
+  border-color: rgba(94, 214, 200, 0.7);
 }
 
 .sub {
