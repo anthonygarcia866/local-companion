@@ -5540,6 +5540,17 @@
    "pt-BR": "O Glim não conseguiu alterar o rascunho desta vez. Tente de novo ou altere-o no Outlook.",
    "ru": "Glim не удалось изменить черновик на этот раз. Попробуйте ещё раз или измените его в Outlook.",
    "id": "Glim tidak bisa mengubah draf kali ini. Coba lagi, atau ubah di Outlook."
+  },
+  "Glim always knows these too: {words}.": {
+   "zh-Hans": "Glim 也始终认识这些：{words}。",
+   "hi": "Glim ये भी हमेशा जानता है: {words}।",
+   "es": "Glim también conoce siempre estas: {words}.",
+   "ar": "يعرف Glim هذه أيضًا دائمًا: {words}.",
+   "fr": "Glim connaît toujours aussi ceux-ci : {words}.",
+   "bn": "Glim এগুলোও সবসময় জানে: {words}।",
+   "pt-BR": "O Glim também sempre conhece estas: {words}.",
+   "ru": "Glim всегда знает и эти: {words}.",
+   "id": "Glim juga selalu mengenali ini: {words}."
   }
  }
 }

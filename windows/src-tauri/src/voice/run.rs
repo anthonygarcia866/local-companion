@@ -125,7 +125,7 @@ pub fn action_of(key: Mode) -> &'static str {
 fn config(app: &AppHandle, key: Mode) -> Config {
     let s = app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default();
     let binding = crate::shortcuts::find(action_of(key)).map(|d| crate::shortcuts::effective(d, &s.shortcuts).keys).unwrap_or_default();
-    Config { size: super::whisper::model_size(&s.voice_model), prompt: super::prompt_from(&s.voice_words), binding }
+    Config { size: super::whisper::model_size(&s.voice_model), prompt: super::whisper_prompt(&s.voice_words), binding }
 }
 
 /// A voice key went down: `key` is Mode::Dictate (pushToTalk) or Mode::Ask
@@ -213,6 +213,8 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
             return;
         }
     };
+    // "unit four B" → "unit 4B" (fix d), before anything reads it.
+    let transcript = super::unit_numbers(&transcript);
     let words = transcript.split_whitespace().count();
     crate::log::line(format!("voice: held {:.1}s, transcribed ({}) {:.1}s, {words} words, {m}", held.as_secs_f64(), cfg.size, t0.elapsed().as_secs_f64()));
     if words == 0 {
@@ -250,6 +252,18 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         return;
     }
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
+    // "Open claw": Claude asked which app; a word that sounds like exactly
+    // one app opens it (fix d). Only after Claude answered (§4.1).
+    let cleanup = match cleanup {
+        Ok(Cleanup::Clarify(q)) if mode != Mode::Dictate => match super::open_sound_alike(transcript) {
+            Some(app_name) => {
+                crate::log::line("voice: open_app by a sound-alike");
+                Ok(Cleanup::Open(app_name))
+            }
+            None => Ok(Cleanup::Clarify(q)),
+        },
+        other => other,
+    };
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);

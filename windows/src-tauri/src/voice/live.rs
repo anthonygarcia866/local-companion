@@ -156,7 +156,12 @@ fn claude_clean_up() {
         ("edit the email you just drafted and add that the shift starts at nine", "OUTLOOK.EXE", Ask),
         ("change the email you just drafted to say wednesday instead of tuesday", "notepad.exe", Ask),
         ("add to that email that parking is in the back", "OUTLOOK.EXE", Ask),
+        // Fix d: "unit four B" (fixed up before Claude sees it) and "open claw".
+        ("the leak is in unit four B and the plumber comes thursday", "OUTLOOK.EXE", Dictate),
+        ("open claw", "notepad.exe", Ask),
     ] {
+        let fixed = super::unit_numbers(said);
+        let said = fixed.as_str();
         let t0 = Instant::now();
         let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
         let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
@@ -174,6 +179,15 @@ fn claude_clean_up() {
             let Ok(super::Cleanup::Draft(d)) = &r else { panic!("a draft: {r:?}") };
             let resolved: Vec<_> = d.to.iter().filter_map(|t| super::draft::spoken_address(t)).collect();
             assert_eq!(resolved, ["jordanlee@example.com"], "as said, then normalized: {:?}", d.to);
+        }
+        if said.contains("unit 4B") {
+            let Ok(super::Cleanup::Dictate(text)) = &r else { panic!("typed: {r:?}") };
+            assert!(text.contains("4B"), "the unit number kept: {text}");
+        }
+        if said == "open claw" {
+            // Claude opens it, or asks and Glim's sound-alike opens it (run.rs).
+            let ok = matches!(r, Ok(super::Cleanup::Open("claude_code"))) || (matches!(r, Ok(super::Cleanup::Clarify(_))) && super::open_sound_alike(said) == Some("claude_code"));
+            assert!(ok, "open claw → Claude: {r:?}");
         }
         if said.contains("just drafted") || said.starts_with("add to that email") {
             assert!(matches!(r, Ok(super::Cleanup::EditDraft(_))), "a change to the last draft, not a question: {said}: {r:?}");

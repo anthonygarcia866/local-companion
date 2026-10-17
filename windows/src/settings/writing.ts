@@ -252,6 +252,10 @@ export function modelFile(size: string): string {
  * §3.1): the speech model and the words whisper should know. Both stay on
  * this PC: the words are whisper's prompt, never sent to Claude.
  */
+/** Words whisper always hears before the user's own: Rust's
+ *  voice::BUILT_IN_WORDS (fix d, 2026-10-17), shown so nobody types them again. */
+export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+
 export function dictationGroup(host: WritingHost): HTMLElement {
   const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;
   model.append(h("option", { value: "base", text: t("Base (faster)") }), h("option", { value: "small", text: t("Small (more accurate, slower)") }));
@@ -279,6 +283,7 @@ export function dictationGroup(host: WritingHost): HTMLElement {
     files,
     h("div", { class: "row" }, h("label", { text: t("Words Glim should know"), for: "voice-words" }), words),
     h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. They stay on this PC.") }),
+    h("div", { class: "hint", "data-role": "voice-built-in", text: t("Glim always knows these too: {words}.", { words: BUILT_IN_WORDS }) }),
   );
 }
 

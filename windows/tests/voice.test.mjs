@@ -244,6 +244,10 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   words.fire("change");
   assert.equal(settings.voiceWords, "Glim, HOA board");
   assert.equal(saves, 2);
+  // Fix d: the words whisper always hears are named, the same list as Rust's.
+  const { BUILT_IN_WORDS } = await import("../src/settings/writing.ts");
+  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C\./);
+  assert.ok(read("src-tauri/src/voice/mod.rs").includes(`pub const BUILT_IN_WORDS: &str = "${BUILT_IN_WORDS}";`), "the same list as Rust's");
 });
 
 // Retest defect (2026-10-16): the question sat in a one-line title and was
