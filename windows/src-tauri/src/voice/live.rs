@@ -93,7 +93,7 @@ fn whisper_on_this_pc() {
         let secs = t0.elapsed().as_secs_f64();
         let id = path.file_stem().unwrap().to_string_lossy().into_owned();
         // §4.1 with no Claude, as if a field had the focus.
-        let decision = match super::decide(&text, Err(super::CleanupFailed::NoKey), true) {
+        let decision = match super::decide(super::Mode::Dictate, &text, Err(super::CleanupFailed::NoKey), true) {
             super::Decision::Type { .. } => "types raw",
             super::Decision::Heard { .. } => "heard card",
             super::Decision::Sensitive => "sensitive",
@@ -136,17 +136,34 @@ fn claude_clean_up() {
     let key = key::load(&key::vault()).expect("vault").expect("a saved key");
     let base = crate::net::Url::parse(claude::API_BASE).unwrap();
     let mut nanos = 0;
-    for (said, app) in [
-        ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE"),
-        ("open outlook", "notepad.exe"),
-        ("send it", "OUTLOOK.EXE"),
-        ("where was I on dale cuts", "notepad.exe"),
+    use super::Mode::{Ask, Dictate};
+    let repos = ["dale-cuts".to_string(), "local-companion".to_string()];
+    for (said, app, mode) in [
+        ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE", Dictate),
+        // Decision A's regression: the two sentences hijacked on 2026-10-16.
+        ("this is a test of glim dictation in my own voice", "OUTLOOK.EXE", Dictate),
+        ("please send the updated lease to the tenant before friday afternoon", "OUTLOOK.EXE", Dictate),
+        ("open outlook", "notepad.exe", Ask),
+        ("open claude", "notepad.exe", Ask),
+        ("open claude code", "notepad.exe", Ask),
+        ("send it", "OUTLOOK.EXE", Ask),
+        ("where was I on dale cuts", "notepad.exe", Ask),
     ] {
         let t0 = Instant::now();
-        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, app, "2026-10-15", &["dale-cuts".to_string(), "local-companion".to_string()]));
+        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
+        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
-        println!("{said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
+        println!("{mode:?} {said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
         assert!(r.is_ok(), "{said}: {r:?}");
+        if said == "open claude" {
+            assert_eq!(r, Ok(super::Cleanup::Open("claude")), "the chat app (4d)");
+        }
+        if said == "open claude code" {
+            assert_eq!(r, Ok(super::Cleanup::Open("claude_code")));
+        }
+        if mode == Dictate {
+            assert!(matches!(r, Ok(super::Cleanup::Dictate(_))), "dictation is always typed: {said}");
+        }
     }
     println!("total ${:.5}", nanos as f64 / 1e9);
 }

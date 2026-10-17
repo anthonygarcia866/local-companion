@@ -92,6 +92,10 @@ pub const ACTIONS: &[ActionDef] = &[
     // system-wide when probed (2026-10-14); Word maps it to InsertAutoText,
     // and Anthony chose to take it anyway (2026-10-14). Handled in Rust.
     action("pushToTalk", "Ctrl+Alt+Shift+V", true, true),
+    // Decision A (2026-10-16): hold to ask Glim (a request, never typed); V
+    // only dictates. Free system-wide when probed and unassigned in Word's key
+    // table (2026-10-17). Handled in Rust like pushToTalk.
+    action("askGlim", "Ctrl+Alt+Shift+A", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -307,10 +311,11 @@ pub fn on_pause_toggle(f: impl Fn() + Send + Sync + 'static) {
     let _ = PAUSE_TOGGLE.set(Box::new(f));
 }
 
-/// What the push-to-talk key runs (set up in lib.rs; voice::run).
-static PUSH_TO_TALK: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+/// What the two voice keys run (set up in lib.rs; voice::run): false for
+/// pushToTalk (dictate), true for askGlim.
+static PUSH_TO_TALK: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> = std::sync::OnceLock::new();
 
-pub fn on_push_to_talk(f: impl Fn() + Send + Sync + 'static) {
+pub fn on_push_to_talk(f: impl Fn(bool) + Send + Sync + 'static) {
     let _ = PUSH_TO_TALK.set(Box::new(f));
 }
 
@@ -329,9 +334,9 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
         }
         return;
     }
-    if action == "pushToTalk" {
+    if action == "pushToTalk" || action == "askGlim" {
         if let Some(f) = PUSH_TO_TALK.get() {
-            f();
+            f(action == "askGlim");
         }
         return;
     }
@@ -458,7 +463,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 5] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk"];
+    const GLIM_IDS: [&str; 6] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk", "askGlim"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None

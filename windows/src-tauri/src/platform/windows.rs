@@ -231,6 +231,8 @@ pub fn open_known_app(app: &str) -> bool {
         "outlook" => shell_open(w!("OUTLOOK.EXE")),
         "codex" => activate_package("OpenAI.Codex", "App"),
         "claude_code" => activate_package("Claude", "Claude"),
+        // The Claude chat app (4d, owner 2026-10-16): the same desktop app.
+        "claude" => activate_package("Claude", "Claude"),
         _ => false,
     }
 }
