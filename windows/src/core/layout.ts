@@ -194,6 +194,13 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 // dropped the whole sequence — Mochi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
+/**
+ * Push-to-talk's card holding Claude's question: taller than a result, so a
+ * question of ~5 wrapped lines fits; past that it scrolls (style.css
+ * .voice-question). Never cut off (retest, 2026-10-16).
+ */
+export const VOICE_QUESTION_H = 240;
+
 /** The question view with options to pick from: room for two rows of them. */
 export const QUESTION_PICKER_H = 200;
 
