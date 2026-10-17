@@ -58,7 +58,10 @@ const ZOOM_HOSTS: [&str; 2] = ["zoom.us", "zoomgov.com"];
 pub fn meeting_link(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else { return false };
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    if authority.contains('@') || authority.contains(':') || authority.is_empty() {
+    // The host is only letters, digits, dots and hyphens: "evil.com#.zoom.us",
+    // "evil.com\.zoom.us" or "evil.com?.zoom.us" would reach evil.com in a
+    // browser (security review, 2026-10-17). No user, no port.
+    if authority.is_empty() || !authority.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') || authority.starts_with('.') || authority.contains("..") {
         return false;
     }
     let host = authority.to_ascii_lowercase();
@@ -261,6 +264,13 @@ mod tests {
             "https://teams.microsoft.com/",
             "https://example.com/j/1",
             "javascript:alert(1)",
+            // Host-check bypasses: the browser would go to evil.com.
+            "https://evil.com#.zoom.us/j/1",
+            "https://evil.com?.zoom.us/j/1",
+            "https://evil.com\\.zoom.us/j/1",
+            "https://evil.com%2F.zoom.us/j/1",
+            "https://.zoom.us/j/1",
+            "https://teams.microsoft.com\\@evil.com/l/meetup-join/x",
         ] {
             assert!(!meeting_link(bad), "{bad}");
         }
