@@ -711,6 +711,14 @@ fn writing_rewrite(tone: String) {
     let _ = tone;
 }
 
+/// "Check with AI" (docs/phase1-plan.md §15.1): the paragraph the caret is
+/// in goes to the Claude API (Haiku). The click is the user's request.
+#[tauri::command]
+fn writing_ai_check() {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::AiCheck { auto: false });
+}
+
 /// "Use this": types rewrite `id` in through 1b's apply path.
 #[tauri::command]
 fn writing_rewrite_apply(id: u64) {
@@ -1064,6 +1072,7 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            writing_ai_check,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

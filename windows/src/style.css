@@ -2547,7 +2547,8 @@ html:not([data-presence="pill"]) #lantern-menu {
 
 button.fix-btn,
 button.apply-all,
-button.rewrite-open {
+button.rewrite-open,
+button.ai-check {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2560,13 +2561,15 @@ button.rewrite-open {
 
 button.fix-btn:hover:not(:disabled),
 button.apply-all:hover:not(:disabled),
-button.rewrite-open:hover:not(:disabled) {
+button.rewrite-open:hover:not(:disabled),
+button.ai-check:hover:not(:disabled) {
   background: rgba(242, 177, 76, 0.32);
 }
 
 button.fix-btn:focus-visible,
 button.apply-all:focus-visible,
 button.rewrite-open:focus-visible,
+button.ai-check:focus-visible,
 .suggestion-dismiss:focus-visible {
   outline: 2px solid #f2b14c;
   outline-offset: 1px;
@@ -2575,7 +2578,8 @@ button.rewrite-open:focus-visible,
 /* "Click in the field first" (away) or a fix on its way. */
 button.fix-btn:disabled,
 button.apply-all:disabled,
-button.rewrite-open:disabled {
+button.rewrite-open:disabled,
+button.ai-check:disabled {
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.45);
@@ -2596,7 +2600,8 @@ button.rewrite-open:disabled {
 }
 
 button.apply-all,
-button.rewrite-open {
+button.rewrite-open,
+button.ai-check {
   flex: none;
   height: 24px;
   padding: 0 10px;
@@ -2704,6 +2709,25 @@ button.rewrite-tone.default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* "Check with AI" at the foot of the list, after the note (§15.1). */
+.suggestion-pager button.ai-check {
+  margin-left: auto;
+  height: 22px;
+}
+
+/* An AI finding's mark, before its message. */
+.ai-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font: 700 9.5px/15px var(--font);
+  letter-spacing: 0.04em;
+  color: #0b0c0e;
+  background: #c9b8ff;
+  vertical-align: 1px;
 }
 
 .suggestion-range {

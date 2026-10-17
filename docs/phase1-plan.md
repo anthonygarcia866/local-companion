@@ -665,3 +665,11 @@ Harper misses agreement and meaning errors ("Alex and I was", "issues that needs
 - **Logging:** as 1c: never the text, the answer or the replacements; only `ai-check: ok|refused|failed`, timings and counts.
 - **Tests:** a fake API server (as in 1c) for answer validation, refusal before sending, cap and failure paths; the setting's default; a live test in Outlook and Word with the two sentences above.
 
+> **Built (2026-10-14, branch `ai-check`, draft PR; not verified live).** Notes from building it:
+> - **⚠ Amended: quotes, not offsets.** Claude is asked for `{quote, replacement, message}`, not `{start, end, …}`: models give unreliable character offsets. Glim places each quote itself and drops any it can't find exactly once (also an unchanged or multi-line replacement, one holding a card/ID-like number, overlaps, more than 8). Still validated against the paragraph, word for word.
+> - **Always Haiku** (`ai::check::MODEL`), whatever Settings → AI's model is for rewrites (the work order: "the cheap Haiku model"). Same key, same spend file and monthly cap, same Brain setting (Local → "isn't built yet").
+> - **Next to Harper's:** an AI suggestion overlapping one of Harper's is left out; the rest are merged in reading order with kind `AI` (the island shows an **AI** mark). They are never "clear", so Apply all leaves them to the user. They belong to the paragraph version they were found in: an edit drops them.
+> - **Automatic check:** once per paragraph version, after 2 s of no change, only for 4+ words; a refusal (no key, cap) is logged once, not shown.
+> - **Decided (Anthony, 2026-10-14, on recommendation): the button must be reachable when Harper finds nothing** (grammar-only paragraphs are its main use). Built the least invasive option: in the open island, a lantern click with no card waiting and no suggestions opens the **empty list** ("Nothing to fix here." + Check with AI + Rewrite…), but only when the caret is in a checked paragraph (`Suggestions.checkable`, set by a check like the list itself, kept while the list stays, cleared on Pause, settings changes and a blank line). Before, that click did nothing; nothing else changed (the closed pill's click, the default view and the full lantern menu are as they were).
+> - The lantern's popover (1e) gets the same button when the bubble's window is built.
+

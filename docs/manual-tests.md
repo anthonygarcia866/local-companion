@@ -474,6 +474,33 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **See:** the bucket folds away at once; dropping somewhere else then works normally.
 5. **Switch:** Settings → General → **File drop zone** off. Drag a file onto the pill: the cursor shows "no drop", the bucket never opens. Switch it back on.
 
+## 24. Check with AI (§15.1, draft PR)
+
+*Where: branch `ai-check`.* Needs the Anthropic API key from section 12 and **Brain: Claude API**. Each check costs a fraction of a cent (Haiku).
+
+Use this paragraph in Notepad (it has one spelling mistake, so the suggestions list appears):
+
+`Alex and I was at the unit on Monday, and we recieved the keys. There are a few issues that needs fixing.`
+
+1. **Harper first:** the list shows only "recieved". At its foot, next to the dismiss ×, there is **Check with AI**.
+2. **Click Check with AI.**
+   - **See:** the lantern turns to the data-leaving state while it runs, the note says "Checking with Claude…", and the button is greyed.
+   - **See (in a second or two):** "Alex and I was" and "issues that needs" are added to the list, each with a small **AI** mark, and the note says "Claude found 2 more suggestions." "recieved" is still there, unmarked.
+3. **Apply one:** click "Alex and I were". It is typed into Notepad like any fix; **Ctrl+Z** undoes it.
+4. **Edit while it runs:** click Check with AI and type a word straight away. **See:** "The paragraph changed while Claude was checking. Check again." and no AI suggestions for the old text.
+5. **Nothing to find:** a correct paragraph with one typo (`We recieved the keys on Monday.`), Check with AI: "Claude found nothing more to fix."
+6. **Cap:** Settings → AI, set the monthly cap below what's spent, click Check with AI: "This month's spending cap is reached…", nothing sent. Put the cap back.
+7. **No key:** (optional) with no key saved: "Add your Anthropic API key in Settings → AI first."
+8. **Card and ID numbers:** add `4111 1111 1111 1111` to the paragraph. Glim doesn't read a paragraph holding one, so there is no list and nothing can be sent (and the automatic check doesn't run either). Remove it.
+9. **Automatic check (off by default):** Settings → Writing → **Check with AI automatically when I pause typing** is **off**. Turn it on. In Notepad, type `Alex and I was at the unit on Monday.` (no typo) and stop typing.
+   - **See:** about 2 s later the lantern delegates briefly and the AI's suggestion appears with its AI mark, though Harper found nothing. It doesn't go again until you change the paragraph.
+   - Turn it **off** again: pausing never sends anything; only the button does.
+10. **Log:** glim.log has `ai-check: ok issues=2 dropped=0 (click) claude-haiku-5-5 in=… out=… $… …s` (and `(auto)` for step 9): numbers only, never your text. Settings → AI's spend went up a little.
+
+11. **Nothing found, still reachable (decided 2026-10-14):** setting **off**. In Notepad type `Alex and I was at the unit on Monday.` (no typo: no count). Open the island and **click the lantern**.
+   - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
+   - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

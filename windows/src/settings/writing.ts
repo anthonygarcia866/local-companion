@@ -236,5 +236,26 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
       h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
     ),
     tones,
+    aiAutoRow(host),
+  );
+}
+
+/**
+ * Settings → Writing → "Check with AI automatically when I pause typing"
+ * (docs/phase1-plan.md §15.1). Off by default: off, only the button sends.
+ */
+export function aiAutoRow(host: WritingHost): HTMLElement {
+  const on = host.settings().aiAutoCheck === true;
+  const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "data-role": "ai-auto-check", "aria-label": t("Check with AI automatically when I pause typing") }) as HTMLButtonElement;
+  sw.addEventListener("click", () => {
+    const next = !sw.classList.contains("on");
+    sw.classList.toggle("on", next);
+    sw.setAttribute("aria-pressed", String(next));
+    host.settings().aiAutoCheck = next;
+    void host.save();
+  });
+  return h("div", { class: "settings-group", id: "settings-writing-ai-check" },
+    h("div", { class: "row" }, h("label", { text: t("Check with AI automatically when I pause typing") }), sw),
+    h("div", { class: "hint", text: t("Off: a paragraph goes to Claude only when you click Check with AI. On: after a 2-second pause, once per paragraph, with the same card and ID check and the same monthly cap.") }),
   );
 }

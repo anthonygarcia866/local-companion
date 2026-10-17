@@ -13,6 +13,7 @@ import {
 } from "../core/layout";
 import { State } from "../core/state";
 import { sendingToApi } from "../core/rewrite";
+import { aiSending } from "../core/ai-check";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { createMiniLantern, pruneMiniLanterns, syncMiniLanterns } from "../mascot/minis";
 import { UploadCanvas } from "../upload/canvas";
@@ -406,7 +407,7 @@ export class Island {
    * A click (or Invoke, Enter, Space) on the lantern. The closed pill opens,
    * on defaultView. In the open island the lantern goes to what the badge
    * points at (a waiting card, then the writing suggestions); see
-   * State.lanternView.
+   * State.lanternView. With neither, in a checked paragraph, the empty list.
    */
   activateLantern() {
     if (this.uploadActive) return;
@@ -414,7 +415,10 @@ export class Island {
       this.fsm.click();
       return;
     }
-    const view = State.lanternView();
+    // Nothing waiting, but the caret is in a checked paragraph: the empty
+    // list ("Nothing to fix here.") with Check with AI and Rewrite… (§15.1;
+    // grammar-only paragraphs are Check with AI's main use, owner 2026-10-14).
+    const view = State.lanternView() ?? (State.writingCheckable ? "suggestions" : null);
     if (view && view !== State.view) this.setView(view);
   }
 
@@ -1148,7 +1152,7 @@ export class Island {
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
-    else if (sendingToApi(State.rewrite)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
+    else if (sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.

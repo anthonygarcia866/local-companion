@@ -18,6 +18,8 @@ pub struct Prefs {
     pub asked: BTreeMap<String, String>,
     /// The Google Docs tip was dismissed (writing::docs_tip).
     pub docs_tip_dismissed: bool,
+    /// "Check with AI automatically when I pause typing" (§15.1).
+    pub ai_auto_check: bool,
     /// Settings → Writing → Rewrite tones (§14.3): a tone id by category id
     /// or lowercase exe, only where it differs from the built-in defaults.
     pub tones: BTreeMap<String, String>,
@@ -35,6 +37,7 @@ impl Prefs {
             apps: app_switches(&s.writing_apps),
             asked: s.writing_apps_asked.iter().map(|(exe, d)| (exe.to_ascii_lowercase(), d.clone())).collect(),
             docs_tip_dismissed: s.writing_docs_tip_dismissed,
+            ai_auto_check: s.ai_auto_check,
             tones: s.rewrite_tones.iter().map(|(k, t)| (k.to_ascii_lowercase(), t.clone())).collect(),
             strictness: super::checker::Strictness::from_id(&s.checker_strictness),
             pause_apps: s.pause_apps.clone(),
