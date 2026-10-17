@@ -284,7 +284,7 @@ mod tests {
         let tools = tools_for(Mode::Ask);
         let draft = tools.as_array().unwrap().iter().find(|t| t["name"] == "draft_email").unwrap();
         let d = draft["description"].as_str().unwrap();
-        assert!(d.contains("'me' for the user") && d.contains("never ask for an address") && d.contains("never sent by Glim"));
+        assert!(d.contains("'me' for the user") && d.contains("never write or ask for an address") && d.contains("no sign-off") && d.contains("never sent by Glim"));
     }
 
     #[test]
