@@ -524,7 +524,6 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 7. **Turn the setting off:** the lantern disappears at the next reading and never comes back while it's off.
 8. **Ignore (both lists, decided 2026-10-15):** with the setting on again, type `We recieved the keys and recieved the deposit.` in Notepad. Open the popover: each row has **Ignore** at its right. Click it on "recieved": the row goes, the badge recounts, and the island's list loses it too. Type `recieved` in another paragraph: not flagged. Do the same from the island's own list with another typo. **Quit Glim and start it again:** "recieved" is flagged again (nothing was saved). glim.log says `writing: ignore ok (1 ignored this run)`, never the word.
 
-**Not in this build:** per-row **Ignore** (open question).
 
 ## 26. Dictation, push-to-talk (voice 1.5b, draft PR)
 
