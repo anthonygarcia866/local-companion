@@ -4309,28 +4309,6 @@
    "ru": "Ошибки согласования и смысла (например, «Alex and I was») могут пройти на любом уровне: для них нужен ИИ. Пока используйте «Переписать».",
    "id": "Kesalahan kesesuaian dan makna (seperti “Alex and I was”) bisa lolos di semua tingkat: perlu AI. Untuk sekarang, gunakan Tulis ulang."
   },
-  "Google Docs: Glim can't read this document": {
-   "zh-Hans": "Google 文档：Glim 读不到这个文档",
-   "hi": "Google Docs: Glim यह दस्तावेज़ नहीं पढ़ पा रहा",
-   "es": "Google Docs: Glim no puede leer este documento",
-   "ar": "مستندات Google: لا يستطيع Glim قراءة هذا المستند",
-   "fr": "Google Docs : Glim ne peut pas lire ce document",
-   "bn": "Google Docs: Glim এই ডকুমেন্ট পড়তে পারছে না",
-   "pt-BR": "Google Docs: o Glim não consegue ler este documento",
-   "ru": "Google Документы: Glim не может прочитать этот документ",
-   "id": "Google Dokumen: Glim tidak bisa membaca dokumen ini"
-  },
-  "Turn on screen reader support (Ctrl+Alt+Z) so Glim can check your writing.": {
-   "zh-Hans": "打开屏幕阅读器支持（Ctrl+Alt+Z），Glim 才能检查你的文字。",
-   "hi": "स्क्रीन रीडर सहायता चालू करें (Ctrl+Alt+Z), ताकि Glim आपका लिखा जाँच सके।",
-   "es": "Activa la compatibilidad con lectores de pantalla (Ctrl+Alt+Z) para que Glim pueda revisar lo que escribes.",
-   "ar": "شغّل دعم قارئ الشاشة (Ctrl+Alt+Z) ليتمكن Glim من تدقيق ما تكتبه.",
-   "fr": "Activez la prise en charge des lecteurs d’écran (Ctrl+Alt+Z) pour que Glim puisse vérifier ce que vous écrivez.",
-   "bn": "স্ক্রিন রিডার সাপোর্ট চালু করুন (Ctrl+Alt+Z), যাতে Glim আপনার লেখা যাচাই করতে পারে।",
-   "pt-BR": "Ative o suporte a leitores de tela (Ctrl+Alt+Z) para o Glim poder revisar o que você escreve.",
-   "ru": "Включите поддержку программ чтения с экрана (Ctrl+Alt+Z), чтобы Glim мог проверять ваш текст.",
-   "id": "Aktifkan dukungan pembaca layar (Ctrl+Alt+Z) agar Glim bisa memeriksa tulisan Anda."
-  },
   "Got it": {
    "zh-Hans": "知道了",
    "hi": "समझ गया",
@@ -5111,6 +5089,28 @@
    "pt-BR": "Ignorar “{word}” até o Glim fechar",
    "ru": "Пропускать «{word}», пока Glim не закрыт",
    "id": "Abaikan “{word}” sampai Glim ditutup"
+  },
+  "Glim can't read Google Docs yet": {
+   "zh-Hans": "Glim 暂时无法读取 Google 文档",
+   "hi": "Glim अभी Google Docs नहीं पढ़ सकता",
+   "es": "Glim todavía no puede leer Google Docs",
+   "ar": "لا يستطيع Glim قراءة مستندات Google بعد",
+   "fr": "Glim ne peut pas encore lire Google Docs",
+   "bn": "Glim এখনো Google Docs পড়তে পারে না",
+   "pt-BR": "O Glim ainda não consegue ler o Google Docs",
+   "ru": "Glim пока не умеет читать Google Документы",
+   "id": "Glim belum bisa membaca Google Dokumen"
+  },
+  "Google Docs keeps its text where Glim can't reach it, even with screen reader support on. Glim still checks your writing in your other apps and sites.": {
+   "zh-Hans": "Google 文档把文字放在 Glim 读取不到的地方，即使开启了屏幕阅读器支持也一样。Glim 仍会检查你在其他应用和网站中的写作。",
+   "hi": "Google Docs अपना टेक्स्ट ऐसी जगह रखता है जहाँ Glim नहीं पहुँच सकता, स्क्रीन रीडर सहायता चालू होने पर भी। Glim आपके दूसरे ऐप्स और साइटों में लिखावट जाँचता रहेगा।",
+   "es": "Google Docs guarda su texto donde Glim no llega, incluso con la compatibilidad con lectores de pantalla activada. Glim sigue revisando lo que escribes en tus otras aplicaciones y sitios.",
+   "ar": "يحتفظ مستندات Google بنصه حيث لا يستطيع Glim الوصول إليه، حتى مع تشغيل دعم قارئ الشاشة. يواصل Glim تدقيق كتابتك في تطبيقاتك ومواقعك الأخرى.",
+   "fr": "Google Docs garde son texte là où Glim ne peut pas l'atteindre, même avec la prise en charge des lecteurs d'écran activée. Glim vérifie toujours ce que vous écrivez dans vos autres applis et sites.",
+   "bn": "Google Docs তার লেখা এমন জায়গায় রাখে যেখানে Glim পৌঁছাতে পারে না, স্ক্রিন রিডার সাপোর্ট চালু থাকলেও। Glim আপনার অন্য অ্যাপ ও সাইটে লেখা যাচাই করতে থাকবে।",
+   "pt-BR": "O Google Docs guarda o texto onde o Glim não alcança, mesmo com o suporte a leitor de tela ativado. O Glim continua revisando o que você escreve nos seus outros apps e sites.",
+   "ru": "Google Документы хранят текст там, куда Glim не может добраться, даже с включённой поддержкой программ чтения с экрана. Glim по-прежнему проверяет ваш текст в других приложениях и на других сайтах.",
+   "id": "Google Dokumen menyimpan teksnya di tempat yang tidak bisa dijangkau Glim, bahkan dengan dukungan pembaca layar aktif. Glim tetap memeriksa tulisan Anda di aplikasi dan situs lain."
   }
  }
 }

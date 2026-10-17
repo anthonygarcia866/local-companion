@@ -420,11 +420,11 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 4. **Add a site:** type `mail.google.com`, then **Add**, and write an email in Gmail in Chrome. *(Retest 2026-10-14: Google Docs can't be used for this, see step 6.)*
    - **See:** nothing is checked there. Outlook (and claude.ai) still are.
 5. **Remove** both; Notepad gets its count again within a second, and Gmail within a second of typing.
-6. **Google Docs (needs screen reader support):** open a Google Doc in Chrome **with screen reader support off** (Tools → Accessibility; Ctrl+Alt+Z toggles it) and type the test sentence.
-   - **See:** after ~3 s, Glim shows **"Google Docs: Glim can't read this document"** with "Turn on screen reader support (Ctrl+Alt+Z)…" and **Got it** / **Not now**. glim.log has `writing: Google Docs field not readable (pattern …, read-only …)` and `writing: Google Docs tip offered` (no text).
-   - Click **Not now**. Press **Ctrl+Alt+Z** in the Doc, type the test sentence again.
-   - **See (to be found out):** whether Glim now gets a count. Tell Claude either way, with the log's `Google Docs field not readable` lines, if any.
-   - Quit and restart Glim, go back to a Doc with support off: the tip comes back (Not now isn't a dismissal). Click **Got it**: restart again, and it never comes back (log: `writing: Google Docs tip dismissed`).
+6. **Google Docs is not supported yet (Decision D, 2026-10-17, branch `docs-unsupported`):** open a Google Doc in Chrome (screen reader support on or off, it doesn't matter) and click into the page; type the test sentence.
+   - **See:** after ~3 s, **"Glim can't read Google Docs yet"** with "Google Docs keeps its text where Glim can't reach it…" and **Got it** / **Not now**. **No count and no suggestions** in Docs, even while typing. glim.log: `writing: Google Docs document, not supported yet: nothing read (…)` and `writing: Google Docs notice offered` (no text).
+   - Typing doesn't stop the notice from showing (it did on 2026-10-16).
+   - Click **Not now**. Quit and restart Glim, back to the Doc: the notice comes back. Click **Got it**, restart again: it never comes back (log: `writing: Google Docs tip dismissed`).
+   - Sheets and Slides get no notice (only Docs documents).
 
 **Cleanup:** remove your test entries.
 
