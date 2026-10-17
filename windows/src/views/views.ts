@@ -17,6 +17,7 @@ import { pillDefinition, sessionSubtitle } from "../core/pills";
 import { PlanCard, buildPlanPill, claudePillVisible, planCardOpen } from "./usage";
 import { buildRewrite } from "./rewrite";
 import { buildAsk } from "./ask";
+import { buildResume } from "./resume";
 import { buildDocsTip } from "./docs-tip";
 import { buildVoice } from "./voice";
 import { openToneCard } from "../core/rewrite";
@@ -995,6 +996,7 @@ export function buildViews(
   map.set("suggestions", buildSuggestions(actions));
   map.set("rewrite", buildRewrite(actions));
   map.set("writingAsk", buildAsk(actions));
+  map.set("resume", buildResume(actions));
   map.set("writingDocsTip", buildDocsTip(actions));
   map.set("voice", buildVoice(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.

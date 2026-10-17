@@ -19,6 +19,7 @@ mod net;
 mod pipe;
 mod platform;
 mod recap;
+mod resume;
 mod session_window;
 mod settings;
 mod shortcuts;
@@ -282,6 +283,32 @@ fn open_in_vscode(path: Option<String>) -> bool {
         platform::reveal_folder(p);
     }
     false
+}
+
+// ── "Pick up from yesterday" (resume/, PR #21) ─────────────────────────────
+
+/// The resume card's rows: each repo's HANDOFF.md, newest first. Logged as
+/// names and counts only (resume::summary_line).
+#[tauri::command]
+fn resume_cards() -> Vec<resume::Card> {
+    let scan = resume::read_all(&resume::repos(&[]));
+    log::line(resume::summary_line(&scan));
+    resume::cards(&scan)
+}
+
+/// A click on a repo's row: Claude Code opens in that repo, told to read
+/// HANDOFF.md and continue (owner, 2026-10-13: only on that click). The
+/// island sends the repo's name; the folder is looked up among the repos Glim
+/// reads, never taken from the island.
+#[tauri::command]
+fn resume_open(repo: String) -> bool {
+    let Some(folder) = resume::folder_for(&repo, &resume::repos(&[])) else {
+        log::line("resume: open refused (not a repo Glim reads)");
+        return false;
+    };
+    let opened = platform::open_claude_code_in(&folder, resume::PROMPT);
+    log::line(format!("resume: {} Claude Code in {repo}", if opened { "opened" } else { "could not open" }));
+    opened
 }
 
 /// "Open terminal": brings forward the terminal or editor window the session
@@ -1002,6 +1029,12 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
+            // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card, as the
+            // tray item does (decided 2026-10-15).
+            if dev_session() && argv.iter().any(|a| a == "--resume-card") {
+                let _ = app.emit_to(island::WINDOW_LABEL, "resume-show", ());
+                return;
+            }
             if let Some(state) = dev_mascot_state(&argv) {
                 let _ = app.emit_to(island::WINDOW_LABEL, "mascot-force", state);
                 return;
@@ -1104,6 +1137,8 @@ pub fn run() {
             voice_copy,
             open_mic_settings,
             writing_ai_check,
+            resume_cards,
+            resume_open,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,

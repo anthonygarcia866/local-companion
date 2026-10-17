@@ -514,6 +514,7 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 4. **No clean-up (raw text):** Settings → AI, set the cap below what's spent. Dictate "the plumber comes tuesday at ten". **See:** the words typed exactly as whisper heard them, a card "Typed in Notepad, not cleaned up" saying the cap is reached, and a grey **~** badge at the lantern's top right (where the count goes) until that card closes (~8 s). The typed text has no marker. Put the cap back.
 5. **A command is never typed raw:** with the cap still blocking, dictate "open outlook". **See:** nothing typed; card "Here's what I heard (couldn't act on it)" with the words and **Copy**. Click Copy, paste somewhere: the words.
 6. **A command with Claude:** cap back to normal, dictate "open outlook". **See:** the same "couldn't act on it" card (actions come in 1.5c), nothing typed.
+6b. **Pick up where you left off, by voice (decided 2026-10-15, branch `voice-resume`):** dictate "where was I on dale cuts". **See:** nothing typed; the "Pick up where you left off" card (§27) opens with **dale-cuts first**, the other repos after it. "pick up from yesterday" opens it newest first. Nothing opens until you click a row's Open in Claude Code. glim.log: `voice: resume_work (a repo first)`, never the repo's name or your words.
 7. **Not in a field:** click the desktop, dictate a sentence. **See:** "couldn't act on it" card, "Click in a text field first to dictate."
 8. **Paused:** Ctrl+Alt+Shift+P, dictate in Notepad. **See:** "Not typed", "Glim is paused.", with Copy. Resume.
 9. **Card number:** dictate "my card is 4111 1111 1111 1111". **See:** "Nothing was typed" and the "Not sent: … card, ID or bank number" line; nothing sent to Claude.
@@ -522,6 +523,21 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 11. **Hidden:** Ctrl+Alt+Shift+Space until Glim is hidden, dictate into Notepad: the text is typed; a card result (step 7) still shows.
 12. **Quit:** tray → Quit Glim. Task Manager: no `whisper-server.exe` left.
 13. **Network and log:** while dictating, `netstat -ano` for glim.exe and whisper-server.exe shows only 127.0.0.1 and api.anthropic.com. glim.log has `voice: held …s, transcribed (base) …s, N words`, `voice: typed applied (cleaned) Notepad` and the like: never your words.
+
+## 27. Pick up where you left off (resume card, PR #21)
+
+*Where: `voice-resume-reader`.* **How it's shown (decided 2026-10-15):** the tray icon's **Pick up where you left off** (right-click Glim's tray icon); later also by voice ("pick up from yesterday", `resume_work`, on the voice branch). Never by itself. The dev switch `glim.exe --resume-card` (with `GLIM_DEV=1`) still works.
+
+0. **From the tray:** right-click Glim's tray icon: **Pick up where you left off** sits under Weekly recap. Click it: the card below opens. With Glim **Hidden** first (Ctrl+Alt+Shift+Space until it's gone), the pill comes back and the card opens, as Open Glim does. Pause in the tray still says Pause / Resume correctly.
+
+1. **The card:** "Pick up where you left off", with one row per folder under your home folder that has a HANDOFF.md, **the most recently updated first** (local-companion today). Each row: the repo's name, where it stopped (In progress, else Goal), the branch, "Has open questions" if any, and **Open in Claude Code**.
+   - **See:** nothing opens by itself: no console, no Claude Code, until you click.
+2. **Click Open in Claude Code** on local-companion.
+   - **See:** a console window opens in `C:\Users\antho\local-companion` running Claude Code, whose first message is "Read HANDOFF.md first, check it against git status, and continue from In progress." The card says "Opening Claude Code in local-companion…" and closes.
+   - glim.log: `resume: 1 read [...]` (names and counts only) and `resume: opened Claude Code in local-companion`. No HANDOFF text in the log.
+3. **Not installed:** (optional) if `claude` isn't on PATH or in `~/.local/bin`, the card says "Couldn't open Claude Code in local-companion. Is it installed?" and nothing else happens.
+4. **Close** closes the card without opening anything.
+5. **A card number in a HANDOFF.md** (in a scratch repo, e.g. `~/resume-test/HANDOFF.md` with `## In progress` holding `4111 1111 1111 1111`): its row says "Part of it is withheld…" and doesn't show that section. Delete the scratch folder after.
 
 ## After testing
 

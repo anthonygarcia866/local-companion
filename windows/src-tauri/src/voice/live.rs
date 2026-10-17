@@ -98,6 +98,7 @@ fn whisper_on_this_pc() {
             super::Decision::Heard { .. } => "heard card",
             super::Decision::Sensitive => "sensitive",
             super::Decision::Question { .. } => "question",
+            super::Decision::Resume { .. } => "resume card",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
@@ -138,9 +139,10 @@ fn claude_clean_up() {
         ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE"),
         ("open outlook", "notepad.exe"),
         ("send it", "OUTLOOK.EXE"),
+        ("where was I on dale cuts", "notepad.exe"),
     ] {
         let t0 = Instant::now();
-        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, app, "2026-10-15"));
+        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, app, "2026-10-15", &["dale-cuts".to_string(), "local-companion".to_string()]));
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
         println!("{said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
         assert!(r.is_ok(), "{said}: {r:?}");
