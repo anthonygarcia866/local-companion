@@ -21,6 +21,7 @@ import { buildResume } from "./resume";
 import { buildDocsTip } from "./docs-tip";
 import { buildVoice } from "./voice";
 import { buildDraft } from "./draft";
+import { buildCalendar } from "./calendar";
 import { openToneCard } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
@@ -1001,6 +1002,7 @@ export function buildViews(
   map.set("writingDocsTip", buildDocsTip(actions));
   map.set("voice", buildVoice(actions));
   map.set("draft", buildDraft(actions));
+  map.set("calendar", buildCalendar(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));

@@ -20,6 +20,7 @@ import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
 import { writingSection } from "./writing";
+import { calendarSection } from "./calendar";
 import { privacySection } from "./privacy";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { colorDot } from "./colors";
@@ -1026,6 +1027,8 @@ async function render() {
   shortcutsListener = null;
   const writing = writingSection({ settings: () => settings, save, watch: (redraw) => declaredViews.push(redraw) }, knownApps, toneDefaults);
   const [general, presence] = generalSections();
+  const calendar = calendarSection({ settings: () => settings, save });
+  calendar.id = "settings-calendar";
   const privacy = privacySection({ settings: () => settings, save }, pauseBuiltins);
   privacy.id = "settings-privacy";
   const shortcuts = shortcutsSection(shortcutReport);
@@ -1043,6 +1046,7 @@ async function render() {
     general,
     presence,
     h("div", { class: "settings-group", id: "settings-writing" }, writing, ai),
+    calendar,
     privacy,
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },

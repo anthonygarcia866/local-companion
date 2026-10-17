@@ -71,6 +71,10 @@ export const Bridge = {
   /** A box on a card borrows the keyboard (`on`), then gives it back to the
    *  window the user was typing in before (core/keyboard.ts). */
   lendKeyboard: (on: boolean) => call<void>("lend_keyboard", { on }),
+  /** Settings → Calendar: the calendars classic Outlook has open (empty if it isn't running). */
+  calendarCalendars: () => call<{ id: string; name: string; default: boolean }[]>("calendar_calendars"),
+  /** The calendar card's Join: Rust opens that event's checked Teams/Zoom link. */
+  calendarJoin: (generation: number, index: number) => call<void>("calendar_join", { generation, index }),
 
   reposition: () => call<void>("reposition"),
 
