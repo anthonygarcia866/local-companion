@@ -73,9 +73,9 @@ class FakeElement {
   addEventListener(type, fn) {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
   }
-  /** Calls the listeners of `type` with a minimal event. */
-  fire(type) {
-    const event = { type, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} };
+  /** Calls the listeners of `type` with a minimal event (plus `extra`, e.g. `{ key: "Enter" }`). */
+  fire(type, extra = {}) {
+    const event = { type, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...extra };
     for (const fn of this.listeners.get(type) ?? []) fn(event);
     return event;
   }

@@ -116,6 +116,14 @@ pub struct Settings {
     /// (1e, docs/phase1-plan.md §7a.6): off by default until the owner's live
     /// tests pass (decided 2026-10-13).
     pub writing_bubble: bool,
+    /// Settings → Email drafts → Your address (voice 1.5d): the only account
+    /// a draft is saved in and sent from (by the user), and what "me" means.
+    /// Empty until the user fills it in.
+    pub draft_from: String,
+    /// Names picked on the "Draft email" card: the spoken name (lowercased)
+    /// → the address. Rust's: added on Create draft, removed with Forget in
+    /// Settings (lib.rs keeps it when the page saves).
+    pub draft_recipients: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -173,6 +181,8 @@ impl Default for Settings {
             voice_model: "base".into(),
             voice_words: String::new(),
             writing_bubble: false,
+            draft_from: String::new(),
+            draft_recipients: BTreeMap::new(),
         }
     }
 }
@@ -460,7 +470,9 @@ mod tests {
   "aiAutoCheck": true,
   "voiceModel": "small",
   "voiceWords": "Glim, HOA, Okafor",
-  "writingBubble": true
+  "writingBubble": true,
+  "draftFrom": "me@example.com",
+  "draftRecipients": { "maria": "maria.lopez@example.com" }
 }"##;
 
     fn custom() -> Value {
@@ -905,6 +917,8 @@ mod tests {
                 "voiceModel",
                 "voiceWords",
                 "writingBubble",
+                "draftFrom",
+                "draftRecipients",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

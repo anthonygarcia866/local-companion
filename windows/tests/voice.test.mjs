@@ -10,9 +10,10 @@ import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
 const { State } = await import("../src/core/state.ts");
-const { nextVoice, needsCard, running, voiceLantern, voiceSending, voicePlacement, cardTimeoutMs } = await import("../src/core/voice.ts");
-const { buildVoice, closeVoice, voiceClock, voiceShown, voiceText, failedText, notCleanedText } = await import("../src/views/voice.ts");
+const { nextVoice, needsCard, running, voiceLantern, voiceSending, voicePlacement, cardTimeoutMs, answering, modeLabel } = await import("../src/core/voice.ts");
+const { buildVoice, closeVoice, voiceClock, voiceShown, voiceText, failedText, notCleanedText, heardNote } = await import("../src/views/voice.ts");
 const { sent } = await import("./tauri.mjs");
+const { keyboardHolder } = await import("../src/core/keyboard.ts");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const ev = (o) => ({ phase: "idle", level: 0, cleaned: false, text: "", code: "", app: "", ...o });
@@ -194,9 +195,10 @@ test("the level meter: only while listening, a sliver at silence, 60% of the pil
   assert.match(island, /this\.voiceMeter\.style\.display = meter === null \|\| State\.mode === "hidden" \? "none" : "";/);
 });
 
-test("a typed result closes sooner than one there to copy", () => {
+test("a typed result closes sooner than one there to copy; a question waits longest", () => {
   assert.equal(cardTimeoutMs(at({ phase: "typed" })), 8_000);
-  for (const phase of ["heard", "not-typed", "question", "failed"]) assert.equal(cardTimeoutMs(at({ phase })), 30_000, phase);
+  for (const phase of ["heard", "not-typed", "failed"]) assert.equal(cardTimeoutMs(at({ phase })), 30_000, phase);
+  assert.equal(cardTimeoutMs(at({ phase: "question" })), 60_000);
 });
 
 test("the island never logs or stores what was heard; the handler sends nothing to Rust", () => {
@@ -204,7 +206,7 @@ test("the island never logs or stores what was heard; the handler sends nothing 
     const src = read(file);
     for (const banned of ["console.", "localStorage", "sessionStorage", "addEventListener"]) assert.ok(!src.includes(banned), `${file}: ${banned}`);
   }
-  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
+  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCancel()", "Bridge.voiceAnswer(text)", "Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"voice"'));
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);
@@ -242,6 +244,10 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   words.fire("change");
   assert.equal(settings.voiceWords, "Glim, HOA board");
   assert.equal(saves, 2);
+  // Fix d: the words whisper always hears are named, the same list as Rust's.
+  const { BUILT_IN_WORDS } = await import("../src/settings/writing.ts");
+  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C\./);
+  assert.ok(read("src-tauri/src/voice/mod.rs").includes(`pub const BUILT_IN_WORDS: &str = "${BUILT_IN_WORDS}";`), "the same list as Rust's");
 });
 
 // Retest defect (2026-10-16): the question sat in a one-line title and was
@@ -278,6 +284,179 @@ test("the card grows for a question, so a wrapped one fits before it ever scroll
   assert.ok(VOICE_QUESTION_H > VIEW_LAYOUTS.voice.height);
   assert.ok(VOICE_QUESTION_H <= 320, "still inside the island's window");
   const island = read("src/island/island.ts");
-  assert.ok(island.includes('State.view === "voice" && State.voice?.phase === "question"'));
+  assert.ok(island.includes('State.view === "voice" && (State.voice?.phase === "question" || answering(State.voice))'));
   assert.match(island, /h = VOICE_QUESTION_H;/);
+});
+
+// ── Decision A (2026-10-16): two keys, V dictates, A asks Glim ───────────────
+
+test("the pill names the held key: Dictating or Ask Glim, only while listening", async () => {
+  assert.equal(modeLabel(at({ phase: "listening", mode: "dictate" })), "Dictating");
+  assert.equal(modeLabel(at({ phase: "listening", mode: "ask" })), "Ask Glim");
+  assert.equal(modeLabel(at({ phase: "listening" })), "Dictating", "an event without a mode is dictation");
+  assert.equal(modeLabel(at({ phase: "listening", mode: "answer" })), null, "answering shows on its card");
+  for (const phase of ["transcribing", "cleaning", "typed", "heard"]) assert.equal(modeLabel(at({ phase, mode: "ask" })), null, phase);
+  assert.equal(modeLabel(null), null);
+  const island = read("src/island/island.ts");
+  assert.match(island, /id: "voice-mode"/);
+  assert.match(island, /const label = modeLabel\(State\.voice\);/);
+  assert.match(read("src/style.css"), /#voice-mode \{/);
+  // Both keys are listed in Settings → Shortcuts, rebindable, with these defaults.
+  const { SHORTCUTS } = await import("../src/core/shortcuts.ts");
+  const keys = Object.fromEntries(SHORTCUTS.map((d) => [d.id, d.defaultKeys]));
+  assert.equal(keys.pushToTalk, "Ctrl+Alt+Shift+V");
+  assert.equal(keys.askGlim, "Ctrl+Alt+Shift+A");
+  const rust = read("src-tauri/src/shortcuts.rs");
+  assert.ok(rust.includes('action("askGlim", "Ctrl+Alt+Shift+A", true, true),'));
+  assert.ok(rust.includes('if action == "pushToTalk" || action == "askGlim" {'));
+});
+
+test("dictation without a clean-up that starts like a command says why it wasn't typed", () => {
+  assert.match(heardNote("command-words"), /words that start like a command aren't typed/);
+  assert.ok(read("src-tauri/src/voice/mod.rs").includes('"command-words"'));
+});
+
+// ── Decision B (2026-10-16): a voice answer goes into the waiting card ───────
+
+test("while a question waits, an answer from either key keeps the card up", () => {
+  const q = at({ phase: "question", text: "Which app: Outlook, Codex or Claude Code?", mode: "ask" });
+  assert.equal(q.question, "", "the question itself is in text");
+  let v = nextVoice(q, ev({ phase: "listening", mode: "answer" }));
+  assert.equal(answering(v), true);
+  assert.equal(v.question, "Which app: Outlook, Codex or Claude Code?");
+  assert.equal(needsCard(v), true, "the card stays while the answer is on its way");
+  assert.equal(voiceLantern(v), "hear");
+  v = nextVoice(v, ev({ phase: "transcribing", mode: "answer" }));
+  v = nextVoice(v, ev({ phase: "cleaning", mode: "answer" }));
+  assert.equal(v.question, "Which app: Outlook, Codex or Claude Code?", "kept through every phase");
+  assert.equal(answering(v), true);
+  // The answer's result replaces it.
+  v = nextVoice(v, ev({ phase: "heard", text: "codex", mode: "answer" }));
+  assert.deepEqual([answering(v), v.question], [false, ""]);
+  // A plain press (no question waiting) is not answering, and needs no card while it runs.
+  const plain = at({ phase: "listening", mode: "dictate" });
+  assert.deepEqual([answering(plain), needsCard(plain)], [false, false]);
+});
+
+test("the question card: Listening for your answer…, Cancel, and a typed answer goes to Rust", async () => {
+  State.voice = at({ phase: "question", text: "Which Maria?", mode: "ask" });
+  State.view = "voice";
+  State.mode = "expanded";
+  voiceShown();
+  const { v } = card();
+  v.sync();
+  assert.deepEqual(buttons(v), ["Send", "Cancel"]);
+  assert.match(v.el.textContent, /Hold either voice shortcut and say your answer, or type it below\./);
+  const box = v.el.find(".voice-answer")[0];
+  assert.ok(box, "there is an answer box");
+  assert.equal(box.style.display, "");
+  assert.equal(voiceClock.running(), true);
+  // Typed: Enter sends it through Rust (voice_answer).
+  const n = sent("voice_answer").length;
+  box.value = "  Maria Lopez  ";
+  box.fire("keydown", { key: "Enter" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent("voice_answer").slice(n), [{ text: "Maria Lopez" }]);
+  // Spoken: Rust's answer phases keep the card, which says it is listening.
+  State.voice = nextVoice(at({ phase: "question", text: "Which Maria?" }), ev({ phase: "listening", mode: "answer" }));
+  v.sync();
+  assert.match(v.el.textContent, /Listening for your answer…/);
+  assert.match(v.el.textContent, /Which Maria\?/);
+  assert.deepEqual(buttons(v), ["Cancel"]);
+  assert.equal(box.style.display, "none");
+  assert.equal(voiceClock.running(), false, "no clock while the answer is on its way");
+  State.voice = nextVoice(State.voice, ev({ phase: "cleaning", mode: "answer" }));
+  v.sync();
+  assert.match(v.el.textContent, /Working on your answer…/);
+  // Cancel stops Rust waiting (voice_cancel) and closes the card.
+  const c = sent("voice_cancel").length;
+  v.el.find("button").find((b) => b.textContent === "Cancel").fire("click");
+  assert.equal(State.voice, null);
+  assert.equal(sent("voice_cancel").length, c + 1);
+  State.mode = "hidden";
+});
+
+test("the answer box borrows the keyboard on a click and gives it back on Send, a spoken answer, Cancel or close (retest, 2026-10-17)", async () => {
+  const lent = () => sent("lend_keyboard").map((c) => c.on);
+  State.view = "voice";
+  State.mode = "expanded";
+  // Typed and sent with Enter.
+  State.voice = at({ phase: "question", text: "What should it say?", mode: "ask" });
+  voiceShown();
+  const { v } = card();
+  v.sync();
+  const box = v.el.find(".voice-answer")[0];
+  let n = sent("lend_keyboard").length;
+  v.sync();
+  assert.deepEqual(lent().slice(n), [], "showing the card never takes the keyboard");
+  box.fire("pointerdown");
+  assert.deepEqual(lent().slice(n), [true]);
+  assert.equal(keyboardHolder(), "voice");
+  box.value = "the shift moved to Tuesday";
+  box.fire("keydown", { key: "Enter" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(lent().slice(n), [true, false], "Send gives it back");
+  assert.equal(keyboardHolder(), null);
+  // Clicked, then answered by voice instead: the box goes, so does the keyboard.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  State.voice = nextVoice(State.voice, ev({ phase: "listening", mode: "answer" }));
+  v.sync();
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Clicked, then Cancel.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  v.el.find("button").find((b) => b.textContent === "Cancel").fire("click");
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Closed without a click: nothing was borrowed, nothing is given back.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  n = sent("lend_keyboard").length;
+  closeVoice(null);
+  assert.deepEqual(lent().slice(n), []);
+  State.mode = "hidden";
+  // Rust: island only, gives the keyboard back to the window it came from.
+  const lib = read("src-tauri/src/lib.rs");
+  const fn = lib.slice(lib.indexOf("fn lend_keyboard("), lib.indexOf("fn dock_drag_start("));
+  assert.ok(fn.includes("caller.label() != island::WINDOW_LABEL"), "only the island may ask");
+  assert.ok(fn.includes("platform::foreground_other_than(&win)") && fn.includes("platform::give_foreground_back(&win, to)"));
+  assert.ok(/\n\s+focus_window,\n\s+lend_keyboard,\n/.test(lib), "registered");
+});
+
+test("a spoken never mind: Rust ends the question and the island leaves the card, no follow-up (fix c, 2026-10-17)", () => {
+  // Rust sends "idle" (voice) and "closed" (draft); the island leaves those
+  // views instead of showing them emptied, and gives back a borrowed keyboard.
+  const main = read("src/main.ts");
+  const gone = main.slice(main.indexOf("const cardGone = "), main.indexOf('await onEvent<VoiceEvent>("voice"'));
+  for (const step of ["returnKeyboard(view);", "State.view !== view", "State.lanternView()", "island.setView(next)", "island.collapse()"]) assert.ok(gone.includes(step), step);
+  assert.ok(main.includes('if (e.phase === "idle" && was) cardGone("voice");'));
+  assert.ok(main.includes('if (had && !State.draft) cardGone("draft");'));
+  assert.equal(nextVoice(at({ phase: "question", text: "Is there something else?" }), ev({ phase: "idle" })), null, "idle clears the card");
+});
+
+test("closing a question card tells Rust; other cards don't", () => {
+  const cases = [
+    [at({ phase: "question", text: "Which app?" }), 1],
+    [nextVoice(at({ phase: "question", text: "Which app?" }), ev({ phase: "listening", mode: "answer" })), 1],
+    [at({ phase: "heard", text: "x" }), 0],
+    [at({ phase: "failed", code: "no-mic" }), 0],
+  ];
+  for (const [voice, tells] of cases) {
+    State.voice = voice;
+    const c = sent("voice_cancel").length;
+    closeVoice(null);
+    assert.equal(sent("voice_cancel").length - c, tells, voice.phase);
+  }
+  // Rust: the commands exist and are registered; the typed answer is never logged.
+  const lib = read("src-tauri/src/lib.rs");
+  assert.ok(lib.includes("fn voice_answer(app: AppHandle, text: String) -> bool {"));
+  assert.ok(lib.includes("fn voice_cancel() {"));
+  assert.ok(/\n\s+voice_answer,\n\s+voice_cancel,\n/.test(lib), "registered");
+  const run = read("src-tauri/src/voice/run.rs");
+  const typed = run.slice(run.indexOf("pub fn answer_typed("), run.indexOf("async fn process("));
+  assert.ok(!/log::line\([^;]*\{text\}/.test(typed), "the typed answer is never logged");
+  assert.match(run, /pub const QUESTION_TTL: Duration = Duration::from_secs\(120\);/);
 });

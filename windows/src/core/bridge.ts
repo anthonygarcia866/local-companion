@@ -68,6 +68,9 @@ export const Bridge = {
 
   /** Give the window keyboard focus (chat field) and take it away again. */
   focusWindow: (focused: boolean) => call<void>("focus_window", { focused }),
+  /** A box on a card borrows the keyboard (`on`), then gives it back to the
+   *  window the user was typing in before (core/keyboard.ts). */
+  lendKeyboard: (on: boolean) => call<void>("lend_keyboard", { on }),
 
   reposition: () => call<void>("reposition"),
 
@@ -171,8 +174,19 @@ export const Bridge = {
   writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
   /** Push-to-talk's card: copies what was heard. False: the clipboard was busy. */
   voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
+  /** An answer typed into Glim's question card (Decision B). False: the question closed. */
+  voiceAnswer: (text: string) => call<boolean>("voice_answer", { text }),
+  /** The question card closed (Cancel, Close or its clock): nothing waits for an answer. */
+  voiceCancel: () => call<void>("voice_cancel"),
   /** Windows' microphone privacy page (a fixed link in Rust). */
   openMicSettings: () => call<void>("open_mic_settings"),
+  /** The Draft email card (1.5d): ids, indexes and a search's text only. Nothing sends. */
+  draftPick: (id: number, index: number, choice: number) => call<void>("draft_pick", { id, index, choice }),
+  draftChange: (id: number, index: number) => call<void>("draft_change", { id, index }),
+  draftSearch: (id: number, query: string) => call<void>("draft_search", { id, query }),
+  draftCreate: (id: number) => call<void>("draft_create", { id }),
+  draftCancel: (id: number) => call<void>("draft_cancel", { id }),
+  draftForget: (name: string) => call<void>("draft_forget", { name }),
   /** Pill ID → whether that agent's hooks reach the app (read-only, Mac #183). */
   agentHooksStatus: () => call<Record<string, boolean>>("agent_hooks_status"),
   /** Diff to show before anything is written. `install: false` previews removal. */

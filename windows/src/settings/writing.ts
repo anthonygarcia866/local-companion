@@ -3,7 +3,7 @@
 // owns the built-in lists (writing::apps, writing::tones) and reads the
 // user's choices from settings.json within one reading of saving them.
 
-import type { KnownApp } from "../core/bridge";
+import { Bridge, type KnownApp } from "../core/bridge";
 import type { Settings } from "../core/state";
 import { TONES } from "../core/rewrite";
 import { toneLabel } from "../views/rewrite";
@@ -239,6 +239,7 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     bubbleRow(host),
     aiAutoRow(host),
     dictationGroup(host),
+    draftGroup(host),
   );
 }
 
@@ -252,6 +253,10 @@ export function modelFile(size: string): string {
  * §3.1): the speech model and the words whisper should know. Both stay on
  * this PC: the words are whisper's prompt, never sent to Claude.
  */
+/** Words whisper always hears before the user's own: Rust's
+ *  voice::BUILT_IN_WORDS (fix d, 2026-10-17), shown so nobody types them again. */
+export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+
 export function dictationGroup(host: WritingHost): HTMLElement {
   const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;
   model.append(h("option", { value: "base", text: t("Base (faster)") }), h("option", { value: "small", text: t("Small (more accurate, slower)") }));
@@ -279,6 +284,7 @@ export function dictationGroup(host: WritingHost): HTMLElement {
     files,
     h("div", { class: "row" }, h("label", { text: t("Words Glim should know"), for: "voice-words" }), words),
     h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. They stay on this PC.") }),
+    h("div", { class: "hint", "data-role": "voice-built-in", text: t("Glim always knows these too: {words}.", { words: BUILT_IN_WORDS }) }),
   );
 }
 
@@ -320,5 +326,61 @@ export function bubbleRow(host: WritingHost): HTMLElement {
   return h("div", { class: "settings-group", id: "settings-writing-bubble" },
     h("div", { class: "row" }, h("label", { text: label }), sw),
     h("div", { class: "hint", text: t("A small lantern beside the field you type in, with the count; click it for the suggestions. It never takes the focus from your text.") }),
+  );
+}
+
+/** An address as Rust checks it (voice::draft::looks_like_address). */
+export function looksLikeAddress(s: string): boolean {
+  const v = s.trim();
+  const at = v.indexOf("@");
+  if (at <= 0 || v.indexOf("@", at + 1) >= 0 || /\s/.test(v)) return false;
+  const domain = v.slice(at + 1);
+  return domain.includes(".") && !domain.startsWith(".") && !domain.endsWith(".");
+}
+
+/**
+ * Settings → Writing → Email drafts (voice 1.5d, decided 2026-10-16): the
+ * sender's address (the only account a draft is ever saved in, and what "me"
+ * means) and the names picked on the Draft email card, each with Forget.
+ * The picks are Rust's: Forget asks Rust (draft_forget); the page only shows them.
+ */
+export function draftGroup(host: WritingHost): HTMLElement {
+  const from = h("input", { id: "draft-from", type: "email", maxlength: "200", "data-role": "draft-from", placeholder: "name@example.com" }) as HTMLInputElement;
+  from.value = host.settings().draftFrom ?? "";
+  const why = h("div", { class: "hint", "data-role": "draft-from-why" });
+  from.addEventListener("change", () => {
+    const v = from.value.trim();
+    if (v && !looksLikeAddress(v)) {
+      why.textContent = t("That doesn't look like an email address.");
+      return;
+    }
+    why.textContent = "";
+    host.settings().draftFrom = v;
+    void host.save();
+  });
+  const list = h("div", { class: "pill-group", "data-role": "draft-names" });
+  const draw = () => {
+    clear(list);
+    const names = Object.entries(host.settings().draftRecipients ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    if (names.length === 0) {
+      list.append(h("div", { class: "hint", text: t("No names remembered yet. A name you pick on the Draft email card is remembered here.") }));
+      return;
+    }
+    for (const [name, address] of names) {
+      list.append(h("div", { class: "row", "data-name": name },
+        h("label", { text: `${name} → ${address}` }),
+        h("button", { class: "link-btn", type: "button", "data-role": "draft-forget", text: t("Forget"), onclick: () => void Bridge.draftForget(name) })));
+    }
+  };
+  draw();
+  host.watch?.(draw);
+  return h("div", { class: "settings-group", id: "settings-writing-drafts" },
+    h("h3", { text: t("Email drafts") }),
+    h("div", { class: "hint", text: t("“Draft an email to …” makes a draft in classic Outlook and opens it there. Glim never sends it: you do, from Outlook.") }),
+    h("div", { class: "row" }, h("label", { text: t("Your address"), for: "draft-from" }), from),
+    why,
+    h("div", { class: "hint", text: t("The only Outlook account drafts are saved in, and who “me” is.") }),
+    h("h3", { text: t("Remembered names") }),
+    list,
   );
 }
