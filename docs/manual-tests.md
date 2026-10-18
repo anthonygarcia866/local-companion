@@ -100,6 +100,7 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    | Ctrl+Alt+T | Opens the focused pill's terminal |
    | Ctrl+Alt+← / → | Previous / next pill |
    | Ctrl+Alt+Shift+N (PR #15) | Denies a waiting permission card (section 10) |
+   | Ctrl+Alt+Shift+Y (fix e) | Allows it, under conditions (section 10b) |
    | Ctrl+Alt+Shift+R (1c) | Opens the Rewrite card (section 13) |
 
 3. **Rebind one:** click its key box, press a new combination, and try it.
@@ -229,14 +230,37 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 1. **Deny from the keyboard:** get a permission card up (section 9, step 1), then **without clicking Glim**, press **Ctrl+Alt+Shift+N** from the terminal or any app.
    - **See:** the card closes, and Claude Code says the request was denied.
-2. **No Y/N hints:** look at the card.
-   - **See:** no "Y"/"N" hints on the buttons.
-   - **See:** there is **no key for Allow**, only a click.
+2. **No bare Y/N hints:** look at the card.
+   - **See:** no single "Y"/"N" on the buttons; since fix e (2026-10-17) the buttons show the global chords, **Ctrl+Alt+Shift+N** on Deny and **Ctrl+Alt+Shift+Y** on Allow (section 10b).
 3. **With nothing waiting:** press Ctrl+Alt+Shift+N.
    - **See:** nothing happens except the lantern looking annoyed.
 4. **Question cards:** with a question card up (Claude Code asking you to choose), the key does nothing.
 
 **Cleanup:** none.
+
+## 10b. The Allow key and waiting cards (fix e, redesigned 2026-10-17, PR #33)
+
+*Where: main once #33 is merged.* Ctrl+Alt+Shift+Y was free system-wide and unassigned in Word (checked 2026-10-17). Every permission card takes the key (your "ask" rules no longer matter here); destructive commands take two presses.
+
+1. **Allow from the keyboard:** in Claude Code, ask for something harmless that needs permission (e.g. `npm test` in a repo). With the card open in Glim, **wait 2 seconds**, then press **Ctrl+Alt+Shift+Y** from any app, without clicking Glim.
+   - **See:** the card closes and Claude Code runs the command. glim.log: `decide allow (key) req=…`.
+2. **Too soon:** get another harmless card and press Ctrl+Alt+Shift+Y **right away** (under 1.5 s).
+   - **See:** nothing is allowed; the lantern looks annoyed (glim.log: `allow key refused (too-soon)`). Wait 2 s and press again: allowed.
+3. **An "ask"-rule command that isn't destructive** (e.g. `git merge` on a throwaway branch, or `gh pr merge` on a test PR you'd click anyway): wait 2 s, press once.
+   - **See:** allowed with one press, like any other card.
+4. **Destructive, two presses:** ask for `rm -rf` on a temp folder (or `Remove-Item -Recurse -Force` on one). Wait 2 s, press once.
+   - **See:** nothing allowed yet; the card says **Press again to allow: Bash · rm -rf …** (glim.log: `allow key armed`). Press again within 3 s: allowed.
+5. **The window resets:** another destructive card, press once, then wait **4 s**.
+   - **See:** the "Press again" line goes away after ~3 s; a press now is a first press again (the line comes back), a second one allows.
+6. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
+   - **See:** refused (`not-open`). Open the island on the card again: it needs its own 1.5 s again.
+7. **A long command:** one too long to show whole on the card (or cut short with "…").
+   - **See:** refused (`cut-off`); clicking still works.
+8. **Waiting too long:** get a card and don't answer for 35 s.
+   - **See:** after ~30 s the lantern pops, again every ~4 s until you answer. No sound (off by default).
+   - Settings → Claude Code → **Soft sound when a permission waits**: on. Another card, wait 35 s: one soft two-note chime at ~30 s, not repeated. Turn it off again if you like.
+   - glim.log after answering: `approval waited 34.2 s (allow (click), escalated) req=…`. Every card's wait is logged (a quick one: no "escalated"); never the command.
+9. **Settings → Shortcuts:** "Allow the waiting permission" is listed with Ctrl+Alt+Shift+Y and can be changed; the card's Allow button shows the new chord.
 
 ## 11. Pause (tray)
 

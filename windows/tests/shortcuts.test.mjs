@@ -19,7 +19,7 @@ const MAC_IDS = [
   "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
 ];
 /** Glim's own actions, after the Mac ones. */
-const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk", "askGlim"];
+const GLIM_IDS = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim"];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
 
@@ -87,7 +87,7 @@ test("only the island toggle is off by default; the four not in this version are
     assert.equal(d.ported, !reserved.includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "rewrite", "denyApproval",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "cycleVisibility", "rewrite", "denyApproval", "allowApproval",
     "pauseToggle", "pushToTalk", "askGlim",
   ]);
 });
@@ -265,6 +265,7 @@ const host = {
   setPinned: (on) => did.push(`pin:${on}`),
   takeKeyboard: () => did.push("keyboard"),
   denyApproval: () => did.push("deny"),
+  allowApproval: () => did.push("allow"),
 };
 const resume = () => did.push("resume");
 // The island listens on `window`, which here is the bare global object.
@@ -302,13 +303,19 @@ test("the Deny key denies a waiting permission card, and nothing else", () => {
   assert.deepEqual(did, ["emote:annoyed"]);
 });
 
-test("Deny is Ctrl+Alt+Shift+N, and no key allows", () => {
+// Fix e (owner, 2026-10-17) replaces "no key allows": Allow has a key, and
+// the island decides when it counts (tests/allow.test.mjs).
+test("Deny is Ctrl+Alt+Shift+N, Allow is Ctrl+Alt+Shift+Y, and the island decides when Allow counts", () => {
   const keys = Object.fromEntries(SHORTCUTS.map((d) => [d.id, d.defaultKeys]));
   assert.equal(keys.denyApproval, "Ctrl+Alt+Shift+N");
+  assert.equal(keys.allowApproval, "Ctrl+Alt+Shift+Y");
   assert.deepEqual(altGrClashes("Ctrl+Alt+Shift+N"), []);
-  assert.ok(!SHORTCUTS.some((d) => /allow|approve/i.test(d.id)), "Allow is a click only");
+  assert.deepEqual(altGrClashes("Ctrl+Alt+Shift+Y"), []);
   const views = readFileSync(new URL("../src/views/views.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(views, /guarded\("(?:allow|deny)"\), "[YN]"/, "no Y/N key hints on the card");
+  assert.doesNotMatch(views, /guarded\("(?:allow|deny)"\), "[YN]"/, "no bare Y/N key hints on the card");
+  // The key always reaches the island's check, card or not (it emotes "no" itself).
+  emit("shortcut", "allowApproval");
+  assert.deepEqual(did, ["allow"]);
 });
 
 test("a global shortcut arrives as an event and opens the chat", () => {

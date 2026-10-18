@@ -25,6 +25,8 @@ export interface ShortcutHost {
   takeKeyboard(): void;
   /** Answers the waiting permission card with Deny, as its button does. */
   denyApproval(): void;
+  /** The Allow key: the island checks the card (core/allow.ts) and allows, or says no. */
+  allowApproval(): void;
 }
 
 function focusPill(host: ShortcutHost, id: string | null, open: boolean) {
@@ -96,14 +98,18 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
       );
       break;
 
-    // Deny only: a permission card is never allowed from a key (Allow is a
-    // click on the card). A question card has no Deny; nothing waiting, nothing to do.
+    // A question card has no Deny; nothing waiting, nothing to do.
     case "denyApproval": {
       const pending = State.pendingApproval;
       if (pending && !pending.questions) host.denyApproval();
       else host.emote("annoyed");
       break;
     }
+
+    // Fix e: Allow by key, under core/allow.ts's conditions (the island checks).
+    case "allowApproval":
+      host.allowApproval();
+      break;
 
     // 1c: the Rewrite card, for the paragraph the caret is in. Nothing is sent
     // until a tone is clicked; the island doesn't take the keyboard, so the
