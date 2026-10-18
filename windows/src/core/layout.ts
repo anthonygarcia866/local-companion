@@ -27,7 +27,8 @@ export type IslandViewName =
   | "writingAsk"
   | "resume"
   | "writingDocsTip"
-  | "voice";
+  | "voice"
+  | "draft";
 
 export type BotStateName =
   | "idle"
@@ -191,6 +192,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // Push-to-talk's result (views/voice.ts): a title, what was heard (up to
   // ~3 lines, scrolls past that), a note and a row of buttons.
   voice: { height: 190, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // The Draft email card (views/draft.ts): the title, To/Cc/Bcc lines (chips
+  // wrap), the subject, the search, the body (scrolls) and the buttons.
+  draft: { height: 330, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
@@ -200,9 +204,10 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 /**
  * Push-to-talk's card holding Claude's question: taller than a result, so a
  * question of ~5 wrapped lines fits; past that it scrolls (style.css
- * .voice-question). Never cut off (retest, 2026-10-16).
+ * .voice-question). Never cut off (retest, 2026-10-16). Room as well for
+ * the answer box under it (Decision B, 2026-10-16).
  */
-export const VOICE_QUESTION_H = 240;
+export const VOICE_QUESTION_H = 280;
 
 /** The question view with options to pick from: room for two rows of them. */
 export const QUESTION_PICKER_H = 200;

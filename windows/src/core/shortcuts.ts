@@ -34,6 +34,7 @@ export const SHORTCUT_TEXT = {
   denyApproval: N_("Deny the waiting permission"),
   pauseToggle: N_("Pause or resume writing help"),
   pushToTalk: N_("Hold to dictate"),
+  askGlim: N_("Hold to ask Glim"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -64,7 +65,8 @@ export type ShortcutId =
   | "rewrite"
   | "denyApproval"
   | "pauseToggle"
-  | "pushToTalk";
+  | "pushToTalk"
+  | "askGlim";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -104,6 +106,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
   // Voice 1.5b: hold to dictate. Rust runs it (it polls the key for its release).
   def("pushToTalk", "Ctrl+Alt+Shift+V", true, true),
+  // Decision A (2026-10-16): hold to ask Glim; never typed. V only dictates.
+  def("askGlim", "Ctrl+Alt+Shift+A", true, true),
 ];
 
 export interface Binding {

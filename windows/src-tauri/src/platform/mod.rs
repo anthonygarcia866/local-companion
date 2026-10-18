@@ -83,3 +83,30 @@ pub enum MouseShape {
     /// A disc, in window-logical pixels: Mochi's body.
     Disc { cx: f64, cy: f64, r: f64 },
 }
+
+/// Which window gets the keyboard back when a box on a card is done with it:
+/// the one the user was typing in (`saved`), but only while the island (`own`)
+/// is still in front. If the user clicked somewhere else meanwhile, that
+/// choice stands and nothing is moved.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn give_back_to(saved: Option<isize>, front: isize, own: isize) -> Option<isize> {
+    let saved = saved?;
+    (front == own && saved != own && saved != 0).then_some(saved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::give_back_to;
+
+    #[test]
+    fn the_keyboard_goes_back_to_the_app_only_while_the_island_has_it() {
+        // Typed an answer, pressed Send: Outlook (7) gets it back.
+        assert_eq!(give_back_to(Some(7), 1, 1), Some(7));
+        // Clicked into Word (9) before closing the card: Word keeps it.
+        assert_eq!(give_back_to(Some(7), 9, 1), None);
+        // Nothing remembered, or only the island itself.
+        assert_eq!(give_back_to(None, 1, 1), None);
+        assert_eq!(give_back_to(Some(1), 1, 1), None);
+        assert_eq!(give_back_to(Some(0), 1, 1), None);
+    }
+}

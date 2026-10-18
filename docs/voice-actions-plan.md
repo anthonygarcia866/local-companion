@@ -12,6 +12,8 @@ Rules this plan keeps, unchanged:
 
 ## 1. What the user sees: push-to-talk
 
+> **⚠ Amended 2026-10-16 (Decision A, Anthony): two keys, not one router.** Anthony's live test on 2026-10-16 had Claude turn two plain dictated sentences ("This is a test of Glim dictation in my own voice", "Please send the updated lease to the tenant before Friday afternoon") into a question card. Now **Ctrl+Alt+Shift+V = dictate only** (the clean-up is offered only the `dictate` tool, forced; always typed) and **Ctrl+Alt+Shift+A = Ask Glim only** (every tool but `dictate`; never typed). The pill names the mode while a key is held ("Dictating" / "Ask Glim"). Both are in Settings → Shortcuts. The §4.1 command-word list now applies only to V without a clean-up. Ctrl+Alt+Shift+A probed 2026-10-17: free system-wide, unassigned in Word. **Decision B:** while Glim's question card waits, the next utterance from either key answers it ("Listening for your answer…", Cancel; a typed answer works too). Built on branch `voice-modes`.
+
 1. **Hold the push-to-talk key**: proposed **Ctrl+Alt+Shift+V**, probed with `RegisterHotKey` and Word's `FindKey` the way the 1d keys were (Ctrl+Alt+Shift+Space is taken by "cycle visibility"). A global hotkey can't see "held", so Glim uses the key-down from the hotkey and polls `GetAsyncKeyState` every 30 ms for the release. No low-level keyboard hook.
    > **⚠ Conflict check run 2026-10-14 (unattended): Ctrl+Alt+Shift+V is free system-wide (`RegisterHotKey` probe, released at once) but Word's key table maps it to `InsertAutoText`** (`FindKey`, a hidden Word instance, quit after). A global hotkey takes it before Word sees it. **Decided 2026-10-14 (Anthony, via Jarvis): override Word.** Ctrl+Alt+Shift+V is registered globally for push-to-talk anyway; losing Word's InsertAutoText on that key is accepted. It stays rebindable in Settings → Shortcuts.
    > **Also found:** whisper.cpp's CLI reads audio from stdin but doesn't transcribe it (b5454), so a CLI child would need a temporary WAV (against "audio is never stored"). **`whisper-server`** works: a child process listening on 127.0.0.1 only, the audio POSTed from memory, the personal word list as its `prompt`, the model kept loaded (verified 2026-10-14 with the bake-off clips).
@@ -74,6 +76,8 @@ Full write-up: **`docs/voice-stt-results.md`**. Tool: `windows/dev/stt-compare/`
 - New for 1.5b if base wins: a **"Words Glim should know"** list in Settings, passed as whisper's initial prompt (it never leaves the PC). Not decided; listed for the owner.
 
 ## 4. From speech to a structured action (Claude API)
+
+> **⚠ Amended 2026-10-16 (Decision A):** the key picks the tool set, Claude no longer decides between dictation and a command. Dictation: `tools: [dictate]`, `tool_choice: {"type": "tool", "name": "dictate"}`. Ask Glim and answers: the other four tools, `tool_choice: {"type": "any"}`; an answer's request also carries the earlier request and Glim's question. A tool the mode didn't offer doesn't validate. See §1's note.
 
 - **One request per utterance**, through 1c's client (`ai::claude`, the same key, model, monthly cap and spend accounting). Default model `claude-haiku-5-5` (as 1c). The lantern is `s-delegate` while it runs.
 - **Input:** the transcript, plus a small context block: the focused app's exe and field kind (from the writing layer, never the field's text), today's date, the list of known repos (names only), and the known apps.
