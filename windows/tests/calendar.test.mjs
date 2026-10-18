@@ -118,15 +118,19 @@ test("the card: title, time, countdown, place, the others at the same time, and 
 
 test("the morning summary: today's list, opened once, closed for good", () => {
   State.mode = "expanded";
-  const now = Date.now();
+  // 09:00 local, so the day's events don't run past midnight on any runner
+  // (CI runs in UTC late in the day: 2026-10-17's first run failed on that).
+  const realNow = Date.now;
+  const now = new Date(2026, 9, 17, 9, 0).getTime();
+  Date.now = () => now;
   const many = Array.from({ length: 7 }, (_, i) => ev(`Meeting ${i + 1}`, now + (i + 1) * 20 * M, 15));
   State.calendar = nextCalendar(null, glance(many, { summary: true }));
   assert.equal(State.calendar.summaryOpen, true);
   const v = buildCalendar({ setView() {}, collapse() {} });
   v.sync();
-  assert.match(v.el.textContent, /Today: \d+ on your calendar/);
+  assert.match(v.el.textContent, /Today: 7 on your calendar/);
   assert.match(v.el.textContent, /Meeting 1/);
-  assert.match(v.el.textContent, /\+\d more/);
+  assert.match(v.el.textContent, /\+2 more/, "5 listed, the other 2 counted");
   // The next read doesn't reopen it; Close closes it.
   State.calendar = nextCalendar(State.calendar, glance(many));
   assert.equal(State.calendar.summaryOpen, true, "still up until closed");
@@ -137,6 +141,7 @@ test("the morning summary: today's list, opened once, closed for good", () => {
   assert.equal(summaryPlacement({ presence: "indicator", approval: false }), "drop", "never over fullscreen");
   assert.equal(summaryPlacement({ presence: "pill", approval: true }), "queue");
   assert.equal(summaryPlacement({ presence: "hidden", approval: false }), "show");
+  Date.now = realNow;
   State.calendar = null;
   State.mode = "hidden";
 });
