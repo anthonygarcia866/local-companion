@@ -79,7 +79,12 @@ async function launchEdge(profile) {
   const proc = spawn(exe, [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
     "--disable-background-networking", "--disable-component-update", "--no-first-run",
-    "--force-color-profile=srgb", "about:blank",
+    "--force-color-profile=srgb",
+    // One software raster thread: on GPU-less CI runners the aura's blur came
+    // out with tile-edged noise (1307 px, 32/255) that differed per render.
+    // Both pages render the same way, so the comparison is unchanged.
+    "--disable-gpu", "--num-raster-threads=1",
+    "about:blank",
   ], { stdio: "ignore" });
   const portFile = join(profile, "DevToolsActivePort");
   // Edge may still be writing the file when it appears (EBUSY, or empty).
