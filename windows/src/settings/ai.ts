@@ -6,7 +6,6 @@
 
 import { Bridge, type AiKeyStatus, type AiModel, type AiSpend } from "../core/bridge";
 import type { Settings } from "../core/state";
-import { costText } from "../core/rewrite";
 import { h, clear } from "../views/dom";
 import { statusDot } from "./parts";
 import { t, tn } from "../i18n/i18n";
@@ -29,10 +28,21 @@ export function parseCap(raw: string): number {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
 }
 
-/** "This month: $0.0012 (3 rewrites)". */
+/**
+ * This month's spend with enough digits to mean something (a request costs
+ * a fraction of a cent): "$0.00" for nothing, "under $0.0001", four decimals
+ * below 10 cents ("$0.0042", "$0.0123"), cents from there ("$0.47").
+ */
+export function spendCost(usd: number): string {
+  if (!(usd > 0)) return "$0.00";
+  if (usd < 0.0001) return t("under {cost}", { cost: "$0.0001" });
+  return `$${usd < 0.1 ? usd.toFixed(4) : usd.toFixed(2)}`;
+}
+
+/** "This month: $0.0042 (3 requests)". */
 export function spendText(s: AiSpend): string {
   return t("This month: {cost} ({count})", {
-    cost: costText(s.usd),
+    cost: spendCost(s.usd),
     count: tn("{count} request", "{count} requests", s.requests),
   });
 }

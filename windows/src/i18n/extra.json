@@ -5475,6 +5475,17 @@
    "ru": "Google Документы хранят текст там, куда Glim не может добраться, даже с включённой поддержкой программ чтения с экрана. Glim по-прежнему проверяет ваш текст в других приложениях и на других сайтах.",
    "id": "Google Dokumen menyimpan teksnya di tempat yang tidak bisa dijangkau Glim, bahkan dengan dukungan pembaca layar aktif. Glim tetap memeriksa tulisan Anda di aplikasi dan situs lain."
   },
+  "under {cost}": {
+   "zh-Hans": "不到 {cost}",
+   "hi": "{cost} से कम",
+   "es": "menos de {cost}",
+   "ar": "أقل من {cost}",
+   "fr": "moins de {cost}",
+   "bn": "{cost}-এর কম",
+   "pt-BR": "menos de {cost}",
+   "ru": "меньше {cost}",
+   "id": "kurang dari {cost}"
+  },
   "Change the draft": {
    "zh-Hans": "修改草稿",
    "hi": "ड्राफ़्ट बदलें",
