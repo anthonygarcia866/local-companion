@@ -249,9 +249,10 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 3. **An "ask"-rule command that isn't destructive** (e.g. `git merge` on a throwaway branch, or `gh pr merge` on a test PR you'd click anyway): wait 2 s, press once.
    - **See:** allowed with one press, like any other card.
 4. **Destructive, two presses:** ask for `rm -rf` on a temp folder (or `Remove-Item -Recurse -Force` on one). Wait 2 s, press once.
-   - **See:** nothing allowed yet; the card says **Press again to allow: Bash · rm -rf …** (glim.log: `allow key armed`). Press again within 3 s: allowed.
+   - **See:** nothing allowed yet; the card says **Press again to allow · 3**, counting down 3, 2, 1 (glim.log: `allow key armed`). Press again within 3 s: allowed.
 5. **The window resets:** another destructive card, press once, then wait **4 s**.
    - **See:** the "Press again" line goes away after ~3 s; a press now is a first press again (the line comes back), a second one allows.
+   - **Again and again (bug 2, 2026-10-18):** press, wait 4 s, press, wait 4 s, press, wait 4 s, then press twice: allowed. glim.log never shows `allow key refused (cut-off)` for a command that fits on the card.
 6. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
    - **See:** refused (`not-open`). Open the island on the card again: it needs its own 1.5 s again.
 7. **A long command:** one too long to show whole on the card (or cut short with "…").
@@ -261,6 +262,8 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - Settings → Claude Code → **Soft sound when a permission waits**: on. Another card, wait 35 s: one soft two-note chime at ~30 s, not repeated. Turn it off again if you like.
    - glim.log after answering: `approval waited 34.2 s (allow (click), escalated) req=…`. Every card's wait is logged (a quick one: no "escalated"); never the command.
 9. **Settings → Shortcuts:** "Allow the waiting permission" is listed with Ctrl+Alt+Shift+Y and can be changed; the card's Allow button shows the new chord.
+10. **Answered in the terminal (bug 1, 2026-10-18):** get a card, answer **No** in Claude Code's terminal instead. Then another, answer **Yes** there.
+   - **See:** each time, Glim's card goes within a second; never left up with Deny/Allow. glim.log: `relay gone — answered in the terminal` for the No, and `approval waited … (answered elsewhere)` for both. Repeat a few times: it always clears.
 
 ## 11. Pause (tray)
 

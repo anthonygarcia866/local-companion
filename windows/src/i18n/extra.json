@@ -5574,16 +5574,16 @@
    "ru": "Разрешить ожидающий запрос",
    "id": "Izinkan izin yang menunggu"
   },
-  "Press again to allow: {command}": {
-   "zh-Hans": "再按一次以允许：{command}",
-   "hi": "अनुमति देने के लिए फिर से दबाएँ: {command}",
-   "es": "Pulsa otra vez para permitir: {command}",
-   "ar": "اضغط مرة أخرى للسماح: {command}",
-   "fr": "Appuyez à nouveau pour autoriser : {command}",
-   "bn": "অনুমতি দিতে আবার চাপুন: {command}",
-   "pt-BR": "Pressione de novo para permitir: {command}",
-   "ru": "Нажмите ещё раз, чтобы разрешить: {command}",
-   "id": "Tekan lagi untuk mengizinkan: {command}"
+  "Press again to allow · {seconds}": {
+   "zh-Hans": "再按一次以允许 · {seconds}",
+   "hi": "अनुमति देने के लिए फिर से दबाएँ · {seconds}",
+   "es": "Pulsa otra vez para permitir · {seconds}",
+   "ar": "اضغط مرة أخرى للسماح · {seconds}",
+   "fr": "Appuyez à nouveau pour autoriser · {seconds}",
+   "bn": "অনুমতি দিতে আবার চাপুন · {seconds}",
+   "pt-BR": "Pressione de novo para permitir · {seconds}",
+   "ru": "Нажмите ещё раз, чтобы разрешить · {seconds}",
+   "id": "Tekan lagi untuk mengizinkan · {seconds}"
   },
   "Soft sound when a permission waits": {
    "zh-Hans": "权限请求等待时播放轻柔提示音",
