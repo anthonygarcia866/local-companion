@@ -192,6 +192,12 @@ function claudeSection(status: HookStatus): HTMLElement {
         h("span", { class: "path", text: status.hookPath }),
         statusDot(status.hookReady),
       ),
+      // Fix e's escalation (2026-10-17): off by default.
+      h("div", { class: "row", "data-role": "approval-sound" },
+        h("label", { text: t("Soft sound when a permission waits") }),
+        toggle(settings.approvalSound === true, (v) => { settings.approvalSound = v; void save(); }),
+        h("span", { class: "hint", text: t("Once, after 30 seconds without an answer. The lantern pulses either way.") }),
+      ),
     );
 
     if (!status.hookReady) {

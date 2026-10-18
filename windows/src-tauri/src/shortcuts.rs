@@ -80,10 +80,15 @@ pub const ACTIONS: &[ActionDef] = &[
     // held by another app on the owner's machine. See PROJECT_STATUS.md (hotkeys).
     action("rewrite", "Ctrl+Alt+Shift+R", true, true),
     // Glim's own: denies the waiting permission card, from any app (the card's
-    // old Y/N hints never worked: Glim doesn't take the keyboard). Allow has no
-    // key on purpose: it is a click on the card, always. N for No; Shift keeps
-    // it off the AltGr layer like Glim's other keys.
+    // old Y/N hints never worked: Glim doesn't take the keyboard). N for No;
+    // Shift keeps it off the AltGr layer like Glim's other keys.
     action("denyApproval", "Ctrl+Alt+Shift+N", true, true),
+    // Fix e (owner, 2026-10-17; replaces "Allow has no key"): allows the
+    // waiting permission, but only while its card is open showing the whole
+    // command and has been on screen ~1.5 s, and never for a command an
+    // "ask" rule names (the island checks; those stay click-only). Free
+    // system-wide (RegisterHotKey) and unassigned in Word, checked 2026-10-17.
+    action("allowApproval", "Ctrl+Alt+Shift+Y", true, true),
     // 1d: pauses and resumes the writing features (pause.rs), from any app,
     // with the island in any mode, so it is handled here in Rust. Free
     // system-wide when probed with RegisterHotKey (2026-10-13).
@@ -463,7 +468,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 6] = ["cycleVisibility", "rewrite", "denyApproval", "pauseToggle", "pushToTalk", "askGlim"];
+    const GLIM_IDS: [&str; 7] = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None

@@ -198,6 +198,8 @@ export interface Settings {
   calendarIds: string[];
   /** The day the morning summary was last shown. Rust's. */
   calendarSummaryShown?: string;
+  /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
+  approvalSound?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

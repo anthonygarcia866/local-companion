@@ -26,6 +26,8 @@ import { openToneCard } from "../core/rewrite";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
+import { SHORTCUTS, displayKeys, effective } from "../core/shortcuts";
+import { armedFor, cardOnScreen } from "../core/allow";
 import { buildRecap } from "./recap";
 import { language, t, tl, tn, type Msg } from "../i18n/i18n";
 
@@ -411,12 +413,23 @@ function foldButton(actions: ViewActions): HTMLElement {
   );
 }
 
+/** A key chord on a button ("Ctrl+Alt+Shift+Y"), or nothing when the action has no key. */
+function keyOf(id: "allowApproval" | "denyApproval"): string {
+  const d = SHORTCUTS.find((s) => s.id === id);
+  const b = d ? effective(d, State.settings.shortcuts) : null;
+  return b && b.enabled && b.keys ? displayKeys(b.keys) : "";
+}
+
 export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
+  // The Allow key's second press (fix e): "Press again to allow: …" for 3 s.
+  const confirm = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-confirm" });
   const row = h("div", { class: "actions" });
+  const denyKey = h("span", { class: "kbd", "data-role": "deny-key" });
+  const allowKey = h("span", { class: "kbd", "data-role": "allow-key" });
   const el = h("div", { class: "view" },
-    card("amber", stack(116, 16, who, code, row), foldButton(actions)));
+    card("amber", stack(116, 16, who, code, confirm, row), foldButton(actions)));
   let rowKey = "";
   // The card pops up under a cursor that was busy with something else: a click
   // meant for the window underneath must not land on Allow. Clicks in the first
@@ -444,20 +457,39 @@ export function buildApproval(actions: ViewActions): ViewHost {
       // The whole point of approving here rather than in the terminal: this line
       // is the command, the file path or the URL being authorised, not just the
       // name of the tool asking.
-      code.textContent = State.pendingApproval?.command || State.pendingApproval?.tool || "…";
+      const command = State.pendingApproval?.command || State.pendingApproval?.tool || "…";
+      code.textContent = command;
+      // On screen (open, not folded) with the whole command in view: the
+      // Allow key's clock (core/allow.ts). A box that scrolls or cuts off
+      // isn't the whole command.
+      if (req && State.mode === "expanded") {
+        const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
+        cardOnScreen(req, performance.now(), fits);
+      }
+      // A destructive command's first press (core/allow.ts): the card asks
+      // for the second, naming the command it would allow.
+      const armed = req ? armedFor(performance.now()) : null;
+      confirm.textContent = armed?.requestId === req ? t("Press again to allow: {command}", { command }) : "";
+      confirm.style.display = confirm.textContent ? "" : "none";
+      denyKey.textContent = keyOf("denyApproval");
+      allowKey.textContent = keyOf("allowApproval");
+      denyKey.style.display = denyKey.textContent ? "" : "none";
+      allowKey.style.display = allowKey.textContent ? "" : "none";
       // Two buttons, built once. Rebuilding them between a mouse-down and a
       // mouse-up would swallow the click, and there is nothing left to vary:
       // "Always" is gone until the remembered-rules list exists to back it.
       if (rowKey === "built") return;
       rowKey = "built";
       clear(row);
-      // No key hints: Glim never takes the keyboard, so a bare Y or N would go
-      // to the app in front. Deny has a global key (Ctrl+Alt+Shift+N by
-      // default, Settings → Shortcuts); Allow is a click, always.
-      row.append(
-        btn(tl("Deny"), "secondary", guarded("deny")),
-        btn(tl("Allow"), "primary", guarded("allow")),
-      );
+      // The keys shown are Glim's global ones (Settings → Shortcuts), never a
+      // bare Y or N: Glim doesn't take the keyboard, so a single letter would
+      // go to the app in front. Their text changes in place, so the buttons
+      // themselves are never rebuilt under a click.
+      const deny = btn(tl("Deny"), "secondary", guarded("deny"));
+      const allow = btn(tl("Allow"), "primary", guarded("allow"));
+      deny.append(denyKey);
+      allow.append(allowKey);
+      row.append(deny, allow);
     },
   };
 }

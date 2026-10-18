@@ -5826,6 +5826,50 @@
    "pt-BR": "Entrar",
    "ru": "Подключиться",
    "id": "Gabung"
+  },
+  "Allow the waiting permission": {
+   "zh-Hans": "允许等待中的权限请求",
+   "hi": "प्रतीक्षा में अनुमति दें",
+   "es": "Permitir el permiso pendiente",
+   "ar": "السماح بالإذن المنتظر",
+   "fr": "Autoriser la permission en attente",
+   "bn": "অপেক্ষমাণ অনুমতি দিন",
+   "pt-BR": "Permitir a permissão pendente",
+   "ru": "Разрешить ожидающий запрос",
+   "id": "Izinkan izin yang menunggu"
+  },
+  "Press again to allow: {command}": {
+   "zh-Hans": "再按一次以允许：{command}",
+   "hi": "अनुमति देने के लिए फिर से दबाएँ: {command}",
+   "es": "Pulsa otra vez para permitir: {command}",
+   "ar": "اضغط مرة أخرى للسماح: {command}",
+   "fr": "Appuyez à nouveau pour autoriser : {command}",
+   "bn": "অনুমতি দিতে আবার চাপুন: {command}",
+   "pt-BR": "Pressione de novo para permitir: {command}",
+   "ru": "Нажмите ещё раз, чтобы разрешить: {command}",
+   "id": "Tekan lagi untuk mengizinkan: {command}"
+  },
+  "Soft sound when a permission waits": {
+   "zh-Hans": "权限请求等待时播放轻柔提示音",
+   "hi": "अनुमति प्रतीक्षा में हो तो हल्की आवाज़",
+   "es": "Sonido suave cuando un permiso espera",
+   "ar": "صوت هادئ عندما ينتظر إذن",
+   "fr": "Son doux quand une permission attend",
+   "bn": "অনুমতি অপেক্ষায় থাকলে মৃদু শব্দ",
+   "pt-BR": "Som suave quando uma permissão espera",
+   "ru": "Тихий звук, когда запрос ждёт",
+   "id": "Suara lembut saat izin menunggu"
+  },
+  "Once, after 30 seconds without an answer. The lantern pulses either way.": {
+   "zh-Hans": "30 秒无人应答后响一次。无论如何灯笼都会闪动。",
+   "hi": "30 सेकंड तक जवाब न मिलने पर, एक बार। लालटेन दोनों ही स्थितियों में धड़कती है।",
+   "es": "Una vez, tras 30 segundos sin respuesta. El farol late de todos modos.",
+   "ar": "مرة واحدة، بعد 30 ثانية دون إجابة. يومض الفانوس في كل الأحوال.",
+   "fr": "Une fois, après 30 secondes sans réponse. La lanterne pulse dans tous les cas.",
+   "bn": "৩০ সেকেন্ড উত্তর না পেলে, একবার। লণ্ঠন সব ক্ষেত্রেই স্পন্দিত হয়।",
+   "pt-BR": "Uma vez, após 30 segundos sem resposta. A lanterna pulsa de qualquer forma.",
+   "ru": "Один раз, после 30 секунд без ответа. Фонарик пульсирует в любом случае.",
+   "id": "Sekali, setelah 30 detik tanpa jawaban. Lentera tetap berdenyut."
   }
  }
 }

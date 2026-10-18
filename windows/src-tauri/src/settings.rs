@@ -133,6 +133,10 @@ pub struct Settings {
     pub calendar_ids: Vec<String>,
     /// The local date the morning summary was last shown. Rust-owned.
     pub calendar_summary_shown: String,
+    /// Settings → Claude Code → "Play a soft sound when a permission has
+    /// waited 30 seconds" (fix e's escalation, 2026-10-17): off by default.
+    /// The lantern pulses either way.
+    pub approval_sound: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -197,6 +201,7 @@ impl Default for Settings {
             calendar_summary: false,
             calendar_ids: Vec::new(),
             calendar_summary_shown: String::new(),
+            approval_sound: false,
         }
     }
 }
@@ -491,7 +496,8 @@ mod tests {
   "calendarHideAllDay": false,
   "calendarSummary": true,
   "calendarIds": ["\\\\me@example.com\\Calendar"],
-  "calendarSummaryShown": "2026-10-17"
+  "calendarSummaryShown": "2026-10-17",
+  "approvalSound": true
 }"##;
 
     fn custom() -> Value {
@@ -935,6 +941,7 @@ mod tests {
                 "calendarSummary",
                 "calendarIds",
                 "calendarSummaryShown",
+                "approvalSound",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
