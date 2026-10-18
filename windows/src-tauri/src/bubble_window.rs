@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
-use crate::writing::bubble::{self, Conditions, Look, Monitor, Placement, Rect, Tracker};
+use crate::writing::bubble::{self, Conditions, Hide, Look, Monitor, NoPlace, Placement, Rect, Tracker};
 
 pub const LABEL: &str = "bubble";
 /// What the bubble's page hears: where things are, the look, the count.
@@ -114,15 +114,63 @@ pub struct Decision {
     pub close: bool,
 }
 
+/// Why the last reading showed it or not: the log's line when it changes
+/// (bug 3, 2026-10-18). Reasons and rectangles only, never text.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Why {
+    Shown(Placement),
+    Hidden(Hide),
+    /// The field moved since the last reading.
+    Moving,
+    /// No place for it: why, and the field's and caret's rectangles.
+    NoPlace(NoPlace, Option<Rect>, Option<Rect>),
+}
+
 /// The capture thread's side: steadiness, the last placement, open or not.
 #[derive(Default)]
 pub struct Driver {
     tracker: Tracker,
     placed: Option<Placement>,
     last: Option<Decision>,
+    why: Option<Why>,
+}
+
+impl Why {
+    /// The same reason as `o`, wherever it is: the log says nothing new
+    /// while the caret moves along a line.
+    pub fn same_reason(&self, o: &Why) -> bool {
+        match (self, o) {
+            (Why::Shown(_), Why::Shown(_)) | (Why::Moving, Why::Moving) => true,
+            (Why::Hidden(a), Why::Hidden(b)) => a == b,
+            (Why::NoPlace(a, ..), Why::NoPlace(b, ..)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+fn rect_text(r: Option<Rect>) -> String {
+    r.map_or("none".into(), |r| format!("({},{},{},{})", r.left, r.top, r.right, r.bottom))
+}
+
+/// The log line for `why`.
+pub fn log_line(why: &Why, monitors: &[Monitor]) -> String {
+    match why {
+        Why::Shown(p) => format!("bubble: shown at ({},{}) size {} on monitor {}", p.x, p.y, p.size, p.monitor),
+        Why::Hidden(h) => format!("bubble: hidden ({h:?})"),
+        Why::Moving => "bubble: hidden while the field moves".into(),
+        Why::NoPlace(n, field, caret) => {
+            let mons: Vec<String> = monitors.iter().map(|m| format!("{}@{}", rect_text(Some(m.work)), m.scale)).collect();
+            format!("bubble: no place ({n:?}) field={} caret={} monitors=[{}]", rect_text(*field), rect_text(*caret), mons.join(", "))
+        }
+    }
 }
 
 impl Driver {
+    /// Why the last reading showed it or not.
+    pub fn why(&self) -> Option<&Why> {
+        self.why.as_ref()
+    }
+
     /// One reading. `open` is whether the page has the popover open.
     pub fn step(&mut self, input: &Input, open: bool) -> Decision {
         if input.new_field {
@@ -130,21 +178,27 @@ impl Driver {
             self.placed = None;
         }
         let steady = self.tracker.steady(input.field);
-        let place = bubble::shown(&input.conditions)
-            .ok()
-            .filter(|_| steady)
-            .and_then(|_| bubble::place(input.field, input.caret, input.monitors).ok());
-        let Some(mut p) = place else {
-            self.placed = None;
-            let d = Decision { window: None, state: State::default(), close: open };
-            self.last = Some(d.clone());
-            return d;
+        let place = match bubble::shown(&input.conditions) {
+            Err(h) => Err(Why::Hidden(h)),
+            Ok(()) if !steady => Err(Why::Moving),
+            Ok(()) => bubble::place(input.field, input.caret, input.monitors).map_err(|n| Why::NoPlace(n, input.field, input.caret)),
+        };
+        let mut p = match place {
+            Ok(p) => p,
+            Err(why) => {
+                self.why = Some(why);
+                self.placed = None;
+                let d = Decision { window: None, state: State::default(), close: open };
+                self.last = Some(d.clone());
+                return d;
+            }
         };
         // Small wobbles don't move it (§7a.1).
         if let Some(prev) = self.placed.filter(|prev| !bubble::should_move(prev, &p)) {
             p = prev;
         }
         self.placed = Some(p);
+        self.why = Some(Why::Shown(p));
         let m = input.monitors[p.monitor];
         let open = open && !input.new_field;
         let l = layout(&p, m.work, m.scale, open);
@@ -365,6 +419,42 @@ mod tests {
         let a = d.step(&input(conditions(1), Rect::new(400, 600, 900, 630), false, &mons), false);
         let b = d.step(&input(conditions(1), Rect::new(401, 600, 901, 631), false, &mons), false);
         assert_eq!(a.window, b.window);
+    }
+
+    // Bug 3 (owner's retest 2026-10-18): it never showed in classic
+    // Outlook's mail body and glim.log said nothing. Each reading now says
+    // why, in geometry and reasons only, for the log.
+    #[test]
+    fn each_reading_says_why_it_shows_or_hides() {
+        let mons = main_monitor();
+        let field = Rect::new(400, 300, 900, 330);
+        let mut d = Driver::default();
+        d.step(&input(conditions(2), field, true, &mons), false);
+        assert_eq!(d.why(), Some(&Why::Shown(Placement { x: 904, y: 304, size: 22, monitor: 0 })));
+        d.step(&input(conditions(0), field, false, &mons), false);
+        assert_eq!(d.why(), Some(&Why::Hidden(Hide::NoSuggestions)));
+        let mut c = conditions(1);
+        c.app_foreground = false;
+        d.step(&input(c, field, false, &mons), false);
+        assert_eq!(d.why(), Some(&Why::Hidden(Hide::NotForeground)));
+        d.step(&input(conditions(1), Rect::new(400, 200, 900, 230), false, &mons), false);
+        assert_eq!(d.why(), Some(&Why::Moving));
+        // Off every monitor: no place, with the rectangles it had.
+        let off = Rect::new(5000, 300, 5500, 330);
+        d.step(&input(conditions(1), off, true, &mons), false);
+        let Some(Why::NoPlace(NoPlace::OffScreen, f, c)) = d.why() else { panic!("{:?}", d.why()) };
+        assert_eq!((*f, c.map(|c| c.left)), (Some(off), Some(5100)));
+        // The log line: reasons and numbers, never text.
+        let line = log_line(d.why().unwrap(), &mons);
+        assert_eq!(line, "bubble: no place (OffScreen) field=(5000,300,5500,330) caret=(5100,306,5101,324) monitors=[(0,0,1920,1040)@1, (-1920,-58,0,1142)@1.25]");
+        assert_eq!(log_line(&Why::Hidden(Hide::NotRead), &mons), "bubble: hidden (NotRead)");
+        // Logged when the reason changes, not on every caret move.
+        let at = |x| Why::Shown(Placement { x, y: 304, size: 22, monitor: 0 });
+        assert!(at(904).same_reason(&at(950)));
+        assert!(!Why::Hidden(Hide::NotRead).same_reason(&Why::Hidden(Hide::Paused)));
+        assert!(Why::NoPlace(NoPlace::OffScreen, None, None).same_reason(&Why::NoPlace(NoPlace::OffScreen, Some(off), None)));
+        assert!(!at(904).same_reason(&Why::Moving));
+        assert_eq!(log_line(&Why::Shown(Placement { x: 904, y: 304, size: 22, monitor: 0 }), &mons), "bubble: shown at (904,304) size 22 on monitor 0");
     }
 
     /// §7a.4: never takes focus.

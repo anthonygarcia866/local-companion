@@ -207,6 +207,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // once it has been needed.
     let mut bubble = crate::bubble_window::Driver::default();
     let mut bubble_last: Option<crate::bubble_window::Decision> = None;
+    // Its last logged reason (bug 3): one line when it changes.
+    let mut bubble_why: Option<crate::bubble_window::Why> = None;
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -596,6 +598,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             let monitors = crate::bubble_window::monitors(app);
             let input = crate::bubble_window::Input { conditions, field: reading_field, caret: reading_caret, new_field: !same, monitors: &monitors };
             let decision = bubble.step(&input, crate::bubble_window::is_open());
+            if let Some(why) = bubble.why().filter(|w| !bubble_why.as_ref().is_some_and(|b| b.same_reason(w))) {
+                crate::log::line(crate::bubble_window::log_line(why, &monitors));
+                bubble_why = Some(why.clone());
+            }
             crate::bubble_window::apply(app, &decision, bubble_last.as_ref());
             bubble_last = Some(decision);
         }
@@ -997,5 +1003,56 @@ fn foreground_title() -> String {
         let mut buf = [0u16; 512];
         let n = GetWindowTextW(hwnd, &mut buf);
         String::from_utf16_lossy(&buf[..n.max(0) as usize])
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+    use windows::Win32::UI::Accessibility::{TreeScope_Descendants, UIA_ClassNamePropertyId};
+
+    // Read-only: finds classic Outlook's Word body (_WwG) and prints what the
+    // mini lantern would get from it. Geometry only, never text.
+    #[test]
+    #[ignore = "live: needs classic Outlook open"]
+    fn outlook_body_rects() {
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
+            let uia: IUIAutomation = CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER).unwrap();
+            let root = uia.GetRootElement().unwrap();
+            let cond = uia.CreatePropertyCondition(UIA_ClassNamePropertyId, &VARIANT::from("_WwG")).unwrap();
+            let all = root.FindAll(TreeScope_Descendants, &cond).unwrap();
+            for i in 0..all.Length().unwrap() {
+                let e = all.GetElement(i).unwrap();
+                let r = e.CurrentBoundingRectangle().unwrap();
+                let tp2 = e.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id).is_ok();
+                let tp = e.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok();
+                let sel_len = tp.as_ref().and_then(|p| p.GetSelection().ok()).map(|s| s.Length().unwrap_or(-1));
+                let (field, caret) = rects(&e);
+                // A caret at the end of the first paragraph: collapsed just
+                // before its mark, then that mark (the fallback's character).
+                if let Some(p) = &tp {
+                    use windows::Win32::UI::Accessibility::{TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Paragraph};
+                    let para = p.DocumentRange().unwrap();
+                    para.ExpandToEnclosingUnit(TextUnit_Paragraph).unwrap();
+                    let end = para.Clone().unwrap();
+                    end.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &para, TextPatternRangeEndpoint_End).unwrap();
+                    let moved = end.Move(TextUnit_Character, -1).unwrap_or(0);
+                    eprintln!("  para rects={:?} end-collapsed moved={moved} rects={:?}", first_rect(&para), first_rect(&end));
+                    let mark = end.Clone().unwrap();
+                    let n = mark.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1).unwrap_or(0);
+                    eprintln!("  +1 char (mark) moved={n} rects={:?}", first_rect(&mark));
+                    let doc_end = p.DocumentRange().unwrap();
+                    doc_end.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &doc_end, TextPatternRangeEndpoint_End).unwrap();
+                    let last = doc_end.Clone().unwrap();
+                    let n2 = last.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1).unwrap_or(0);
+                    eprintln!("  doc end collapsed rects={:?}; +1 char moved={n2} rects={:?}", first_rect(&doc_end), first_rect(&last));
+                }
+                eprintln!(
+                    "_WwG #{i}: rect=({},{},{},{}) tp2={tp2} tp={} selection_ranges={sel_len:?} -> field={field:?} caret={caret:?}",
+                    r.left, r.top, r.right, r.bottom, tp.is_some()
+                );
+            }
+        }
     }
 }
