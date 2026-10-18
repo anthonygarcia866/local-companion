@@ -275,6 +275,12 @@ export class Lantern {
     this.apply();
   }
 
+  /** The attention pop on demand, in any state: a card has waited too long
+   *  (core/approval-wait.ts). */
+  attention() {
+    this.pop();
+  }
+
   /** The attention pop: a brief bounce and glow flare, then it settles. */
   private pop() {
     window.clearTimeout(this.popTimer);

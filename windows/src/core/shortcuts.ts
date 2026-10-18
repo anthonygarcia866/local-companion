@@ -32,6 +32,7 @@ export const SHORTCUT_TEXT = {
   cycleVisibility: N_("Show Glim as pill, ember or hidden"),
   rewrite: N_("Rewrite the paragraph you're writing"),
   denyApproval: N_("Deny the waiting permission"),
+  allowApproval: N_("Allow the waiting permission"),
   pauseToggle: N_("Pause or resume writing help"),
   pushToTalk: N_("Hold to dictate"),
   askGlim: N_("Hold to ask Glim"),
@@ -64,6 +65,7 @@ export type ShortcutId =
   | "cycleVisibility"
   | "rewrite"
   | "denyApproval"
+  | "allowApproval"
   | "pauseToggle"
   | "pushToTalk"
   | "askGlim";
@@ -100,8 +102,11 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("cycleVisibility", "Ctrl+Alt+Shift+Space", true, true),
   // 1c: opens the Rewrite card (nothing is sent until a tone is clicked).
   def("rewrite", "Ctrl+Alt+Shift+R", true, true),
-  // Denies the waiting permission card from any app. Allow has no key: a click only.
+  // Denies the waiting permission card from any app.
   def("denyApproval", "Ctrl+Alt+Shift+N", true, true),
+  // Fix e (2026-10-17): allows it, only with the card open showing the whole
+  // command for ~1.5 s, never for an "ask"-rule command (core/allow.ts).
+  def("allowApproval", "Ctrl+Alt+Shift+Y", true, true),
   // 1d: pauses and resumes the writing features. Rust runs it (any app, any mode).
   def("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
   // Voice 1.5b: hold to dictate. Rust runs it (it polls the key for its release).
