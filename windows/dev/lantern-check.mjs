@@ -40,7 +40,7 @@ const EXTRAS = [["pop", "think"], ["pop", "done"], ["pop-record", "record"], ["i
 const ROUNDING = 2;
 /** How many times a render that differs is re-rendered from fresh pages
  * before the difference counts (see the fidelity loop). */
-const RERENDERS = 2;
+const RERENDERS = 4;
 /** Instants (ms into every animation) at which both renders are compared. */
 const FREEZE_AT = [0, 450, 1100, 2000, 3300];
 /** Instants for the additive classes: their animations are 0.4-1.2 s. */
@@ -82,8 +82,17 @@ async function launchEdge(profile) {
     "--force-color-profile=srgb", "about:blank",
   ], { stdio: "ignore" });
   const portFile = join(profile, "DevToolsActivePort");
-  for (let i = 0; i < 100 && !existsSync(portFile); i++) await new Promise((r) => setTimeout(r, 100));
-  const port = readFileSync(portFile, "utf8").split("\n")[0];
+  // Edge may still be writing the file when it appears (EBUSY, or empty).
+  let port = "";
+  for (let i = 0; i < 100 && !port; i++) {
+    try {
+      port = readFileSync(portFile, "utf8").split("\n")[0].trim();
+    } catch (e) {
+      if (e.code !== "ENOENT" && e.code !== "EBUSY") throw e;
+    }
+    if (!port) await new Promise((r) => setTimeout(r, 100));
+  }
+  if (!port) throw new Error("Edge never wrote DevToolsActivePort");
   const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
   const page = targets.find((t) => t.type === "page");
   const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -188,6 +197,12 @@ async function main() {
       // render on GPU-less CI runners: whole ribbon edges come out up to
       // ~32/255 apart on the very same markup. Re-render both pages from
       // scratch, up to RERENDERS times; only a difference that persists fails.
+      // The blur comes out one of two ways (the same 1307 pixels, 32/255,
+      // on record and error), picked per render: requiring both fresh
+      // renders to pick the same way at once failed most CI runs. So every
+      // render of each side is kept, and the port passes when any of its
+      // renders matches any of the design's. A real port change matches none.
+      const seen = { design: [renders.design[key]], port: [renders.port[key]] };
       for (let retry = 1; retry <= RERENDERS && (d.pixels < 0 || d.max > ROUNDING); retry++) {
         const [state, compact, at, extra] = key.split("/");
         const again = {};
@@ -196,8 +211,17 @@ async function main() {
           const r = await setUp(state, compact === "true", Number(at), true, extra);
           again[name] = await shot({ x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 });
         }
-        d = again.design === again.port ? { pixels: 0, max: 0, total: d.total } : await diff(again.design, again.port);
-        near.push(`  re-rendered ${key} (${retry}/${RERENDERS}): ${d.pixels} pixels differ, by at most ${d.max}/255`);
+        // The new pairs only: the new design against every port render, then
+        // every earlier design render against the new port render.
+        const pairs = [...seen.port.map((p) => [again.design, p]), ...seen.design.map((s) => [s, again.port]), [again.design, again.port]];
+        seen.design.push(again.design);
+        seen.port.push(again.port);
+        for (const [a, b] of pairs) {
+          const p = a === b ? { pixels: 0, max: 0, total: d.total } : await diff(a, b);
+          if (p.pixels >= 0 && (d.pixels < 0 || p.max < d.max || (p.max === d.max && p.pixels < d.pixels))) d = p;
+          if (d.max <= ROUNDING) break;
+        }
+        near.push(`  re-rendered ${key} (${retry}/${RERENDERS}): closest pair ${d.pixels} pixels differ, by at most ${d.max}/255`);
       }
       if (d.pixels < 0 || d.max > ROUNDING) {
         const tag = key.replace(/\/$/, "").replaceAll("/", "-");
@@ -261,7 +285,13 @@ async function main() {
   } finally {
     cdp.close();
     await new Promise((r) => setTimeout(r, 500));
-    rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    // Edge can still hold its profile (EBUSY on DevToolsActivePort, seen on
+    // CI): a leftover temp folder is no reason to fail the check.
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (e) {
+      console.warn(`left ${work} behind: ${e.code ?? e.message}`);
+    }
   }
   if (failures.length) {
     console.error(failures.join("\n"));
