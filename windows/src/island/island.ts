@@ -4,6 +4,8 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
+import { CONFIRM_WINDOW_MS, cardOffScreen, press } from "../core/allow";
+import { ApprovalWait, playSoftChime } from "../core/approval-wait";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
@@ -147,6 +149,8 @@ export class Island {
   /** Drop sequence bookkeeping: last tick played, and whether the ✓ has fired. */
   private uploadTens = 0;
   private uploadDone = false;
+  /** How long each permission or question has waited (escalation, wait log). */
+  private wait = new ApprovalWait();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -162,6 +166,20 @@ export class Island {
       this.dirty = true;
       this.ensureRunning();
     });
+    window.setInterval(() => this.tickWait(), 1_000);
+  }
+
+  /** Once a second: a card waiting over 30 s pulses the lantern (and plays
+   *  the soft sound once, if it's on); a request that stopped waiting logs
+   *  how long it waited (core/approval-wait.ts). */
+  private tickWait() {
+    const ids = [State.pendingApproval, ...State.approvalQueue].flatMap((r) => (r ? [r.requestId] : []));
+    const tick = this.wait.tick(ids, performance.now());
+    if (tick.pulse) this.lantern.attention();
+    if (tick.chime && State.settings.approvalSound === true) playSoftChime();
+    for (const e of tick.ended) {
+      void Bridge.log(`approval waited ${(e.waitedMs / 1000).toFixed(1)} s (${e.how}${e.escalated ? ", escalated" : ""}) req=${e.requestId}`);
+    }
   }
 
   /** The request has its answer: the card goes and the session carries on. */
@@ -223,18 +241,21 @@ export class Island {
         const req = State.pendingApproval;
         void Bridge.log(`decide ${d} req=${req?.requestId ?? "none"}`);
         if (!req) return;
+        this.wait.decided(req.requestId, `${d} (click)`);
         void Bridge.approvalDecision(req.requestId, d);
         this.closeApproval();
       },
       answer: (answers) => {
         const req = State.pendingApproval;
         if (!req) return;
+        this.wait.decided(req.requestId, "answered (click)");
         void Bridge.approvalAnswer(req.requestId, answers);
         this.closeApproval();
       },
       answerInTerminal: () => {
         const req = State.pendingApproval;
         if (!req) return;
+        this.wait.decided(req.requestId, "sent to the terminal");
         void Bridge.approvalDecline(req.requestId);
         this.closeApproval();
       },
@@ -528,7 +549,34 @@ export class Island {
     const req = State.pendingApproval;
     if (!req || req.questions) return;
     void Bridge.log(`decide deny (key) req=${req.requestId}`);
+    this.wait.decided(req.requestId, "deny (key)");
     void Bridge.approvalDecision(req.requestId, "deny");
+    this.closeApproval();
+  }
+
+  /** The global Allow key (fix e, redesigned 2026-10-17): what the card's
+   *  Allow button does, once the card has been open showing the whole command
+   *  for ~1.5 s. A destructive command takes a second press within 3 s; the
+   *  first one asks for it on the card (core/allow.ts). Anything else: no. */
+  allowApproval() {
+    const req = State.pendingApproval;
+    const now = performance.now();
+    const check = press(req, State.mode === "expanded" && State.view === "approval", now);
+    if (check === "armed" && req) {
+      void Bridge.log(`allow key armed req=${req.requestId}`);
+      State.notify();
+      // The card drops "Press again…" when the window closes.
+      window.setTimeout(() => State.notify(), CONFIRM_WINDOW_MS + 50);
+      return;
+    }
+    if (!req || check !== "ok") {
+      if (req) void Bridge.log(`allow key refused (${check}) req=${req.requestId}`);
+      this.emote("annoyed");
+      return;
+    }
+    void Bridge.log(`decide allow (key) req=${req.requestId}`);
+    this.wait.decided(req.requestId, "allow (key)");
+    void Bridge.approvalDecision(req.requestId, "allow");
     this.closeApproval();
   }
 
@@ -1266,6 +1314,8 @@ export class Island {
     this.header.el.style.pointerEvents = live ? "auto" : "none";
 
     this.header.sync();
+    // The Allow key's clock runs only while the approval card is open (fix e).
+    if (!(expanded && State.view === "approval")) cardOffScreen();
     for (const [name, view] of this.views) {
       const on = name === State.view;
       view.el.classList.toggle("on", on);
