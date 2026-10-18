@@ -146,6 +146,8 @@ fn claude_clean_up() {
         ("this is a test of glim dictation in my own voice", "OUTLOOK.EXE", Dictate),
         ("please send the updated lease to the tenant before friday afternoon", "OUTLOOK.EXE", Dictate),
         ("open outlook", "notepad.exe", Ask),
+        ("open claude", "notepad.exe", Ask),
+        ("open claude code", "notepad.exe", Ask),
         ("send it", "OUTLOOK.EXE", Ask),
         ("where was I on dale cuts", "notepad.exe", Ask),
         // 4c: the 2026-10-16 test's draft requests all came back as clarify.
@@ -168,6 +170,12 @@ fn claude_clean_up() {
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
         println!("{mode:?} {said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
         assert!(r.is_ok(), "{said}: {r:?}");
+        if said == "open claude" {
+            assert_eq!(r, Ok(super::Cleanup::Open("claude")), "the chat app (4d)");
+        }
+        if said == "open claude code" {
+            assert_eq!(r, Ok(super::Cleanup::Open("claude_code")));
+        }
         if mode == Dictate {
             assert!(matches!(r, Ok(super::Cleanup::Dictate(_))), "dictation is always typed: {said}");
         }
