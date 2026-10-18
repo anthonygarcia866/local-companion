@@ -93,13 +93,15 @@ fn whisper_on_this_pc() {
         let secs = t0.elapsed().as_secs_f64();
         let id = path.file_stem().unwrap().to_string_lossy().into_owned();
         // §4.1 with no Claude, as if a field had the focus.
-        let decision = match super::decide(&text, Err(super::CleanupFailed::NoKey), true) {
+        let decision = match super::decide(super::Mode::Dictate, &text, Err(super::CleanupFailed::NoKey), true) {
             super::Decision::Type { .. } => "types raw",
             super::Decision::Heard { .. } => "heard card",
             super::Decision::Sensitive => "sensitive",
             super::Decision::Question { .. } => "question",
             super::Decision::Resume { .. } => "resume card",
             super::Decision::Open { .. } => "open app",
+            super::Decision::Draft(_) => "draft card",
+            super::Decision::EditDraft { .. } => "edit card",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
@@ -136,17 +138,69 @@ fn claude_clean_up() {
     let key = key::load(&key::vault()).expect("vault").expect("a saved key");
     let base = crate::net::Url::parse(claude::API_BASE).unwrap();
     let mut nanos = 0;
-    for (said, app) in [
-        ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE"),
-        ("open outlook", "notepad.exe"),
-        ("send it", "OUTLOOK.EXE"),
-        ("where was I on dale cuts", "notepad.exe"),
+    use super::Mode::{Ask, Dictate};
+    let repos = ["dale-cuts".to_string(), "local-companion".to_string()];
+    for (said, app, mode) in [
+        ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE", Dictate),
+        // Decision A's regression: the two sentences hijacked on 2026-10-16.
+        ("this is a test of glim dictation in my own voice", "OUTLOOK.EXE", Dictate),
+        ("please send the updated lease to the tenant before friday afternoon", "OUTLOOK.EXE", Dictate),
+        ("open outlook", "notepad.exe", Ask),
+        ("send it", "OUTLOOK.EXE", Ask),
+        ("where was I on dale cuts", "notepad.exe", Ask),
+        // 4c: the 2026-10-16 test's draft requests all came back as clarify.
+        ("draft an email to me with the subject glim test one saying this is a test draft", "OUTLOOK.EXE", Ask),
+        ("draft an email to myself saying the plumber comes tuesday", "notepad.exe", Ask),
+        ("email jordan lee at example dot com saying the lease is ready", "OUTLOOK.EXE", Ask),
+        // Fix b: the 2026-10-17 retest's "edit the email you just drafted" got "no earlier draft".
+        ("edit the email you just drafted and add that the shift starts at nine", "OUTLOOK.EXE", Ask),
+        ("change the email you just drafted to say wednesday instead of tuesday", "notepad.exe", Ask),
+        ("add to that email that parking is in the back", "OUTLOOK.EXE", Ask),
+        // Fix d: "unit four B" (fixed up before Claude sees it) and "open claw".
+        ("the leak is in unit four B and the plumber comes thursday", "OUTLOOK.EXE", Dictate),
+        ("open claw", "notepad.exe", Ask),
     ] {
+        let fixed = super::unit_numbers(said);
+        let said = fixed.as_str();
         let t0 = Instant::now();
-        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, app, "2026-10-15", &["dale-cuts".to_string(), "local-companion".to_string()]));
+        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
+        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
-        println!("{said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
+        println!("{mode:?} {said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
         assert!(r.is_ok(), "{said}: {r:?}");
+        if mode == Dictate {
+            assert!(matches!(r, Ok(super::Cleanup::Dictate(_))), "dictation is always typed: {said}");
+        }
+        if said.contains("draft an email to me") || said.contains("myself") {
+            let Ok(super::Cleanup::Draft(d)) = &r else { panic!("a draft, not a question: {said}: {r:?}") };
+            assert!(d.to.iter().any(|t| super::draft::means_me(t)), "'me' passed as said: {:?}", d.to);
+        }
+        if said.contains(" at example dot com saying") {
+            let Ok(super::Cleanup::Draft(d)) = &r else { panic!("a draft: {r:?}") };
+            let resolved: Vec<_> = d.to.iter().filter_map(|t| super::draft::spoken_address(t)).collect();
+            assert_eq!(resolved, ["jordanlee@example.com"], "as said, then normalized: {:?}", d.to);
+        }
+        if said.contains("unit 4B") {
+            let Ok(super::Cleanup::Dictate(text)) = &r else { panic!("typed: {r:?}") };
+            assert!(text.contains("4B"), "the unit number kept: {text}");
+        }
+        if said == "open claw" {
+            // Claude opens it, or asks and Glim's sound-alike opens it (run.rs).
+            let ok = matches!(r, Ok(super::Cleanup::Open("claude_code"))) || (matches!(r, Ok(super::Cleanup::Clarify(_))) && super::open_sound_alike(said) == Some("claude_code"));
+            assert!(ok, "open claw → Claude: {r:?}");
+        }
+        if said.contains("just drafted") || said.starts_with("add to that email") {
+            assert!(matches!(r, Ok(super::Cleanup::EditDraft(_))), "a change to the last draft, not a question: {said}: {r:?}");
+        }
     }
+    // The second request of an edit, on a made-up draft.
+    let current = super::draft::DraftText { subject: "Shift change".into(), body: "Hi Gabriela,\n\nThe shift moves to Tuesday.".into() };
+    let t0 = Instant::now();
+    let (r, usage) = block_on(dictate::revise(&base, &key, "claude-haiku-5-5", &current, "add that the shift starts at nine"));
+    nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
+    println!("revise → {r:?} in {:.2}s", t0.elapsed().as_secs_f64());
+    let new = r.expect("revised");
+    assert!(new.body.contains("Tuesday") && (new.body.contains('9') || new.body.to_lowercase().contains("nine")), "the change applied, the rest kept: {new:?}");
+    assert!(new.body.starts_with("Hi Gabriela,"), "kept as it was: {new:?}");
     println!("total ${:.5}", nanos as f64 / 1e9);
 }

@@ -542,6 +542,15 @@ pub fn pin_to_monitor(win: &WebviewWindow, x: i32, y: i32) {
     unsafe { layer::gtk_layer_set_monitor(gtk_window_ptr(&gw), mon_ptr) };
 }
 
+/// Not tracked on Linux: the compositor hands focus back when the island lets go.
+pub fn foreground_other_than(_own: &WebviewWindow) -> Option<isize> {
+    None
+}
+
+pub fn give_foreground_back(_own: &WebviewWindow, _to: isize) -> bool {
+    false
+}
+
 /// Temporarily allow keyboard focus so a text field inside the island can be
 /// typed in.
 pub fn set_activating(win: &WebviewWindow, activating: bool) {
