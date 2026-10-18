@@ -24,6 +24,7 @@ Short status only, built in Rust from **fixed templates**. The island only sends
 - Limit: `Claude Code in local-companion hit a usage limit` / `… a spend limit`
 - Test: `Test notification from Glim`
 - Title: `Glim`
+- The templates are English, whatever Glim's language: short, fixed and easy to audit (the Settings page around them is translated).
 
 **Never** in a notification: commands, code, file names or paths, prompts, Claude's answers, captured or typed text, window titles, meeting titles.
 

@@ -13,6 +13,7 @@ import { APPROVAL_AGENTS, agentColor, agentName, validateAgent } from "./agents"
 import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
 import { isLimitNotice, limitKind, parseLimit, type AgentLimit } from "../core/limit";
+import { phone, phoneSettings, projectOf, type Ping } from "../core/phone";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
 
@@ -58,6 +59,11 @@ function dropPendingCard(island: Island): void {
     island.setView(State.defaultView());
   }
   State.notify();
+}
+
+/** Phone notifications (docs/phone-plan.md): a kind, the pill and its project go to Rust. */
+function pingPhone(p: Ping | null) {
+  if (p) void Bridge.phoneNotify(p.kind, p.pillId, p.project);
 }
 
 /** The return to idle that Stop arms, per pill, so the next turn can cancel it. */
@@ -441,8 +447,10 @@ function handleHook(island: Island, payload: HookPayload) {
       const message = payload.message ?? "";
       if (isLimitNotice(message)) {
         supersedeStop();
-        setLimit(agentId, parseLimit("usage", [message], Date.now()));
+        const limit = parseLimit("usage", [message], Date.now());
+        setLimit(agentId, limit);
         State.updateTask(agentId, "ratelimit");
+        pingPhone(phone.limit(agentId, projectOf(State.tasks, agentId), "usage", limit.resets, phoneSettings(State.settings.phone), new Date()));
       } else if (message.endsWith("?")) {
         supersedeStop();
         State.updateTask(agentId, "question");
@@ -453,6 +461,10 @@ function handleHook(island: Island, payload: HookPayload) {
 
     case "Stop": {
       State.updateTask(agentId, "finished");
+      {
+        const waits = [State.pendingApproval, ...State.approvalQueue].some((r) => r?.pillId === agentId);
+        pingPhone(phone.finished(agentId, projectOf(State.tasks, agentId), waits, phoneSettings(State.settings.phone), new Date()));
+      }
       // Claude Code puts the turn's answer in the Stop payload itself, so there is
       // no transcript to read (the relay does not even forward its path). Other
       // agents report their last words the same way (Hermes, Codex) or as
@@ -495,8 +507,10 @@ function handleHook(island: Island, payload: HookPayload) {
       // says when it resets, and offers no Retry before then.
       const kind = limitKind(payload.error);
       if (kind) {
-        setLimit(agentId, parseLimit(kind, [payload.last_assistant_message, payload.error_details, payload.message], Date.now()));
+        const limit = parseLimit(kind, [payload.last_assistant_message, payload.error_details, payload.message], Date.now());
+        setLimit(agentId, limit);
         State.updateTask(agentId, "ratelimit");
+        pingPhone(phone.limit(agentId, projectOf(State.tasks, agentId), kind, limit.resets, phoneSettings(State.settings.phone), new Date()));
         if (focused && !State.pendingApproval) surface("error", true);
         break;
       }

@@ -4,7 +4,9 @@
 //
 // The allowlist: http(s) to `127.0.0.1` or `localhost`, any port (Ollama and
 // LM Studio, local_chat.rs), and since 1c `api.anthropic.com`, https on 443
-// only (the Claude API, ai/claude.rs; docs/vision.md §3). Anything else
+// only (the Claude API, ai/claude.rs; docs/vision.md §3), and
+// `api.pushover.net`, https on 443 only and only while Settings → Phone is
+// on (phone.rs; docs/phone-plan.md §4). Anything else
 // (another host, a LAN address, a redirect that changes host, a system proxy)
 // is refused before a socket is opened. Certificates are always checked.
 //
@@ -12,6 +14,7 @@
 // server cannot make the app hold an unbounded amount of memory.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub use reqwest::{Method, RequestBuilder, Response, Url};
@@ -109,6 +112,22 @@ pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
 /// port 443 only. Exact name: no other Anthropic host, no subdomain.
 pub const ANTHROPIC_HOST: &str = "api.anthropic.com";
 
+/// Phone notifications (docs/phone-plan.md §4): Pushover's API, https on
+/// port 443 only, exact name. Allowed only while `push_allowed()`: with
+/// Settings → Phone off (the default) the allowlist is what it was before.
+pub const PUSH_HOST: &str = "api.pushover.net";
+
+static PUSH_ON: AtomicBool = AtomicBool::new(false);
+
+/// Settings → Phone switched on or off (phone::apply_settings).
+pub fn set_push_allowed(on: bool) {
+    PUSH_ON.store(on, Ordering::SeqCst);
+}
+
+pub fn push_allowed() -> bool {
+    PUSH_ON.load(Ordering::SeqCst)
+}
+
 /// Why a request was refused, for the message and the log.
 pub fn refusal(url: &str) -> String {
     tf("Blocked: Glim only connects to this computer and api.anthropic.com, not {url}.", &[("url", url)])
@@ -120,14 +139,16 @@ pub fn local_refusal(url: &str) -> String {
 }
 
 /// Ok when `url` may be requested: no credentials, and either http(s) to a
-/// local host on the allowlist or https to the Anthropic host on port 443.
+/// local host on the allowlist, https to the Anthropic host on port 443, or
+/// (Settings → Phone on) https to the Pushover host on port 443.
 /// Every request and every redirect hop passes through here.
 pub fn check(url: &Url) -> Result<(), String> {
     let host = url.host_str().map(|h| h.to_ascii_lowercase());
     let local = matches!(url.scheme(), "http" | "https") && host.as_deref().is_some_and(|h| ALLOWED_HOSTS.contains(&h));
     // `Url` drops a default port, so `port()` is None for https on 443.
     let anthropic = url.scheme() == "https" && host.as_deref() == Some(ANTHROPIC_HOST) && url.port().is_none_or(|p| p == 443);
-    if url.username().is_empty() && url.password().is_none() && (local || anthropic) {
+    let push = push_allowed() && url.scheme() == "https" && host.as_deref() == Some(PUSH_HOST) && url.port().is_none_or(|p| p == 443);
+    if url.username().is_empty() && url.password().is_none() && (local || anthropic || push) {
         Ok(())
     } else {
         Err(refusal(&host_for_log(url)))
@@ -424,6 +445,38 @@ pub(crate) mod tests {
             let err = check_str(no).expect_err(no);
             assert!(err.starts_with("Blocked"), "{err}");
         }
+    }
+
+    // Phone notifications (docs/phone-plan.md §4). The only test that turns
+    // the switch on, so no other test sees it changed.
+    #[test]
+    fn pushover_is_allowed_only_while_phone_notifications_are_on() {
+        let api = "https://api.pushover.net/1/messages.json";
+        assert!(!push_allowed(), "off by default");
+        assert!(check_str(api).expect_err("off: blocked").starts_with("Blocked"));
+        set_push_allowed(true);
+        let on = std::panic::catch_unwind(|| {
+            for ok in [api, "https://API.Pushover.net/1/messages.json", "https://api.pushover.net:443/1/messages.json"] {
+                assert!(check_str(ok).is_ok(), "{ok}");
+            }
+            for no in [
+                "http://api.pushover.net/1/messages.json",
+                "https://api.pushover.net:8443/1/messages.json",
+                "https://pushover.net/",
+                "https://x.api.pushover.net/",
+                "https://api.pushover.net.example.com/",
+                "https://user:pw@api.pushover.net/",
+            ] {
+                assert!(check_str(no).expect_err(no).starts_with("Blocked"), "{no}");
+            }
+            // A redirect from Pushover may not leave it.
+            let origin = Url::parse(api).unwrap();
+            assert!(hop_allowed(&origin, &Url::parse("https://api.anthropic.com/v1/messages").unwrap()).is_err());
+            assert!(hop_allowed(&origin, &Url::parse("http://127.0.0.1:9/").unwrap()).is_err());
+        });
+        set_push_allowed(false);
+        on.unwrap();
+        assert!(check_str(api).is_err(), "off again: blocked again");
     }
 
     #[test]

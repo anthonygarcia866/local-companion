@@ -29,6 +29,7 @@ import { t, tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
+import { phone, phoneSettings, projectOf } from "../core/phone";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
 import { LanternMenu } from "./menu";
 import { startsBarDrag } from "./drag";
@@ -179,6 +180,15 @@ export class Island {
     if (tick.chime && State.settings.approvalSound === true) playSoftChime();
     for (const e of tick.ended) {
       void Bridge.log(`approval waited ${(e.waitedMs / 1000).toFixed(1)} s (${e.how}${e.escalated ? ", escalated" : ""}) req=${e.requestId}`);
+    }
+    // Phone notifications (docs/phone-plan.md): a request waiting past the
+    // delay pings once. Only the pill and its project name go to Rust.
+    const now = performance.now();
+    const waiting = [State.pendingApproval, ...State.approvalQueue].flatMap((r) =>
+      r ? [{ requestId: r.requestId, pillId: r.pillId, project: projectOf(State.tasks, r.pillId), waitedMs: this.wait.waited(r.requestId, now) }] : [],
+    );
+    for (const p of phone.approvals(waiting, phoneSettings(State.settings.phone), new Date())) {
+      void Bridge.phoneNotify(p.kind, p.pillId, p.project);
     }
   }
 
