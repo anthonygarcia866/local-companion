@@ -42,8 +42,11 @@ pub const SAMPLE_RATE: u32 = 16_000;
 
 /// The `open_app` apps Glim opens: classic Outlook, and the Codex and Claude
 /// desktop apps (owner, 2026-10-16: "the apps", found on the PC the way
-/// Outlook is; platform::open_known_app).
-pub const OPENABLE: [&str; 3] = ["outlook", "codex", "claude_code"];
+/// Outlook is; platform::open_known_app). "claude" (the Claude chat app, 4d,
+/// owner 2026-10-16) is the same Claude desktop app "claude_code" opens on
+/// this PC: no separate Claude Code app exists (HANDOFF.md, open question).
+/// "Add your own apps" is queued for later (PROJECT_STATUS.md).
+pub const OPENABLE: [&str; 4] = ["outlook", "codex", "claude_code", "claude"];
 
 /// An `open_app` app's name for the card.
 pub fn app_label(app: &str) -> &'static str {
@@ -51,6 +54,7 @@ pub fn app_label(app: &str) -> &'static str {
         "outlook" => "Outlook",
         "codex" => "Codex",
         "claude_code" => "Claude Code",
+        "claude" => "Claude",
         _ => "that app",
     }
 }
@@ -149,7 +153,7 @@ pub enum Cleanup {
     /// off" card, with this repo first when Claude named one.
     Resume(Option<String>),
     /// `open_app` (1.5c): one of the schema's enum, "outlook", "codex" or
-    /// "claude_code" (anything else doesn't validate).
+    /// "claude_code", "claude" (anything else doesn't validate).
     Open(&'static str),
     /// `draft_email` (1.5d, decided 2026-10-16): names as said, subject, body.
     Draft(draft::Spoken),
@@ -482,7 +486,7 @@ pub fn unit_numbers(text: &str) -> String {
 }
 
 /// The apps "open …" can name, as they're said (open_app's enum).
-const OPEN_NAMES: [(&str, &str); 4] = [("outlook", "outlook"), ("codex", "codex"), ("claude_code", "claude code"), ("claude_code", "claude")];
+const OPEN_NAMES: [(&str, &str); 4] = [("outlook", "outlook"), ("codex", "codex"), ("claude_code", "claude code"), ("claude", "claude")];
 /// Mishearings seen or likely for the app names (fix d: "Claw").
 const SOUND_ALIKES: [(&str, &str); 9] = [
     ("claw", "claude"), ("clawed", "claude"), ("clod", "claude"), ("cloud", "claude"), ("clyde", "claude"), ("claud", "claude"),
@@ -514,7 +518,7 @@ fn sounds_like(heard: &str, name: &str) -> bool {
     heard.chars().count() >= 3 && common >= 3 && edit_distance(heard, name) <= 3
 }
 
-/// "open claw" → claude_code (fix d): the one app the words after "open"
+/// "open claw" → claude (fix d): the one app the words after "open"
 /// sound like; None when they sound like none, or like more than one. Used
 /// only when Claude was reached and asked back, so §4.1 (without Claude a
 /// command is never acted on) still holds.
@@ -591,7 +595,7 @@ pub(crate) mod tests {
 
     #[test]
     fn open_app_opens_three_known_apps_by_fixed_names_only() {
-        assert_eq!(OPENABLE, ["outlook", "codex", "claude_code"]);
+        assert_eq!(OPENABLE, ["outlook", "codex", "claude_code", "claude"]);
         // Anything else returns before Windows is asked to start anything.
         #[cfg(windows)]
         for app in ["notepad", r"C:\Windows\System32\cmd.exe", ""] {
@@ -603,6 +607,8 @@ pub(crate) mod tests {
         assert!(f.contains(r#""outlook" => shell_open(w!("OUTLOOK.EXE")),"#));
         assert!(f.contains(r#""codex" => activate_package("OpenAI.Codex", "App"),"#));
         assert!(f.contains(r#""claude_code" => activate_package("Claude", "Claude"),"#));
+        assert!(f.contains(r#""claude" => activate_package("Claude", "Claude"),"#), "the Claude chat app (4d)");
+        assert_eq!(app_label("claude"), "Claude");
         assert!(f.contains("_ => false,"));
         assert!(!f.contains("Command::new"), "no shell, no child Glim spawns itself");
     }
@@ -658,9 +664,9 @@ pub(crate) mod tests {
     #[test]
     fn open_takes_a_sound_alike_only_when_one_app_is_near() {
         for (heard, app) in [
-            ("open claw", "claude_code"),
-            ("Open Claw.", "claude_code"),
-            ("open clawed", "claude_code"),
+            ("open claw", "claude"),
+            ("Open Claw.", "claude"),
+            ("open clawed", "claude"),
             ("open cloud code", "claude_code"),
             ("um open the codecs app", "codex"),
             ("open out look", "outlook"),
@@ -758,6 +764,7 @@ pub(crate) mod tests {
                 assert_eq!(decide(mode, "open outlook", Ok(Cleanup::Open("outlook")), field), Decision::Open { app: "outlook" });
                 assert_eq!(decide(mode, "open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
                 assert_eq!(decide(mode, "open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
+                assert_eq!(decide(mode, "open claude", Ok(Cleanup::Open("claude")), field), Decision::Open { app: "claude" });
                 assert_eq!(decide(mode, "send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
                 let d = draft::Spoken { to: vec!["Maria".into()], subject: "Plumber".into(), body: "The plumber comes Tuesday.".into(), ..Default::default() };
                 assert_eq!(decide(mode, "draft an email to maria", Ok(Cleanup::Draft(d.clone())), field), Decision::Draft(d.clone()));
