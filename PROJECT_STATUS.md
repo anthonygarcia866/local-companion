@@ -2,6 +2,19 @@
 
 Repo: `anthonygarcia866/local-companion`. Dev machine location: `C:\Users\antho\local-companion`.
 
+## Where we are (2026-10-18)
+
+**Done (merged to main, `0bb5d25`):** Phase 0a/0b; the writing assistant 1a–1d (checker, fixes, Claude rewrites, Check with AI, per-app switches); voice 1.5b–1.5d (push-to-talk dictation, the two voice keys, resume_work, open_app incl. the Claude app, draft_email and "change the email you just drafted"); the Allow key with two presses for destructive commands and the 30 s escalation (#33); spend precision (#35); the Lantern CI flake fix (#36).
+
+**Waiting on Anthony:**
+- Retest on the installed build `retest-2026-10-18` (2026-10-18 11:03): #37 (the card clears when answered in the terminal; the Allow key after repeated resets, with the 3…2…1 countdown) and #22 in Outlook's mail body (send the `bubble:` line from glim.log). Then the merge OK for #37 and #22.
+- #34 calendar glance: live test Monday, then the merge OK.
+- #38 phone notifications: the decisions in `docs/phone-plan.md` (service, project name, delay); then the Pushover app and keys, and **Send test notification**.
+- #32 (docs): review and merge OK.
+- Voice clips: record the 22 clips in `docs/voice-clips-to-record.md` into `%USERPROFILE%\glim-clips\` for the speech-model pick.
+
+**Next on the roadmap:** merge #37, #22 and #34 after their retests; finish the mini lantern (1e) in Outlook; phone companion step 1 (#38), then its meeting reminder once #34 is in; then Phase 2, the SOP recorder.
+
 ## Name
 The app and its mascot are both named **Glim** (decided 2026-10-08). Product name `Glim`, bundle identifier `com.anthonygarcia.glim`, executable `glim.exe`, installers `Glim-Windows-<version>-setup.exe` / `.msi`. The brand artwork is in `docs/brand/` (see below).
 
