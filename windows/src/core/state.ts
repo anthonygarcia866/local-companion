@@ -185,6 +185,8 @@ export interface Settings {
   draftFrom: string;
   /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
   draftRecipients?: Record<string, string>;
+  /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
+  approvalSound?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

@@ -5563,16 +5563,38 @@
    "ru": "Разрешить ожидающий запрос",
    "id": "Izinkan izin yang menunggu"
   },
-  "Click Allow to allow this one: it matches your Claude Code “ask” rules, so the Allow key won't.": {
-   "zh-Hans": "请点击“允许”来允许这一项：它符合你的 Claude Code “ask” 规则，所以“允许”快捷键不会生效。",
-   "hi": "इसे अनुमति देने के लिए Allow पर क्लिक करें: यह आपके Claude Code “ask” नियमों से मेल खाता है, इसलिए Allow कुंजी काम नहीं करेगी।",
-   "es": "Haz clic en Permitir para permitir esta: coincide con tus reglas “ask” de Claude Code, así que la tecla de Permitir no lo hará.",
-   "ar": "انقر على «سماح» للسماح بهذا: إنه يطابق قواعد “ask” في Claude Code، لذلك لن يسمح به مفتاح السماح.",
-   "fr": "Cliquez sur Autoriser pour autoriser celle-ci : elle correspond à vos règles “ask” de Claude Code, donc la touche Autoriser ne le fera pas.",
-   "bn": "এটি অনুমতি দিতে Allow-এ ক্লিক করুন: এটি আপনার Claude Code-এর “ask” নিয়মের সাথে মেলে, তাই Allow কী কাজ করবে না।",
-   "pt-BR": "Clique em Permitir para permitir esta: ela corresponde às suas regras “ask” do Claude Code, então a tecla de Permitir não vai.",
-   "ru": "Нажмите «Разрешить», чтобы разрешить это: команда подпадает под ваши правила “ask” в Claude Code, поэтому клавиша разрешения не сработает.",
-   "id": "Klik Izinkan untuk mengizinkan yang ini: perintah ini cocok dengan aturan “ask” Claude Code Anda, jadi tombol Izinkan tidak akan berfungsi."
+  "Press again to allow: {command}": {
+   "zh-Hans": "再按一次以允许：{command}",
+   "hi": "अनुमति देने के लिए फिर से दबाएँ: {command}",
+   "es": "Pulsa otra vez para permitir: {command}",
+   "ar": "اضغط مرة أخرى للسماح: {command}",
+   "fr": "Appuyez à nouveau pour autoriser : {command}",
+   "bn": "অনুমতি দিতে আবার চাপুন: {command}",
+   "pt-BR": "Pressione de novo para permitir: {command}",
+   "ru": "Нажмите ещё раз, чтобы разрешить: {command}",
+   "id": "Tekan lagi untuk mengizinkan: {command}"
+  },
+  "Soft sound when a permission waits": {
+   "zh-Hans": "权限请求等待时播放轻柔提示音",
+   "hi": "अनुमति प्रतीक्षा में हो तो हल्की आवाज़",
+   "es": "Sonido suave cuando un permiso espera",
+   "ar": "صوت هادئ عندما ينتظر إذن",
+   "fr": "Son doux quand une permission attend",
+   "bn": "অনুমতি অপেক্ষায় থাকলে মৃদু শব্দ",
+   "pt-BR": "Som suave quando uma permissão espera",
+   "ru": "Тихий звук, когда запрос ждёт",
+   "id": "Suara lembut saat izin menunggu"
+  },
+  "Once, after 30 seconds without an answer. The lantern pulses either way.": {
+   "zh-Hans": "30 秒无人应答后响一次。无论如何灯笼都会闪动。",
+   "hi": "30 सेकंड तक जवाब न मिलने पर, एक बार। लालटेन दोनों ही स्थितियों में धड़कती है।",
+   "es": "Una vez, tras 30 segundos sin respuesta. El farol late de todos modos.",
+   "ar": "مرة واحدة، بعد 30 ثانية دون إجابة. يومض الفانوس في كل الأحوال.",
+   "fr": "Une fois, après 30 secondes sans réponse. La lanterne pulse dans tous les cas.",
+   "bn": "৩০ সেকেন্ড উত্তর না পেলে, একবার। লণ্ঠন সব ক্ষেত্রেই স্পন্দিত হয়।",
+   "pt-BR": "Uma vez, após 30 segundos sem resposta. A lanterna pulsa de qualquer forma.",
+   "ru": "Один раз, после 30 секунд без ответа. Фонарик пульсирует в любом случае.",
+   "id": "Sekali, setelah 30 detik tanpa jawaban. Lentera tetap berdenyut."
   }
  }
 }

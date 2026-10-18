@@ -191,13 +191,6 @@ fn focus_window(app: AppHandle, caller: tauri::WebviewWindow, focused: bool) {
     }
 }
 
-/// The command patterns of the user's Claude Code "ask" rules (fix e): the
-/// approval card never lets the Allow key allow a command matching one.
-#[tauri::command]
-fn approval_ask_rules() -> Vec<String> {
-    hooks::ask_patterns()
-}
-
 /// The window a box on a card borrowed the keyboard from (lend_keyboard).
 static LENT_FROM: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
 
@@ -1228,7 +1221,6 @@ pub fn run() {
             set_island_rect,
             focus_window,
             lend_keyboard,
-            approval_ask_rules,
             reposition,
             dock_drag_start,
             set_visibility,

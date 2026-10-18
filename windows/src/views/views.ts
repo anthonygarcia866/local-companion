@@ -26,7 +26,7 @@ import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { SHORTCUTS, displayKeys, effective } from "../core/shortcuts";
-import { cardOnScreen, isRisky, liveRules, setLiveRules } from "../core/allow";
+import { armedFor, cardOnScreen } from "../core/allow";
 import { buildRecap } from "./recap";
 import { language, t, tl, tn, type Msg } from "../i18n/i18n";
 
@@ -422,14 +422,13 @@ function keyOf(id: "allowApproval" | "denyApproval"): string {
 export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
-  // Fix e: why the Allow key won't allow this one (an "ask"-rule command).
-  const risk = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-risk" });
+  // The Allow key's second press (fix e): "Press again to allow: …" for 3 s.
+  const confirm = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-confirm" });
   const row = h("div", { class: "actions" });
   const denyKey = h("span", { class: "kbd", "data-role": "deny-key" });
   const allowKey = h("span", { class: "kbd", "data-role": "allow-key" });
   const el = h("div", { class: "view" },
-    card("amber", stack(116, 16, who, code, risk, row), foldButton(actions)));
-  let rulesFor: string | null = null;
+    card("amber", stack(116, 16, who, code, confirm, row), foldButton(actions)));
   let rowKey = "";
   // The card pops up under a cursor that was busy with something else: a click
   // meant for the window underneath must not land on Allow. Clicks in the first
@@ -459,17 +458,6 @@ export function buildApproval(actions: ViewActions): ViewHost {
       // name of the tool asking.
       const command = State.pendingApproval?.command || State.pendingApproval?.tool || "…";
       code.textContent = command;
-      // Fix e: the live ask rules, read again for each new request.
-      if (req && req !== rulesFor) {
-        rulesFor = req;
-        void Bridge.approvalAskRules().then((rules) => {
-          setLiveRules(rules);
-          State.notify();
-        });
-      }
-      const risky = isRisky(command, liveRules());
-      risk.textContent = risky ? t("Click Allow to allow this one: it matches your Claude Code “ask” rules, so the Allow key won't.") : "";
-      risk.style.display = risky ? "" : "none";
       // On screen (open, not folded) with the whole command in view: the
       // Allow key's clock (core/allow.ts). A box that scrolls or cuts off
       // isn't the whole command.
@@ -477,8 +465,13 @@ export function buildApproval(actions: ViewActions): ViewHost {
         const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
         cardOnScreen(req, performance.now(), fits);
       }
+      // A destructive command's first press (core/allow.ts): the card asks
+      // for the second, naming the command it would allow.
+      const armed = req ? armedFor(performance.now()) : null;
+      confirm.textContent = armed?.requestId === req ? t("Press again to allow: {command}", { command }) : "";
+      confirm.style.display = confirm.textContent ? "" : "none";
       denyKey.textContent = keyOf("denyApproval");
-      allowKey.textContent = risky ? "" : keyOf("allowApproval");
+      allowKey.textContent = keyOf("allowApproval");
       denyKey.style.display = denyKey.textContent ? "" : "none";
       allowKey.style.display = allowKey.textContent ? "" : "none";
       // Two buttons, built once. Rebuilding them between a mouse-down and a

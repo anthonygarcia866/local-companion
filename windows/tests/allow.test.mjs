@@ -1,8 +1,8 @@
-// The Allow key (fix e, owner 2026-10-17; core/allow.ts, island.ts
-// allowApproval, the approval card in views.ts): Ctrl+Alt+Shift+Y allows a
-// waiting permission only with its card open, showing the whole command, for
-// at least 1.5 s, and never for a command the owner's Claude Code "ask" rules
-// name; those stay click-only and the card says so.
+// The Allow key (fix e, redesigned by the owner 2026-10-17; core/allow.ts,
+// island.ts allowApproval, the approval card in views.ts): Ctrl+Alt+Shift+Y
+// allows any waiting permission once its card has been open, showing the whole
+// command, for 1.5 s. Destructive commands take a second press within 3 s.
+// Plus the waiting-approval escalation (core/approval-wait.ts).
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -10,14 +10,16 @@ import { readFileSync } from "node:fs";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { State } = await import("../src/core/state.ts");
-const { ALLOW_DELAY_MS, BUILT_IN_RISKY, allowCheck, cardOffScreen, cardOnScreen, globMatches, isRisky, onScreen, setLiveRules, liveRules } = await import("../src/core/allow.ts");
+const { State, DEFAULT_SETTINGS } = await import("../src/core/state.ts");
+const {
+  ALLOW_DELAY_MS, CONFIRM_WINDOW_MS, DESTRUCTIVE, allowCheck, armedFor, cardOffScreen, cardOnScreen, globMatches, isDestructive, onScreen, press,
+} = await import("../src/core/allow.ts");
+const { ApprovalWait, ESCALATE_AFTER_MS, PULSE_EVERY_MS } = await import("../src/core/approval-wait.ts");
 const { buildApproval } = await import("../src/views/views.ts");
-const { sent } = await import("./tauri.mjs");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const req = (command, extra = {}) => ({ requestId: "r1", sessionId: "s1", pillId: "integration_claude", tool: "Bash", command, ...extra });
-const check = (o) => allowCheck({ request: req("Bash · npm test"), open: true, fullyShown: true, shownMs: 2_000, live: [], ...o });
+const check = (o) => allowCheck({ request: req("Bash · npm test"), open: true, fullyShown: true, shownMs: 2_000, ...o });
 
 test("the key allows only after the card has been on screen 1.5 s", () => {
   assert.equal(ALLOW_DELAY_MS, 1_500);
@@ -40,101 +42,194 @@ test("the key allows only after the card has been on screen 1.5 s", () => {
   cardOffScreen();
 });
 
-test("only an open permission card showing the whole command", () => {
+test("every permission card takes the key, once open showing the whole command", () => {
   assert.equal(check({ request: null }), "no-card");
   assert.equal(check({ request: req("x", { questions: [{ question: "Which?" }] }) }), "question");
   assert.equal(check({ open: false }), "not-open", "folded, queued, or another view");
   assert.equal(check({ fullyShown: false }), "cut-off");
   assert.equal(check({ request: req("Bash · npm run something long…") }), "cut-off", "shortened by the relay");
+  // The old design kept "ask"-rule commands click-only: no longer (owner, 2026-10-17).
+  for (const c of ["Bash · git merge origin/main", "Bash · gh pr merge 27 --merge", "Bash · git push origin main", "Edit · src/a.ts", "Bash · npm test"]) {
+    assert.equal(check({ request: req(c) }), "ok", c);
+  }
 });
 
-test("never for a command the ask rules name, however long the card waits", () => {
-  const risky = [
+test("destructive commands are recognised, the rest are not", () => {
+  const destructive = [
     "Bash · rm -rf node_modules",
     "Bash · cd x && rm -rf build",
+    "Bash · rm -fr build",
     "PowerShell · Remove-Item -Path C:\\tmp -Recurse -Force",
     "PowerShell · Remove-Item C:\\tmp -Force -Recurse",
     "Bash · git push --force origin main",
     "Bash · git push -f origin main",
-    "Bash · gh pr merge 27 --merge",
-    "Bash · git merge origin/main",
+    "Bash · git push origin main --force-with-lease",
     "Bash · psql -c 'DROP TABLE tenants'",
     "Bash · sqlite3 db.sqlite \"drop table x\"",
     "Bash · echo 'TRUNCATE TABLE leases' | psql",
     "Bash · npx supabase db reset",
-    "Bash · git status\ngit merge feature",
+    "Bash · supabase migration up",
+    "Bash · mysql -e 'select 1'",
+    "Bash · git status\nrm -rf dist",
   ];
-  for (const c of risky) {
-    assert.ok(isRisky(c), c);
-    assert.equal(check({ request: req(c), shownMs: 60_000 }), "risky", c);
+  for (const c of destructive) assert.ok(isDestructive(c), c);
+  for (const c of ["Bash · npm test", "Bash · git status", "Bash · git merge origin/main", "Bash · gh pr merge 27 --merge", "Bash · git push origin main", "Bash · rm notes.txt", "Bash · grep merge src", "Edit · src/a.ts", "Bash · ls supabase/migrations"]) {
+    assert.ok(!isDestructive(c), c);
   }
-  for (const c of ["Bash · npm test", "Bash · git status", "Bash · git log --oneline", "Edit · src/a.ts", "Bash · git push origin main", "Bash · rm notes.txt", "Bash · grep merge src"]) {
-    assert.ok(!isRisky(c), c);
-  }
-  // The live rules from settings.json count too (a rule added later).
-  assert.ok(!isRisky("Bash · terraform destroy"));
-  assert.ok(isRisky("Bash · terraform destroy", ["terraform destroy*"]));
-  assert.equal(check({ request: req("Bash · terraform destroy"), live: ["terraform destroy*"] }), "risky");
-  setLiveRules(["a*", 7, "", null]);
-  assert.deepEqual(liveRules(), ["a*"]);
-  setLiveRules([]);
   // Globs: * is anything, the rest literal, any case.
-  assert.ok(globMatches("*Remove-Item* -Recurse*-Force*", "remove-item x -recurse -force"));
-  assert.ok(!globMatches("git merge*", "echo git merge"));
+  assert.ok(globMatches("*Remove-Item*-Recurse*-Force*", "remove-item x -recurse -force"));
   assert.ok(globMatches("a.b(c)*", "A.B(C) d"));
   assert.ok(!globMatches("a.b", "axb"), "regex characters are literal");
-  // The owner's own rules (2026-10-17) are all in the built-in list.
-  for (const rule of ["supabase *", "psql *", "*drop table*", "*truncate table*", "rm -rf *", "*Remove-Item* -Recurse*-Force*", "git push --force*", "gh pr merge*", "git merge*"]) {
-    assert.ok(BUILT_IN_RISKY.includes(rule), rule);
+  // The owner's list (2026-10-17) is all there.
+  for (const rule of ["*rm -rf*", "*Remove-Item*-Recurse*-Force*", "*git push --force*", "*drop table*", "*truncate *", "psql*", "*supabase *"]) {
+    assert.ok(DESTRUCTIVE.includes(rule), rule);
   }
 });
 
-test("the card shows the keys on the buttons, and says when only a click allows", async () => {
+test("a destructive command: the first press arms, a second within 3 s allows", () => {
+  assert.equal(CONFIRM_WINDOW_MS, 3_000);
+  const r = req("Bash · rm -rf build", { requestId: "d1" });
+  cardOffScreen();
+  cardOnScreen("d1", 0, true);
+  assert.equal(press(r, true, 1_000), "too-soon", "the 1.5 s delay comes first");
+  assert.equal(armedFor(1_000), null, "a press too soon doesn't arm");
+  assert.equal(press(r, true, 2_000), "armed");
+  assert.deepEqual(armedFor(2_000), { requestId: "d1", at: 2_000 });
+  assert.equal(press(r, true, 4_900), "ok", "the second press, 2.9 s later");
+  assert.equal(armedFor(4_900), null, "allowing clears it");
+  // Exactly at the window's end still counts; a moment later it doesn't.
+  assert.equal(press(r, true, 10_000), "armed");
+  assert.equal(press(r, true, 13_000), "ok");
+  cardOffScreen();
+});
+
+test("the two-press window resets: too late, another request, or the card leaves", () => {
+  const r = req("Bash · git push --force", { requestId: "d2" });
+  cardOffScreen();
+  cardOnScreen("d2", 0, true);
+  assert.equal(press(r, true, 2_000), "armed");
+  assert.equal(armedFor(5_001), null, "the card drops \"Press again\" after 3 s");
+  assert.equal(press(r, true, 5_001), "armed", "too late: this press is a first press again");
+  assert.equal(press(r, true, 6_000), "ok");
+  // Armed for one request, then another comes up: the new one starts over.
+  cardOnScreen("d2", 7_000, true);
+  assert.equal(press(r, true, 9_000), "armed");
+  cardOnScreen("d3", 9_500, true);
+  assert.equal(armedFor(9_500), null, "a new card forgets the first press");
+  const r3 = req("Bash · rm -rf x", { requestId: "d3" });
+  assert.equal(press(r3, true, 11_000), "armed", "and needs its own two presses");
+  // Folded between the presses: forgotten, and the delay starts over.
+  cardOffScreen();
+  assert.equal(armedFor(11_100), null);
+  assert.equal(press(r3, false, 11_200), "not-open");
+  cardOnScreen("d3", 12_000, true);
+  assert.equal(press(r3, true, 12_500), "too-soon");
+  // A plain command never arms.
+  cardOnScreen("p1", 20_000, true);
+  assert.equal(press(req("Bash · npm test", { requestId: "p1" }), true, 21_600), "ok");
+  assert.equal(armedFor(21_600), null);
+  cardOffScreen();
+});
+
+test("the escalation: after 30 s the lantern pulses every 4 s and the sound comes once", () => {
+  assert.equal(ESCALATE_AFTER_MS, 30_000);
+  assert.equal(PULSE_EVERY_MS, 4_000);
+  const w = new ApprovalWait();
+  let t = w.tick(["a"], 0);
+  assert.deepEqual(t, { pulse: false, chime: false, ended: [] });
+  t = w.tick(["a"], 29_999);
+  assert.equal(t.pulse, false, "not before 30 s");
+  t = w.tick(["a"], 30_000);
+  assert.equal(t.pulse, true);
+  assert.equal(t.chime, true, "the sound, once");
+  t = w.tick(["a"], 31_000);
+  assert.deepEqual([t.pulse, t.chime], [false, false], "the next pulse waits 4 s");
+  t = w.tick(["a"], 34_000);
+  assert.deepEqual([t.pulse, t.chime], [true, false], "pulses again, no second sound");
+  // A second request, queued at 35 s, escalates on its own clock: one more sound.
+  w.tick(["a", "b"], 35_000);
+  t = w.tick(["a", "b"], 64_999);
+  assert.equal(t.chime, false, "b has waited 29.999 s");
+  t = w.tick(["a", "b"], 65_000);
+  assert.equal(t.chime, true, "b has waited 30 s now");
+  // Answered: the wait is logged with how, and the pulsing stops.
+  w.decided("a", "allow (key)");
+  t = w.tick(["b"], 66_000);
+  assert.deepEqual(t.ended, [{ requestId: "a", waitedMs: 66_000, how: "allow (key)", escalated: true }]);
+  t = w.tick([], 67_000);
+  assert.deepEqual(t.ended, [{ requestId: "b", waitedMs: 32_000, how: "answered elsewhere", escalated: true }]);
+  assert.equal(t.pulse, false, "nothing waiting: no pulse");
+  // A quick answer: logged, never escalated.
+  w.tick(["c"], 60_000);
+  w.decided("c", "deny (click)");
+  t = w.tick([], 62_500);
+  assert.deepEqual(t.ended, [{ requestId: "c", waitedMs: 2_500, how: "deny (click)", escalated: false }]);
+  assert.equal(w.waited("c", 70_000), 0);
+  // A new card right after an escalated one starts from nothing.
+  w.tick(["d"], 100_000);
+  t = w.tick(["d"], 101_000);
+  assert.equal(t.pulse, false);
+});
+
+test("the card shows both keys and, after a first press, \"Press again to allow\"", () => {
   State.mode = "expanded";
   State.view = "approval";
   State.tasks = [];
   State.approvalQueue = [];
-  State.pendingApproval = req("Bash · npm test", { requestId: "k1" });
+  State.pendingApproval = req("Bash · rm -rf build", { requestId: "k1" });
   const card = buildApproval(new Proxy({}, { get: () => () => {} }));
-  const n = sent("approval_ask_rules").length;
+  const now = performance.now();
   card.sync();
-  assert.equal(sent("approval_ask_rules").length, n + 1, "the live rules are read for each new request");
-  card.sync();
-  assert.equal(sent("approval_ask_rules").length, n + 1, "once per request");
   const keyText = (role) => card.el.find("span").find((s) => s.getAttribute("data-role") === role);
+  const confirm = card.el.find("div").find((d) => d.getAttribute("data-role") === "allow-confirm");
   assert.equal(keyText("deny-key").textContent, "Ctrl+Alt+Shift+N");
-  assert.equal(keyText("allow-key").textContent, "Ctrl+Alt+Shift+Y");
-  const risk = card.el.find("div").find((d) => d.getAttribute("data-role") === "allow-risk");
-  assert.equal(risk.style.display, "none");
-  // A risky one: no key on Allow, and a line saying why.
-  State.pendingApproval = req("Bash · git merge origin/main", { requestId: "k2" });
+  assert.equal(keyText("allow-key").textContent, "Ctrl+Alt+Shift+Y", "every card shows the Allow key, destructive too");
+  assert.equal(confirm.style.display, "none");
+  // A first press (fake clock well past the delay): the card names the command.
+  cardOffScreen();
+  cardOnScreen("k1", now - 5_000, true);
+  assert.equal(press(State.pendingApproval, true, now), "armed");
   card.sync();
-  assert.equal(keyText("allow-key").textContent, "");
-  assert.equal(keyText("allow-key").style.display, "none");
-  assert.equal(keyText("deny-key").textContent, "Ctrl+Alt+Shift+N", "Deny keeps its key");
-  assert.equal(risk.style.display, "");
-  assert.match(risk.textContent, /Click Allow to allow this one: it matches your Claude Code “ask” rules, so the Allow key won't\./);
+  assert.equal(confirm.style.display, "");
+  assert.equal(confirm.textContent, "Press again to allow: Bash · rm -rf build");
   // A rebound key shows as bound.
   State.settings = { ...State.settings, shortcuts: { allowApproval: { keys: "Ctrl+Alt+Shift+K", enabled: true } } };
   State.pendingApproval = req("Bash · ls", { requestId: "k3" });
   card.sync();
   assert.equal(keyText("allow-key").textContent, "Ctrl+Alt+Shift+K");
+  assert.equal(confirm.style.display, "none", "another request: no prompt");
   State.settings = { ...State.settings, shortcuts: {} };
   State.pendingApproval = null;
   State.mode = "hidden";
   cardOffScreen();
 });
 
-test("the island: the key goes through allowCheck, logs why it refused, and the clock stops off screen", () => {
+test("the island: the key goes through press(), the wait is ticked, logged and escalated", () => {
   const island = read("src/island/island.ts");
   const fn = island.slice(island.indexOf("  allowApproval() {"), island.indexOf("  takeKeyboard() {"));
-  assert.ok(fn.includes('open: State.mode === "expanded" && State.view === "approval"'));
-  assert.ok(fn.includes("onScreen(req.requestId, performance.now())") && fn.includes("live: liveRules()"));
+  assert.ok(fn.includes('press(req, State.mode === "expanded" && State.view === "approval", now)'));
+  assert.ok(fn.includes('if (check === "armed" && req)') && fn.includes("CONFIRM_WINDOW_MS + 50"), "armed: the card asks, then drops it");
   assert.ok(fn.includes('if (!req || check !== "ok")') && fn.includes('this.emote("annoyed")'));
   assert.ok(fn.indexOf('Bridge.approvalDecision(req.requestId, "allow")') > fn.indexOf('check !== "ok"'), "allowed only after the check");
   assert.ok(island.includes('if (!(expanded && State.view === "approval")) cardOffScreen();'));
-  // Rust: the rules come from every config folder's settings.json, read only.
-  const lib = read("src-tauri/src/lib.rs");
-  assert.ok(lib.includes("fn approval_ask_rules() -> Vec<String> {\n    hooks::ask_patterns()\n}"));
-  assert.ok(/\n\s+approval_ask_rules,\n/.test(lib), "registered");
+  assert.ok(island.includes("window.setInterval(() => this.tickWait(), 1_000);"));
+  const tick = island.slice(island.indexOf("  private tickWait() {"), island.indexOf("  /** The request has its answer"));
+  assert.ok(tick.includes("if (tick.pulse) this.lantern.attention();"));
+  assert.ok(tick.includes("if (tick.chime && State.settings.approvalSound === true) playSoftChime();"), "the sound only when it's on");
+  assert.ok(tick.includes("approval waited ${(e.waitedMs / 1000).toFixed(1)} s"), "the wait is logged, never the command");
+  assert.ok(!tick.includes("command"));
+  for (const how of ["`${d} (click)`", '"answered (click)"', '"sent to the terminal"', '"deny (key)"', '"allow (key)"']) {
+    assert.ok(island.includes(`this.wait.decided(req.requestId, ${how})`), how);
+  }
+  // The ask-rule reading is gone (no Rust command, no bridge call).
+  assert.ok(!read("src-tauri/src/lib.rs").includes("approval_ask_rules"));
+  assert.ok(!read("src/core/bridge.ts").includes("approvalAskRules"));
+});
+
+test("the soft sound is off by default and has its Settings switch", () => {
+  assert.notEqual(DEFAULT_SETTINGS.approvalSound, true);
+  const rs = read("src-tauri/src/settings.rs");
+  assert.ok(rs.includes("approval_sound: false,"));
+  const main = read("src/settings/main.ts");
+  assert.ok(main.includes('toggle(settings.approvalSound === true, (v) => { settings.approvalSound = v; void save(); })'));
 });

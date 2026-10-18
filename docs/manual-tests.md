@@ -238,21 +238,29 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 
 **Cleanup:** none.
 
-## 10b. The Allow key (fix e, 2026-10-17, branch `allow-key`)
+## 10b. The Allow key and waiting cards (fix e, redesigned 2026-10-17, PR #33)
 
-*Where: branch `allow-key` (stacked on #27).* Ctrl+Alt+Shift+Y was free system-wide and unassigned in Word (checked 2026-10-17).
+*Where: main once #33 is merged.* Ctrl+Alt+Shift+Y was free system-wide and unassigned in Word (checked 2026-10-17). Every permission card takes the key (your "ask" rules no longer matter here); destructive commands take two presses.
 
 1. **Allow from the keyboard:** in Claude Code, ask for something harmless that needs permission (e.g. `npm test` in a repo). With the card open in Glim, **wait 2 seconds**, then press **Ctrl+Alt+Shift+Y** from any app, without clicking Glim.
    - **See:** the card closes and Claude Code runs the command. glim.log: `decide allow (key) req=…`.
 2. **Too soon:** get another harmless card and press Ctrl+Alt+Shift+Y **right away** (under 1.5 s).
    - **See:** nothing is allowed; the lantern looks annoyed (glim.log: `allow key refused (too-soon)`). Wait 2 s and press again: allowed.
-3. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
+3. **An "ask"-rule command that isn't destructive** (e.g. `git merge` on a throwaway branch, or `gh pr merge` on a test PR you'd click anyway): wait 2 s, press once.
+   - **See:** allowed with one press, like any other card.
+4. **Destructive, two presses:** ask for `rm -rf` on a temp folder (or `Remove-Item -Recurse -Force` on one). Wait 2 s, press once.
+   - **See:** nothing allowed yet; the card says **Press again to allow: Bash · rm -rf …** (glim.log: `allow key armed`). Press again within 3 s: allowed.
+5. **The window resets:** another destructive card, press once, then wait **4 s**.
+   - **See:** the "Press again" line goes away after ~3 s; a press now is a first press again (the line comes back), a second one allows.
+6. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
    - **See:** refused (`not-open`). Open the island on the card again: it needs its own 1.5 s again.
-4. **Risky commands stay click-only:** ask Claude Code to run `git merge` on a throwaway branch (or `rm -rf` on a temp folder, or `Remove-Item -Recurse -Force` on one).
-   - **See:** the Allow button shows **no key**; the card says "Click Allow to allow this one: it matches your Claude Code “ask” rules, so the Allow key won't." Press Ctrl+Alt+Shift+Y after 2 s: refused (`risky`). Click **Deny** (or Allow, if you meant it).
-5. **A long command:** one too long to show whole on the card (or cut short with "…").
+7. **A long command:** one too long to show whole on the card (or cut short with "…").
    - **See:** refused (`cut-off`); clicking still works.
-6. **Settings → Shortcuts:** "Allow the waiting permission" is listed with Ctrl+Alt+Shift+Y and can be changed; the card's Allow button shows the new chord.
+8. **Waiting too long:** get a card and don't answer for 35 s.
+   - **See:** after ~30 s the lantern pops, again every ~4 s until you answer. No sound (off by default).
+   - Settings → Claude Code → **Soft sound when a permission waits**: on. Another card, wait 35 s: one soft two-note chime at ~30 s, not repeated. Turn it off again if you like.
+   - glim.log after answering: `approval waited 34.2 s (allow (click), escalated) req=…`. Every card's wait is logged (a quick one: no "escalated"); never the command.
+9. **Settings → Shortcuts:** "Allow the waiting permission" is listed with Ctrl+Alt+Shift+Y and can be changed; the card's Allow button shows the new chord.
 
 ## 11. Pause (tray)
 

@@ -120,6 +120,10 @@ pub struct Settings {
     /// → the address. Rust's: added on Create draft, removed with Forget in
     /// Settings (lib.rs keeps it when the page saves).
     pub draft_recipients: BTreeMap<String, String>,
+    /// Settings → Claude Code → "Play a soft sound when a permission has
+    /// waited 30 seconds" (fix e's escalation, 2026-10-17): off by default.
+    /// The lantern pulses either way.
+    pub approval_sound: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -178,6 +182,7 @@ impl Default for Settings {
             voice_words: String::new(),
             draft_from: String::new(),
             draft_recipients: BTreeMap::new(),
+            approval_sound: false,
         }
     }
 }
@@ -466,7 +471,8 @@ mod tests {
   "voiceModel": "small",
   "voiceWords": "Glim, HOA, Okafor",
   "draftFrom": "me@example.com",
-  "draftRecipients": { "maria": "maria.lopez@example.com" }
+  "draftRecipients": { "maria": "maria.lopez@example.com" },
+  "approvalSound": true
 }"##;
 
     fn custom() -> Value {
@@ -904,6 +910,7 @@ mod tests {
                 "voiceWords",
                 "draftFrom",
                 "draftRecipients",
+                "approvalSound",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
