@@ -69,6 +69,22 @@ Run on all 20 clips. Processing times varied between the runs that day (the PC w
 
 **Commands are safe on every model:** all 12 command clips (the ten command words, plus the fast and noisy ones) started with the right word. Nothing here suggests the §4.1 local rule would let a spoken command be typed as text, on these clips.
 
+## Re-run 2026-10-17 (after Anthony's retest; same 20 synthetic clips)
+
+Why: the retest found weak accuracy ("unit four B" typed as "Unit 4", "Claude" heard as "Claw", "shift" as "knowledge shift"). Installed on the PC: **base.en** (`ggml-base.en-q5_1.bin`, Settings → Dictation → Speech model = Base), and **the word list was empty**, so whisper got no vocabulary hint at all.
+
+Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the new built-in words as the hint (`Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, HOA`):
+
+| | base.en | small.en |
+|---|---|---|
+| Processing, median | **0.55 s** | 1.93 s |
+| Processing, worst | 0.74 s | 2.31 s |
+| Lenient WER (20 clips) | 4.1% | 3.6% |
+| Clips with a key term missed | 1 (h1 "Thursday", fast clip) | 2 ("gate code", "dale cuts") |
+| Command word heard first | 12/12 | 12/12 |
+
+**Small runs fast enough to use** (~2 s after letting go of the key, against ~0.5 s), but on these clips it is not clearly more accurate. **Keep base**, now with the built-in word list (fix d) and the unit-number fix-up; **decide with Anthony's own 22 clips** (`docs/voice-clips-to-record.md`, folder `%USERPROFILE%\glim-clips\` created 2026-10-17). Switching is a Settings change plus `ggml-small.en-q5_1.bin` in `%LOCALAPPDATA%\Glim\whisper` (not there now).
+
 ## Cloud candidates (prices from the official pages, 2026-10-14; not measured)
 
 Picked on the day as the two that sell short-clip batch transcription and a custom-vocabulary option (needed for names like Okafor, Glim, dale-cuts):

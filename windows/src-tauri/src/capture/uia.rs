@@ -492,20 +492,15 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         let reading = read(&uia, &element, pid, &pause, dev);
         let ask = reading.ask;
         let mail_site = reading.mail_site;
-        // Google Docs with no text to check (canvas rendering, screen reader
-        // support off): one metadata line per stay, and the one-time tip.
-        let docs_unreadable = reading.docs_site
-            && crate::writing::apps::enabled(&reading.capture.meta.app)
-            && crate::writing::docs_tip::unreadable(&reading.capture.meta.pattern, reading.capture.meta.read_only, reading.text.as_deref());
-        let step = docs_tip.feed(docs_unreadable, crate::writing::prefs::get().docs_tip_dismissed, std::time::Instant::now());
+        // Google Docs (not supported yet, Decision D): nothing was read; one
+        // metadata line per stay, and the one-time notice.
+        let in_docs = reading.docs_site && crate::writing::apps::enabled(&reading.capture.meta.app);
+        let step = docs_tip.feed(in_docs, crate::writing::prefs::get().docs_tip_dismissed, std::time::Instant::now());
         if step.log {
-            crate::log::line(format!(
-                "writing: Google Docs field not readable (pattern {}, read-only {})",
-                reading.capture.meta.pattern, reading.capture.meta.read_only
-            ));
+            crate::log::line(format!("writing: Google Docs document, not supported yet: nothing read ({})", reading.capture.meta.control_type));
         }
         if step.offer {
-            crate::log::line("writing: Google Docs tip offered");
+            crate::log::line("writing: Google Docs notice offered");
             let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::docs_tip::EVENT, ());
         }
         let mut capture = reading.capture;
@@ -615,6 +610,15 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     let window_title = if dev { foreground_title() } else { String::new() };
 
     let docs_site = urls.iter().any(|url| super::sensitive::url_on_sites(url, &crate::writing::docs_tip::DOCS_SITES));
+    if docs_site {
+        // Google Docs (Decision D, 2026-10-17): its hidden helper field holds
+        // only stray typed characters, never the document; nothing is read,
+        // so Glim never checks or rewrites them.
+        meta.pattern = crate::writing::docs_tip::SKIPPED_DOCS.into();
+        let mut skipped: Reading = Capture { meta, window_title, excerpt: None, via: String::new() }.into();
+        skipped.docs_site = true;
+        return skipped;
+    }
     if !is_editable(&edit_signals(element, control)) {
         // Read-only content (a web page, a document view): the writing layer
         // never reads it. Like a password field, nothing is read.

@@ -31,6 +31,10 @@ mod tray;
 mod webview_drop;
 mod writing;
 mod voice;
+#[cfg(windows)]
+mod outlook;
+#[cfg(all(test, windows))]
+mod outlook_live;
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -96,6 +100,9 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         // When each app was asked about is Rust's (writing_ask_shown/_answer).
         settings.writing_apps_asked = current.writing_apps_asked.clone();
         settings.writing_docs_tip_dismissed = current.writing_docs_tip_dismissed;
+        // The draft card's remembered picks are Rust's (voice::draft_worker,
+        // draft_forget).
+        settings.draft_recipients = current.draft_recipients.clone();
         *current = settings;
         (screen_changed, autostart_changed, shortcuts_changed)
     };
@@ -181,6 +188,37 @@ fn focus_window(app: AppHandle, caller: tauri::WebviewWindow, focused: bool) {
     platform::set_activating(&win, focused);
     if focused {
         let _ = win.set_focus();
+    }
+}
+
+/// The window a box on a card borrowed the keyboard from (lend_keyboard).
+static LENT_FROM: std::sync::Mutex<Option<isize>> = std::sync::Mutex::new(None);
+
+/// A box on a card (the question card's answer, the draft card's search)
+/// borrows the keyboard on a click, and gives it back on Send, Cancel, a pick
+/// or the card closing: to the window the user was typing in before, so their
+/// next keys land there again (retest, 2026-10-17: they went to Outlook).
+#[tauri::command]
+fn lend_keyboard(app: AppHandle, caller: tauri::WebviewWindow, on: bool) {
+    if caller.label() != island::WINDOW_LABEL {
+        log::line(format!("lend_keyboard refused from window {:?}", caller.label()));
+        return;
+    }
+    let Some(win) = island::window(&app) else { return };
+    if on {
+        // Asked again while the island already has it: keep the first one.
+        if let Some(front) = platform::foreground_other_than(&win) {
+            *LENT_FROM.lock().unwrap() = Some(front);
+        }
+        let _ = win.set_focusable(true);
+        platform::set_activating(&win, true);
+        let _ = win.set_focus();
+    } else {
+        let _ = win.set_focusable(false);
+        platform::set_activating(&win, false);
+        if let Some(to) = LENT_FROM.lock().unwrap().take() {
+            platform::give_foreground_back(&win, to);
+        }
     }
 }
 
@@ -728,6 +766,77 @@ fn open_mic_settings() {
 /// Windows Settings → Privacy & security → Microphone.
 const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
 
+// ── The "Draft email" card (voice 1.5d) ───────────────────────────────────────
+// Ids, indexes and a search's text only; voice::draft_worker owns the card and
+// Outlook. Nothing here can send an email.
+
+/// A chip: choice `choice` of recipient `index` on card `id`.
+#[tauri::command]
+fn draft_pick(app: AppHandle, id: u64, index: usize, choice: usize) {
+    #[cfg(windows)]
+    voice::draft_worker::pick(&app, id, index, choice);
+    #[cfg(not(windows))]
+    let _ = (app, id, index, choice);
+}
+
+/// "Change recipient" on recipient `index`: its address-book search opens.
+#[tauri::command]
+fn draft_change(app: AppHandle, id: u64, index: usize) {
+    #[cfg(windows)]
+    voice::draft_worker::change(&app, id, index);
+    #[cfg(not(windows))]
+    let _ = (app, id, index);
+}
+
+/// The search's text, as typed (Outlook's address book, on this PC).
+#[tauri::command]
+fn draft_search(app: AppHandle, id: u64, query: String) {
+    #[cfg(windows)]
+    voice::draft_worker::search(&app, id, query);
+    #[cfg(not(windows))]
+    let _ = (app, id, query);
+}
+
+/// "Create draft": saved in Outlook's Drafts and opened there. Never sent.
+#[tauri::command]
+fn draft_create(app: AppHandle, id: u64) {
+    #[cfg(windows)]
+    voice::draft_worker::create(&app, id);
+    #[cfg(not(windows))]
+    let _ = (app, id);
+}
+
+#[tauri::command]
+fn draft_cancel(app: AppHandle, id: u64) {
+    #[cfg(windows)]
+    voice::draft_worker::cancel(&app, id);
+    #[cfg(not(windows))]
+    let _ = (app, id);
+}
+
+/// Settings → Email drafts → Forget: a remembered pick goes.
+#[tauri::command]
+fn draft_forget(app: AppHandle, shared: State<Shared>, name: String) {
+    log::line("draft: a remembered name forgotten");
+    update_settings(&app, &shared, |s| {
+        s.draft_recipients.remove(&name);
+    });
+}
+
+/// The card's picks, remembered once its draft is created (the spoken name,
+/// lowercased → the address). Never logged.
+pub(crate) fn remember_draft_picks(app: &AppHandle, picks: &[(String, String)]) {
+    if picks.is_empty() {
+        return;
+    }
+    let Some(shared) = app.try_state::<Shared>() else { return };
+    update_settings(app, &shared, |s| {
+        for (name, address) in picks {
+            s.draft_recipients.insert(name.clone(), address.clone());
+        }
+    });
+}
+
 /// The Rewrite card's default tone for the field being written in (1d, §14.3).
 #[tauri::command]
 fn writing_rewrite_default() -> &'static str {
@@ -1111,6 +1220,7 @@ pub fn run() {
             set_collapsed,
             set_island_rect,
             focus_window,
+            lend_keyboard,
             reposition,
             dock_drag_start,
             set_visibility,
@@ -1158,6 +1268,12 @@ pub fn run() {
             voice_answer,
             voice_cancel,
             open_mic_settings,
+            draft_pick,
+            draft_change,
+            draft_search,
+            draft_create,
+            draft_cancel,
+            draft_forget,
             writing_ai_check,
             resume_cards,
             resume_open,

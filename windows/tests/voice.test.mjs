@@ -13,6 +13,7 @@ const { State } = await import("../src/core/state.ts");
 const { nextVoice, needsCard, running, voiceLantern, voiceSending, voicePlacement, cardTimeoutMs, answering, modeLabel } = await import("../src/core/voice.ts");
 const { buildVoice, closeVoice, voiceClock, voiceShown, voiceText, failedText, notCleanedText, heardNote } = await import("../src/views/voice.ts");
 const { sent } = await import("./tauri.mjs");
+const { keyboardHolder } = await import("../src/core/keyboard.ts");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const ev = (o) => ({ phase: "idle", level: 0, cleaned: false, text: "", code: "", app: "", ...o });
@@ -243,6 +244,10 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   words.fire("change");
   assert.equal(settings.voiceWords, "Glim, HOA board");
   assert.equal(saves, 2);
+  // Fix d: the words whisper always hears are named, the same list as Rust's.
+  const { BUILT_IN_WORDS } = await import("../src/settings/writing.ts");
+  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C\./);
+  assert.ok(read("src-tauri/src/voice/mod.rs").includes(`pub const BUILT_IN_WORDS: &str = "${BUILT_IN_WORDS}";`), "the same list as Rust's");
 });
 
 // Retest defect (2026-10-16): the question sat in a one-line title and was
@@ -369,6 +374,67 @@ test("the question card: Listening for your answer…, Cancel, and a typed answe
   assert.equal(State.voice, null);
   assert.equal(sent("voice_cancel").length, c + 1);
   State.mode = "hidden";
+});
+
+test("the answer box borrows the keyboard on a click and gives it back on Send, a spoken answer, Cancel or close (retest, 2026-10-17)", async () => {
+  const lent = () => sent("lend_keyboard").map((c) => c.on);
+  State.view = "voice";
+  State.mode = "expanded";
+  // Typed and sent with Enter.
+  State.voice = at({ phase: "question", text: "What should it say?", mode: "ask" });
+  voiceShown();
+  const { v } = card();
+  v.sync();
+  const box = v.el.find(".voice-answer")[0];
+  let n = sent("lend_keyboard").length;
+  v.sync();
+  assert.deepEqual(lent().slice(n), [], "showing the card never takes the keyboard");
+  box.fire("pointerdown");
+  assert.deepEqual(lent().slice(n), [true]);
+  assert.equal(keyboardHolder(), "voice");
+  box.value = "the shift moved to Tuesday";
+  box.fire("keydown", { key: "Enter" });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(lent().slice(n), [true, false], "Send gives it back");
+  assert.equal(keyboardHolder(), null);
+  // Clicked, then answered by voice instead: the box goes, so does the keyboard.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  State.voice = nextVoice(State.voice, ev({ phase: "listening", mode: "answer" }));
+  v.sync();
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Clicked, then Cancel.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  v.sync();
+  n = sent("lend_keyboard").length;
+  box.fire("pointerdown");
+  v.el.find("button").find((b) => b.textContent === "Cancel").fire("click");
+  assert.deepEqual(lent().slice(n), [true, false]);
+  // Closed without a click: nothing was borrowed, nothing is given back.
+  State.voice = at({ phase: "question", text: "Which app?", mode: "ask" });
+  n = sent("lend_keyboard").length;
+  closeVoice(null);
+  assert.deepEqual(lent().slice(n), []);
+  State.mode = "hidden";
+  // Rust: island only, gives the keyboard back to the window it came from.
+  const lib = read("src-tauri/src/lib.rs");
+  const fn = lib.slice(lib.indexOf("fn lend_keyboard("), lib.indexOf("fn dock_drag_start("));
+  assert.ok(fn.includes("caller.label() != island::WINDOW_LABEL"), "only the island may ask");
+  assert.ok(fn.includes("platform::foreground_other_than(&win)") && fn.includes("platform::give_foreground_back(&win, to)"));
+  assert.ok(/\n\s+focus_window,\n\s+lend_keyboard,\n/.test(lib), "registered");
+});
+
+test("a spoken never mind: Rust ends the question and the island leaves the card, no follow-up (fix c, 2026-10-17)", () => {
+  // Rust sends "idle" (voice) and "closed" (draft); the island leaves those
+  // views instead of showing them emptied, and gives back a borrowed keyboard.
+  const main = read("src/main.ts");
+  const gone = main.slice(main.indexOf("const cardGone = "), main.indexOf('await onEvent<VoiceEvent>("voice"'));
+  for (const step of ["returnKeyboard(view);", "State.view !== view", "State.lanternView()", "island.setView(next)", "island.collapse()"]) assert.ok(gone.includes(step), step);
+  assert.ok(main.includes('if (e.phase === "idle" && was) cardGone("voice");'));
+  assert.ok(main.includes('if (had && !State.draft) cardGone("draft");'));
+  assert.equal(nextVoice(at({ phase: "question", text: "Is there something else?" }), ev({ phase: "idle" })), null, "idle clears the card");
 });
 
 test("closing a question card tells Rust; other cards don't", () => {

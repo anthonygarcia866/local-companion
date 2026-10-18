@@ -1,6 +1,6 @@
-// The Google Docs tip card (core/docs-tip.ts): one line on turning on screen
-// reader support, "Got it" (never again) and "Not now". The island never
-// takes focus, so the user can press Ctrl+Alt+Z in the document right away.
+// The Google Docs notice (core/docs-tip.ts; Decision D, 2026-10-17): Glim
+// can't read Google Docs yet, so it says so once, with "Got it" (never again)
+// and "Not now". The island never takes focus.
 
 import { h } from "./dom";
 import { card, stack, type ViewHost } from "./views";
@@ -38,8 +38,8 @@ export function buildDocsTip(host: AskHost): ViewHost {
 
   const sync = () => {
     if (!State.writingDocsTip) return;
-    title.textContent = t("Google Docs: Glim can't read this document");
-    note.textContent = t("Turn on screen reader support (Ctrl+Alt+Z) so Glim can check your writing.");
+    title.textContent = t("Glim can't read Google Docs yet");
+    note.textContent = t("Google Docs keeps its text where Glim can't reach it, even with screen reader support on. Glim still checks your writing in your other apps and sites.");
     gotIt.textContent = t("Got it");
     later.textContent = t("Not now");
     if (State.mode === "expanded") docsTipClock.start("docs", () => closeDocsTip(false, host), DOCS_TIP_TIMEOUT_MS);

@@ -125,7 +125,7 @@ pub fn action_of(key: Mode) -> &'static str {
 fn config(app: &AppHandle, key: Mode) -> Config {
     let s = app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default();
     let binding = crate::shortcuts::find(action_of(key)).map(|d| crate::shortcuts::effective(d, &s.shortcuts).keys).unwrap_or_default();
-    Config { size: super::whisper::model_size(&s.voice_model), prompt: super::prompt_from(&s.voice_words), binding }
+    Config { size: super::whisper::model_size(&s.voice_model), prompt: super::whisper_prompt(&s.voice_words), binding }
 }
 
 /// A voice key went down: `key` is Mode::Dictate (pushToTalk) or Mode::Ask
@@ -137,7 +137,9 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
     let cfg = config(app, key);
     let vk = main_key_vk(&cfg.binding);
     let asked = waiting_question();
-    let mode = if asked.is_some() { Mode::Answer } else { key };
+    // The draft card asking who an email goes to takes the answer too (4c).
+    let draft = asked.is_none() && super::draft_worker::waiting();
+    let mode = if asked.is_some() || draft { Mode::Answer } else { key };
     let m = mode.as_str();
     // The capture thread notes whether an editable field has the focus now.
     request(Request::VoiceBegin);
@@ -173,7 +175,7 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
             return;
         }
         tauri::async_runtime::spawn(async move {
-            process(&app, pcm, held, cfg, mode, asked).await;
+            process(&app, pcm, held, cfg, mode, asked, draft).await;
             ACTIVE.store(false, Ordering::SeqCst);
         });
     });
@@ -196,7 +198,7 @@ pub fn answer_typed(app: &AppHandle, text: String) -> bool {
     true
 }
 
-async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mode: Mode, asked: Option<Asked>) {
+async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mode: Mode, asked: Option<Asked>, draft: bool) {
     let m = mode.as_str();
     send(app, VoiceEvent { phase: "transcribing", mode: m, ..Default::default() });
     let t0 = Instant::now();
@@ -211,10 +213,29 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
             return;
         }
     };
+    // "unit four B" → "unit 4B" (fix d), before anything reads it.
+    let transcript = super::unit_numbers(&transcript);
     let words = transcript.split_whitespace().count();
     crate::log::line(format!("voice: held {:.1}s, transcribed ({}) {:.1}s, {words} words, {m}", held.as_secs_f64(), cfg.size, t0.elapsed().as_secs_f64()));
     if words == 0 {
         send(app, VoiceEvent { phase: "failed", code: "nothing-heard".into(), mode: m, ..Default::default() });
+        return;
+    }
+    if draft {
+        // Straight to the card: matched against its chips or the address book,
+        // on this PC; nothing goes to Claude.
+        if crate::capture::sensitive::contains_sensitive_number(&transcript) {
+            crate::log::line("voice: not used (sensitive)");
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
+            return;
+        }
+        if super::dismisses(&transcript) {
+            dismiss(app, mode);
+            return;
+        }
+        crate::log::line("voice: answer for the draft card");
+        super::draft_worker::answer(app, transcript);
+        send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
         return;
     }
     act(app, &transcript, mode, asked).await;
@@ -224,7 +245,25 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
 /// voice::decide, and what follows.
 async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>) {
     let m = mode.as_str();
+    // "Never mind" (fix c): the card closes, nothing goes to Claude, nothing
+    // is asked back. Dictation still types those words.
+    if mode != Mode::Dictate && super::dismisses(transcript) {
+        dismiss(app, mode);
+        return;
+    }
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
+    // "Open claw": Claude asked which app; a word that sounds like exactly
+    // one app opens it (fix d). Only after Claude answered (§4.1).
+    let cleanup = match cleanup {
+        Ok(Cleanup::Clarify(q)) if mode != Mode::Dictate => match super::open_sound_alike(transcript) {
+            Some(app_name) => {
+                crate::log::line("voice: open_app by a sound-alike");
+                Ok(Cleanup::Open(app_name))
+            }
+            None => Ok(Cleanup::Clarify(q)),
+        },
+        other => other,
+    };
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
@@ -271,11 +310,30 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             };
             send(app, e);
         }
+        Decision::Draft(spoken) => {
+            crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
+            send(app, VoiceEvent { phase: "idle", ..Default::default() });
+            super::draft_worker::begin(app, spoken);
+        }
+        Decision::EditDraft { change } => {
+            crate::log::line("voice: edit_draft");
+            edit_last_draft(app, mode, &change).await;
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
         }
     }
+}
+
+/// A spoken "never mind": the waiting question ends, the voice card and the
+/// draft card close (Cancel), and the voice keys go back to dictating and
+/// asking.
+fn dismiss(app: &AppHandle, mode: Mode) {
+    crate::log::line("voice: dismissed (never mind)");
+    set_question(None);
+    super::draft_worker::dismiss(app);
+    send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
 }
 
 /// The repos Glim reads (resume::repos), by folder name: the clean-up's
@@ -284,10 +342,59 @@ fn known_repos() -> Vec<String> {
     crate::resume::repos(&[]).iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect()
 }
 
-/// The Claude clean-up, with 1c's checks first (key, cap; Brain = Local isn't
-/// built, so no clean-up), its spend recorded.
-async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
-    use crate::ai::{claude, dictate, key, rewrite, spend};
+/// "Change the email you just drafted" (fix b, 2026-10-17): the draft saved
+/// last is read back from Outlook, Claude applies the change, and the card
+/// shows it; Update draft on the card applies it. The log has codes only.
+async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
+    use crate::ai::{claude, dictate, spend};
+    let current = match super::draft_worker::read_last(app).await {
+        Ok(c) => c,
+        Err(e) => {
+            send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
+            super::draft_worker::note(app, e.code());
+            return;
+        }
+    };
+    let (config, api_key) = match api_ready() {
+        Ok(k) => k,
+        Err(f) => {
+            crate::log::line(format!("voice: edit_draft not sent ({})", f.code()));
+            send(app, VoiceEvent { phase: "failed", code: f.code(), mode: mode.as_str(), ..Default::default() });
+            return;
+        }
+    };
+    send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
+    let started = Instant::now();
+    let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
+        Ok(base) => dictate::revise(&base, &api_key, config.model, &current, change).await,
+        Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
+    };
+    drop(current);
+    if let Some(u) = &usage {
+        if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
+            crate::log::line(format!("voice: could not record the spend: {err}"));
+        }
+    }
+    let outcome = result.as_ref().err().map(CleanupFailed::code).unwrap_or_else(|| "ok".into());
+    crate::log::line(format!("voice: edit_draft {outcome} {:.1}s", started.elapsed().as_secs_f64()));
+    send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
+    match result {
+        // Claude's text is scanned like any before it's shown or saved.
+        Ok(new) if [new.subject.as_str(), new.body.as_str()].into_iter().any(crate::capture::sensitive::contains_sensitive_number) => {
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: mode.as_str(), ..Default::default() });
+        }
+        Ok(new) => super::draft_worker::show_edit(app, new),
+        Err(CleanupFailed::Outage(code)) if code == "sensitive" => {
+            send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: mode.as_str(), ..Default::default() });
+        }
+        Err(_) => super::draft_worker::note(app, "edit-failed"),
+    }
+}
+
+/// 1c's checks before anything goes to Claude (key, cap; Brain = Local isn't
+/// built, so no clean-up): the model to use and the key.
+fn api_ready() -> Result<(crate::ai::rewrite::Config, crate::ai::key::ApiKey), CleanupFailed> {
+    use crate::ai::{key, rewrite, spend};
     let config = rewrite::config();
     let saved = key::load(&key::vault());
     let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
@@ -301,6 +408,13 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         });
     }
     let Ok(Some(api_key)) = saved else { return Err(CleanupFailed::NoKey) };
+    Ok((config, api_key))
+}
+
+/// The Claude clean-up, with 1c's checks first (api_ready), its spend recorded.
+async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
+    use crate::ai::{claude, dictate, spend};
+    let (config, api_key) = api_ready()?;
     send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
     let started = Instant::now();
     // The app and its kind (plan §4: "the focused app's exe and field kind"):
@@ -322,9 +436,10 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
     let outcome = match &result {
         Ok(Cleanup::Dictate(_)) => "dictate".to_string(),
         Ok(Cleanup::Clarify(_)) => "clarify".to_string(),
-        Ok(Cleanup::Command(c)) => (*c).to_string(),
         Ok(Cleanup::Open(_)) => "open_app".to_string(),
+        Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
+        Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

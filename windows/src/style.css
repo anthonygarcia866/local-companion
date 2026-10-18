@@ -173,6 +173,60 @@ body {
   width: 0;
 }
 
+/* The Draft email card (voice 1.5d, views/draft.ts). */
+.draft-people {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.draft-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font: 500 11.5px var(--font);
+}
+
+.draft-label {
+  min-width: 26px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.draft-addr,
+.draft-subject {
+  color: rgba(255, 255, 255, 0.86);
+  font: 500 11.5px var(--font);
+}
+
+.draft-ask {
+  color: #f6c877;
+}
+
+.draft-body {
+  max-height: 84px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.draft-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: 500 11.5px var(--font);
+}
+
+.draft-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 /* Push-to-talk's level meter (voice plan §1.2), where the countdown runs,
    in s-hear's teal; above the countdown while the key is held. */
 #voice-meter {

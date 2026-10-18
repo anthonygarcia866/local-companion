@@ -112,6 +112,14 @@ pub struct Settings {
     /// Settings → Writing → Dictation → Words Glim should know: names and
     /// terms, comma separated; whisper's prompt (it never leaves the PC).
     pub voice_words: String,
+    /// Settings → Email drafts → Your address (voice 1.5d): the only account
+    /// a draft is saved in and sent from (by the user), and what "me" means.
+    /// Empty until the user fills it in.
+    pub draft_from: String,
+    /// Names picked on the "Draft email" card: the spoken name (lowercased)
+    /// → the address. Rust's: added on Create draft, removed with Forget in
+    /// Settings (lib.rs keeps it when the page saves).
+    pub draft_recipients: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -168,6 +176,8 @@ impl Default for Settings {
             ai_auto_check: false,
             voice_model: "base".into(),
             voice_words: String::new(),
+            draft_from: String::new(),
+            draft_recipients: BTreeMap::new(),
         }
     }
 }
@@ -454,7 +464,9 @@ mod tests {
   "fileDropZone": false,
   "aiAutoCheck": true,
   "voiceModel": "small",
-  "voiceWords": "Glim, HOA, Okafor"
+  "voiceWords": "Glim, HOA, Okafor",
+  "draftFrom": "me@example.com",
+  "draftRecipients": { "maria": "maria.lopez@example.com" }
 }"##;
 
     fn custom() -> Value {
@@ -890,6 +902,8 @@ mod tests {
                 "aiAutoCheck",
                 "voiceModel",
                 "voiceWords",
+                "draftFrom",
+                "draftRecipients",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

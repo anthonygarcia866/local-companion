@@ -587,6 +587,29 @@ pub fn set_activating(win: &WebviewWindow, activating: bool) {
     }
 }
 
+/// The window in front now, unless it is `own` (the island itself): the one a
+/// box on a card gives the keyboard back to (lend_keyboard in lib.rs).
+pub fn foreground_other_than(own: &WebviewWindow) -> Option<isize> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let own = hwnd_of(own)?.0 as isize;
+    let front = unsafe { GetForegroundWindow() }.0 as isize;
+    (front != 0 && front != own).then_some(front)
+}
+
+/// Gives the keyboard back to `to` if the island (`own`) still has it: a click
+/// elsewhere since then already chose another window, and that one stays.
+pub fn give_foreground_back(own: &WebviewWindow, to: isize) -> bool {
+    use ::windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow};
+    let Some(own) = hwnd_of(own) else { return false };
+    let front = unsafe { GetForegroundWindow() }.0 as isize;
+    let alive = unsafe { IsWindow(Some(HWND(to as *mut _))) }.as_bool();
+    match super::give_back_to(Some(to), front, own.0 as isize) {
+        // Allowed: the island is the foreground window, so it may pass it on.
+        Some(raw) if alive => bring_forward(raw),
+        _ => false,
+    }
+}
+
 /// Click-through here is the poll's WS_EX_TRANSPARENT toggle, not a region.
 pub fn set_input_region(_win: &WebviewWindow, _rect: Option<(f64, f64, f64, f64)>) {}
 

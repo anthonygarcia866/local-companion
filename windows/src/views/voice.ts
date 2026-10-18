@@ -4,7 +4,8 @@
 // nothing happened. The island never takes focus, so the user stays in the
 // field they were dictating into; only a click in the question card's answer
 // box gives it the keyboard (Decision B: an answer can be typed as well as
-// spoken).
+// spoken), and Send, Cancel, a spoken answer or the card closing gives it back
+// to the user's app (core/keyboard.ts).
 
 import { h, clear } from "./dom";
 import { card, stack, outcomeNote, type ViewHost } from "./views";
@@ -13,6 +14,7 @@ import { Bridge } from "../core/bridge";
 import { State } from "../core/state";
 import { AskClock } from "../core/ask";
 import { answering, cardTimeoutMs, type VoiceState } from "../core/voice";
+import { borrowKeyboard, returnKeyboard } from "../core/keyboard";
 import type { AskHost } from "./ask";
 import { t } from "../i18n/i18n";
 
@@ -26,6 +28,7 @@ let shown = 0;
 export function closeVoice(host: AskHost | null) {
   if (!State.voice) return;
   voiceClock.stop();
+  returnKeyboard("voice");
   const wasQuestion = State.voice.phase === "question" || answering(State.voice);
   State.voice = null;
   if (wasQuestion) void Bridge.voiceCancel();
@@ -118,6 +121,12 @@ export function buildVoice(host: AskHost): ViewHost {
     onkeydown: (e: Event) => {
       if ((e as KeyboardEvent).key === "Enter") void sendTyped();
     },
+    // The island never takes focus by itself: a click here borrows the
+    // keyboard, or the keys land in the app behind (retest, 2026-10-17).
+    onpointerdown: () => {
+      borrowKeyboard("voice");
+      window.setTimeout(() => answer.focus(), 80);
+    },
   }) as HTMLInputElement;
   const el = h("div", { class: "view" }, card(null, stack(98, 16, title, body, note, answer, row)));
   let clockFor = -1;
@@ -127,6 +136,7 @@ export function buildVoice(host: AskHost): ViewHost {
     const text = answer.value.trim();
     if (!v || v.phase !== "question" || !text) return;
     answer.value = "";
+    returnKeyboard("voice");
     // Rust takes it from here; its "cleaning" phase keeps this card up.
     const ok = await Bridge.voiceAnswer(text);
     if (!ok && State.voice === v) closeVoice(host);
@@ -156,6 +166,8 @@ export function buildVoice(host: AskHost): ViewHost {
     body.style.display = words.body ? "" : "none";
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
     answer.style.display = v.phase === "question" ? "" : "none";
+    // No box to type in (an answer spoken, or not a question): give it back.
+    if (v.phase !== "question") returnKeyboard("voice");
     clear(row);
     if (asking) {
       // The answer is on its way, or awaited: Send (typed) and Cancel.
