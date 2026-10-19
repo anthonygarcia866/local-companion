@@ -6,8 +6,8 @@
 // - after that card has been on screen ALLOW_DELAY_MS.
 // A destructive command (DESTRUCTIVE: rm -rf, Remove-Item -Recurse -Force,
 // git push --force, DROP/TRUNCATE, database tools) takes two presses: the
-// first shows "Press again to allow: <command>" for CONFIRM_WINDOW_MS, a
-// second press within it allows, otherwise it resets. Everything else is a
+// first shows "Press again to allow · 3" counting down CONFIRM_WINDOW_MS, a
+// second press within it allows, otherwise it resets, as often as it takes. Everything else is a
 // single press. Claude Code's own "ask" rules play no part: with the owner's
 // settings every card is an ask rule ("let me glance first").
 
@@ -88,31 +88,34 @@ export function allowCheck(o: {
 
 let shownFor: string | null = null;
 let shownSince = 0;
-let fully = false;
+let fully: () => boolean = () => false;
 let armed: Armed | null = null;
 
 /** The approval card is on screen for `requestId` (called on every sync while
- *  it is): its clock starts when it first shows, and again after it was away. */
-export function cardOnScreen(requestId: string, now: number, fullyShown: boolean) {
+ *  it is): its clock starts when it first shows, and again after it was away.
+ *  `fullyShown` is asked at the press, not at the sync (bug 2, 2026-10-18): a
+ *  redraw can measure the box mid-expand, or squeezed by the "Press again"
+ *  line it is about to remove, and "cut-off" then stuck until the next one. */
+export function cardOnScreen(requestId: string, now: number, fullyShown: boolean | (() => boolean)) {
   if (requestId !== shownFor) {
     shownFor = requestId;
     shownSince = now;
     armed = null;
   }
-  fully = fullyShown;
+  fully = typeof fullyShown === "function" ? fullyShown : () => fullyShown;
 }
 
 /** The card left the screen (folded, another view, closed): the clock stops,
  *  and a first press is forgotten. */
 export function cardOffScreen() {
   shownFor = null;
-  fully = false;
+  fully = () => false;
   armed = null;
 }
 
 /** How long `requestId`'s card has been on screen, and whether it shows the whole command. */
 export function onScreen(requestId: string, now: number): { shownMs: number; fullyShown: boolean } {
-  return shownFor === requestId ? { shownMs: now - shownSince, fullyShown: fully } : { shownMs: 0, fullyShown: false };
+  return shownFor === requestId ? { shownMs: now - shownSince, fullyShown: fully() } : { shownMs: 0, fullyShown: false };
 }
 
 /** The first press of a destructive command, while its window is open
@@ -120,6 +123,11 @@ export function onScreen(requestId: string, now: number): { shownMs: number; ful
 export function armedFor(now: number): Armed | null {
   if (armed && now - armed.at > CONFIRM_WINDOW_MS) armed = null;
   return armed;
+}
+
+/** Whole seconds left for the second press (3, 2, 1), for the card's countdown. */
+export function secondsLeft(a: Armed, now: number): number {
+  return Math.max(1, Math.ceil((CONFIRM_WINDOW_MS - (now - a.at)) / 1_000));
 }
 
 /** Remembers a first press (allowCheck said "armed"). */

@@ -36,9 +36,15 @@ function armRequestTimer(island: Island, requestId: string) {
   clearRequestTimer(requestId);
   requestTimers.set(requestId, window.setTimeout(() => {
     requestTimers.delete(requestId);
-    if (State.pendingApproval?.requestId === requestId) dropPendingCard(island);
-    else State.withdrawQueued((r) => r.requestId === requestId);
+    requestGone(island, requestId);
   }, 110_000));
+}
+
+/** Nobody can answer this request here any more: its card (or its place in the queue) goes. */
+function requestGone(island: Island, requestId: string) {
+  clearRequestTimer(requestId);
+  if (State.pendingApproval?.requestId === requestId) dropPendingCard(island);
+  else State.withdrawQueued((r) => r.requestId === requestId);
 }
 
 /**
@@ -301,6 +307,13 @@ export function registerHookHandlers(island: Island) {
   // The last plan numbers seen survive a restart, as on the Mac.
   State.planUsage ??= restorePlanUsage(storedClaudePlanUsage());
   void onEvent<HookPayload>("hook", (payload) => handleHook(island, payload));
+  // The relay's glim-hook went away while its card was up (pipe.rs): Claude
+  // Code killed it, because the request was answered in the terminal ("No"
+  // ends the turn without a Stop). Nothing is left to release.
+  void onEvent<{ request_id?: string }>("approval-gone", (p) => {
+    if (p.request_id) requestGone(island, p.request_id);
+    State.notify();
+  });
 }
 
 function handleHook(island: Island, payload: HookPayload) {
@@ -374,6 +387,23 @@ function handleHook(island: Island, payload: HookPayload) {
     }
     const pending = State.pendingApproval;
     if (pending && sameTurn(pending)) {
+      if (pending.requestId) void Bridge.approvalDecline(pending.requestId);
+      dropPendingCard(island);
+    }
+  }
+
+  // Answered "Yes" in the terminal: the tool ran, and this is the call on
+  // the card (or on one queued behind it). The card goes, the relay is released.
+  if (name === "PostToolUse" || name === "PostToolUseFailure") {
+    const ran = approvalTarget(payload.tool_name ?? "Tool", payload.tool_input ?? {});
+    const thisCall = (r: { pillId: string; sessionId: string; command: string }) =>
+      r.pillId === agentId && r.sessionId === (payload.session_id ?? "") && r.command === ran;
+    for (const gone of State.withdrawQueued(thisCall)) {
+      clearRequestTimer(gone.requestId);
+      if (gone.requestId) void Bridge.approvalDecline(gone.requestId);
+    }
+    const pending = State.pendingApproval;
+    if (pending && thisCall(pending)) {
       if (pending.requestId) void Bridge.approvalDecline(pending.requestId);
       dropPendingCard(island);
     }
