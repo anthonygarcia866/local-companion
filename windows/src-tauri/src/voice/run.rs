@@ -310,6 +310,19 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             };
             send(app, e);
         }
+        Decision::OpenOwn { name } => {
+            // The path from Settings as they are now (the app may have been
+            // removed since), checked again in open_own_app. The log never
+            // names the app or its path.
+            let opened = super::own_apps::find(&own_apps(app), &name).is_some_and(|a| crate::platform::open_own_app(&a.path));
+            crate::log::line(format!("voice: open_app own app {}", if opened { "ok" } else { "failed" }));
+            let e = if opened {
+                VoiceEvent { phase: "idle", mode: m, ..Default::default() }
+            } else {
+                VoiceEvent { phase: "failed", code: "open-failed".into(), app: name, mode: m, ..Default::default() }
+            };
+            send(app, e);
+        }
         Decision::Draft(spoken) => {
             crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
             send(app, VoiceEvent { phase: "idle", ..Default::default() });
@@ -340,6 +353,11 @@ fn dismiss(app: &AppHandle, mode: Mode) {
 /// "Known repos" and what a named repo is matched against.
 fn known_repos() -> Vec<String> {
     crate::resume::repos(&[]).iter().filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).collect()
+}
+
+/// The user's own apps from Settings → Writing → Apps Glim can open.
+fn own_apps(app: &AppHandle) -> Vec<super::own_apps::OwnApp> {
+    app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().voice_apps.clone()).unwrap_or_default()
 }
 
 /// "Change the email you just drafted" (fix b, 2026-10-17): the draft saved
@@ -428,7 +446,8 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
         Ok(base) => {
             let repos = known_repos();
-            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, asked };
+            let own = super::own_apps::names(&own_apps(app));
+            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked };
             dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
         }
         Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
@@ -436,7 +455,7 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
     let outcome = match &result {
         Ok(Cleanup::Dictate(_)) => "dictate".to_string(),
         Ok(Cleanup::Clarify(_)) => "clarify".to_string(),
-        Ok(Cleanup::Open(_)) => "open_app".to_string(),
+        Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) => "open_app".to_string(),
         Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),

@@ -237,6 +237,36 @@ pub fn open_known_app(app: &str) -> bool {
     }
 }
 
+/// Opens one of the user's own apps (Settings, voice::own_apps) at `path`:
+/// checked again here (a full local path to an .exe or .lnk, on a drive
+/// that isn't a network drive, the file there), then ShellExecute "open" on
+/// it with no arguments; no shell. False when any check fails or Windows
+/// refuses.
+pub fn open_own_app(path: &str) -> bool {
+    use ::windows::core::{w, PCWSTR};
+    use ::windows::Win32::Storage::FileSystem::GetDriveTypeW;
+    use ::windows::Win32::UI::Shell::ShellExecuteW;
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if crate::voice::own_apps::path_problem(path).is_some() {
+        return false;
+    }
+    // A mapped network drive (Z:\) would reach the network: checked by its
+    // root before the file is touched. DRIVE_REMOTE is 4.
+    let root: Vec<u16> = format!("{}\\", &path[..2]).encode_utf16().chain(Some(0)).collect();
+    if unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) } == 4 {
+        return false;
+    }
+    let file = std::path::Path::new(path);
+    if !file.is_file() {
+        return false;
+    }
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(Some(0)).collect() };
+    let target = wide(path);
+    let dir = wide(&file.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default());
+    let r = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(target.as_ptr()), None, PCWSTR(dir.as_ptr()), SW_SHOWNORMAL) };
+    r.0 as usize > 32
+}
+
 /// ShellExecute "open" on a file Windows resolves itself (App Paths); no shell.
 fn shell_open(file: ::windows::core::PCWSTR) -> bool {
     use ::windows::core::w;

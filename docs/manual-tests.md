@@ -602,6 +602,18 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
     - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
     - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
 
+## 29. Your own apps for "open …" (branch `open-app-custom`, draft PR)
+
+*Where: a build with branch `open-app-custom`. Needs a working Claude key (Settings → AI).*
+
+1. **Add one:** Settings → Writing → **Apps Glim can open**. In Explorer, right-click an app's .exe (or its Start-menu shortcut) → **Copy as path**. Name: e.g. "Spotify"; Path: paste. **Add.** **See:** it's listed as `Spotify → C:\…\Spotify.exe` (no quotes); the fields clear.
+2. **Open it:** hold **Ctrl+Alt+Shift+A**: "open Spotify". **See:** the app opens; no card stays. glim.log: `voice: cleanup open_app …`, `voice: open_app own app ok`: never the name or the path.
+3. **Built-ins still work:** "open Outlook", "open Codex", "open Claude": each opens as before.
+4. **Refusals on the page** (nothing is added, the reason shows under Add): name "Outlook" or "claude code" (built in); the same name twice; a path with arguments (`C:\Windows\System32\notepad.exe /a`); a `.bat` or `.txt`; a `\\server\share\app.exe` path; a path without the drive (`notepad.exe`).
+5. **Moved or deleted app:** add an app, then rename its .exe in Explorer, say "open <name>". **See:** "Not opened: Couldn't open <name>. Is it installed?"; nothing else starts. Put the file back.
+6. **Remove:** Remove the app, say "open <name>". **See:** nothing opens (a question card or "heard": Claude no longer knows the name).
+7. **Dictation never opens:** in a text field, hold **Ctrl+Alt+Shift+V** and say "open Spotify": the words are typed, nothing opens.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

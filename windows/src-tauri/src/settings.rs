@@ -112,6 +112,10 @@ pub struct Settings {
     /// Settings → Writing → Dictation → Words Glim should know: names and
     /// terms, comma separated; whisper's prompt (it never leaves the PC).
     pub voice_words: String,
+    /// Settings → Writing → Apps Glim can open: the user's own apps for
+    /// "open …" (a name and a full local path to an .exe or .lnk). Only the
+    /// names go to Claude; voice::own_apps checks both before use.
+    pub voice_apps: Vec<crate::voice::own_apps::OwnApp>,
     /// Settings → Email drafts → Your address (voice 1.5d): the only account
     /// a draft is saved in and sent from (by the user), and what "me" means.
     /// Empty until the user fills it in.
@@ -180,6 +184,7 @@ impl Default for Settings {
             ai_auto_check: false,
             voice_model: "base".into(),
             voice_words: String::new(),
+            voice_apps: Vec::new(),
             draft_from: String::new(),
             draft_recipients: BTreeMap::new(),
             approval_sound: false,
@@ -470,6 +475,7 @@ mod tests {
   "aiAutoCheck": true,
   "voiceModel": "small",
   "voiceWords": "Glim, HOA, Okafor",
+  "voiceApps": [{ "name": "Spotify", "path": "C:\\Apps\\Spotify.exe" }],
   "draftFrom": "me@example.com",
   "draftRecipients": { "maria": "maria.lopez@example.com" },
   "approvalSound": true
@@ -908,6 +914,7 @@ mod tests {
                 "aiAutoCheck",
                 "voiceModel",
                 "voiceWords",
+                "voiceApps",
                 "draftFrom",
                 "draftRecipients",
                 "approvalSound",
