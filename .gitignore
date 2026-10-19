@@ -23,3 +23,16 @@ _prive/
 
 # Session handoff notes (local only, see ~/.claude/CLAUDE.md)
 HANDOFF.md
+
+# Speech-to-text comparison: recordings and model files never go in the repo
+# (docs/voice-clips-to-record.md keeps clips in %USERPROFILE%\glim-clips, outside any repo).
+glim-clips/
+*.wav
+*.m4a
+*.mp3
+*.onnx
+ggml-*.bin
+windows/dev/stt-compare/clips/
+windows/dev/stt-compare/work/
+windows/dev/stt-compare/results*.json
+__pycache__/
