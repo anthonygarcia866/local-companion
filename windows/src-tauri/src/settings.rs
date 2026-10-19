@@ -144,6 +144,10 @@ pub struct PhoneSettings {
     pub meeting: bool,
     /// "Claude Code in local-companion …" rather than "Claude Code …".
     pub include_project: bool,
+    /// Only while the PC has had no keyboard or mouse input for
+    /// `idle_after_min` minutes (decision 2026-10-18: on, 2 min).
+    pub idle_only: bool,
+    pub idle_after_min: u32,
     /// Nothing is sent between `quiet_from` and `quiet_to` ("HH:MM", local
     /// time, may cross midnight) while this is on.
     pub quiet_hours: bool,
@@ -161,6 +165,8 @@ impl Default for PhoneSettings {
             limit: true,
             meeting: false,
             include_project: true,
+            idle_only: true,
+            idle_after_min: 2,
             quiet_hours: false,
             quiet_from: "22:00".into(),
             quiet_to: "07:00".into(),
@@ -516,7 +522,7 @@ mod tests {
   "draftFrom": "me@example.com",
   "draftRecipients": { "maria": "maria.lopez@example.com" },
   "approvalSound": true,
-  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
+  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
     fn custom() -> Value {

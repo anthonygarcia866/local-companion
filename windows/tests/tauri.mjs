@@ -7,6 +7,9 @@ export const calls = [];
 
 const listeners = new Map();
 
+/** What a command answers, by name (anything not here answers null). */
+export const replies = new Map();
+
 export const internals = {
   transformCallback: (callback) => callback,
   invoke: async (cmd, args) => {
@@ -15,7 +18,7 @@ export const internals = {
       return listeners.size;
     }
     calls.push([cmd, args]);
-    return null;
+    return replies.get(cmd) ?? null;
   },
 };
 

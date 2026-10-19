@@ -643,6 +643,13 @@ async fn phone_test(shared: State<'_, Shared>) -> Result<(), String> {
     phone::notify(&settings, phone::Kind::Test, "", "").await
 }
 
+/// Settings → Phone → Only when I'm away: ms since the last keyboard or
+/// mouse input on this PC, or null.
+#[tauri::command]
+fn phone_idle_ms() -> Option<u64> {
+    phone::idle_ms()
+}
+
 #[tauri::command]
 fn phone_keys_status() -> Result<phone::KeysStatus, String> {
     phone::status(&phone::vault())
@@ -1302,6 +1309,7 @@ pub fn run() {
             ai_key_remove,
             phone_notify,
             phone_test,
+            phone_idle_ms,
             phone_keys_status,
             phone_keys_save,
             phone_keys_remove,

@@ -152,6 +152,8 @@ export class Island {
   private uploadDone = false;
   /** How long each permission or question has waited (escalation, wait log). */
   private wait = new ApprovalWait();
+  /** Phone: an idle-time question to Rust is on its way (one at a time). */
+  private askingIdle = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -182,13 +184,21 @@ export class Island {
       void Bridge.log(`approval waited ${(e.waitedMs / 1000).toFixed(1)} s (${e.how}${e.escalated ? ", escalated" : ""}) req=${e.requestId}`);
     }
     // Phone notifications (docs/phone-plan.md): a request waiting past the
-    // delay pings once. Only the pill and its project name go to Rust.
+    // delay pings once, when you're away from the PC. Only the pill and its
+    // project name go to Rust; the idle time is asked for only when one is due.
     const now = performance.now();
     const waiting = [State.pendingApproval, ...State.approvalQueue].flatMap((r) =>
       r ? [{ requestId: r.requestId, pillId: r.pillId, project: projectOf(State.tasks, r.pillId), waitedMs: this.wait.waited(r.requestId, now) }] : [],
     );
-    for (const p of phone.approvals(waiting, phoneSettings(State.settings.phone), new Date())) {
-      void Bridge.phoneNotify(p.kind, p.pillId, p.project);
+    const s = phoneSettings(State.settings.phone);
+    if (phone.due(waiting, s) && !this.askingIdle) {
+      this.askingIdle = true;
+      void Bridge.phoneIdleMs().then((idleMs) => {
+        this.askingIdle = false;
+        for (const p of phone.approvals(waiting, s, new Date(), idleMs)) {
+          void Bridge.phoneNotify(p.kind, p.pillId, p.project);
+        }
+      });
     }
   }
 

@@ -5914,6 +5914,28 @@
    "pt-BR": "Salve suas chaves do Pushover primeiro.",
    "ru": "Сначала сохраните ключи Pushover.",
    "id": "Simpan kunci Pushover Anda terlebih dahulu."
+  },
+  "Only when I'm away from this PC": {
+   "zh-Hans": "仅在我离开这台电脑时",
+   "hi": "केवल जब मैं इस पीसी से दूर हूँ",
+   "es": "Solo cuando no estoy en este equipo",
+   "ar": "فقط عندما أكون بعيدًا عن هذا الكمبيوتر",
+   "fr": "Seulement quand je ne suis pas devant ce PC",
+   "bn": "শুধু যখন আমি এই পিসি থেকে দূরে থাকি",
+   "pt-BR": "Só quando eu estiver longe deste computador",
+   "ru": "Только когда меня нет за этим ПК",
+   "id": "Hanya saat saya jauh dari PC ini"
+  },
+  "minutes without keyboard or mouse input": {
+   "zh-Hans": "分钟无键盘或鼠标操作",
+   "hi": "मिनट तक कोई कीबोर्ड या माउस इनपुट नहीं",
+   "es": "minutos sin usar el teclado ni el ratón",
+   "ar": "دقائق دون استخدام لوحة المفاتيح أو الفأرة",
+   "fr": "minutes sans clavier ni souris",
+   "bn": "মিনিট কোনো কিবোর্ড বা মাউস ইনপুট ছাড়া",
+   "pt-BR": "minutos sem usar teclado nem mouse",
+   "ru": "мин. без клавиатуры и мыши",
+   "id": "menit tanpa input keyboard atau mouse"
   }
  }
 }

@@ -151,6 +151,8 @@ export const Bridge = {
   // project go to Rust; phone.rs writes the text and decides whether it goes.
   phoneNotify: (kind: PingKind, pillId: string, project: string) => call<void>("phone_notify", { kind, pillId, project }),
   phoneTest: () => callOrThrow<void>("phone_test"),
+  /** Ms since the last keyboard or mouse input on this PC, or null. */
+  phoneIdleMs: () => call<number>("phone_idle_ms"),
   phoneKeysStatus: () => call<PhoneKeysStatus>("phone_keys_status"),
   phoneKeysSave: (user: string, token: string) => callOrThrow<PhoneKeysStatus>("phone_keys_save", { user, token }),
   phoneKeysRemove: () => callOrThrow<PhoneKeysStatus>("phone_keys_remove"),

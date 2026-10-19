@@ -119,6 +119,29 @@ pub fn apply_settings(settings: &Settings) {
     net::set_push_allowed(settings.phone.enabled);
 }
 
+// ── Away from the PC ──────────────────────────────────────────────────────────
+
+/// How long since the last keyboard or mouse input on this PC, in ms
+/// (Settings → Phone → Only when I'm away; core/phone.ts decides). None when
+/// Windows can't say, and the island then treats the owner as away.
+#[cfg(windows)]
+pub fn idle_ms() -> Option<u64> {
+    use windows::Win32::System::SystemInformation::GetTickCount;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    // SAFETY: `info` is a valid LASTINPUTINFO with cbSize set.
+    if !unsafe { GetLastInputInfo(&mut info) }.as_bool() {
+        return None;
+    }
+    // Both are 32-bit tick counts that wrap after ~49.7 days.
+    Some(u64::from(unsafe { GetTickCount() }.wrapping_sub(info.dwTime)))
+}
+
+#[cfg(not(windows))]
+pub fn idle_ms() -> Option<u64> {
+    None
+}
+
 // ── Rate limit ────────────────────────────────────────────────────────────────
 
 /// One every MIN_GAP, PER_HOUR an hour.
@@ -379,6 +402,14 @@ mod tests {
         let err = block_on(send(&Url::parse(&url).unwrap(), &keys, "x")).unwrap_err();
         assert!(err.contains("400") && err.contains("user identifier is invalid"), "{err}");
         assert!(!err.contains(USER) && !err.contains(TOKEN));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_idle_time_is_read_from_windows() {
+        // Whatever the desktop is doing: a reading, and not a wrapped-around one.
+        let ms = idle_ms().expect("GetLastInputInfo");
+        assert!(ms < 1 << 32, "{ms}");
     }
 
     #[test]

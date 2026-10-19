@@ -5,7 +5,9 @@
 
 import { Bridge, type PhoneKeysStatus } from "../core/bridge";
 import type { Settings } from "../core/state";
-import { APPROVAL_MAX_SEC, APPROVAL_MIN_SEC, approvalDelaySec, minutes, phoneSettings, type PhoneSettings } from "../core/phone";
+import {
+  APPROVAL_MAX_SEC, APPROVAL_MIN_SEC, IDLE_MAX_MIN, IDLE_MIN_MIN, approvalDelaySec, idleAfterMin, minutes, phoneSettings, type PhoneSettings,
+} from "../core/phone";
 import { h, clear } from "../views/dom";
 import { statusDot } from "./parts";
 import { t } from "../i18n/i18n";
@@ -95,6 +97,24 @@ export async function phoneSection(host: PhoneHost): Promise<HTMLElement> {
     return h("div", { class: "row", "data-role": "phone-delay" }, h("label", { text: t("Seconds before an approval pings") }), input);
   }
 
+  function idleRow(): HTMLElement {
+    const input = h("input", { type: "number", min: String(IDLE_MIN_MIN), max: String(IDLE_MAX_MIN), value: String(idleAfterMin(p())), style: "width:5em" }) as HTMLInputElement;
+    if (!p().idleOnly) input.setAttribute("disabled", "");
+    input.addEventListener("change", () => {
+      change({ idleAfterMin: idleAfterMin({ ...p(), idleAfterMin: Number(input.value) }) });
+      input.value = String(idleAfterMin(p()));
+    });
+    return h("div", { class: "row", "data-role": "phone-idle" },
+      h("label", { text: t("Only when I'm away from this PC") }),
+      host.toggle(p().idleOnly, (v) => {
+        change({ idleOnly: v });
+        redraw();
+      }),
+      input,
+      h("span", { class: "hint", text: t("minutes without keyboard or mouse input") }),
+    );
+  }
+
   function quietRow(): HTMLElement {
     const time = (value: string, set: (v: string) => void) => {
       const input = h("input", { type: "time", value }) as HTMLInputElement;
@@ -145,6 +165,7 @@ export async function phoneSection(host: PhoneHost): Promise<HTMLElement> {
       switchRow("phone-limit", t("A usage or spend limit is hit"), s.limit, (v) => change({ limit: v })),
       switchRow("phone-meeting", t("My next meeting is in 10 minutes"), false, () => {}, t("Needs the calendar glance, not built in yet."), true),
       switchRow("phone-project", t("Include the project name"), s.includeProject, (v) => change({ includeProject: v }), t("Off: \"Claude Code needs approval\".")),
+      idleRow(),
       quietRow(),
       testRow(),
     );
