@@ -23,3 +23,6 @@ _prive/
 
 # Session handoff notes (local only, see ~/.claude/CLAUDE.md)
 HANDOFF.md
+
+# Local handoff archive (old session logs)
+HANDOFF-archive.md
