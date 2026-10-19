@@ -9,8 +9,10 @@
 // command, a file, a prompt or anything typed or captured. The templates are
 // English on purpose: short, fixed, and easy to audit.
 //
-// The request goes through net/mod.rs, which refuses api.pushover.net unless
-// the setting is on (`apply_settings`). The user key and app token live in
+// The request goes through net/mod.rs's phone-only door, `net::push_request`,
+// which refuses everything but api.pushover.net, and that too unless the
+// setting is on (`apply_settings`); `net::request`, every other module's
+// door, never reaches Pushover. The user key and app token live in
 // Windows Credential Manager (`Glim/PushoverKeys`); Settings only sees a hint,
 // and neither key is ever logged. The log says which kind was sent or failed,
 // nothing else.
@@ -24,7 +26,7 @@ use serde_json::json;
 
 use crate::ai::key::{CredentialManager, Vault};
 use crate::i18n::{t, tf};
-use crate::net::{self, Method, Url};
+use crate::net::{self, Method, RequestBuilder, Url};
 use crate::settings::Settings;
 
 /// Pushover's message endpoint (https on 443, net::PUSH_HOST).
@@ -239,11 +241,11 @@ pub fn remove(vault: &dyn Vault) -> Result<KeysStatus, String> {
 
 // ── Sending ───────────────────────────────────────────────────────────────────
 
-/// One POST to `endpoint` with exactly these fields; the answer's body is
-/// only read for an error.
-pub async fn send(endpoint: &Url, keys: &Keys, text: &str) -> Result<(), String> {
+/// One POST (`net::push_request` to ENDPOINT; a local fake server in tests)
+/// with exactly these fields; the answer's body is only read for an error.
+pub async fn send(post: RequestBuilder, keys: &Keys, text: &str) -> Result<(), String> {
     let body = json!({ "token": keys.token, "user": keys.user, "title": "Glim", "message": text, "priority": 0 });
-    let response = net::request(Method::POST, endpoint, TIMEOUT)?
+    let response = post
         .json(&body)
         .send()
         .await
@@ -278,7 +280,10 @@ pub async fn notify(settings: &Settings, kind: Kind, pill_id: &str, project: &st
     let project = settings.phone.include_project.then(|| clean_project(project)).flatten();
     let text = message(kind, &agent_label(pill_id), project.as_deref());
     let endpoint = Url::parse(ENDPOINT).map_err(|e| e.to_string())?;
-    let sent = send(&endpoint, &keys, &text).await;
+    let sent = match net::push_request(Method::POST, &endpoint, TIMEOUT) {
+        Ok(post) => send(post, &keys, &text).await,
+        Err(e) => Err(e),
+    };
     match &sent {
         Ok(()) => crate::log::line(format!("phone: sent {}", kind.name())),
         Err(_) => crate::log::line(format!("phone: failed {}", kind.name())),
@@ -385,7 +390,8 @@ mod tests {
         let (url, seen) = serve_capture("200 OK", "Content-Type: application/json\r\n", br#"{"status":1,"request":"x"}"#.to_vec());
         let keys = Keys { user: USER.into(), token: TOKEN.into() };
         let endpoint = Url::parse(&format!("{url}/1/messages.json")).unwrap();
-        block_on(send(&endpoint, &keys, "Claude Code in local-companion needs approval")).unwrap();
+        let post = net::request(Method::POST, &endpoint, TIMEOUT).unwrap();
+        block_on(send(post, &keys, "Claude Code in local-companion needs approval")).unwrap();
         let request = String::from_utf8(seen.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         assert!(request.starts_with("POST /1/messages.json "), "{request}");
         let body: serde_json::Value = serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -399,7 +405,8 @@ mod tests {
     fn an_error_answer_is_pushovers_own_message() {
         let url = serve_once("400 Bad Request", "Content-Type: application/json\r\n", br#"{"user":"invalid","errors":["user identifier is invalid"],"status":0}"#.to_vec());
         let keys = Keys { user: USER.into(), token: TOKEN.into() };
-        let err = block_on(send(&Url::parse(&url).unwrap(), &keys, "x")).unwrap_err();
+        let post = net::request(Method::POST, &Url::parse(&url).unwrap(), TIMEOUT).unwrap();
+        let err = block_on(send(post, &keys, "x")).unwrap_err();
         assert!(err.contains("400") && err.contains("user identifier is invalid"), "{err}");
         assert!(!err.contains(USER) && !err.contains(TOKEN));
     }

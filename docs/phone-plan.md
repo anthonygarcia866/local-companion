@@ -57,8 +57,9 @@ Sources checked 2026-10-18: pushover.net/pricing and support.pushover.net (limit
 
 `net/mod.rs` gets one more host, like Anthropic's in 1c:
 
-- `PUSH_HOST = "api.pushover.net"`, **https on 443 only**, exact name, no subdomains, no redirects to another host (the existing `hop_allowed` rule).
-- **Allowed only while the setting is on.** `net::check` refuses `api.pushover.net` unless phone notifications are switched on (an atomic flag set when settings load and save). With the feature off (the default) Glim's allowlist is what it was: this computer and `api.anthropic.com`. A test checks both states.
+- `PUSH_HOST = "api.pushover.net"`, **https on 443 only**, exact name, no subdomains, no credentials, **no redirects followed at all**.
+- **A phone-only door** (tightened 2026-10-18 after the security review): Pushover is **not** on `net::check`'s allowlist. It is reachable only through `net::push_request`, which accepts that one host and nothing else (not this computer, not Anthropic), and only phone.rs calls it (a source test checks). `net::request`, the door every other module uses, refuses `api.pushover.net` **even while Phone is on**, and no redirect can land on it (a test checks both).
+- **Only while the setting is on.** `push_request` refuses everything unless phone notifications are switched on (an atomic flag set when settings load and save). With the feature off (the default) Glim reaches exactly what it did before: this computer and `api.anthropic.com`. A test checks both states.
 - One request type: `POST https://api.pushover.net/1/messages.json`, a JSON body with exactly `token`, `user`, `title`, `message`, `priority` (0; quiet hours are Glim's own, see §5). Nothing else is ever sent.
 - The answer is read with the usual ceiling. The log line says `phone: sent <kind>` or `phone: failed <kind> (<status or short reason>)`: never the text, the keys or the project.
 - Keys: the Pushover **user key** and **application token** are kept in Windows Credential Manager (`Glim/PushoverKeys`, this user on this PC, like the Anthropic key), never in settings.json, never logged, never sent to the page; Settings sees only "set" and a hint (last four characters of each).

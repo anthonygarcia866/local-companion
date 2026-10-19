@@ -4,11 +4,14 @@
 //
 // The allowlist: http(s) to `127.0.0.1` or `localhost`, any port (Ollama and
 // LM Studio, local_chat.rs), and since 1c `api.anthropic.com`, https on 443
-// only (the Claude API, ai/claude.rs; docs/vision.md §3), and
-// `api.pushover.net`, https on 443 only and only while Settings → Phone is
-// on (phone.rs; docs/phone-plan.md §4). Anything else
+// only (the Claude API, ai/claude.rs; docs/vision.md §3). Anything else
 // (another host, a LAN address, a redirect that changes host, a system proxy)
 // is refused before a socket is opened. Certificates are always checked.
+//
+// One more host has its own door: `api.pushover.net`, https on 443 only, only
+// while Settings → Phone is on, and only through `push_request`, which only
+// phone.rs calls (a test checks the source). `request` never reaches it, so no
+// other part of Glim can, Phone on or off (docs/phone-plan.md §4).
 //
 // Every answer a server sends is read with a ceiling, so a misbehaving local
 // server cannot make the app hold an unbounded amount of memory.
@@ -113,8 +116,8 @@ pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
 pub const ANTHROPIC_HOST: &str = "api.anthropic.com";
 
 /// Phone notifications (docs/phone-plan.md §4): Pushover's API, https on
-/// port 443 only, exact name. Allowed only while `push_allowed()`: with
-/// Settings → Phone off (the default) the allowlist is what it was before.
+/// port 443 only, exact name. Reached only through `push_request`, and only
+/// while `push_allowed()`; never through `request` or `check`.
 pub const PUSH_HOST: &str = "api.pushover.net";
 
 static PUSH_ON: AtomicBool = AtomicBool::new(false);
@@ -139,16 +142,14 @@ pub fn local_refusal(url: &str) -> String {
 }
 
 /// Ok when `url` may be requested: no credentials, and either http(s) to a
-/// local host on the allowlist, https to the Anthropic host on port 443, or
-/// (Settings → Phone on) https to the Pushover host on port 443.
+/// local host on the allowlist or https to the Anthropic host on port 443.
 /// Every request and every redirect hop passes through here.
 pub fn check(url: &Url) -> Result<(), String> {
     let host = url.host_str().map(|h| h.to_ascii_lowercase());
     let local = matches!(url.scheme(), "http" | "https") && host.as_deref().is_some_and(|h| ALLOWED_HOSTS.contains(&h));
     // `Url` drops a default port, so `port()` is None for https on 443.
     let anthropic = url.scheme() == "https" && host.as_deref() == Some(ANTHROPIC_HOST) && url.port().is_none_or(|p| p == 443);
-    let push = push_allowed() && url.scheme() == "https" && host.as_deref() == Some(PUSH_HOST) && url.port().is_none_or(|p| p == 443);
-    if url.username().is_empty() && url.password().is_none() && (local || anthropic || push) {
+    if url.username().is_empty() && url.password().is_none() && (local || anthropic) {
         Ok(())
     } else {
         Err(refusal(&host_for_log(url)))
@@ -164,6 +165,18 @@ pub fn hop_allowed(origin: &Url, next: &Url) -> Result<(), String> {
         return Err(refusal(&host_for_log(next)));
     }
     Ok(())
+}
+
+/// `push_request`'s rule: Settings → Phone on, https to the Pushover host on
+/// port 443, no credentials. Nothing else, not even this computer.
+pub fn check_push(url: &Url) -> Result<(), String> {
+    let host = url.host_str().map(|h| h.to_ascii_lowercase());
+    let push = url.scheme() == "https" && host.as_deref() == Some(PUSH_HOST) && url.port().is_none_or(|p| p == 443);
+    if push_allowed() && push && url.username().is_empty() && url.password().is_none() {
+        Ok(())
+    } else {
+        Err(refusal(&host_for_log(url)))
+    }
 }
 
 /// `check` for a URL as text.
@@ -184,19 +197,36 @@ pub fn check_str(raw: &str) -> Result<Url, String> {
 pub fn request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBuilder, String> {
     check(url)?;
     let origin = url.clone();
-    let client = reqwest::Client::builder()
+    let client = client(
+        timeout,
+        reqwest::redirect::Policy::custom(move |attempt| match hop_allowed(&origin, attempt.url()) {
+            Ok(()) if attempt.previous().len() < 5 => attempt.follow(),
+            Ok(()) => attempt.stop(),
+            Err(e) => attempt.error(e),
+        }),
+    )?;
+    Ok(client.request(method, url.clone()))
+}
+
+/// Phone notifications' own door (phone.rs only): a request to Pushover's
+/// API while Settings → Phone is on (`check_push`), with `request`'s client
+/// rules, and no redirect followed at all.
+pub fn push_request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBuilder, String> {
+    check_push(url)?;
+    Ok(client(timeout, reqwest::redirect::Policy::none())?.request(method, url.clone()))
+}
+
+/// The client every request uses: no proxy, `localhost` pinned to 127.0.0.1,
+/// certificates checked, and the caller's redirect rule.
+fn client(timeout: Duration, redirect: reqwest::redirect::Policy) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10).min(timeout))
         .timeout(timeout)
         .no_proxy()
         .resolve("localhost", SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
-        .redirect(reqwest::redirect::Policy::custom(move |attempt| match hop_allowed(&origin, attempt.url()) {
-            Ok(()) if attempt.previous().len() < 5 => attempt.follow(),
-            Ok(()) => attempt.stop(),
-            Err(e) => attempt.error(e),
-        }))
+        .redirect(redirect)
         .build()
-        .map_err(|e| e.to_string())?;
-    Ok(client.request(method, url.clone()))
+        .map_err(|e| e.to_string())
 }
 
 /// The body of `response`, refused past `limit` bytes.
@@ -450,15 +480,29 @@ pub(crate) mod tests {
     // Phone notifications (docs/phone-plan.md §4). The only test that turns
     // the switch on, so no other test sees it changed.
     #[test]
-    fn pushover_is_allowed_only_while_phone_notifications_are_on() {
+    fn pushover_is_reachable_only_through_push_request_while_phone_is_on() {
         let api = "https://api.pushover.net/1/messages.json";
+        let url = Url::parse(api).unwrap();
+        let wait = Duration::from_secs(5);
         assert!(!push_allowed(), "off by default");
-        assert!(check_str(api).expect_err("off: blocked").starts_with("Blocked"));
+        assert!(check_push(&url).expect_err("off: blocked").starts_with("Blocked"));
+        assert!(push_request(Method::POST, &url, wait).is_err());
         set_push_allowed(true);
         let on = std::panic::catch_unwind(|| {
             for ok in [api, "https://API.Pushover.net/1/messages.json", "https://api.pushover.net:443/1/messages.json"] {
-                assert!(check_str(ok).is_ok(), "{ok}");
+                let u = Url::parse(ok).unwrap();
+                assert!(check_push(&u).is_ok(), "{ok}");
+                assert!(push_request(Method::POST, &u, wait).is_ok(), "{ok}");
             }
+            // Phone on, and still no other part of Glim can reach Pushover:
+            // `request` (every other caller's door) and `check` refuse it.
+            let err = request(Method::POST, &url, wait).expect_err("a non-phone request must be refused");
+            assert!(err.starts_with("Blocked"), "{err}");
+            assert!(check_str(api).is_err());
+            // Nor can a redirect from anywhere land on it.
+            assert!(hop_allowed(&Url::parse("http://127.0.0.1:9/").unwrap(), &url).is_err());
+            assert!(hop_allowed(&Url::parse("https://api.anthropic.com/v1/messages").unwrap(), &url).is_err());
+            // And the phone's door opens onto Pushover only.
             for no in [
                 "http://api.pushover.net/1/messages.json",
                 "https://api.pushover.net:8443/1/messages.json",
@@ -466,17 +510,47 @@ pub(crate) mod tests {
                 "https://x.api.pushover.net/",
                 "https://api.pushover.net.example.com/",
                 "https://user:pw@api.pushover.net/",
+                "https://api.anthropic.com/v1/messages",
+                "http://127.0.0.1:9/",
+                "http://localhost:9/",
             ] {
-                assert!(check_str(no).expect_err(no).starts_with("Blocked"), "{no}");
+                let u = Url::parse(no).unwrap();
+                assert!(check_push(&u).expect_err(no).starts_with("Blocked"), "{no}");
+                assert!(push_request(Method::POST, &u, wait).is_err(), "{no}");
             }
-            // A redirect from Pushover may not leave it.
-            let origin = Url::parse(api).unwrap();
-            assert!(hop_allowed(&origin, &Url::parse("https://api.anthropic.com/v1/messages").unwrap()).is_err());
-            assert!(hop_allowed(&origin, &Url::parse("http://127.0.0.1:9/").unwrap()).is_err());
         });
         set_push_allowed(false);
         on.unwrap();
-        assert!(check_str(api).is_err(), "off again: blocked again");
+        assert!(check_push(&url).is_err(), "off again: blocked again");
+    }
+
+    /// Phone notifications' door is phone.rs's alone: no other source file
+    /// outside src/net/ calls `push_request` or flips the switch.
+    #[test]
+    fn only_phone_rs_uses_the_push_door() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let words = [concat!("push_", "request"), concat!("check_", "push"), concat!("set_push_", "allowed")];
+        let mut users = Vec::new();
+        let mut stack = vec![src.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    if path != src.join("net") {
+                        stack.push(path);
+                    }
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for word in words {
+                        if text.contains(word) {
+                            users.push(format!("{} {word}", path.file_name().unwrap().to_string_lossy()));
+                        }
+                    }
+                }
+            }
+        }
+        users.sort();
+        assert_eq!(users, ["phone.rs push_request", "phone.rs set_push_allowed"]);
     }
 
     #[test]
