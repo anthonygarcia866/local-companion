@@ -513,7 +513,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         let reading = read(&uia, &element, pid, &pause, dev);
         let ask = reading.ask;
         let mail_site = reading.mail_site;
-        let (reading_field, reading_caret) = (reading.field_rect, reading.caret_rect);
+        let (reading_field, reading_caret, reading_line) = (reading.field_rect, reading.caret_rect, reading.line_rect);
         // Google Docs (not supported yet, Decision D): nothing was read; one
         // metadata line per stay, and the one-time notice.
         let in_docs = reading.docs_site && crate::writing::apps::enabled(&reading.capture.meta.app);
@@ -596,7 +596,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                 app_foreground: foreground_pid() == pid as u32,
             };
             let monitors = crate::bubble_window::monitors(app);
-            let input = crate::bubble_window::Input { conditions, field: reading_field, caret: reading_caret, new_field: !same, monitors: &monitors };
+            let input = crate::bubble_window::Input { conditions, field: reading_field, caret: reading_caret, line: reading_line, new_field: !same, monitors: &monitors };
             let decision = bubble.step(&input, crate::bubble_window::is_open());
             if let Some(why) = bubble.why().filter(|w| !bubble_why.as_ref().is_some_and(|b| b.same_reason(w))) {
                 crate::log::line(crate::bubble_window::log_line(why, &monitors));
@@ -689,16 +689,21 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     reading.mail_site = mail_site;
     reading.docs_site = docs_site;
     if reading.text.is_some() {
-        (reading.field_rect, reading.caret_rect) = rects(element);
+        (reading.field_rect, reading.caret_rect, reading.line_rect) = rects(element);
     }
     reading
 }
 
-/// The field's rectangle and its caret's (§7a.1), physical screen pixels.
-/// The caret: TextPattern2's caret range, else the selection's start. A
-/// collapsed range often has no rectangle, so then the next character's left
-/// edge stands in for it (1 px wide). Geometry only: no text is read here.
-fn rects(element: &IUIAutomationElement) -> (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) {
+/// The field's rectangle, its caret's and the caret's line's (§7a.1),
+/// physical screen pixels. The caret: TextPattern2's caret range, else the
+/// selection's start. A collapsed range often has no rectangle, so then the
+/// next character's left edge stands in for it (1 px wide). The line: the
+/// caret's range grown to its line (2026-10-18), the rectangle on the caret's
+/// row. Geometry only: no text is read here.
+#[allow(clippy::type_complexity)]
+fn rects(
+    element: &IUIAutomationElement,
+) -> (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) {
     use crate::writing::bubble::Rect;
     let field = unsafe { element.CurrentBoundingRectangle() }.ok().map(|r| Rect::new(r.left, r.top, r.right, r.bottom));
     let range = unsafe {
@@ -716,8 +721,8 @@ fn rects(element: &IUIAutomationElement) -> (Option<crate::writing::bubble::Rect
                     .and_then(|s| s.GetElement(0).ok())
             })
     };
-    let caret = range.and_then(|r| unsafe {
-        let first = first_rect(&r);
+    let caret = range.as_ref().and_then(|r| unsafe {
+        let first = first_rect(r);
         if first.is_some() {
             return first.map(|(x, y, _, h)| Rect::new(x, y, x + 1, y + h));
         }
@@ -726,7 +731,39 @@ fn rects(element: &IUIAutomationElement) -> (Option<crate::writing::bubble::Rect
         next.MoveEndpointByUnit(TextPatternRangeEndpoint_End, windows::Win32::UI::Accessibility::TextUnit_Character, 1).ok()?;
         first_rect(&next).map(|(x, y, _, h)| Rect::new(x, y, x + 1, y + h))
     });
-    (field, caret)
+    let line = range.zip(caret).and_then(|(r, c)| unsafe {
+        let l = r.Clone().ok()?;
+        l.ExpandToEnclosingUnit(windows::Win32::UI::Accessibility::TextUnit_Line).ok()?;
+        let mid = c.top + c.height() / 2;
+        all_rects(&l).into_iter().map(|(x, y, w, h)| Rect::new(x, y, x + w, y + h)).find(|r| r.top <= mid && mid < r.bottom)
+    });
+    (field, caret, line)
+}
+
+/// All of a range's bounding rectangles: (left, top, width, height), rounded
+/// to physical pixels; the ones with no height left out.
+fn all_rects(range: &IUIAutomationTextRange) -> Vec<(i32, i32, i32, i32)> {
+    use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetUBound, SafeArrayUnaccessData};
+    let mut out = Vec::new();
+    unsafe {
+        let Ok(sa) = range.GetBoundingRectangles() else { return out };
+        if sa.is_null() {
+            return out;
+        }
+        let count = (SafeArrayGetUBound(sa, 1).unwrap_or(-1) + 1).max(0) as usize / 4;
+        let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
+        if count > 0 && SafeArrayAccessData(sa, &mut data).is_ok() && !data.is_null() {
+            let d = std::slice::from_raw_parts(data as *const f64, count * 4);
+            for q in d.as_chunks::<4>().0 {
+                if q[3] > 0.0 {
+                    out.push((q[0].round() as i32, q[1].round() as i32, q[2].round() as i32, q[3].round() as i32));
+                }
+            }
+            let _ = SafeArrayUnaccessData(sa);
+        }
+        let _ = SafeArrayDestroy(sa);
+    }
+    out
 }
 
 /// The first of a range's bounding rectangles: (left, top, width, height),
@@ -1028,7 +1065,7 @@ mod probe {
                 let tp2 = e.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id).is_ok();
                 let tp = e.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok();
                 let sel_len = tp.as_ref().and_then(|p| p.GetSelection().ok()).map(|s| s.Length().unwrap_or(-1));
-                let (field, caret) = rects(&e);
+                let (field, caret, line) = rects(&e);
                 // A caret at the end of the first paragraph: collapsed just
                 // before its mark, then that mark (the fallback's character).
                 if let Some(p) = &tp {
@@ -1049,7 +1086,7 @@ mod probe {
                     eprintln!("  doc end collapsed rects={:?}; +1 char moved={n2} rects={:?}", first_rect(&doc_end), first_rect(&last));
                 }
                 eprintln!(
-                    "_WwG #{i}: rect=({},{},{},{}) tp2={tp2} tp={} selection_ranges={sel_len:?} -> field={field:?} caret={caret:?}",
+                    "_WwG #{i}: rect=({},{},{},{}) tp2={tp2} tp={} selection_ranges={sel_len:?} -> field={field:?} caret={caret:?} line={line:?}",
                     r.left, r.top, r.right, r.bottom, tp.is_some()
                 );
             }

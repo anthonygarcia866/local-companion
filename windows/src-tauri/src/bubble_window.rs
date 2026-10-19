@@ -99,6 +99,8 @@ pub struct Input<'a> {
     pub conditions: Conditions,
     pub field: Option<Rect>,
     pub caret: Option<Rect>,
+    /// The caret's line, when the app gives it (2026-10-18).
+    pub line: Option<Rect>,
     /// Focus moved to another element since the last reading.
     pub new_field: bool,
     pub monitors: &'a [Monitor],
@@ -181,7 +183,7 @@ impl Driver {
         let place = match bubble::shown(&input.conditions) {
             Err(h) => Err(Why::Hidden(h)),
             Ok(()) if !steady => Err(Why::Moving),
-            Ok(()) => bubble::place(input.field, input.caret, input.monitors).map_err(|n| Why::NoPlace(n, input.field, input.caret)),
+            Ok(()) => bubble::place_on_line(input.field, input.caret, input.line, input.monitors).map_err(|n| Why::NoPlace(n, input.field, input.caret)),
         };
         let mut p = match place {
             Ok(p) => p,
@@ -349,7 +351,7 @@ mod tests {
     fn input(c: Conditions, field: Rect, new_field: bool, monitors: &[Monitor]) -> Input<'_> {
         // The caret moves with the field (on its first line).
         let caret = Rect::new(field.left + 100, field.top + 6, field.left + 101, field.top + 24);
-        Input { conditions: c, field: Some(field), caret: Some(caret), new_field, monitors }
+        Input { conditions: c, field: Some(field), caret: Some(caret), line: None, new_field, monitors }
     }
 
     #[test]

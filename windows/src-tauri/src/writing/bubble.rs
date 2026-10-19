@@ -8,6 +8,12 @@
 // (`settings.writing_bubble`); a tall field (cut off by the monitor, or
 // taller than half its work area) keeps it level with the caret's line.
 //
+// Amended 2026-10-18 (owner's retest: in Outlook's body it sat in the far
+// bottom-right corner): every multi-line field with a caret (Outlook and
+// Word bodies, short or tall) gets it level with the caret's line, just
+// right of where that line's text ends, inside the visible part, following
+// the caret. The corner stays only for a multi-line field without a caret.
+//
 // Everything is in physical screen pixels, as UI Automation reports them;
 // sizes and gaps are logical pixels times the monitor's scale.
 //
@@ -77,8 +83,6 @@ const GAP: f64 = 4.0;
 const INSET: f64 = 6.0;
 /// The caret's rectangle, grown by this, is never covered.
 const CARET_CLEAR: f64 = 4.0;
-/// A caret this close to the bottom-right corner moves the lantern up.
-const CORNER_NEAR: f64 = 24.0;
 /// Without a caret, a field this tall or less is single-line.
 const SINGLE_LINE_MAX: f64 = 40.0;
 /// Without a field, the lantern sits this far right of the caret.
@@ -118,8 +122,16 @@ pub enum NoPlace {
     CoversCaret,
 }
 
-/// The lantern's place for a field and its caret (§7a.1).
+/// The lantern's place for a field and its caret (§7a.1), without the
+/// caret line's rectangle.
 pub fn place(field: Option<Rect>, caret: Option<Rect>, monitors: &[Monitor]) -> Result<Placement, NoPlace> {
+    place_on_line(field, caret, None, monitors)
+}
+
+/// The lantern's place for a field, its caret and the caret's line (the
+/// line's rectangle from UI Automation, when the app gives one: its right
+/// edge is where the line's text ends).
+pub fn place_on_line(field: Option<Rect>, caret: Option<Rect>, caret_line: Option<Rect>, monitors: &[Monitor]) -> Result<Placement, NoPlace> {
     let field = field.filter(|r| !r.is_empty());
     // A collapsed caret is often 0 or 1 px wide: only its height must be real.
     let caret = caret.filter(|r| r.height() > 0 && r.width() >= 0);
@@ -159,32 +171,32 @@ pub fn place(field: Option<Rect>, caret: Option<Rect>, monitors: &[Monitor]) -> 
                 } else {
                     (vis.right - px(INSET, s) - size, y)
                 }
-            } else if let Some(c) = caret.filter(|_| tall(&f, &work)) {
-                // Rule 3 (Anthony, 2026-10-13): a tall field gets it at the
-                // visible part's right edge, level with the caret's line, so
-                // it stays beside the line being typed as the body scrolls.
-                // Touching the caret: just above its line, or just below when
-                // there's no room above.
-                let x = vis.right - px(INSET, s) - size;
+            } else if let Some(c) = caret {
+                // Owner, 2026-10-18 (Outlook and Word bodies): level with the
+                // caret's line, just right of where the line's text ends (the
+                // caret itself when the app gives no line), kept inside the
+                // visible part, so it follows the line being typed. Touching
+                // the caret: just above its line, or just below; neither fits
+                // in the visible part: not shown.
+                let mid = c.top + c.height() / 2;
+                let end = caret_line.filter(|l| l.top <= mid && mid < l.bottom && l.right >= c.right).map_or(c.right, |l| l.right);
+                let x = (end + px(GAP, s)).min(vis.right - px(INSET, s) - size).max(vis.left);
                 let clear = c.grow(px(CARET_CLEAR, s));
-                let mut y = c.top + c.height() / 2 - size / 2;
+                let mut y = (mid - size / 2).clamp(vis.top, (vis.bottom - size).max(vis.top));
                 if Rect::new(x, y, x + size, y + size).overlaps(&clear) {
-                    y = if clear.top - size >= vis.top { clear.top - size } else { clear.bottom };
+                    y = if clear.top - size >= vis.top {
+                        clear.top - size
+                    } else if clear.bottom + size <= vis.bottom {
+                        clear.bottom
+                    } else {
+                        return Err(NoPlace::CoversCaret);
+                    };
                 }
                 (x, y)
             } else {
+                // No caret: the visible part's bottom-right corner.
                 let x = vis.right - px(INSET, s) - size;
-                let mut y = vis.bottom - px(INSET, s) - size;
-                if let Some(c) = caret {
-                    // The caret's line near the corner (or under the lantern):
-                    // the lantern moves up to just above that line.
-                    let near = px(CORNER_NEAR, s);
-                    let corner = Rect::new(x - near, y - near, vis.right, vis.bottom);
-                    let clear = c.grow(px(CARET_CLEAR, s));
-                    if corner.overlaps(&c) || Rect::new(x, y, x + size, y + size).overlaps(&clear) {
-                        y = y.min(clear.top - size);
-                    }
-                }
+                let y = vis.bottom - px(INSET, s) - size;
                 (x, y.max(vis.top))
             }
         }
@@ -203,12 +215,6 @@ pub fn place(field: Option<Rect>, caret: Option<Rect>, monitors: &[Monitor]) -> 
         }
     }
     Ok(placed)
-}
-
-/// §7a.1 rule 3: a multi-line field cut off by the monitor's edge, or taller
-/// than half the monitor's work area.
-fn tall(field: &Rect, work: &Rect) -> bool {
-    field.top < work.top || field.bottom > work.bottom || field.left < work.left || field.right > work.right || field.height() > work.height() / 2
 }
 
 /// Whether a new placement should move the lantern: only past JITTER, so a
@@ -364,26 +370,81 @@ mod tests {
         assert!(p.rect().right <= 1920);
     }
 
+    /// Owner, 2026-10-18: in Outlook's body (short, fully on screen) it sat
+    /// in the far bottom-right corner. Now level with the caret's line, just
+    /// right of the line's end.
     #[test]
-    fn a_multi_line_field_gets_it_in_the_bottom_right_corner() {
-        // 400 px: under half the work area, so not "tall" (rule 3).
+    fn a_multi_line_field_gets_it_just_right_of_the_caret_lines_end() {
         let body = Rect::new(200, 200, 1200, 600);
-        let p = place(Some(body), Some(caret_at(300, 250, 18)), &owner()).unwrap();
-        assert_eq!((p.x, p.y), (1200 - 6 - 22, 600 - 6 - 22));
+        let c = caret_at(500, 250, 18);
+        // "We musn't|": the line's text ends at the caret.
+        let line = Rect::new(210, 250, 501, 268);
+        let p = place_on_line(Some(body), Some(c), Some(line), &owner()).unwrap();
+        assert_eq!((p.x, p.y), (501 + 4, 259 - 11), "just right of the line, level with it");
+        assert!(!p.rect().overlaps(&c.grow(4)));
+        // The caret mid-line: after the line's end, not over the words after the caret.
+        let p = place_on_line(Some(body), Some(caret_at(300, 250, 18)), Some(Rect::new(210, 250, 820, 268)), &owner()).unwrap();
+        assert_eq!(p.x, 820 + 4);
+        // No line from the app: right of the caret.
+        let p = place(Some(body), Some(c), &owner()).unwrap();
+        assert_eq!((p.x, p.y), (501 + 4, 259 - 11));
+        // A line rectangle that isn't the caret's line (another row) is ignored.
+        let p = place_on_line(Some(body), Some(c), Some(Rect::new(210, 400, 900, 418)), &owner()).unwrap();
+        assert_eq!(p.x, 501 + 4);
     }
 
     #[test]
-    fn a_caret_near_the_corner_pushes_it_up_and_it_never_covers_the_caret() {
+    fn it_follows_the_caret_as_you_type_and_move_down() {
         let body = Rect::new(200, 200, 1200, 600);
+        let mut last = None;
+        for (x, top) in [(300, 250), (310, 250), (320, 250), (220, 268), (400, 286)] {
+            let c = caret_at(x, top, 18);
+            let p = place_on_line(Some(body), Some(c), Some(Rect::new(210, top, x + 1, top + 18)), &owner()).unwrap();
+            assert_eq!((p.x, p.y), (x + 1 + 4, top + 9 - 11), "caret at ({x},{top})");
+            if let Some(prev) = last {
+                assert!(should_move(&prev, &p), "it moves with the caret");
+            }
+            last = Some(p);
+        }
+    }
+
+    #[test]
+    fn a_line_ending_at_the_right_edge_puts_it_above_or_below_the_line() {
+        let body = Rect::new(200, 200, 1200, 600);
+        // The line runs to the right edge and the caret is at its end.
+        let c = caret_at(1185, 400, 18);
+        let p = place_on_line(Some(body), Some(c), Some(Rect::new(210, 400, 1186, 418)), &owner()).unwrap();
+        assert_eq!(p.x, 1200 - 6 - 22, "kept inside the visible part");
+        assert_eq!(p.rect().bottom, c.top - 4, "just above the caret's line");
+        // On the first line: just below it.
+        let c = caret_at(1185, 202, 18);
+        let p = place_on_line(Some(body), Some(c), Some(Rect::new(210, 202, 1186, 220)), &owner()).unwrap();
+        assert_eq!(p.y, c.bottom + 4);
         for caret in [caret_at(1170, 572, 18), caret_at(1150, 560, 18), caret_at(1185, 575, 20), caret_at(1160, 578, 18)] {
             let p = place(Some(body), Some(caret), &owner()).unwrap();
             assert!(!p.rect().overlaps(&caret.grow(4)), "{caret:?} → {p:?}");
-            assert!(p.y < 600 - 6 - 22, "moved up: {caret:?} → {p:?}");
-            assert_eq!(p.rect().bottom, caret.top - 4, "just above the caret's line: {caret:?}");
+            assert!(p.rect().bottom <= 600 && p.rect().right <= 1200, "inside the body: {caret:?} → {p:?}");
         }
-        // A caret on the last line but far from the corner leaves it there.
-        let p = place(Some(body), Some(caret_at(600, 578, 18)), &owner()).unwrap();
-        assert_eq!(p.y, 600 - 6 - 22);
+    }
+
+    /// Word's document body: a page taller than the screen, cut off at the
+    /// bottom, the caret's line from Word's own text range.
+    #[test]
+    fn in_a_word_body_it_sits_beside_the_line_being_typed() {
+        let page = Rect::new(400, 150, 1500, 2200);
+        let c = caret_at(760, 700, 20);
+        let p = place_on_line(Some(page), Some(c), Some(Rect::new(480, 700, 761, 720)), &owner()).unwrap();
+        assert_eq!((p.x, p.y, p.monitor), (761 + 4, 710 - 11, 0));
+        // Scrolled so the caret's line is near the bottom of the screen: still level with it, inside the screen.
+        let c = caret_at(760, 1010, 20);
+        let p = place_on_line(Some(page), Some(c), Some(Rect::new(480, 1010, 761, 1030)), &owner()).unwrap();
+        assert!(p.rect().bottom <= 1040, "{p:?}");
+        assert!(!p.rect().overlaps(&c.grow(4)));
+        // On the 125% monitor: sizes and gaps scale.
+        let page = Rect::new(-1800, 0, -400, 2000);
+        let c = caret_at(-1500, 300, 25);
+        let p = place_on_line(Some(page), Some(c), Some(Rect::new(-1750, 300, -1499, 325)), &owner()).unwrap();
+        assert_eq!((p.size, p.x, p.monitor), (28, -1499 + 5, 2));
     }
 
     #[test]
@@ -399,17 +460,16 @@ mod tests {
     fn off_screen_fields_and_scrolled_away_carets_hide_it() {
         // Entirely below every monitor.
         assert_eq!(place(Some(Rect::new(100, 2000, 600, 2030)), None, &owner()), Err(NoPlace::OffScreen));
-        // A body taller than the screen still gets it: level with the caret's
-        // line at the visible part's right edge (rule 3).
+        // A body taller than the screen still gets it, level with the caret's line.
         let tall = Rect::new(200, -500, 1200, 3000);
         let p = place(Some(tall), Some(caret_at(300, 500, 18)), &owner()).unwrap();
-        assert_eq!((p.x, p.y), (1200 - 6 - 22, 509 - 11));
+        assert_eq!((p.x, p.y), (301 + 4, 509 - 11));
         // The caret scrolled out of the visible part: hidden.
         assert_eq!(place(Some(tall), Some(caret_at(300, 1500, 18)), &owner()), Err(NoPlace::OffScreen));
     }
 
-    /// §7a.1 rule 3 (Anthony, 2026-10-13): tall fields keep it level with
-    /// the caret's line, at the visible part's right edge.
+    /// §7a.1 rule 3 (Anthony, 2026-10-13), widened 2026-10-18 to every
+    /// multi-line field: level with the caret's line.
     #[test]
     fn a_tall_field_keeps_it_level_with_the_caret_line() {
         // Cut off by the bottom of the screen (an Outlook body scrolled long).
@@ -417,25 +477,13 @@ mod tests {
         for top in [320, 500, 900, 1000] {
             let c = caret_at(400, top, 18);
             let p = place(Some(cut), Some(c), &owner()).unwrap();
-            assert_eq!((p.x, p.y), (1200 - 6 - 22, top + 9 - 11), "caret at {top}");
+            assert_eq!((p.x, p.y), (401 + 4, top + 9 - 11), "caret at {top}");
             assert!(!p.rect().overlaps(&c.grow(4)));
         }
-        // Not cut off, but taller than half the work area (1040 / 2 = 520).
-        let half = Rect::new(200, 100, 1200, 700);
-        let p = place(Some(half), Some(caret_at(400, 300, 18)), &owner()).unwrap();
-        assert_eq!(p.y, 309 - 11, "level with the line, not the corner");
-        // A short multi-line field still uses the corner (rule 2).
+        // A short multi-line field: level with the line too (was the corner before 2026-10-18).
         let short = Rect::new(200, 100, 1200, 400);
-        assert_eq!(place(Some(short), Some(caret_at(400, 150, 18)), &owner()).unwrap().y, 400 - 6 - 22);
-        // Caret at the right edge: just above its line …
-        let c = caret_at(1185, 600, 18);
-        let p = place(Some(cut), Some(c), &owner()).unwrap();
-        assert_eq!(p.rect().bottom, c.top - 4);
-        // … or just below it at the top of the visible part.
-        let c = caret_at(1185, 302, 18);
-        let p = place(Some(cut), Some(c), &owner()).unwrap();
-        assert_eq!(p.y, c.bottom + 4);
-        // Without a caret, rule 2: the visible part's corner.
+        assert_eq!(place(Some(short), Some(caret_at(400, 150, 18)), &owner()).unwrap().y, 159 - 11);
+        // Without a caret: the visible part's corner.
         assert_eq!(place(Some(cut), None, &owner()).unwrap().y, 1040 - 6 - 22);
     }
 
@@ -464,10 +512,10 @@ mod tests {
 
     #[test]
     fn when_every_place_would_cover_the_caret_it_isnt_shown() {
-        // A short multi-line field with the caret on its first line, by the
-        // right edge: up is clamped to the field's top, onto the caret.
-        let field = Rect::new(100, 100, 300, 160);
-        assert_eq!(place(Some(field), Some(caret_at(280, 102, 18)), &owner()), Err(NoPlace::CoversCaret));
+        // A small multi-line field, the caret by its right edge: no room
+        // beside the line, above it or below it inside the field.
+        let field = Rect::new(100, 100, 300, 150);
+        assert_eq!(place(Some(field), Some(caret_at(280, 112, 18)), &owner()), Err(NoPlace::CoversCaret));
         // Caret only, at the monitor's right edge: kept on the monitor means
         // on top of the caret.
         assert_eq!(place(None, Some(caret_at(1915, 500, 18)), &owner()), Err(NoPlace::CoversCaret));

@@ -535,7 +535,7 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
    - **See:** a small lantern, 22 px, just **outside the field's right end**, vertically centred, with an amber count. It never covers the text.
    - Move the window so the field touches the screen's right edge: the lantern moves **inside** the field's right end.
 2. **Multi-line body** (Outlook new mail, Notepad): paste the paragraph.
-   - **See:** the lantern at the body's bottom-right corner. Type on the last line near that corner: it moves up, just above your line, never over the caret.
+   - **See (since 2026-10-18):** the lantern level with your line, just right of where the line's text ends, and it follows the caret as you type and move to other lines. A line running to the right edge: just above your line (or below, on the first line), never over the caret. Same in Word's document body.
 3. **Tall body** (a long Word document or an Outlook body taller than the screen): the lantern sits at the **right edge of the visible part, level with the line you're typing**, and follows that line as you move up and down. Scroll: it hides while the page moves and comes back when it stops.
 4. **Click the lantern:**
    - **See:** the popover opens below it (above it near the bottom of the screen) with the same rows as the island's list, 3 a page, "1–3 of N", and **Rewrite…** / **Close** at the bottom. **The caret stays in your text**: type a letter, it goes into the field.
