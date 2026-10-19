@@ -187,9 +187,13 @@ export class Island {
     // delay pings once, when you're away from the PC. Only the pill and its
     // project name go to Rust; the idle time is asked for only when one is due.
     const now = performance.now();
-    const waiting = [State.pendingApproval, ...State.approvalQueue].flatMap((r) =>
-      r ? [{ requestId: r.requestId, pillId: r.pillId, project: projectOf(State.tasks, r.pillId), waitedMs: this.wait.waited(r.requestId, now) }] : [],
-    );
+    // Requests handed back to the terminal still wait there: counted too.
+    const waiting = [
+      ...[State.pendingApproval, ...State.approvalQueue].flatMap((r) =>
+        r ? [{ requestId: r.requestId, pillId: r.pillId, project: projectOf(State.tasks, r.pillId), waitedMs: this.wait.waited(r.requestId, now) }] : [],
+      ),
+      ...phone.inTerminal(now),
+    ];
     const s = phoneSettings(State.settings.phone);
     if (phone.due(waiting, s) && !this.askingIdle) {
       this.askingIdle = true;

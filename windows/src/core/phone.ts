@@ -112,6 +112,23 @@ export interface Waiting {
   pillId: string;
   project: string;
   waitedMs: number;
+  /** Set once Glim has handed it back to the terminal: how long ago that was. */
+  handedBackMs?: number;
+}
+
+/**
+ * How long a request handed back to the terminal is still counted as waiting,
+ * at most: its session usually moves on long before (`sessionMoved`).
+ */
+export const TERMINAL_MAX_MS = 30 * 60_000;
+
+/** A request the relay handed back to the terminal after its 108 s: Claude Code still asks there. */
+interface InTerminal {
+  pillId: string;
+  sessionId: string;
+  project: string;
+  arrivedAt: number;
+  handedBackAt: number;
 }
 
 export class PhoneWatcher {
@@ -119,6 +136,33 @@ export class PhoneWatcher {
   private pinged = new Set<string>();
   /** Limits already pinged: pill and reset. */
   private limits = new Set<string>();
+  /** Requests handed back to the terminal, by request id (times: the island's performance.now()). */
+  private terminal = new Map<string, InTerminal>();
+
+  /**
+   * The relay gave up on Glim (~108 s) and Claude Code asks in the terminal
+   * now: still waiting for you, so it can still ping (owner's retest
+   * 2026-10-18: a request at t=0 with your last key at t=0 reaches 2 min idle
+   * only after the handback).
+   */
+  handedBack(requestId: string, pillId: string, sessionId: string, project: string, arrivedAt: number, now: number): void {
+    if (requestId) this.terminal.set(requestId, { pillId, sessionId, project, arrivedAt, handedBackAt: now });
+  }
+
+  /** The session did something (anything but a Notification): its question in the terminal was answered. */
+  sessionMoved(sessionId: string): void {
+    for (const [id, r] of this.terminal) if (r.sessionId === sessionId) this.terminal.delete(id);
+  }
+
+  /** Requests waiting in the terminal, as the wait tick counts them (dropped after TERMINAL_MAX_MS). */
+  inTerminal(now: number): Waiting[] {
+    const out: Waiting[] = [];
+    for (const [requestId, r] of this.terminal) {
+      if (now - r.handedBackAt > TERMINAL_MAX_MS) this.terminal.delete(requestId);
+      else out.push({ requestId, pillId: r.pillId, project: r.project, waitedMs: now - r.arrivedAt, handedBackMs: now - r.handedBackAt });
+    }
+    return out;
+  }
 
   private allowed(s: PhoneSettings, now: Date): boolean {
     return s.enabled && !inQuietHours(s, now);
@@ -142,12 +186,20 @@ export class PhoneWatcher {
   /** Requests that have waited long enough, once each. */
   approvals(waiting: Waiting[], s: PhoneSettings, now: Date, idleMs: number | null): Ping[] {
     if (!this.due(waiting, s)) return [];
+    // Back in the terminal and you've touched the PC since: you saw it there.
+    if (idleMs !== null) {
+      for (const w of waiting) if (w.handedBackMs !== undefined && idleMs < w.handedBackMs) this.terminal.delete(w.requestId);
+    }
+    const live = waiting.filter((w) => w.handedBackMs === undefined || this.terminal.has(w.requestId));
     // At the PC: the card is in front of you. Not counted, so it pings once
     // you have been away long enough, if it is still waiting then.
     if (!away(s, idleMs)) return [];
-    const due = waiting.filter((w) => this.isDue(w, s));
+    const due = live.filter((w) => this.isDue(w, s));
     // Counted as pinged even in quiet hours: nothing is sent late.
-    for (const w of due) this.pinged.add(w.requestId);
+    for (const w of due) {
+      this.pinged.add(w.requestId);
+      this.terminal.delete(w.requestId);
+    }
     if (!this.allowed(s, now)) return [];
     return due.map((w) => ({ kind: "approval", pillId: w.pillId, project: w.project }));
   }

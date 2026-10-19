@@ -35,8 +35,13 @@ function clearRequestTimer(requestId: string) {
 
 function armRequestTimer(island: Island, requestId: string) {
   clearRequestTimer(requestId);
+  const arrivedAt = performance.now();
   requestTimers.set(requestId, window.setTimeout(() => {
     requestTimers.delete(requestId);
+    const req = [State.pendingApproval, ...State.approvalQueue].find((r) => r?.requestId === requestId);
+    // Claude Code asks in the terminal now and still waits for you: the
+    // phone keeps counting it (docs/phone-plan.md §5).
+    if (req) phone.handedBack(requestId, req.pillId, req.sessionId, projectOf(State.tasks, req.pillId), arrivedAt, performance.now());
     if (State.pendingApproval?.requestId === requestId) dropPendingCard(island);
     else State.withdrawQueued((r) => r.requestId === requestId);
   }, 110_000));
@@ -375,6 +380,10 @@ function handleHook(island: Island, payload: HookPayload) {
   const supersedeStop = () => {
     if (cancelStopTimer(agentId)) State.setPillBadge(agentId, null);
   };
+
+  // A request handed back to the terminal is answered once its session does
+  // anything else (Yes runs the tool; No, Stop or a new prompt end the turn).
+  if (sessionId && name !== "Notification" && name !== "PermissionRequest") phone.sessionMoved(sessionId);
 
   // The turn that asked for a permission is over — answered in the terminal,
   // interrupted, or a new prompt — so the card would be lying. It goes, and the

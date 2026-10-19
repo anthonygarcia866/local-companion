@@ -11,8 +11,8 @@ import { installFakeDom } from "./fakedom.mjs";
 installFakeDom();
 const { calls, emit, replies, sent } = await import("./tauri.mjs");
 const {
-  APPROVAL_MAX_SEC, APPROVAL_MIN_SEC, DEFAULT_PHONE, IDLE_MAX_MIN, IDLE_MIN_MIN, PhoneWatcher, approvalDelaySec, away, idleAfterMin, inQuietHours,
-  minutes, phoneSettings, projectOf,
+  APPROVAL_MAX_SEC, APPROVAL_MIN_SEC, DEFAULT_PHONE, IDLE_MAX_MIN, IDLE_MIN_MIN, PhoneWatcher, TERMINAL_MAX_MS, approvalDelaySec, away, idleAfterMin,
+  inQuietHours, minutes, phone, phoneSettings, projectOf,
 } = await import("../src/core/phone.ts");
 const { DEFAULT_SETTINGS, State } = await import("../src/core/state.ts");
 const { registerHookHandlers } = await import("../src/island/hooks.ts");
@@ -126,6 +126,45 @@ test("only when away: no keyboard or mouse input for 2 minutes by default", () =
   assert.equal(w.limit("integration_claude", "p", "usage", "2 PM", on(), NOON, AWAY), null, "the same limit later: already seen");
 });
 
+test("handed back to the terminal: still waiting, pings at 2 min idle (owner's retest 2026-10-18)", () => {
+  // Request at t=0, your last key (the Enter) at t=0, the relay hands it back
+  // at 108 s; Claude Code still waits in the terminal.
+  const w = new PhoneWatcher();
+  const S = 1000;
+  const cardTick = (t) => w.approvals([wait("r1", t)], on(), NOON, t * S);
+  assert.deepEqual(cardTick(60), [], "60 s: due, but idle only 60 s");
+  assert.deepEqual(cardTick(107), []);
+  w.handedBack("r1", "integration_claude", "s1", "local-companion", 0, 108 * S);
+  const tick = (t) => w.approvals(w.inTerminal(t * S), on(), NOON, t * S);
+  assert.deepEqual(w.inTerminal(110 * S), [{ requestId: "r1", pillId: "integration_claude", project: "local-companion", waitedMs: 110 * S, handedBackMs: 2 * S }]);
+  assert.deepEqual(tick(110), [], "idle 110 s: not yet");
+  assert.deepEqual(tick(119), []);
+  assert.deepEqual(tick(120), [{ kind: "approval", pillId: "integration_claude", project: "local-companion" }], "idle 2 min: the ping");
+  assert.deepEqual(tick(150), [], "once");
+  assert.deepEqual(w.inTerminal(150 * S), [], "and forgotten");
+});
+
+test("handed back: answered in the terminal, or you touched the PC since, means no ping", () => {
+  const S = 1000;
+  // Touched the PC after the handback (idle 5 s at 130 s, handed back 22 s ago): you saw the terminal.
+  const a = new PhoneWatcher();
+  a.handedBack("r1", "integration_claude", "s1", "p", 0, 108 * S);
+  assert.deepEqual(a.approvals(a.inTerminal(130 * S), on(), NOON, 5 * S), []);
+  assert.deepEqual(a.inTerminal(300 * S), [], "dropped, so no ping when you walk away later");
+  // Its session moved on (Yes ran the tool, No/Stop/a prompt ended the turn).
+  const b = new PhoneWatcher();
+  b.handedBack("r1", "integration_claude", "s1", "p", 0, 108 * S);
+  b.handedBack("r2", "integration_claude", "s2", "p", 0, 108 * S);
+  b.sessionMoved("s1");
+  assert.deepEqual(b.inTerminal(110 * S).map((r) => r.requestId), ["r2"], "only that session's");
+  // Not forever.
+  assert.deepEqual(b.inTerminal(108 * S + TERMINAL_MAX_MS + 1), []);
+  // Off: nothing, and nothing asked.
+  const c = new PhoneWatcher();
+  c.handedBack("r1", "integration_claude", "s1", "p", 0, 108 * S);
+  assert.equal(c.due(c.inTerminal(130 * S), DEFAULT_PHONE), false);
+});
+
 test("the project is the pill's name, nothing else about the session", () => {
   const tasks = [{ id: "integration_claude", name: "local-companion", sessionCwd: "C:\\Users\\antho\\local-companion" }];
   assert.equal(projectOf(tasks, "integration_claude"), "local-companion");
@@ -192,6 +231,21 @@ test("at the PC, a Stop asks for the idle time and sends nothing", async () => {
   assert.deepEqual(sent("phone_notify"), []);
 });
 
+test("the relay's handback (110 s) keeps the request for the phone; the session's next event ends it", () => {
+  hook({ hook_event_name: "UserPromptSubmit", session_id: "hb1", cwd: "C:\\Users\\antho\\local-companion", prompt: "x" });
+  hook({ hook_event_name: "PermissionRequest", session_id: "hb1", cwd: "C:\\Users\\antho\\local-companion", request_id: "hb-1", tool_name: "Bash", tool_input: { command: "Remove-Item p1" } });
+  assert.equal(State.pendingApproval?.requestId, "hb-1");
+  mock.timers.tick(110_000);
+  assert.equal(State.pendingApproval, null, "the card is gone");
+  const held = phone.inTerminal(performance.now()).filter((r) => r.requestId === "hb-1");
+  assert.equal(held.length, 1, "still waiting in the terminal");
+  assert.equal(held[0].project, "local-companion");
+  hook({ hook_event_name: "Notification", session_id: "hb1", message: "Claude needs your permission" });
+  assert.equal(phone.inTerminal(performance.now()).some((r) => r.requestId === "hb-1"), true, "a Notification isn't an answer");
+  hook({ hook_event_name: "PostToolUse", session_id: "hb1" });
+  assert.equal(phone.inTerminal(performance.now()).some((r) => r.requestId === "hb-1"), false, "answered in the terminal");
+});
+
 test("the wait tick hands waiting requests to the watcher", () => {
   const src = read("src/island/island.ts");
   const tick = src.slice(src.indexOf("  private tickWait() {"), src.indexOf("  /** The request has its answer"));
@@ -199,6 +253,7 @@ test("the wait tick hands waiting requests to the watcher", () => {
   assert.ok(tick.includes("phone.approvals(waiting, s, new Date(), idleMs)"));
   assert.ok(tick.includes("void Bridge.phoneNotify(p.kind, p.pillId, p.project)"));
   assert.ok(tick.includes("project: projectOf(State.tasks, r.pillId)"));
+  assert.ok(tick.includes("...phone.inTerminal(now)"), "requests back in the terminal are counted too");
   // Nothing but the kind, the pill and the project ever goes to Rust.
   for (const file of ["src/island/island.ts", "src/island/hooks.ts"]) {
     for (const call of read(file).match(/Bridge\.phoneNotify\([^)]*\)/g) ?? []) {
