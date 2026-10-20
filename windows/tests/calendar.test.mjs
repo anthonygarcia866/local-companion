@@ -11,8 +11,8 @@ installFakeDom();
 const { State, DEFAULT_SETTINGS } = await import("../src/core/state.ts");
 const { STILL_NOW_MS, LEAD_CHOICES, DEFAULT_LEAD_MIN, nextCalendar, nextEvent, glowing, wantsCard, closedCalendar, countdown, timeRange, todays, withCalendarGlow, summaryPlacement } = await import("../src/core/calendar.ts");
 const { buildCalendar, closeCalendar, whenText } = await import("../src/views/calendar.ts");
-const { calendarSection, chosenIds } = await import("../src/settings/calendar.ts");
-const { internals, sent } = await import("./tauri.mjs");
+const { calendarSection, chosenIds, reloadCalendars } = await import("../src/settings/calendar.ts");
+const { internals, sent, emit } = await import("./tauri.mjs");
 const { t } = await import("../src/i18n/i18n.ts");
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
@@ -189,6 +189,64 @@ test("Settings → Calendar: switches, lead time and calendars are stored; Outlo
   assert.deepEqual(chosenIds([], "d"), []);
   assert.deepEqual(chosenIds(["d"], "d"), []);
   assert.deepEqual(chosenIds(["x"], "d"), ["x"]);
+});
+
+test("Settings → Calendar: an empty list at launch fills in when Outlook is ready, when Settings opens, or from the sidebar", async () => {
+  const settings = { ...DEFAULT_SETTINGS };
+  const original = internals.invoke;
+  let folders = [];
+  let asks = 0;
+  internals.invoke = async (cmd, args) => (cmd === "calendar_calendars" ? (asks++, folders) : original(cmd, args));
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  try {
+    const section = calendarSection({ settings: () => settings, save: async () => {} });
+    await tick();
+    const role = (r) => [...section.walk()].filter((e) => e.getAttribute("data-role") === r);
+    const status = () => role("calendar-folders-status")[0].textContent;
+    assert.equal(asks, 1, "asked once when built (at launch)");
+    assert.equal(role("calendar-folder").length, 0);
+    assert.match(status(), /Open classic Outlook to choose calendars/);
+    // Outlook answers after Rust's retry: Rust says the count changed.
+    folders = [{ id: "\\\\me@example.com\\Calendar", name: "Calendar", default: true }, { id: "\\\\me@example.com\\Calendar\\Team", name: "Team", default: false }];
+    emit("calendar-folders", 2);
+    await tick();
+    assert.equal(asks, 2);
+    assert.equal(role("calendar-folder").length, 2, "the list filled in");
+    assert.match(status(), /The default calendar is used when none is picked\./);
+    // Outlook closed, then Settings opened again: asked again, empty again.
+    folders = [];
+    emit("settings-opened");
+    await tick();
+    assert.equal(asks, 3);
+    assert.equal(role("calendar-folder").length, 0);
+    // Calendar picked in the sidebar.
+    folders = [{ id: "\\\\me@example.com\\Calendar", name: "Calendar", default: true }];
+    reloadCalendars();
+    await tick();
+    assert.equal(role("calendar-folder").length, 1);
+    // Two asks in a row: only the newer answer is drawn.
+    let release;
+    internals.invoke = async (cmd, args) => {
+      if (cmd !== "calendar_calendars") return original(cmd, args);
+      if (!release) return new Promise((r) => { release = () => r([]); });
+      return [{ id: "a", name: "A", default: true }, { id: "b", name: "B", default: false }, { id: "c", name: "C", default: false }];
+    };
+    reloadCalendars();
+    reloadCalendars();
+    await tick();
+    assert.equal(role("calendar-folder").length, 3);
+    release();
+    await tick();
+    assert.equal(role("calendar-folder").length, 3, "the older, empty answer is dropped");
+  } finally {
+    internals.invoke = original;
+  }
+  const main = read("src/settings/main.ts");
+  assert.ok(main.includes('if (id === "settings-calendar") reloadCalendars();'), "the sidebar asks again");
+  const lib = read("src-tauri/src/lib.rs");
+  const show = lib.slice(lib.indexOf("pub fn show_settings_window"), lib.indexOf("fn open_settings_window"));
+  assert.ok(show.includes('app.emit_to("settings", "settings-opened", ())'), "Rust says Settings opened");
+  assert.ok(read("src-tauri/src/calendar/worker.rs").includes('pub const FOLDERS_EVENT: &str = "calendar-folders";'), "same event name as Rust");
 });
 
 test("titles and locations are never logged or sent by the island; Rust and the island agree on the setting keys", () => {

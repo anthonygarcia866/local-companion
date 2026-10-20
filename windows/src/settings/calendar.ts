@@ -5,7 +5,7 @@
 // calendar, only while classic Outlook is running, and never starts it.
 
 import { h, clear } from "../views/dom";
-import { Bridge } from "../core/bridge";
+import { Bridge, onEvent } from "../core/bridge";
 import { DEFAULT_LEAD_MIN, LEAD_CHOICES } from "../core/calendar";
 import type { Settings } from "../core/state";
 import { t } from "../i18n/i18n";
@@ -31,6 +31,15 @@ function switchRow(host: CalendarHost, flag: Flag, label: string, role: string):
   return h("div", { class: "row" }, h("label", { text: label }), sw);
 }
 
+/** The Calendar section's list loader (the newest section built). */
+let reloadList: (() => void) | null = null;
+let listening = false;
+
+/** Asks Rust for Outlook's calendars again and redraws the list. */
+export function reloadCalendars(): void {
+  reloadList?.();
+}
+
 /** The calendars to read: empty = the default one. Checking only the default keeps it empty. */
 export function chosenIds(checked: string[], defaultId: string | null): string[] {
   if (checked.length === 0) return [];
@@ -47,10 +56,21 @@ export function calendarSection(host: CalendarHost): HTMLElement {
     void host.save();
   });
 
-  // Outlook's calendars, asked when the page opens (none if Outlook isn't running).
+  // Outlook's calendars (none if Outlook isn't running). Asked when the page
+  // is built (at launch), and again when Settings opens, when Calendar is
+  // picked in the sidebar, and when Rust sees the count change (Outlook
+  // ready after a retry, started later, or closed): reloadCalendars().
   const list = h("div", { class: "calendar-folders", "data-role": "calendar-folders" });
   const status = h("div", { class: "hint", "data-role": "calendar-folders-status", text: t("Looking for Outlook's calendars…") });
-  void Bridge.calendarCalendars().then((found) => {
+  let asked = 0;
+  const load = () => {
+    const mine = ++asked;
+    void Bridge.calendarCalendars().then((found) => {
+      if (mine !== asked) return; // a newer ask is on its way
+      fill(found);
+    });
+  };
+  const fill = (found: { id: string; name: string; default: boolean }[] | null) => {
     clear(list);
     const folders = Array.isArray(found) ? found : [];
     if (folders.length === 0) {
@@ -71,7 +91,14 @@ export function calendarSection(host: CalendarHost): HTMLElement {
       boxes.push([f.id, box]);
       list.append(h("label", { class: "check-row" }, box, h("span", { text: f.default ? t("{name} (default)", { name: f.name }) : f.name })));
     }
-  });
+  };
+  reloadList = load;
+  if (!listening) {
+    listening = true;
+    void onEvent<number>("calendar-folders", () => reloadCalendars());
+    void onEvent("settings-opened", () => reloadCalendars());
+  }
+  load();
 
   return h("section", {},
     h("h2", {}, h("span", { text: t("Calendar") })),

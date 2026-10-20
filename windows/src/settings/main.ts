@@ -20,7 +20,7 @@ import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
 import { writingSection } from "./writing";
-import { calendarSection } from "./calendar";
+import { calendarSection, reloadCalendars } from "./calendar";
 import { privacySection } from "./privacy";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { colorDot } from "./colors";
@@ -1089,6 +1089,8 @@ function settingsNav(): Nav {
     const heading = (target.querySelector("h2") ?? target.querySelector("h3") ?? target) as HTMLElement;
     heading.setAttribute("tabindex", "-1");
     heading.focus({ preventScroll: true });
+    // Outlook may have opened since the list was asked: ask again.
+    if (id === "settings-calendar") reloadCalendars();
   }, () => sections);
   clear(root);
   root.append(h("div", { class: "settings-layout" }, navView.el, content));

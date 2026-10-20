@@ -1094,6 +1094,9 @@ pub fn show_settings_window(app: &AppHandle) {
     let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
+    // Settings → Calendar asks Outlook for its calendars again (its list
+    // may have been empty when the page was built at launch).
+    let _ = app.emit_to("settings", "settings-opened", ());
 }
 
 #[tauri::command]
