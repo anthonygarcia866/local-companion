@@ -171,7 +171,7 @@ test("the escalation: after 30 s the lantern pulses every 4 s and the sound come
   assert.equal(t.pulse, false);
 });
 
-test("the card shows both keys and, after a first press, \"Press again to allow\"", () => {
+test("the card shows both keys and, after a first press, \"Press again to allow · 3\"", () => {
   State.mode = "expanded";
   State.view = "approval";
   State.tasks = [];
@@ -191,7 +191,7 @@ test("the card shows both keys and, after a first press, \"Press again to allow\
   assert.equal(press(State.pendingApproval, true, now), "armed");
   card.sync();
   assert.equal(confirm.style.display, "");
-  assert.equal(confirm.textContent, "Press again to allow: Bash · rm -rf build");
+  assert.equal(confirm.textContent, "Press again to allow · 3");
   // A rebound key shows as bound.
   State.settings = { ...State.settings, shortcuts: { allowApproval: { keys: "Ctrl+Alt+Shift+K", enabled: true } } };
   State.pendingApproval = req("Bash · ls", { requestId: "k3" });
@@ -204,11 +204,109 @@ test("the card shows both keys and, after a first press, \"Press again to allow\
   cardOffScreen();
 });
 
+// Bug 2 (owner's retest 2026-10-18): press, wait, press, wait, press, and the
+// key stopped working ("allow key refused (cut-off)" from then on). The
+// "Press again" line takes room from the command's box, and the redraw that
+// takes it away measured the box before it did: "cut-off" stuck until
+// something else redrew the card. The fit is now measured at the press.
+function squeezedCard(requestId, command) {
+  State.mode = "expanded";
+  State.view = "approval";
+  State.tasks = [];
+  State.approvalQueue = [];
+  State.pendingApproval = req(command, { requestId });
+  const card = buildApproval(new Proxy({}, { get: () => () => {} }));
+  const code = card.el.find("div").find((d) => d.className === "code");
+  const confirm = card.el.find("div").find((d) => d.getAttribute("data-role") === "allow-confirm");
+  // The real layout: 30 px of command; 40 px of box, 20 px while the line shows.
+  code.scrollHeight = 30;
+  code.scrollWidth = code.clientWidth = 300;
+  Object.defineProperty(code, "clientHeight", { get: () => (confirm.style.display === "none" ? 40 : 20) });
+  return { card, confirm };
+}
+
+function withClock(fn) {
+  const real = performance.now;
+  let clock = 0;
+  performance.now = () => clock;
+  try {
+    fn((t) => (clock = t));
+  } finally {
+    performance.now = real;
+    State.pendingApproval = null;
+    State.mode = "hidden";
+    cardOffScreen();
+  }
+}
+
+test("the two-press window works after any number of resets (bug 2)", () => {
+  withClock((at) => {
+    cardOffScreen();
+    const { card } = squeezedCard("c1", "PowerShell · Remove-Item C:/tmp/x -Recurse -Force");
+    at(0);
+    card.sync();
+    // Five times: a first press, then nothing until the window has closed.
+    // The island redraws the card on the press and when the window ends.
+    let t = 2_000;
+    for (let round = 1; round <= 5; round++) {
+      at(t);
+      assert.equal(press(State.pendingApproval, true, t), "armed", `round ${round}: a first press`);
+      card.sync();
+      at(t + CONFIRM_WINDOW_MS + 50);
+      card.sync();
+      t += CONFIRM_WINDOW_MS + 1_000;
+    }
+    // Then the two presses allow.
+    at(t);
+    assert.equal(press(State.pendingApproval, true, t), "armed");
+    card.sync();
+    at(t + 800);
+    assert.equal(press(State.pendingApproval, true, t + 800), "ok", "the second press allows");
+  });
+});
+
+test("a plain command isn't refused as cut off by a stale measurement", () => {
+  withClock((at) => {
+    cardOffScreen();
+    const { card, confirm } = squeezedCard("c2", "Bash · npm test");
+    at(0);
+    // Drawn mid-expand (or with a line still showing): it measured cut off.
+    confirm.style.display = "";
+    card.sync();
+    // Nothing redraws it; the box is whole by the time of the press.
+    confirm.style.display = "none";
+    at(2_000);
+    assert.equal(press(State.pendingApproval, true, 2_000), "ok");
+  });
+});
+
+test("after a first press the card counts down: \"Press again to allow · 3…2…1\"", () => {
+  withClock((at) => {
+    cardOffScreen();
+    const { card, confirm } = squeezedCard("c3", "Bash · rm -rf build");
+    at(0);
+    card.sync();
+    at(2_000);
+    assert.equal(press(State.pendingApproval, true, 2_000), "armed");
+    const shown = (t) => {
+      at(t);
+      card.sync();
+      return confirm.style.display === "none" ? "" : confirm.textContent;
+    };
+    assert.equal(shown(2_000), "Press again to allow · 3");
+    assert.equal(shown(3_000), "Press again to allow · 2");
+    assert.equal(shown(4_000), "Press again to allow · 1");
+    assert.equal(shown(4_999), "Press again to allow · 1");
+    assert.equal(shown(5_050), "", "the window has closed");
+  });
+});
+
 test("the island: the key goes through press(), the wait is ticked, logged and escalated", () => {
   const island = read("src/island/island.ts");
   const fn = island.slice(island.indexOf("  allowApproval() {"), island.indexOf("  takeKeyboard() {"));
   assert.ok(fn.includes('press(req, State.mode === "expanded" && State.view === "approval", now)'));
   assert.ok(fn.includes('if (check === "armed" && req)') && fn.includes("CONFIRM_WINDOW_MS + 50"), "armed: the card asks, then drops it");
+  assert.ok(fn.includes("for (let s = 1_000; s < CONFIRM_WINDOW_MS; s += 1_000) window.setTimeout(() => State.notify(), s);"), "and counts down each second");
   assert.ok(fn.includes('if (!req || check !== "ok")') && fn.includes('this.emote("annoyed")'));
   assert.ok(fn.indexOf('Bridge.approvalDecision(req.requestId, "allow")') > fn.indexOf('check !== "ok"'), "allowed only after the check");
   assert.ok(island.includes('if (!(expanded && State.view === "approval")) cardOffScreen();'));

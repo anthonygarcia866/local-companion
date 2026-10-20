@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { aiSection, parseCap, priceText, spendText } = await import("../src/settings/ai.ts");
+const { aiSection, parseCap, priceText, spendCost, spendText } = await import("../src/settings/ai.ts");
 const { DEFAULT_SETTINGS } = await import("../src/core/state.ts");
 const { sent } = await import("./tauri.mjs");
 
@@ -23,8 +23,17 @@ test("a typed cap is dollars, or no cap", () => {
 test("prices and spend read as dollars", () => {
   const haiku = { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", inputUsdPerMtok: 0.1, outputUsdPerMtok: 0.5, pricesChecked: "2026-10-12" };
   assert.equal(priceText(haiku), "$0.10 / $0.50 per million tokens");
-  assert.equal(spendText({ month: "2026-10", usd: 0.0123, requests: 3, capUsd: 0, atCap: false }), "This month: $0.01 (3 requests)");
-  assert.equal(spendText({ month: "2026-10", usd: 0, requests: 1, capUsd: 0, atCap: false }), "This month: $0 (1 request)");
+  assert.equal(spendText({ month: "2026-10", usd: 0.0123, requests: 3, capUsd: 0, atCap: false }), "This month: $0.0123 (3 requests)");
+  assert.equal(spendText({ month: "2026-10", usd: 0, requests: 1, capUsd: 0, atCap: false }), "This month: $0.00 (1 request)");
+  // Tiny amounts keep their digits (a rewrite is ~$0.00004; the owner saw "$0.00", 2026-10-13).
+  assert.equal(spendCost(0.00013), "$0.0001");
+  assert.equal(spendCost(0.0042), "$0.0042");
+  assert.equal(spendCost(0.0999), "$0.0999");
+  assert.equal(spendCost(0.00004), "under $0.0001");
+  assert.equal(spendCost(0.47), "$0.47");
+  assert.equal(spendCost(12.3456), "$12.35");
+  assert.equal(spendCost(0), "$0.00");
+  assert.equal(spendCost(Number.NaN), "$0.00");
 });
 
 test("the key goes to Rust once, on Save, and leaves the page at once", async () => {

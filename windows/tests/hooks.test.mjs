@@ -417,6 +417,44 @@ test("the end of the turn takes a waiting card down and releases the relay", () 
   }
 });
 
+// Bug 1 (owner's retest 2026-10-18): answered "No" in the terminal, the card
+// stayed up with Deny/Allow. "No" aborts the turn: Claude Code kills
+// glim-hook and sends no Stop, so only the relay can tell (approval-gone).
+// "Yes" lets the tool run: its PostToolUse names the very call on the card.
+test("a request answered in the terminal always takes its card down", () => {
+  const ask = (id, command, more = {}) =>
+    hook({ hook_event_name: "PermissionRequest", request_id: id, session_id: "s1", tool_name: "PowerShell", tool_input: { command }, ...more });
+  // "No": the relay saw glim-hook go.
+  ask("r1", "Remove-Item C:/tmp/x -Recurse -Force");
+  emit("approval-gone", { request_id: "other" });
+  assert.equal(State.pendingApproval?.requestId, "r1", "another request's relay: the card stays");
+  emit("approval-gone", { request_id: "r1" });
+  assert.equal(State.pendingApproval, null);
+  assert.deepEqual(sent("approval_decline"), [], "nothing left to release");
+  // The same for one waiting in the queue behind another card.
+  ask("r2", "git status");
+  ask("r3", "npm test");
+  assert.deepEqual(State.approvalQueue.map((r) => r.requestId), ["r3"]);
+  emit("approval-gone", { request_id: "r3" });
+  assert.deepEqual(State.approvalQueue, []);
+  assert.equal(State.pendingApproval?.requestId, "r2");
+  // "Yes": the tool ran. A parallel tool, another session or another
+  // command finishing changes nothing.
+  hook({ hook_event_name: "PostToolUse", session_id: "s1", tool_name: "Read", tool_input: { file_path: "a.ts" } });
+  hook({ hook_event_name: "PostToolUse", session_id: "s2", tool_name: "PowerShell", tool_input: { command: "git status" } });
+  hook({ hook_event_name: "PostToolUse", session_id: "s1", tool_name: "PowerShell", tool_input: { command: "git log" } });
+  assert.equal(State.pendingApproval?.requestId, "r2");
+  hook({ hook_event_name: "PostToolUse", session_id: "s1", tool_name: "PowerShell", tool_input: { command: "git status" } });
+  assert.equal(State.pendingApproval, null);
+  assert.deepEqual(sent("approval_decline"), [{ requestId: "r2" }], "the relay is released");
+  // A run that failed was still answered.
+  calls.length = 0;
+  ask("r4", "npm run build");
+  hook({ hook_event_name: "PostToolUseFailure", session_id: "s1", tool_name: "PowerShell", tool_input: { command: "npm run build" } });
+  assert.equal(State.pendingApproval, null);
+  assert.deepEqual(sent("approval_decline"), [{ requestId: "r4" }]);
+});
+
 test("Codex's Interrupt puts its pill back to idle", () => {
   hook({ hook_event_name: "UserPromptSubmit", session_id: "s1", coucou_agent: "codex", prompt: "go" });
   assert.equal(task("agent_codex").state, "thinking");
