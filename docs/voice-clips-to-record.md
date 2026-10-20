@@ -83,5 +83,5 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
 **How the pick is made:**
 - small.en must beat base.en clearly on **your** clips, on names and commands, with the hint on, to be worth ~3× the wait.
 - A tie, or a small edge, keeps **base**.
-- **Parakeet (proposed rule, for Anthony to confirm):** it must beat base.en *with the hint* clearly on names and commands, **without** a hint of its own, and answer fast enough for push-to-talk (median processing ≤ ~1.5 s on these clips). It costs more than a model swap: Glim would add sherpa-onnx (with onnxruntime) as a dependency, a ~670 MB model, and lose the word list and the built-in words (Claude's clean-up would still fix names it can).
+- **Parakeet (rule adopted by Anthony, 2026-10-19):** it wins only if it clearly beats base.en *with the hint* on names and commands, despite having **no** hint of its own, and answers fast enough for push-to-talk (median processing ≤ ~1.5 s on these clips). Adopting it costs more than a model swap: Glim would add sherpa-onnx (with onnxruntime) as a dependency, a ~670 MB model, and lose the word list and the built-in words (Claude's clean-up would still fix names it can).
 - Any clip where a command word isn't heard first is reported on its own: that's the §4.1 safety rule.
