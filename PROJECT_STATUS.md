@@ -2,6 +2,22 @@
 
 Repo: `anthonygarcia866/local-companion`. Dev machine location: `C:\Users\antho\local-companion`.
 
+## Where we are (2026-10-19)
+
+*This block is updated at the end of a work session or when Anthony asks, not in every PR. Between updates, the sections below and the PRs themselves are the source of truth.*
+
+**Done (merged to main, `6ea6e2f`):** Phase 0a/0b; the writing assistant 1a–1d (checker, fixes, Claude rewrites, Check with AI, per-app switches); voice 1.5b–1.5d (push-to-talk dictation, the two voice keys, resume_work, open_app incl. the Claude app, draft_email and "change the email you just drafted"); the Allow key with two presses for destructive commands and the 30 s escalation (#33); spend precision (#35); the Lantern CI flake fix (#36); the approval-card fixes (#37, after Anthony's retest).
+
+**Installed build:** `retest-2026-10-18c` (2026-10-18 22:45): main plus #22, #34 and #38.
+
+**Waiting on Anthony:**
+- Retest on that build: #38 phone notifications (one ping after ~2 min away; no ping if you touch the PC or answer in the terminal) and #22 mini lantern in Outlook's mail body and in Word. Then the merge OK for #22 and #38. #38's decisions are made (Pushover; project name on; 60 s delay; only when away 2+ min; quiet hours), and its test notification arrived.
+- #34 calendar glance: live test Monday, then the merge OK.
+- Draft PRs open with CI green, each waiting for review: #40 (add your own apps to "open app"), #41 (speech-model comparison prep, adds Parakeet), #42 (session pill label padding, from upstream #522), #43 (Claude desktop app via `claude://`, from upstream #417), #44 (Settings note that the plan gauge needs the Claude Code CLI, from upstream #479).
+- Voice clips: record the 22 clips in `docs/voice-clips-to-record.md` into `%USERPROFILE%\glim-clips\` for the speech-model pick (#41).
+
+**Next on the roadmap:** merge #22, #38 and #34 after their retests; finish the mini lantern (1e) in Outlook; phone companion step 2 (two-way options in #38's `docs/phone-plan.md` §9, not built); then Phase 2, the SOP recorder.
+
 ## Name
 The app and its mascot are both named **Glim** (decided 2026-10-08). Product name `Glim`, bundle identifier `com.anthonygarcia.glim`, executable `glim.exe`, installers `Glim-Windows-<version>-setup.exe` / `.msi`. The brand artwork is in `docs/brand/` (see below).
 
@@ -192,6 +208,8 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
       - **espanso (the owner's text expander) does not see Glim's keys.** Checked in espanso 2.3.0's source (`espanso-detect/src/win32/native.cpp`, `mod.rs`; `espanso-config/src/config/resolve.rs`): espanso reads keys through Raw Input only, and drops every keyboard event with no device behind it (`hDevice == 0`, i.e. typed by software) while `win32_exclude_orphan_events` is on, which is its default (`unwrap_or(true)`); the owner's `default.yml` doesn't change it. Glim types with `SendInput` + `KEYEVENTF_UNICODE` (VK_PACKET), which has no device. So an espanso trigger inside a fix (e.g. "cant" in "significant") can't fire, and espanso doesn't change the text between fixes. **If someone sets `win32_exclude_orphan_events: false`**, espanso could see Glim's keys; the read-back would then catch any change and Apply all would stop with the reason above, never type twice. Not tested live with espanso expanding (no UI automation); the owner's retest covers it.
   12. **Context snippets cut mid-word (owner's live test, 2026-10-12). FIXED:** the context around a problem was the 24 characters before and after it, so it could end "…tomorrow, p". It is now cut between words only: a word the 24-character window would split is left out (`writing::context`, 1 test).
   13. **Ranking: "possible's" was the first option for "possibleeee" (owner's live test, 2026-10-12). FIXED:** for spelling findings, replacements that add a possessive ("possible's") or a plural whose base word is also offered ("possibles") now go after plain words; otherwise Harper's order stands (`checker::rank`). Each suggestion also carries `clear`: its first option adds no ending, and every other plain option is further from what was typed (edit distance, a swap counts one), or as far but Harper put the first one first too. **Apply all takes only clear suggestions**; the note says "Left 1 for you to pick: the best option isn't clear.", and if none is clear, "Nothing was applied: …" (`unclear`). The tooltip says it skips them. Tests: 2 checker tests (the owner's sentence; constructed cases), 1 `jobs_all` test, island note tests.
+
+- **Island size vs webview zoom on scaled displays (known gap, deferred 2026-10-19).** Upstream Coucou #467 sizes the island from the webview's zoom so it isn't cut off on scaled displays (Windows display scaling above 100%). It doesn't cherry-pick: it assumes upstream's island, always centred at the top of the screen, and conflicts with Glim's docks (top, left, right) in `island.rs`, `lib.rs`, `island.ts` and `main.ts`. Owner's decision: not rewritten now; revisit if the island is cut off on a scaled display.
 
 ## Open questions
 - **Answered 2026-10-11** (`docs/phase1-plan.md` §12): the rewrite hotkey counts as the owner's request to send; API calls show `s-delegate`; CLAUDE.md's network rule now matches `docs/vision.md`.
