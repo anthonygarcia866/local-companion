@@ -607,6 +607,7 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 *Where: branch `calendar-glance`.* Needs classic Outlook **open** (Glim never starts it for this). Settings → **Calendar** → **Show my next event** is **off** by default: turn it on.
 
 1. **The calendars:** Settings → Calendar lists Outlook's calendars, your default one checked ("(default)"). With Outlook closed it says "Open classic Outlook to choose calendars…" instead.
+   - **If the list is empty with Outlook open** (Glim started before Outlook was ready, or Outlook opened later): wait about a minute, or reopen Settings → Calendar (or click **Calendar** in the sidebar). Glim looks again by itself 10 s, 30 s and 60 s after it sees Outlook running, then every 5 minutes, and the list fills in. glim.log: `calendar: 0 found (attempt 1), Outlook is running; next look in 10 s`, then `calendar: 9 found (attempt 3)` (your count). Outlook closed: no retries and nothing logged; Glim only watches for Outlook to start (never starts it).
 2. **The next event:** have (or make, in Outlook) a meeting starting in the next 10 minutes. **See:** the lantern glows (brighter, glancing eyes) from 10 minutes before. Click the lantern: a card with the title, "9:00 AM – 9:30 AM · in 8 min", the location, **Close**.
    - A Teams or Zoom meeting: a **Join** button. Click it: the meeting opens in Teams/Zoom (or the browser). Nothing else is ever opened from the card.
    - Two meetings at the same time: "+1 more at the same time".
@@ -616,7 +617,7 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 5. **All-day events:** hidden by default (never "next"). Switch "Hide all-day events" off: they show in the summary as "All day".
 6. **Morning summary (off by default):** switch it on. The next morning (after 6:00), the first read shows "Today: N on your calendar" with times and titles (5 at most, "+N more"), once that day. Close: it doesn't come back that day.
 7. **Read only:** nothing in Outlook changes: no meeting accepted, declined, moved or edited; no Outlook window opens by itself.
-8. **Log:** glim.log has `calendar: N events in the next 24 h (K with a meeting link), next in M min`, `calendar: nothing to show (no-outlook)` when Outlook is closed. **Never a title, a location, a calendar name or a link.**
+8. **Log:** glim.log has `calendar: N events in the next 24 h (K with a meeting link), next in M min`, `calendar: nothing to show (no-outlook)` when Outlook is closed. `calendar: N found (attempt k)` when Glim finds Outlook's calendars. **Never a title, a location, a calendar name or a link.**
 
 ## After testing
 
