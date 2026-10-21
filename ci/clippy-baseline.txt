@@ -6,4 +6,4 @@
 # To lower it: fix some warnings, check the "Clippy (report only)" step's count
 # on the PR's CI run, and put that new count on the line below in the same PR.
 # Never raise it to hide a new warning: fix the warning instead.
-11
+1
