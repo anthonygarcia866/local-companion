@@ -1,5 +1,5 @@
 ﻿
-17:07:16.497 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (5796352 bytes, built 10/10/2026 17:06:57)
+17:07:16.497 exe: C:\Users\you\local-companion\windows\target\release\glim.exe (5796352 bytes, built 10/10/2026 17:06:57)
 17:07:16.510 foreground at start: pid 359096
 17:07:22.676 shot size-small: window 720x320 at 600,0; lantern rows 25
 17:07:22.831 check size-small: visible=True noactivate=True clickthrough=True rect=720x320@600,0 cursor-over-window=False foreground-is-glim=False

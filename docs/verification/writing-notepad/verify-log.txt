@@ -1,5 +1,5 @@
 ﻿
-22:25:24.274 exe: C:\Users\antho\AppData\Local\Glim\glim.exe (11809280 bytes, built 10/11/2026 16:55:34)
+22:25:24.274 exe: C:\Users\you\AppData\Local\Glim\glim.exe (11809280 bytes, built 10/11/2026 16:55:34)
 22:25:33.331 dev Glim pid 11876, visibility normal (saved: normal)
 22:25:35.091 Notepad text area: ControlType.Document class=RichEditD2DPT
 22:25:36.452 misspelled paragraph: pill count 2 (expected >= 2: recieved, tomorow)
