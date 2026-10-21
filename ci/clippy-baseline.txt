@@ -1,0 +1,9 @@
+# Clippy baseline: the number of distinct warnings that
+#   cargo clippy --workspace --all-targets
+# (run in windows/) is allowed to report before CI flags it.
+# CI never fails on clippy; above this number it adds a warning annotation.
+#
+# To lower it: fix some warnings, check the "Clippy (report only)" step's count
+# on the PR's CI run, and put that new count on the line below in the same PR.
+# Never raise it to hide a new warning: fix the warning instead.
+11
