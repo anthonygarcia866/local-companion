@@ -246,7 +246,7 @@ fn distance(a: &[char], b: &[char]) -> usize {
 /// put the first one first.
 fn rank(problem: &str, replacements: &mut [String]) -> bool {
     let harper_first = replacements.first().cloned();
-    let all = replacements.clone();
+    let all = replacements.to_vec();
     replacements.sort_by_key(|r| adds_ending(problem, r, &all));
     let Some(top) = replacements.first() else { return false };
     if adds_ending(problem, top, &all) {
