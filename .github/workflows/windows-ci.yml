@@ -51,6 +51,52 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Dependency audits, report only: they never fail the job or block a
+      # merge. Each prints its advisories and annotates the job with counts by
+      # severity. Fixes are separate PRs, one upgrade each, on the owner's OK.
+      - name: Install cargo-audit (prebuilt)
+        if: always()
+        continue-on-error: true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: cargo audit (report only)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $text = cargo audit --color never 2>&1 | Out-String
+          $text
+          $json = cargo audit --json 2>$null | Out-String
+          try { $r = $json | ConvertFrom-Json } catch { "::warning title=cargo audit::could not run or parse cargo audit"; exit 0 }
+          $sev = [ordered]@{ critical = 0; high = 0; medium = 0; low = 0; unrated = 0 }
+          foreach ($m in [regex]::Matches($text, '(?m)^Severity:\s+[\d.]+\s+\((\w+)\)')) { $sev[$m.Groups[1].Value.ToLower()]++ }
+          $vulns = [int]$r.vulnerabilities.count
+          $sev.unrated = [Math]::Max(0, $vulns - ($sev.critical + $sev.high + $sev.medium + $sev.low))
+          $warn = @()
+          foreach ($p in $r.warnings.PSObject.Properties) { $warn += "$($p.Name) $(@($p.Value).Count)" }
+          $sevText = ($sev.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value)" }) -join ', '
+          $summary = "$vulns vulnerabilities ($sevText); warnings: $(if ($warn) { $warn -join ', ' } else { 'none' })"
+          "cargo audit: $summary"
+          "### cargo audit: $summary" >> $env:GITHUB_STEP_SUMMARY
+          if ($vulns -gt 0 -or $warn) { "::warning title=cargo audit::$summary" } else { "::notice title=cargo audit::$summary" }
+          exit 0
+
+      - name: npm audit, runtime deps (report only)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          npm audit --omit=dev 2>&1 | Out-Host
+          $json = npm audit --omit=dev --json 2>$null | Out-String
+          try { $m = ($json | ConvertFrom-Json).metadata.vulnerabilities } catch { "::warning title=npm audit::could not run or parse npm audit"; exit 0 }
+          $summary = "$($m.total) vulnerabilities (critical $($m.critical), high $($m.high), moderate $($m.moderate), low $($m.low), info $($m.info))"
+          "npm audit: $summary"
+          "### npm audit (--omit=dev): $summary" >> $env:GITHUB_STEP_SUMMARY
+          if ([int]$m.total -gt 0) { "::warning title=npm audit::$summary" } else { "::notice title=npm audit::$summary" }
+          exit 0
+
       - name: Type check
         run: npx tsc --noEmit
 
