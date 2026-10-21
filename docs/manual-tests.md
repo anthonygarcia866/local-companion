@@ -602,6 +602,33 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
     - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
     - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
 
+> **Numbering note (2026-10-20):** §29 is used twice in open drafts: #34 (calendar glance) and #40 (your own apps). Whichever merges second becomes §30. §31-§33 below are for #42, #43 and #44, which had no hand test of their own.
+
+## 31. Session pill labels clear the mini lantern (PR #42, cherry-pick of upstream #522)
+
+*Where: a build with PR #42. Needs a Claude Code session in a folder with a long name.*
+
+1. **Long name:** start Claude Code in a folder with a long name (e.g. `my-very-long-project-name-here`) and open the island so its session pills show. **See:** the label starts to the right of the 24 px lantern; no letter sits under it. A name too long for the pill is cut at its right end, not under the lantern.
+2. **Short name:** a session in a short folder (e.g. `glim`): the label still reads fine, a little right of centre.
+3. **Not touched:** hold Ctrl+Alt+Shift+V: the **Dictating** label beside the pill's lantern looks as before (this PR doesn't change it).
+
+## 32. Open Claude falls back to the claude:// protocol (PR #43, cherry-pick of upstream #417)
+
+*Where: a build with PR #43. The new step only matters for a Store (MSIX) install of the Claude desktop app; the classic installer's path is unchanged.*
+
+1. **Claude running:** with the Claude desktop app open, click **Open Claude** on its pill's card (or the Claude desktop pill). **See:** Claude comes to the front, as before.
+2. **Claude closed, classic install:** quit Claude, click **Open Claude** again. **See:** Claude starts, as before.
+3. **Store install (only if this PC has one; skip otherwise):** with Claude installed from the Microsoft Store and closed, click **Open Claude**. **See:** Claude opens (before this PR nothing happened). No browser window, no "pick an app" prompt.
+4. **Voice is separate:** Ctrl+Alt+Shift+A "open Claude" still opens the Claude app (it uses a different path, `activate_package`).
+
+## 33. Plan usage says the gauge needs the Claude Code CLI (PR #44, adapted from upstream #479)
+
+*Where: a build with PR #44. Nothing to set up.*
+
+1. **The hint:** Settings → Claude Code & Agents → **Plan usage**. **See:** under the Claude text and before its switch: "The numbers come from the Claude Code command-line tool. The Claude desktop app does not report them, so the gauge stays empty if you only use the desktop app."
+2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
+3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
