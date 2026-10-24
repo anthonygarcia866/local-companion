@@ -9,11 +9,13 @@ on:
     paths:
       - 'windows/**'
       - '.github/workflows/windows-ci.yml'
+      - 'ci/clippy-baseline.txt'
   push:
     branches: [main]
     paths:
       - 'windows/**'
       - '.github/workflows/windows-ci.yml'
+      - 'ci/clippy-baseline.txt'
 
 permissions:
   contents: read
@@ -134,3 +136,36 @@ jobs:
           $touched = @("$env:APPDATA\Glim", "$env:LOCALAPPDATA\Glim", "$env:APPDATA\Coucou", "$env:LOCALAPPDATA\Coucou") | Where-Object { Test-Path $_ }
           if ($touched) { Get-ChildItem $touched -Recurse -Force | Select-Object FullName; throw "tests created or changed: $($touched -join ', ')" }
           "no data folder was touched"
+
+      # Clippy, report only: it never fails the job or blocks a merge. It runs
+      # even when an earlier step failed, prints every distinct warning and the
+      # count, and adds a warning annotation when the count is above the
+      # baseline in ci/clippy-baseline.txt (how to lower it is written there).
+      - name: Clippy (report only)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $baseline = [int](Get-Content ../ci/clippy-baseline.txt | Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } | Select-Object -First 1)
+          rustup component add clippy 2>&1 | Out-Host
+          $started = Get-Date
+          $json = cargo clippy --workspace --all-targets --locked --message-format=json 2>$null
+          $clippyExit = $LASTEXITCODE
+          $seconds = [int]((Get-Date) - $started).TotalSeconds
+          # The same warning shows up once per target (lib, lib test, ...): count it once.
+          $warnings = @($json | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-message' -and $_.message.level -eq 'warning' -and $_.message.spans.Count -gt 0 } |
+            ForEach-Object { $_.message.rendered.TrimEnd() } | Sort-Object -Unique)
+          $count = $warnings.Count
+          $warnings | ForEach-Object { $_; '' }
+          "clippy: $count distinct warning(s), baseline $baseline, exit $clippyExit, ${seconds}s"
+          "### Clippy: $count warning(s) (baseline $baseline, ${seconds}s)" >> $env:GITHUB_STEP_SUMMARY
+          if ($clippyExit -ne 0) {
+            "::warning title=Clippy::cargo clippy exited $clippyExit (a compile error, or clippy missing); the count may be incomplete"
+          }
+          if ($count -gt $baseline) {
+            "::warning title=Clippy::$count warnings, above the baseline of $baseline. Fix the new ones (see this step's log)."
+          } elseif ($count -lt $baseline) {
+            "Below the baseline: lower ci/clippy-baseline.txt to $count."
+          }
+          exit 0
