@@ -99,7 +99,7 @@ fn whisper_on_this_pc() {
             super::Decision::Sensitive => "sensitive",
             super::Decision::Question { .. } => "question",
             super::Decision::Resume { .. } => "resume card",
-            super::Decision::Open { .. } => "open app",
+            super::Decision::Open { .. } | super::Decision::OpenOwn { .. } => "open app",
             super::Decision::Draft(_) => "draft card",
             super::Decision::EditDraft { .. } => "edit card",
         };
@@ -165,7 +165,7 @@ fn claude_clean_up() {
         let fixed = super::unit_numbers(said);
         let said = fixed.as_str();
         let t0 = Instant::now();
-        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, asked: None };
+        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, own_apps: &[], asked: None };
         let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
         println!("{mode:?} {said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));
