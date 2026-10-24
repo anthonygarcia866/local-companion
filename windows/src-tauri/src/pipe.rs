@@ -14,6 +14,10 @@
 //   * whatever happens we drop the connection after the decision timeout, and
 //     the terminal takes over.
 //
+// Answering in the terminal instead kills glim-hook (on "No" Claude Code
+// aborts the hook with the turn, and sends no Stop): we notice the connection
+// close and tell the island (`approval-gone`), so the card never outlives it.
+//
 // What we write back is the bare word `allow` or `deny` — or, when the request
 // was Claude Code asking a question, `{"answers":{…}}` with what was picked on
 // the island. Turning either into the documented hookSpecificOutput JSON is
@@ -21,8 +25,11 @@
 // one place.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::task::Poll;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -231,14 +238,20 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
     log::line(format!("hook PermissionRequest id={id}"));
     let _ = app.emit_to(WINDOW_LABEL, "hook", payload);
 
-    let decision = wait_for_decision(&id, &mut rx).await;
+    let waited = wait_for_decision(&id, &mut rx, until_closed(&mut pipe)).await;
     app.state::<Pending>().0.lock().unwrap().remove(&id);
 
     // No decision: say nothing at all. glim-hook then writes nothing to stdout
     // and Claude Code asks in the terminal, exactly as if Coucou were closed.
-    if let Some(d) = decision {
-        let _ = pipe.write_all(format!("{d}\n").as_bytes()).await;
-        let _ = pipe.flush().await;
+    match waited {
+        Waited::Answered(d) => {
+            let _ = pipe.write_all(format!("{d}\n").as_bytes()).await;
+            let _ = pipe.flush().await;
+        }
+        Waited::Gone => {
+            let _ = app.emit_to(WINDOW_LABEL, "approval-gone", json!({ "request_id": id }));
+        }
+        Waited::NoDecision => {}
     }
     pipe.finish();
 }
@@ -268,38 +281,86 @@ fn note_session_window(pipe: &impl Relay, payload: &Value, event: &str) {
     }
 }
 
+/// How a permission request's wait ended.
+#[derive(Debug, PartialEq)]
+enum Waited {
+    /// The island's answer, to write back.
+    Answered(String),
+    /// No answer from Glim: the terminal asks.
+    NoDecision,
+    /// glim-hook went away first: answered in the terminal.
+    Gone,
+}
+
+/// Resolves when the relay on the other end closes the connection: glim-hook
+/// exited or was killed. It writes nothing after its one line, so anything
+/// read here is ignored.
+async fn until_closed(pipe: &mut (impl AsyncRead + Unpin)) {
+    let mut chunk = [0u8; 256];
+    while let Ok(n) = pipe.read(&mut chunk).await {
+        if n == 0 {
+            return;
+        }
+    }
+}
+
+/// The island's next reply; `None` once the relay has gone. A reply that is
+/// already there wins over a relay that has just closed.
+async fn recv_unless_gone(rx: &mut mpsc::Receiver<Reply>, mut gone: Pin<&mut impl Future<Output = ()>>) -> Option<Option<Reply>> {
+    std::future::poll_fn(|cx| {
+        if let Poll::Ready(reply) = rx.poll_recv(cx) {
+            return Poll::Ready(Some(reply));
+        }
+        if gone.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(None);
+        }
+        Poll::Pending
+    })
+    .await
+}
+
 /// Two waits: a short one for "the card is up", then the long one for a human.
-async fn wait_for_decision(id: &str, rx: &mut mpsc::Receiver<Reply>) -> Option<String> {
-    match tokio::time::timeout(ACK_TIMEOUT, rx.recv()).await {
-        Ok(Some(Reply::Ack)) => {}
+/// Either ends early if the relay goes (`gone`).
+async fn wait_for_decision(id: &str, rx: &mut mpsc::Receiver<Reply>, gone: impl Future<Output = ()>) -> Waited {
+    let mut gone = std::pin::pin!(gone);
+    match tokio::time::timeout(ACK_TIMEOUT, recv_unless_gone(rx, gone.as_mut())).await {
+        Ok(Some(Some(Reply::Ack))) => {}
         // A click that beats the ack is still a click.
-        Ok(Some(Reply::Decision(d))) => {
+        Ok(Some(Some(Reply::Decision(d)))) => {
             log::line(format!("hook id={id} answered {}", loggable(&d)));
-            return Some(d);
+            return Waited::Answered(d);
         }
-        Ok(Some(Reply::Decline)) => {
+        Ok(Some(Some(Reply::Decline))) => {
             log::line(format!("hook id={id} not shown — terminal takes over"));
-            return None;
+            return Waited::NoDecision;
         }
-        Ok(None) => return None,
+        Ok(Some(None)) => return Waited::NoDecision,
+        Ok(None) => {
+            log::line(format!("hook id={id} relay gone — answered in the terminal"));
+            return Waited::Gone;
+        }
         Err(_) => {
             log::line(format!("hook id={id} island never acknowledged — terminal takes over"));
-            return None;
+            return Waited::NoDecision;
         }
     }
 
-    match tokio::time::timeout(DECISION_TIMEOUT, rx.recv()).await {
-        Ok(Some(Reply::Decision(d))) => {
+    match tokio::time::timeout(DECISION_TIMEOUT, recv_unless_gone(rx, gone.as_mut())).await {
+        Ok(Some(Some(Reply::Decision(d)))) => {
             log::line(format!("hook id={id} answered {}", loggable(&d)));
-            Some(d)
+            Waited::Answered(d)
         }
-        Ok(Some(Reply::Decline)) => {
+        Ok(Some(Some(Reply::Decline))) => {
             log::line(format!("hook id={id} released without a decision"));
-            None
+            Waited::NoDecision
+        }
+        Ok(None) => {
+            log::line(format!("hook id={id} relay gone — answered in the terminal"));
+            Waited::Gone
         }
         _ => {
             log::line(format!("hook id={id} timed out — terminal takes over"));
-            None
+            Waited::NoDecision
         }
     }
 }
@@ -353,4 +414,75 @@ pub fn answer_question(app: &AppHandle, request_id: &str, answers: &HashMap<Stri
     // One line: the relay reads up to the first newline.
     let line = json!({ "answers": answers }).to_string();
     send(app, request_id, Reply::Decision(line), false);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block_on<T>(f: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    }
+
+    // Bug 1 (owner's retest 2026-10-18): "No" in the terminal kills glim-hook
+    // and the card stayed up. Its connection closing ends the wait.
+    #[test]
+    fn a_relay_that_goes_ends_the_wait() {
+        block_on(async {
+            let (tx, mut rx) = mpsc::channel(4);
+            tx.try_send(Reply::Ack).unwrap();
+            assert_eq!(wait_for_decision("t-1", &mut rx, async {}).await, Waited::Gone, "on screen, then gone");
+            let (_tx, mut rx) = mpsc::channel(4);
+            assert_eq!(wait_for_decision("t-2", &mut rx, async {}).await, Waited::Gone, "gone before the ack");
+        });
+    }
+
+    #[test]
+    fn an_answer_already_given_wins_over_a_closing_relay() {
+        block_on(async {
+            let (tx, mut rx) = mpsc::channel(4);
+            tx.try_send(Reply::Ack).unwrap();
+            tx.try_send(Reply::Decision("allow".into())).unwrap();
+            assert_eq!(wait_for_decision("t-3", &mut rx, async {}).await, Waited::Answered("allow".into()));
+            // A relay that stays: as before.
+            let (tx, mut rx) = mpsc::channel(4);
+            tx.try_send(Reply::Ack).unwrap();
+            tx.try_send(Reply::Decline).unwrap();
+            assert_eq!(wait_for_decision("t-4", &mut rx, std::future::pending()).await, Waited::NoDecision);
+        });
+    }
+
+    #[test]
+    fn until_closed_waits_for_the_other_end_to_close() {
+        block_on(async {
+            let (mut ours, mut theirs) = tokio::io::duplex(1024);
+            // Still connected, even writing: not closed.
+            theirs.write_all(b"stray").await.unwrap();
+            let open = tokio::time::timeout(Duration::from_millis(50), until_closed(&mut ours)).await;
+            assert!(open.is_err(), "the relay is still there");
+            drop(theirs);
+            tokio::time::timeout(Duration::from_secs(1), until_closed(&mut ours))
+                .await
+                .expect("closed: the wait ends");
+        });
+    }
+
+    // The real transport: glim-hook opens the pipe as a file, and its process
+    // dying closes that handle.
+    #[cfg(windows)]
+    #[test]
+    fn a_named_pipe_client_closing_is_noticed() {
+        block_on(async {
+            let name = format!(r"\\.\pipe\glim-test-gone-{}", std::process::id());
+            let mut server = ServerOptions::new().first_pipe_instance(true).create(&name).unwrap();
+            let client = std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap();
+            server.connect().await.unwrap();
+            let open = tokio::time::timeout(Duration::from_millis(50), until_closed(&mut server)).await;
+            assert!(open.is_err(), "the client is still there");
+            drop(client);
+            tokio::time::timeout(Duration::from_secs(1), until_closed(&mut server))
+                .await
+                .expect("the client closed: the wait ends");
+        });
+    }
 }

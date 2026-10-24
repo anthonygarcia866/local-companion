@@ -589,7 +589,9 @@ export class Island {
     if (check === "armed" && req) {
       void Bridge.log(`allow key armed req=${req.requestId}`);
       State.notify();
-      // The card drops "Press again…" when the window closes.
+      // The card counts down each second, and drops "Press again…" when the
+      // window closes.
+      for (let s = 1_000; s < CONFIRM_WINDOW_MS; s += 1_000) window.setTimeout(() => State.notify(), s);
       window.setTimeout(() => State.notify(), CONFIRM_WINDOW_MS + 50);
       return;
     }

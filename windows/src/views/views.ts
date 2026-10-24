@@ -26,7 +26,7 @@ import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { SHORTCUTS, displayKeys, effective } from "../core/shortcuts";
-import { armedFor, cardOnScreen } from "../core/allow";
+import { armedFor, cardOnScreen, secondsLeft } from "../core/allow";
 import { buildRecap } from "./recap";
 import { language, t, tl, tn, type Msg } from "../i18n/i18n";
 
@@ -422,7 +422,7 @@ function keyOf(id: "allowApproval" | "denyApproval"): string {
 export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
-  // The Allow key's second press (fix e): "Press again to allow: …" for 3 s.
+  // The Allow key's second press (fix e): "Press again to allow · 3…2…1".
   const confirm = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-confirm" });
   const row = h("div", { class: "actions" });
   const denyKey = h("span", { class: "kbd", "data-role": "deny-key" });
@@ -460,15 +460,22 @@ export function buildApproval(actions: ViewActions): ViewHost {
       code.textContent = command;
       // On screen (open, not folded) with the whole command in view: the
       // Allow key's clock (core/allow.ts). A box that scrolls or cuts off
-      // isn't the whole command.
+      // isn't the whole command. Measured when the key is pressed, without
+      // the "Press again" line, which only takes room while it is showing.
       if (req && State.mode === "expanded") {
-        const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
-        cardOnScreen(req, performance.now(), fits);
+        cardOnScreen(req, performance.now(), () => {
+          const shown = confirm.style.display;
+          confirm.style.display = "none";
+          const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
+          confirm.style.display = shown;
+          return fits;
+        });
       }
       // A destructive command's first press (core/allow.ts): the card asks
-      // for the second, naming the command it would allow.
-      const armed = req ? armedFor(performance.now()) : null;
-      confirm.textContent = armed?.requestId === req ? t("Press again to allow: {command}", { command }) : "";
+      // for the second and counts down the seconds left for it.
+      const now = performance.now();
+      const armed = req ? armedFor(now) : null;
+      confirm.textContent = armed && armed.requestId === req ? t("Press again to allow · {seconds}", { seconds: String(secondsLeft(armed, now)) }) : "";
       confirm.style.display = confirm.textContent ? "" : "none";
       denyKey.textContent = keyOf("denyApproval");
       allowKey.textContent = keyOf("allowApproval");
