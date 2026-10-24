@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn ordinary_text_with_numbers_still_gets_through() {
-        let text = "Call (555) 123-4567 about unit 4B, 221 Baker St, CA 94043. Invoice #2026-0042 total $1,234.56.";
+        let text = "Call (555) 123-4567 about unit 7B, 221 Baker St, CA 94043. Invoice #2026-0042 total $1,234.56.";
         let c = finish_reading(chrome_meta(), "Inbox".into(), Some(text.into()), Some(10));
         assert_eq!(c.excerpt.as_ref().expect("excerpt").text, text);
         assert!(c.meta.readable && !c.meta.sensitive && c.meta.char_count == text.chars().count());

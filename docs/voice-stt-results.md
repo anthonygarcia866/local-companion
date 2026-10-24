@@ -71,9 +71,9 @@ Run on all 20 clips. Processing times varied between the runs that day (the PC w
 
 ## Re-run 2026-10-17 (after Anthony's retest; same 20 synthetic clips)
 
-Why: the retest found weak accuracy ("unit four B" typed as "Unit 4", "Claude" heard as "Claw", "shift" as "knowledge shift"). Installed on the PC: **base.en** (`ggml-base.en-q5_1.bin`, Settings → Dictation → Speech model = Base), and **the word list was empty**, so whisper got no vocabulary hint at all.
+Why: the retest found weak accuracy (a unit's letter dropped, "Unit 7", "Claude" heard as "Claw", "shift" as "knowledge shift"). Installed on the PC: **base.en** (`ggml-base.en-q5_1.bin`, Settings → Dictation → Speech model = Base), and **the word list was empty**, so whisper got no vocabulary hint at all.
 
-Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the new built-in words as the hint (`Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, HOA`):
+Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the built-in words of that day (the app's names plus the owner's own terms; cut to `Claude, Claude Code, Codex, Glim` on 2026-10-24) and the clips' words as the hint (`Claude, Claude Code, Codex, Glim, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, HOA`):
 
 | | base.en | small.en |
 |---|---|---|

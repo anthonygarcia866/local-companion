@@ -4,6 +4,7 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
+import { DEFAULT_LEAD_MIN, glowing, nextEvent, withCalendarGlow } from "../core/calendar";
 import { CONFIRM_WINDOW_MS, cardOffScreen, press } from "../core/allow";
 import { ApprovalWait, playSoftChime } from "../core/approval-wait";
 import {
@@ -1266,7 +1267,10 @@ export class Island {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
       const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
-      this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
+      // The calendar glance: the next event is minutes away (a resting lantern glows).
+      const cal = State.calendar?.glance.available ? nextEvent(State.calendar.glance.events, Date.now()) : null;
+      const glow = glowing(cal?.event ?? null, Date.now(), State.settings.calendarLeadMin ?? DEFAULT_LEAD_MIN);
+      this.lantern.show(forced ?? withPause(withWritingSuggestions(withCalendarGlow(lanternStateFor(this.engine.state, State.mode === "expanded"), glow), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
       // Dictation typed the raw transcript: its badge takes the spot for the

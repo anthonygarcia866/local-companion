@@ -5,7 +5,7 @@ For Anthony, one sitting of about 15 minutes. These 22 clips replace the synthet
 The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It's **6 dictation, 12 commands and 4 hard clips**:
 - each of the ten approved command words starts a clip;
 - the three `open_app` targets get one clip each, since "Codex" and "Claude Code" are easy to mishear;
-- every word the first run got wrong is in here again: Glim, HOA board, Okafor, Nguyen, Rodriguez Plumbing, dale cuts, gate code, Thursday on a fast clip.
+- every word the first run got wrong is in here again: Glim, HOA board, Ravenwood, Halloway, Bluefin Plumbing, maple notes, gate code, Thursday on a fast clip.
 
 `windows/dev/stt-compare/clips-owner.json` holds the same list with the reference text and the words that must come through.
 
@@ -20,7 +20,7 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
    - Read each line **exactly as written**, at your normal pace and tone. Don't over-pronounce.
    - Leave about half a second of silence before and after each line.
    - If you stumble, record that clip again.
-   - Spoken forms matter: say "nine a.m.", "four four seven one", "seventy-five dollars".
+   - Spoken forms matter: say "nine a.m.", "four two eight six", "seventy-five dollars".
 5. **Names:** name each file by its id (`d1`, `c7`, `h3`…). Save them all in **`%USERPROFILE%\glim-clips\`**, outside any repo.
 6. **Afterwards:** tell Claude "clips are in glim-clips". The folder is deleted once you've picked a model (plan §3).
 
@@ -30,12 +30,12 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
 
 | id | Say exactly |
 |---|---|
-| d1 | Hi Maria, the lease renewal for unit 4B is ready to sign. Please send it back by Friday, October 24th. |
+| d1 | Hi Priya, the lease renewal for unit 7D is ready to sign. Please send it back by Friday, October 24th. |
 | d2 | Um, the HOA board approved the new parking rules, and the fine for a second violation is seventy-five dollars. *(keep the "um")* |
-| d3 | The tenant in 12C reported a leak under the kitchen sink. I scheduled Rodriguez Plumbing for Thursday at nine a.m. |
-| d4 | Thanks for your patience, Mr. Okafor. Your security deposit refund was mailed on Monday, and the Section 8 inspection is on the 30th. |
+| d3 | The tenant in 9F reported a leak under the kitchen sink. I scheduled Bluefin Plumbing for Thursday at nine a.m. |
+| d4 | Thanks for your patience, Mr. Ravenwood. Your security deposit refund was mailed on Monday, and the Section 8 inspection is on the 30th. |
 | d5 | I'm testing Glim in Outlook this week, so please ignore any odd drafts from me. |
-| d6 | Please remind the vendors that the gate code changes to four four seven one next week. |
+| d6 | Please remind the vendors that the gate code changes to four two eight six next week. |
 
 ### Commands: say these as if talking to Glim
 
@@ -46,11 +46,11 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
 | c3 | open | Open Claude Code. |
 | c4 | pick up | Pick up from yesterday. |
 | c5 | resume | Resume the local companion project. |
-| c6 | where was I | Where was I on dale cuts? |
-| c7 | draft | Draft an email to Maria saying the plumber comes Tuesday at ten. |
+| c6 | where was I | Where was I on maple notes? |
+| c7 | draft | Draft an email to Priya saying the plumber comes Tuesday at ten. |
 | c8 | email | Email the HOA board the October minutes. |
 | c9 | send | Send it. |
-| c10 | reply | Reply to Sarah and say the keys are ready. |
+| c10 | reply | Reply to Elena and say the keys are ready. |
 | c11 | delete | Delete the last sentence. |
 | c12 | go to | Go to the Glim settings page. |
 
@@ -58,8 +58,8 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
 
 | id | What's hard | Say exactly |
 |---|---|---|
-| h1 | **fast**: say it in a hurry, as fast as you'd really talk | Draft a quick note to the tenants in units 3A through 3F that the water will be off Thursday from ten to two. |
-| h2 | **noisy**: real background noise on | Send Mr. Nguyen the move-out checklist and copy the property manager. |
+| h1 | **fast**: say it in a hurry, as fast as you'd really talk | Draft a quick note to the tenants in units 6A through 6F that the water will be off Thursday from ten to two. |
+| h2 | **noisy**: real background noise on | Send Mr. Halloway the move-out checklist and copy the property manager. |
 | h3 | **pause**: stop for about two seconds where the dots are, as if checking a paper | The repair estimate came to … two thousand four hundred dollars, including parts. |
 | h4 | **numbers said two ways** | Call me at five five five, zero one nine eight, about unit four oh two. |
 
@@ -71,7 +71,7 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
    - add whisper-cli (b5454 `whisper-bin-x64.zip`) and the base.en / small.en `q5_1` models, each checked against its published SHA-256 again. Copies are in the 2026-10-14 session scratch folder if it still exists.
    - **Parakeet:** `python -I get_parakeet.py <scratch>\parakeet` fetches upstream's four files (about 670 MB, pinned revision, each SHA-256 checked; it refuses to write inside the repo). Then make a venv in scratch with sherpa-onnx at upstream's version: `python -m venv <scratch>\stt-venv`, then `<scratch>\stt-venv\Scripts\python -m pip install sherpa-onnx==1.13.8 numpy` (a `cp312-win_amd64` wheel exists on PyPI). Run compare.py with that venv's python.
    - **Memory:** Parakeet's encoder alone is 652 MB on disk. Check free RAM first and close apps if it's under ~3 GB (on 2026-10-19 the PC had 0.8 GB free, so the tooling was only checked without the model).
-3. **Run it twice,** all three each time: plain, then with `--prompt "Glim, HOA, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, lease renewal, gate code, unit 4B, Codex, Claude Code, Section 8"`, adding `--parakeet <scratch>\parakeet` both times. That hint list is what you'd keep in Settings → Writing → Dictation → Words Glim should know. **Parakeet takes no hint** (whisper's prompt has no counterpart here), so it runs plain both times; its results are marked `"hint": false`. Compare it with whisper *with* the hint, since that's how Glim runs whisper today.
+3. **Run it twice,** all three each time: plain, then with `--prompt "Glim, HOA, Ravenwood, Halloway, Bluefin Plumbing, maple-notes, lease renewal, gate code, unit 7D, Codex, Claude Code, Section 8"`, adding `--parakeet <scratch>\parakeet` both times. That hint list is what you'd keep in Settings → Writing → Dictation → Words Glim should know. **Parakeet takes no hint** (whisper's prompt has no counterpart here), so it runs plain both times; its results are marked `"hint": false`. Compare it with whisper *with* the hint, since that's how Glim runs whisper today.
 4. **Report:** add a "Run 2 (owner's voice)" section to `docs/voice-stt-results.md` with:
    - lenient WER;
    - command word heard first (12 command clips + h1 + h2);

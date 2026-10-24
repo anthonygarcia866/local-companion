@@ -239,7 +239,117 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     bubbleRow(host),
     aiAutoRow(host),
     dictationGroup(host),
+    openAppsGroup(host),
     draftGroup(host),
+  );
+}
+
+/** The apps "open …" always knows (Rust's voice::OPENABLE), as named on the page. */
+export const BUILT_IN_OPEN_APPS = ["Outlook", "Codex", "Claude", "Claude Code"];
+/** At most this many own apps (Rust's voice::own_apps::MAX_APPS). */
+export const MAX_OWN_APPS = 20;
+
+/** Letters and digits only, lower case (Rust's own_apps::norm). */
+const normName = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const BUILT_IN_NORMS = ["outlook", "codex", "claudecode", "claude", "classicoutlook", "claudeapp"];
+
+/** Why a name can't be used, as Rust's own_apps::name_problem says it; null when it can. */
+export function ownAppNameProblem(name: string, taken: string[]): string | null {
+  const n = name.trim();
+  if (!n) return "name-empty";
+  if ([...n].length > 40) return "name-long";
+  if (!/^[\p{L}\p{N} \-_.&'+]+$/u.test(n) || !normName(n)) return "name-chars";
+  if (BUILT_IN_NORMS.includes(normName(n))) return "name-built-in";
+  if (taken.some((other) => normName(other) === normName(n))) return "name-taken";
+  return null;
+}
+
+/** A pasted path without the quotes Explorer's "Copy as path" adds (own_apps::clean_path). */
+export function cleanPath(path: string): string {
+  const p = path.trim();
+  return (p.length >= 2 && p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p).trim();
+}
+
+/** Why a (cleaned) path can't be used, as Rust's own_apps::path_problem says it. */
+export function ownAppPathProblem(path: string): string | null {
+  if (!path) return "path-empty";
+  if ([...path].length > 1000 || /[\u0000-\u001f\u007f"*?<>|]/.test(path)) return "path-chars";
+  if (path.startsWith("\\\\") || path.startsWith("//")) return "path-network";
+  if (!(path.length > 3 && /^[A-Za-z]:[\\/]/.test(path)) || path.slice(2).includes(":")) return "path-not-full";
+  if (!/\.(exe|lnk)$/i.test(path)) return "path-kind";
+  return null;
+}
+
+function ownAppProblemText(code: string): string {
+  switch (code) {
+    case "name-empty": return t("Give the app a name.");
+    case "name-long": return t("Use a name of up to 40 characters.");
+    case "name-chars": return t("Use letters, numbers and spaces in the name.");
+    case "name-built-in": return t("Outlook, Codex and Claude are built in: pick another name.");
+    case "name-taken": return t("You already have an app with that name.");
+    case "path-empty": return t("Paste the app's path.");
+    case "path-chars": return t("That path has characters a file path can't have.");
+    case "path-network": return t("Network paths can't be opened: use an app on this PC.");
+    case "path-not-full": return t("Use the full path, starting with the drive (C:\\…).");
+    case "path-kind": return t("Use an .exe file or a shortcut (.lnk).");
+    default: return t("You can add up to {n} apps.", { n: MAX_OWN_APPS });
+  }
+}
+
+/**
+ * Settings → Writing → Apps Glim can open: the built-in apps, then the
+ * user's own, each a name and a full path to an .exe or .lnk, with Remove.
+ * Only the names go to Claude (open_app's choices); Rust checks name and
+ * path again before it opens anything (voice::own_apps, platform::open_own_app).
+ */
+export function openAppsGroup(host: WritingHost): HTMLElement {
+  const apps = () => host.settings().voiceApps ?? [];
+  const list = h("div", { class: "pill-group", "data-role": "own-apps" });
+  const draw = () => {
+    clear(list);
+    if (apps().length === 0) {
+      list.append(h("div", { class: "hint", text: t("No apps of your own yet.") }));
+      return;
+    }
+    apps().forEach((app, i) => {
+      list.append(h("div", { class: "row", "data-name": app.name },
+        h("label", { text: `${app.name} → ${app.path}` }),
+        h("button", { class: "link-btn", type: "button", "data-role": "own-app-remove", text: t("Remove"), onclick: () => {
+          host.settings().voiceApps = apps().filter((_, j) => j !== i);
+          draw();
+          void host.save();
+        } })));
+    });
+  };
+  draw();
+  host.watch?.(draw);
+  const name = h("input", { id: "own-app-name", type: "text", maxlength: "40", "data-role": "own-app-name", placeholder: "Spotify" }) as HTMLInputElement;
+  const path = h("input", { id: "own-app-path", type: "text", maxlength: "1000", "data-role": "own-app-path", placeholder: "C:\\Program Files\\App\\App.exe" }) as HTMLInputElement;
+  const why = h("div", { class: "hint", "data-role": "own-app-why" });
+  const add = h("button", { class: "link-btn", type: "button", "data-role": "own-app-add", text: t("Add"), onclick: () => {
+    const p = cleanPath(path.value);
+    const problem = apps().length >= MAX_OWN_APPS ? "too-many" : ownAppNameProblem(name.value, apps().map((a) => a.name)) ?? ownAppPathProblem(p);
+    if (problem) {
+      why.textContent = ownAppProblemText(problem);
+      return;
+    }
+    why.textContent = "";
+    host.settings().voiceApps = [...apps(), { name: name.value.trim(), path: p }];
+    name.value = "";
+    path.value = "";
+    draw();
+    void host.save();
+  } });
+  return h("div", { class: "settings-group", id: "settings-writing-open-apps" },
+    h("h3", { text: t("Apps Glim can open") }),
+    h("div", { class: "hint", "data-role": "open-apps-built-in", text: t("With Ask Glim, say “open” and the app's name. Glim knows {apps}. Add your own below.", { apps: BUILT_IN_OPEN_APPS.join(", ") }) }),
+    list,
+    h("div", { class: "row" }, h("label", { text: t("App name"), for: "own-app-name" }), name),
+    h("div", { class: "row" }, h("label", { text: t("Path"), for: "own-app-path" }), path),
+    h("div", { class: "row" }, add),
+    why,
+    h("div", { class: "hint", text: t("Right-click the app's .exe or its shortcut, choose Copy as path, and paste it here.") }),
+    h("div", { class: "hint", text: t("The name goes to Claude with your Ask Glim request so it can pick the app. The path stays on this PC.") }),
   );
 }
 
@@ -255,7 +365,7 @@ export function modelFile(size: string): string {
  */
 /** Words whisper always hears before the user's own: Rust's
  *  voice::BUILT_IN_WORDS (fix d, 2026-10-17), shown so nobody types them again. */
-export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim";
 
 export function dictationGroup(host: WritingHost): HTMLElement {
   const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;

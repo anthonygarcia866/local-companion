@@ -32,7 +32,7 @@ impl std::fmt::Debug for Finding {
 pub const MAX_REPLACEMENTS: usize = 3;
 
 /// Rules switched off: wrong on everyday property-management text (tried
-/// 2026-10-10). "unit 4B" → "Did you mean bytes?"; "need to discus" → a
+/// 2026-10-10). "unit 7B" → "Did you mean bytes?"; "need to discus" → a
 /// replacement of "the".
 pub const DISABLED_RULES: [&str; 2] = ["ExpandMemoryShorthands", "NeedToNoun"];
 
@@ -485,7 +485,7 @@ mod tests {
     #[test]
     fn real_world_property_management_text_has_nothing_to_report() {
         for text in [
-            "The tenant at unit 4B reported a leak.",
+            "The tenant at unit 7B reported a leak.",
             "Units 101 102 103 104 need new smoke detectors.",
             "Please call Jane Doe at Acme Management LLC about 123 Main Street",
             "Sent the 3-day notice to the tenant in Apt 2C, balance $1,234.56 due 10/31.",
