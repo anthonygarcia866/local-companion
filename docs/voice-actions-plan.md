@@ -87,7 +87,7 @@ Full write-up: **`docs/voice-stt-results.md`**. Tool: `windows/dev/stt-compare/`
 | Tool | Fields | Risk | What Glim does |
 |---|---|---|---|
 | `dictate` | `text` (cleaned: filler words out, punctuation in, tone matched to the app kind) | low | Types `text` into the focused field through 1b's insertion path (with its checks: the field still focused, editable, not password, not paused). |
-| `open_app` | `app`: one of `claude_code`, `codex`, `outlook` (an enum, never a free path) | low | Opens it. No confirmation (owner, PROJECT_STATUS). |
+| `open_app` | `app`: one of `claude_code`, `claude`, `codex`, `outlook`, or the name of one of the user's own apps (Settings → Writing → Apps Glim can open) (an enum, never a free path) | low | Opens it. No confirmation (owner, PROJECT_STATUS). An own app's path never goes to Claude; Glim looks the name up and checks the path again before opening it (2026-10-19). |
 | `resume_work` | `repo` (optional; a name from the known-repos list) | low (reads) | Reads HANDOFF.md across repos (the `resume` module, PR "voice-resume-reader"), shows a card per repo with where it stopped; on a click on one, opens Claude Code in it, told to read HANDOFF.md and continue. With `repo` set, that repo's card first. |
 | `draft_email` | `to` (names or addresses, as said), `subject`, `body` | **consequential** | Creates a **draft** in classic Outlook via COM and shows it in a Glim card. **Never sends.** Sending is the user's click on Send, in Outlook or on the card, every time. |
 | `clarify` | `question` | — | Shows the question; the user answers by holding the key again. |

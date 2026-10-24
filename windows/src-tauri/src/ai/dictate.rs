@@ -60,13 +60,28 @@ pub fn system(mode: Mode) -> &'static str {
     }
 }
 
-/// The action schema (plan §4), all five.
-pub fn tools() -> Value {
+/// open_app's built-in values (voice::OPENABLE, in the schema's order).
+pub const BUILT_IN_APPS: [&str; 4] = ["claude_code", "claude", "codex", "outlook"];
+
+/// open_app: the built-in apps, then the user's own apps by name (Settings,
+/// voice::own_apps). Still an enum: Claude never writes a path.
+fn open_app_tool(own: &[String]) -> Value {
+    let mut description = "Open an app: outlook (classic Outlook), codex (the Codex app), claude (the Claude chat app), claude_code (Claude Code).".to_string();
+    if !own.is_empty() {
+        description.push_str(&format!(" Also the user's own apps, by the name they gave them: {}.", own.join(", ")));
+    }
+    let values: Vec<&str> = BUILT_IN_APPS.iter().copied().chain(own.iter().map(String::as_str)).collect();
+    json!({ "name": "open_app", "description": description,
+            "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": values } }, "required": ["app"] } })
+}
+
+/// The action schema (plan §4), all five; open_app also offers `own` (the
+/// user's own apps' names).
+pub fn tools_with(own: &[String]) -> Value {
     json!([
         { "name": "dictate", "description": "Type cleaned-up dictated text into the field the user is in.",
           "input_schema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } },
-        { "name": "open_app", "description": "Open an app: outlook (classic Outlook), codex (the Codex app), claude (the Claude chat app), claude_code (Claude Code).",
-          "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": ["claude_code", "claude", "codex", "outlook"] } }, "required": ["app"] } },
+        open_app_tool(own),
         { "name": "resume_work", "description": "Pick up where the user left off in a repo (from its HANDOFF.md).",
           "input_schema": { "type": "object", "properties": { "repo": { "type": "string" } } } },
         { "name": "draft_email", "description": "Create a draft email the user reviews and sends in Outlook (never sent by Glim). Recipients exactly as said: names, 'me' for the user, or a spoken address in the spoken words unchanged (Glim resolves them; never write or ask for an address). The body has no sign-off or signature: Outlook adds the signature. cc and bcc only if the user said them. No attachments.",
@@ -84,10 +99,10 @@ pub fn tools() -> Value {
 }
 
 /// The tools a mode offers: `dictate` alone for the dictation key, the
-/// other four for Ask Glim and answers.
-pub fn tools_for(mode: Mode) -> Value {
+/// other four for Ask Glim and answers (open_app with `own` apps too).
+pub fn tools_for(mode: Mode, own: &[String]) -> Value {
     let keep = |t: &&Value| (t["name"] == "dictate") == (mode == Mode::Dictate);
-    Value::Array(tools().as_array().map(|a| a.iter().filter(keep).cloned().collect()).unwrap_or_default())
+    Value::Array(tools_with(own).as_array().map(|a| a.iter().filter(keep).cloned().collect()).unwrap_or_default())
 }
 
 /// What an answer to a question card carries: the request that led to the
@@ -105,6 +120,9 @@ pub struct Context<'a> {
     pub app: &'a str,
     pub today: &'a str,
     pub repos: &'a [String],
+    /// The user's own apps' names (voice::own_apps::names): open_app may
+    /// name them. Never their paths.
+    pub own_apps: &'a [String],
     /// Mode::Answer: what Glim asked.
     pub asked: Option<&'a Asked>,
 }
@@ -125,7 +143,7 @@ pub fn request_body(model: &str, transcript: &str, cx: &Context) -> Value {
         "model": model,
         "max_tokens": MAX_TOKENS,
         "system": system(cx.mode),
-        "tools": tools_for(cx.mode),
+        "tools": tools_for(cx.mode, cx.own_apps),
         "tool_choice": tool_choice,
         "messages": [{
             "role": "user",
@@ -142,7 +160,8 @@ fn one_line(text: &str) -> String {
 
 /// A 2xx answer → the validated tool call, and what it cost. A tool the mode
 /// didn't offer doesn't validate (dictation can only be `dictate`; Ask never).
-pub fn parse_answer(body: &[u8], model: &str, mode: Mode) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
+/// `own`: the own apps' names open_app was offered.
+pub fn parse_answer(body: &[u8], model: &str, mode: Mode, own: &[String]) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
     let Ok(v) = serde_json::from_slice::<Value>(body) else {
         return (Err(CleanupFailed::Outage("bad-answer".into())), None);
     };
@@ -165,7 +184,11 @@ pub fn parse_answer(body: &[u8], model: &str, mode: Mode) -> (Result<Cleanup, Cl
             "codex" => Ok(Cleanup::Open("codex")),
             "claude_code" => Ok(Cleanup::Open("claude_code")),
             "claude" => Ok(Cleanup::Open("claude")),
-            _ => Err(CleanupFailed::Outage("bad-answer".into())),
+            // One of the offered own apps' names, exactly (the enum), else nothing.
+            said => match own.iter().find(|n| n.as_str() == said && !said.is_empty()) {
+                Some(name) => Ok(Cleanup::OpenOwn(name.clone())),
+                None => Err(CleanupFailed::Outage("bad-answer".into())),
+            },
         },
         "resume_work" => Ok(Cleanup::Resume(Some(field("repo")).filter(|r| !r.is_empty()).map(str::to_string))),
         "draft_email" => {
@@ -258,7 +281,7 @@ pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, c
             Failure::Sensitive => "sensitive".into(),
             other => super::rewrite::failure_code(&other),
         })), None),
-        Ok(Ok(bytes)) => parse_answer(&bytes, model, cx.mode),
+        Ok(Ok(bytes)) => parse_answer(&bytes, model, cx.mode, cx.own_apps),
     }
 }
 
@@ -269,7 +292,7 @@ mod tests {
     use crate::voice::tests::HIJACKED;
 
     fn cx(mode: Mode) -> Context<'static> {
-        Context { mode, app: "x", today: "d", repos: &[], asked: None }
+        Context { mode, app: "x", today: "d", repos: &[], own_apps: &[], asked: None }
     }
 
     fn key() -> ApiKey {
@@ -304,7 +327,7 @@ mod tests {
     fn ask_glim_offers_every_tool_but_dictate() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "outlook" })));
         let repos = ["dale-cuts".to_string()];
-        let c = Context { mode: Mode::Ask, app: "OUTLOOK.EXE", today: "2026-10-14", repos: &repos, asked: None };
+        let c = Context { mode: Mode::Ask, app: "OUTLOOK.EXE", today: "2026-10-14", repos: &repos, own_apps: &[], asked: None };
         let (r, usage) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "open outlook", &c));
         assert_eq!(r, Ok(Cleanup::Open("outlook")));
         assert!(usage.is_some());
@@ -333,7 +356,7 @@ mod tests {
             assert_eq!(body["system"], SYSTEM_DICTATE);
             // Even if a clarify came back anyway, it doesn't validate: the
             // words are typed raw (voice::decide), never a card.
-            let r = parse_answer(&answer("clarify", json!({ "question": "What would you like me to do?" })), "m", Mode::Dictate).0;
+            let r = parse_answer(&answer("clarify", json!({ "question": "What would you like me to do?" })), "m", Mode::Dictate, &[]).0;
             assert_eq!(r, Err(CleanupFailed::Outage("bad-answer".into())));
             assert_eq!(
                 crate::voice::decide(Mode::Dictate, said, r, true),
@@ -351,7 +374,7 @@ mod tests {
         assert!(flat.contains("never ask for an email address"));
         assert!(flat.contains("never write an address yourself"));
         assert!(flat.contains("no sign-off or signature"));
-        let tools = tools_for(Mode::Ask);
+        let tools = tools_for(Mode::Ask, &[]);
         let draft = tools.as_array().unwrap().iter().find(|t| t["name"] == "draft_email").unwrap();
         let d = draft["description"].as_str().unwrap();
         assert!(d.contains("'me' for the user") && d.contains("never write or ask for an address") && d.contains("no sign-off") && d.contains("never sent by Glim"));
@@ -361,7 +384,7 @@ mod tests {
     fn an_answer_carries_the_earlier_request_and_the_question() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "codex" })));
         let asked = Asked { request: "open the app".into(), question: "Which app: Outlook, Codex or Claude Code?".into() };
-        let c = Context { mode: Mode::Answer, app: "x", today: "d", repos: &[], asked: Some(&asked) };
+        let c = Context { mode: Mode::Answer, app: "x", today: "d", repos: &[], own_apps: &[], asked: Some(&asked) };
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", "codex", &c));
         assert_eq!(r, Ok(Cleanup::Open("codex")));
         let body = sent_body(&got);
@@ -374,13 +397,13 @@ mod tests {
 
     #[test]
     fn calls_are_validated() {
-        let p = |name: &str, input: Value| parse_answer(&answer(name, input), "claude-haiku-5-5", Mode::Ask).0;
-        let d = |input: Value| parse_answer(&answer("dictate", input), "claude-haiku-5-5", Mode::Dictate).0;
+        let p = |name: &str, input: Value| parse_answer(&answer(name, input), "claude-haiku-5-5", Mode::Ask, &[]).0;
+        let d = |input: Value| parse_answer(&answer("dictate", input), "claude-haiku-5-5", Mode::Dictate, &[]).0;
         assert_eq!(d(json!({ "text": "Line one.\nLine two." })), Ok(Cleanup::Dictate("Line one. Line two.".into())));
         assert_eq!(d(json!({ "text": "  " })), Err(CleanupFailed::Outage("bad-answer".into())));
         // A tool the mode didn't offer never validates.
         assert_eq!(p("dictate", json!({ "text": "Hi." })), Err(CleanupFailed::Outage("bad-answer".into())));
-        assert_eq!(parse_answer(&answer("open_app", json!({ "app": "outlook" })), "m", Mode::Dictate).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        assert_eq!(parse_answer(&answer("open_app", json!({ "app": "outlook" })), "m", Mode::Dictate, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
         assert_eq!(p("open_app", json!({ "app": "outlook" })), Ok(Cleanup::Open("outlook")));
         assert_eq!(p("open_app", json!({ "app": "claude_code" })), Ok(Cleanup::Open("claude_code")));
         assert_eq!(p("open_app", json!({ "app": "claude" })), Ok(Cleanup::Open("claude")));
@@ -401,7 +424,47 @@ mod tests {
         for (name, input) in [("send_email", json!({})), ("clarify", json!({}))] {
             assert_eq!(p(name, input), Err(CleanupFailed::Outage("bad-answer".into())), "{name}");
         }
-        assert_eq!(parse_answer(b"not json", "m", Mode::Ask).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        assert_eq!(parse_answer(b"not json", "m", Mode::Ask, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
+    }
+
+    /// "Add your own apps": their names join open_app's enum and its
+    /// description; a name comes back as OpenOwn; anything not offered, or a
+    /// path, still doesn't validate. Paths are never in the request.
+    #[test]
+    fn own_apps_are_offered_by_name_only_and_validated_against_the_offer() {
+        let own = vec!["Spotify".to_string(), "Notion".to_string()];
+        let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "Spotify" })));
+        let c = Context { mode: Mode::Ask, app: "x", today: "d", repos: &[], own_apps: &own, asked: None };
+        let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", "open spotify", &c));
+        assert_eq!(r, Ok(Cleanup::OpenOwn("Spotify".into())));
+        let body = sent_body(&got);
+        let open = body["tools"].as_array().unwrap().iter().find(|t| t["name"] == "open_app").unwrap().clone();
+        assert_eq!(open["input_schema"]["properties"]["app"]["enum"], json!(["claude_code", "claude", "codex", "outlook", "Spotify", "Notion"]));
+        assert!(open["description"].as_str().unwrap().ends_with("Also the user's own apps, by the name they gave them: Spotify, Notion."));
+        assert!(!body.to_string().contains(":\\\\"), "no path in the request");
+
+        let p = |app: &str| parse_answer(&answer("open_app", json!({ "app": app })), "m", Mode::Ask, &own).0;
+        assert_eq!(p("Notion"), Ok(Cleanup::OpenOwn("Notion".into())));
+        assert_eq!(p("outlook"), Ok(Cleanup::Open("outlook")));
+        for bad in ["spotify ", "Slack", "C:\\Spotify\\Spotify.exe", ""] {
+            assert_eq!(p(bad), Err(CleanupFailed::Outage("bad-answer".into())), "{bad}: only an offered name");
+        }
+        // Not offered (no own apps): the same name doesn't validate.
+        assert_eq!(parse_answer(&answer("open_app", json!({ "app": "Spotify" })), "m", Mode::Ask, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        // Never on the dictation key, and the dictation request offers no open_app at all.
+        assert_eq!(parse_answer(&answer("open_app", json!({ "app": "Spotify" })), "m", Mode::Dictate, &own).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        assert_eq!(names(&json!({ "tools": tools_for(Mode::Dictate, &own) })), ["dictate"]);
+        // No own apps: the description and enum are the built-in ones.
+        let plain = tools_with(&[]);
+        let open = plain.as_array().unwrap().iter().find(|t| t["name"] == "open_app").unwrap();
+        assert_eq!(open["input_schema"]["properties"]["app"]["enum"], json!(BUILT_IN_APPS));
+        assert!(!open["description"].as_str().unwrap().contains("own apps"));
+        // The built-in list is voice::OPENABLE's.
+        let mut a = BUILT_IN_APPS.to_vec();
+        let mut b = crate::voice::OPENABLE.to_vec();
+        a.sort();
+        b.sort();
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -420,11 +483,11 @@ mod tests {
     #[test]
     fn a_change_to_the_email_just_drafted_is_its_own_tool() {
         assert!(SYSTEM_ASK.contains("call edit_draft with the change in the user's words; never ask which email"));
-        let p = |input: Value| parse_answer(&answer("edit_draft", input), "m", Mode::Ask).0;
+        let p = |input: Value| parse_answer(&answer("edit_draft", input), "m", Mode::Ask, &[]).0;
         assert_eq!(p(json!({ "change": " add that the shift starts at 9 " })), Ok(Cleanup::EditDraft("add that the shift starts at 9".into())));
         assert_eq!(p(json!({ "change": "" })), Err(CleanupFailed::Outage("bad-answer".into())));
         // Never on the dictation key.
-        assert_eq!(parse_answer(&answer("edit_draft", json!({ "change": "x" })), "m", Mode::Dictate).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        assert_eq!(parse_answer(&answer("edit_draft", json!({ "change": "x" })), "m", Mode::Dictate, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
         assert_eq!(
             crate::voice::decide(Mode::Ask, "change it", Ok(Cleanup::EditDraft("say Wednesday".into())), false),
             crate::voice::Decision::EditDraft { change: "say Wednesday".into() }

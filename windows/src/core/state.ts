@@ -183,6 +183,9 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Writing → Apps Glim can open: the user's own apps for "open …".
+   *  Only the names go to Claude; Rust checks name and path again (voice::own_apps). */
+  voiceApps: OwnApp[];
   /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
   writingBubble: boolean;
   /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
@@ -205,6 +208,13 @@ export interface Settings {
   approvalSound?: boolean;
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
   phone?: PhoneSettings;
+}
+
+/** One of the user's own apps: what they say after "open", and a full local
+ *  path to an .exe or a shortcut (.lnk). Stored as settings.json `voiceApps`. */
+export interface OwnApp {
+  name: string;
+  path: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -237,6 +247,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  voiceApps: [],
   writingBubble: false,
   draftFrom: "",
   calendarOn: false,
