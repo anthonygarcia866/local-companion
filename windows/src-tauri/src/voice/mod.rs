@@ -22,6 +22,7 @@ pub mod mic;
 pub mod run;
 pub mod whisper;
 pub mod draft;
+pub mod own_apps;
 #[cfg(windows)]
 pub mod draft_worker;
 #[cfg(all(test, windows))]
@@ -45,7 +46,8 @@ pub const SAMPLE_RATE: u32 = 16_000;
 /// Outlook is; platform::open_known_app). "claude" (the Claude chat app, 4d,
 /// owner 2026-10-16) is the same Claude desktop app "claude_code" opens on
 /// this PC: no separate Claude Code app exists (HANDOFF.md, open question).
-/// "Add your own apps" is queued for later (PROJECT_STATUS.md).
+/// The user's own apps (Settings, by name and path) are `own_apps`: Claude
+/// gets their names, never a path.
 pub const OPENABLE: [&str; 4] = ["outlook", "codex", "claude_code", "claude"];
 
 /// An `open_app` app's name for the card.
@@ -155,6 +157,9 @@ pub enum Cleanup {
     /// `open_app` (1.5c): one of the schema's enum, "outlook", "codex" or
     /// "claude_code", "claude" (anything else doesn't validate).
     Open(&'static str),
+    /// `open_app` naming one of the user's own apps (Settings): its name as
+    /// stored, found among the names Claude was offered.
+    OpenOwn(String),
     /// `draft_email` (1.5d, decided 2026-10-16): names as said, subject, body.
     Draft(draft::Spoken),
     /// `edit_draft` (fix b, 2026-10-17): a change to the email Glim just
@@ -205,6 +210,9 @@ pub enum Decision {
     /// Open an app Glim knows how to open (only classic Outlook so far): low
     /// risk, no confirmation (plan §5).
     Open { app: &'static str },
+    /// Open one of the user's own apps, by its name in Settings (the path is
+    /// looked up and checked again when it opens). No confirmation, like Open.
+    OpenOwn { name: String },
     /// The "Draft email" card: it waits for Create draft (plan §5); nothing
     /// is ever sent.
     Draft(draft::Spoken),
@@ -257,6 +265,7 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         Ok(Cleanup::Clarify(question)) => Decision::Question { question },
         Ok(Cleanup::Resume(repo)) => Decision::Resume { repo },
         Ok(Cleanup::Open(app)) if OPENABLE.contains(&app) => Decision::Open { app },
+        Ok(Cleanup::OpenOwn(name)) if !name.trim().is_empty() => Decision::OpenOwn { name },
         // Claude's draft is scanned like any text before it's shown or saved.
         Ok(Cleanup::Draft(d)) => {
             let all = [d.subject.as_str(), d.body.as_str()].into_iter().chain(d.to.iter().chain(&d.cc).chain(&d.bcc).map(String::as_str));
@@ -269,7 +278,7 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         Ok(Cleanup::EditDraft(change)) if crate::capture::sensitive::contains_sensitive_number(&change) => Decision::Sensitive,
         Ok(Cleanup::EditDraft(change)) => Decision::EditDraft { change },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
-        Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
+        Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }
 }
 
@@ -374,10 +383,10 @@ pub fn level(chunk: &[i16]) -> f32 {
 /// The personal word list (Settings) as whisper's prompt: one line, commas,
 /// at most 400 characters (whisper keeps half its context for the prompt).
 /// Words whisper is always told, before the user's own (Settings →
-/// Dictation): the owner's names and terms (fix d, retest 2026-10-17:
-/// "Claude" heard as "Claw", "unit four B" typed as "Unit 4"), and two unit
-/// numbers so it writes them the way they're used.
-pub const BUILT_IN_WORDS: &str = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+/// Dictation): the app's own names (fix d, retest 2026-10-17: "Claude"
+/// heard as "Claw"). People, places and work terms go in the user's own
+/// list, never here; unit numbers are written by unit_numbers below.
+pub const BUILT_IN_WORDS: &str = "Claude, Claude Code, Codex, Glim";
 
 /// whisper's prompt: the built-in words, then the user's list.
 pub fn whisper_prompt(user_words: &str) -> String {
@@ -420,9 +429,9 @@ fn ends_phrase(token: &str) -> bool {
     token.ends_with([',', '.', '!', '?', ';', ':'])
 }
 
-/// "unit four B" / "unit 4 B" / "units four oh two c" → "unit 4B" /
-/// "unit 4B" / "units 402C" (fix d: the owner's unit numbers are a number
-/// and a letter, written together). Only right after "unit"/"units"; a unit
+/// "unit seven D" / "unit 7 D" / "units four oh two c" → "unit 7D" /
+/// "unit 7D" / "units 402C" (fix d: a unit number here is a number and a
+/// letter, written together). Only right after "unit"/"units"; a unit
 /// number with no letter after it is left as it is.
 pub fn unit_numbers(text: &str) -> String {
     let bare = |t: &str| t.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
@@ -613,6 +622,37 @@ pub(crate) mod tests {
         assert!(!f.contains("Command::new"), "no shell, no child Glim spawns itself");
     }
 
+    /// The user's own apps: a bad or missing path is refused before Windows
+    /// is asked to start anything (nothing real is opened here).
+    #[test]
+    fn an_own_app_opens_only_a_checked_local_exe_or_shortcut() {
+        #[cfg(windows)]
+        for path in [
+            r"C:\glim-test-missing\nothing-here.exe",
+            r"\\server\share\app.exe",
+            r"C:\Windows\System32\cmd.exe /c echo",
+            r"C:\Windows\System32\drivers\etc\hosts",
+            "cmd.exe",
+            "",
+        ] {
+            assert!(!crate::platform::open_own_app(path), "{path}");
+        }
+        let src = include_str!("../platform/windows.rs");
+        let f = &src[src.find("pub fn open_own_app(").unwrap()..];
+        let f = &f[..f.find("\n}").unwrap()];
+        let checks = f.find("path_problem(path).is_some()").expect("the text checks first");
+        let drive = f.find("GetDriveTypeW(PCWSTR").expect("network drives refused");
+        let exists = f.find("is_file()").expect("the file must be there");
+        let open = f.find("ShellExecuteW(None").expect("ShellExecute opens it");
+        assert!(checks < drive && drive < exists && exists < open, "every check before anything starts");
+        assert!(f.contains("PCWSTR(target.as_ptr()), None,"), "no arguments, ever");
+        assert!(!f.contains("Command::new") && !f.contains("cmd") && !f.contains("powershell"), "no shell");
+        // run.rs looks the name up in the current Settings, never trusts a path from elsewhere.
+        let run = include_str!("run.rs");
+        assert!(run.contains("super::own_apps::find(&own_apps(app), &name).is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        assert!(run.contains("own_apps: &own,"), "Claude is offered the names");
+    }
+
     #[test]
     fn a_heard_card_says_why() {
         assert_eq!(heard_code(Mode::Ask, "cap", true), "cap");
@@ -626,16 +666,16 @@ pub(crate) mod tests {
         assert_eq!(Mode::Answer.as_str(), "answer");
     }
 
-    /// Fix d (retest 2026-10-17): "unit four B" was typed "Unit 4".
+    /// Fix d (retest 2026-10-17): a unit's letter was dropped ("Unit 7").
     #[test]
     fn unit_numbers_are_a_number_and_a_letter_written_together() {
         for (heard, want) in [
-            ("the leak is in unit four B", "the leak is in unit 4B"),
-            ("Unit 4 B is ready.", "Unit 4B is ready."),
+            ("the leak is in unit seven D", "the leak is in unit 7D"),
+            ("Unit 7 D is ready.", "Unit 7D is ready."),
             ("units four oh two c and 3A", "units 402C and 3A"),
             ("unit twelve bee", "unit 12B"),
             ("unit twenty one D, by Friday", "unit 21D, by Friday"),
-            ("unit 4B stays", "unit 4B stays"),
+            ("unit 7D stays", "unit 7D stays"),
             ("in unit four.", "in unit four."),
             ("unit four a tenant called", "unit four a tenant called"),
             ("unit four, B building", "unit four, B building"),
@@ -646,11 +686,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// Fix d: whisper is always told the owner's words, then the user's own.
+    /// Fix d: whisper is always told the app's words, then the user's own.
     #[test]
     fn whisper_hears_the_built_in_words_first_then_the_users() {
-        let p = whisper_prompt("Okafor, claude, HOA");
-        assert!(p.starts_with("Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C, Okafor"), "{p}");
+        let p = whisper_prompt("Ravenwood, claude, HOA");
+        assert!(p.starts_with("Claude, Claude Code, Codex, Glim, Ravenwood"), "{p}");
         assert_eq!(p.matches("laude,").count() + p.matches("laude Code").count(), 2, "'claude' isn't said twice: {p}");
         assert!(p.ends_with("HOA"));
         assert_eq!(whisper_prompt(""), BUILT_IN_WORDS);
@@ -718,7 +758,7 @@ pub(crate) mod tests {
             assert!(starts_like_command(t), "{t}");
         }
         for t in [
-            "Thanks for the quick turnaround on unit 4B", "The plumber comes Tuesday", "Opened the gate at nine",
+            "Thanks for the quick turnaround on unit 7D", "The plumber comes Tuesday", "Opened the gate at nine",
             "Sending thanks to everyone", "Emailed Maria yesterday", "Gone to lunch", "Undelete is not a word", "",
         ] {
             assert!(!starts_like_command(t), "{t}");
@@ -740,7 +780,7 @@ pub(crate) mod tests {
             // Whatever comes back that isn't `dictate` (it is never offered):
             // still typed, raw, never a question or an action.
             let spoken = draft::Spoken { to: vec!["the tenant".into()], body: said.into(), ..Default::default() };
-            for other in [Cleanup::Clarify("What would you like me to do?".into()), Cleanup::Draft(spoken), Cleanup::Open("outlook"), Cleanup::Resume(None)] {
+            for other in [Cleanup::Clarify("What would you like me to do?".into()), Cleanup::Draft(spoken), Cleanup::Open("outlook"), Cleanup::OpenOwn("Spotify".into()), Cleanup::Resume(None)] {
                 assert_eq!(decide(Mode::Dictate, said, Ok(other.clone()), true), Decision::Type { text: said.into(), cleaned: false }, "{said} / {other:?}");
             }
             for f in [CleanupFailed::Timeout, CleanupFailed::NoKey, CleanupFailed::Cap, CleanupFailed::Outage("network".into())] {
@@ -765,6 +805,8 @@ pub(crate) mod tests {
                 assert_eq!(decide(mode, "open codex", Ok(Cleanup::Open("codex")), field), Decision::Open { app: "codex" });
                 assert_eq!(decide(mode, "open claude code", Ok(Cleanup::Open("claude_code")), field), Decision::Open { app: "claude_code" });
                 assert_eq!(decide(mode, "open claude", Ok(Cleanup::Open("claude")), field), Decision::Open { app: "claude" });
+                assert_eq!(decide(mode, "open spotify", Ok(Cleanup::OpenOwn("Spotify".into())), field), Decision::OpenOwn { name: "Spotify".into() });
+                assert_eq!(decide(mode, "open it", Ok(Cleanup::OpenOwn(" ".into())), field), Decision::Heard { transcript: "open it".into() });
                 assert_eq!(decide(mode, "send it", Ok(Cleanup::Clarify("Click Send on the draft to send it.".into())), field), Decision::Question { question: "Click Send on the draft to send it.".into() });
                 let d = draft::Spoken { to: vec!["Maria".into()], subject: "Plumber".into(), body: "The plumber comes Tuesday.".into(), ..Default::default() };
                 assert_eq!(decide(mode, "draft an email to maria", Ok(Cleanup::Draft(d.clone())), field), Decision::Draft(d.clone()));
