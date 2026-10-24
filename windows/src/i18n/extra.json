@@ -5024,6 +5024,50 @@
    "ru": "Не удалось открыть {app}. Оно установлено?",
    "id": "Tidak bisa membuka {app}. Apakah sudah terpasang?"
   },
+  "A small lantern beside the field you type in, with the count; click it for the suggestions. It never takes the focus from your text.": {
+   "zh-Hans": "在你输入的文本框旁显示一个带计数的小灯笼；点击它查看建议。它绝不会抢走文字的焦点。",
+   "hi": "जिस फ़ील्ड में आप टाइप करते हैं उसके पास गिनती वाली एक छोटी लालटेन; सुझावों के लिए उस पर क्लिक करें। यह आपके टेक्स्ट से फ़ोकस कभी नहीं हटाती।",
+   "es": "Un pequeño farol junto al campo donde escribes, con el número; haz clic en él para ver las sugerencias. Nunca le quita el foco a tu texto.",
+   "ar": "فانوس صغير بجانب الحقل الذي تكتب فيه، مع العدد؛ انقر عليه لرؤية الاقتراحات. لا يأخذ التركيز من نصك أبدًا.",
+   "fr": "Une petite lanterne à côté du champ où vous tapez, avec le nombre ; cliquez dessus pour voir les suggestions. Elle ne prend jamais le focus à votre texte.",
+   "bn": "আপনি যে ফিল্ডে লেখেন তার পাশে সংখ্যাসহ একটি ছোট লণ্ঠন; পরামর্শ দেখতে সেটিতে ক্লিক করুন। এটি কখনও আপনার লেখা থেকে ফোকাস সরায় না।",
+   "pt-BR": "Uma pequena lanterna ao lado do campo onde você digita, com a contagem; clique nela para ver as sugestões. Ela nunca tira o foco do seu texto.",
+   "ru": "Маленький фонарик рядом с полем, где вы печатаете, с числом; нажмите на него, чтобы увидеть предложения. Он никогда не забирает фокус у вашего текста.",
+   "id": "Lentera kecil di samping kolom tempat Anda mengetik, dengan jumlahnya; klik untuk melihat saran. Lentera ini tidak pernah mengambil fokus dari teks Anda."
+  },
+  "Show the mini lantern next to the text field": {
+   "zh-Hans": "在文本框旁显示迷你灯笼",
+   "hi": "टेक्स्ट फ़ील्ड के पास छोटी लालटेन दिखाएँ",
+   "es": "Mostrar el minifarol junto al campo de texto",
+   "ar": "إظهار الفانوس الصغير بجانب حقل النص",
+   "fr": "Afficher la mini-lanterne à côté du champ de texte",
+   "bn": "টেক্সট ফিল্ডের পাশে ছোট লণ্ঠন দেখান",
+   "pt-BR": "Mostrar a minilanterna ao lado do campo de texto",
+   "ru": "Показывать мини-фонарик рядом с текстовым полем",
+   "id": "Tampilkan lentera mini di samping kolom teks"
+  },
+  "Ignore": {
+   "zh-Hans": "忽略",
+   "hi": "अनदेखा करें",
+   "es": "Ignorar",
+   "ar": "تجاهل",
+   "fr": "Ignorer",
+   "bn": "উপেক্ষা করুন",
+   "pt-BR": "Ignorar",
+   "ru": "Пропустить",
+   "id": "Abaikan"
+  },
+  "Ignore “{word}” until Glim quits": {
+   "zh-Hans": "在 Glim 退出前忽略“{word}”",
+   "hi": "Glim बंद होने तक “{word}” को अनदेखा करें",
+   "es": "Ignorar «{word}» hasta que Glim se cierre",
+   "ar": "تجاهل ”{word}“ حتى يُغلق Glim",
+   "fr": "Ignorer « {word} » jusqu'à la fermeture de Glim",
+   "bn": "Glim বন্ধ না হওয়া পর্যন্ত “{word}” উপেক্ষা করুন",
+   "pt-BR": "Ignorar “{word}” até o Glim fechar",
+   "ru": "Пропускать «{word}», пока Glim не закрыт",
+   "id": "Abaikan “{word}” sampai Glim ditutup"
+  },
   "Classic Outlook isn't installed or didn't start, so there's no draft.": {
    "zh-Hans": "经典版 Outlook 未安装或未能启动，因此没有草稿。",
    "hi": "क्लासिक Outlook इंस्टॉल नहीं है या शुरू नहीं हुआ, इसलिए कोई ड्राफ़्ट नहीं बना।",

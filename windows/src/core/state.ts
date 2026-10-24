@@ -182,6 +182,8 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
   /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
   draftFrom: string;
   /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
@@ -222,6 +224,7 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  writingBubble: false,
   draftFrom: "",
   phone: { ...DEFAULT_PHONE },
 };

@@ -30,6 +30,8 @@ mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+#[cfg(windows)]
+mod bubble_window;
 mod writing;
 mod voice;
 #[cfg(windows)]
@@ -817,6 +819,26 @@ fn open_mic_settings() {
 /// Windows Settings → Privacy & security → Microphone.
 const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
 
+/// The mini lantern's popover opened or closed (1e, §7a.3): the window is
+/// laid out again at once.
+#[tauri::command]
+fn bubble_popover(open: bool) {
+    #[cfg(windows)]
+    {
+        bubble_window::set_open(open);
+        capture::uia::request(capture::uia::Request::Wake);
+    }
+    #[cfg(not(windows))]
+    let _ = open;
+}
+
+/// "Rewrite…" in the mini lantern's popover: the same as Ctrl+Alt+Shift+R
+/// (1c's tones for this paragraph; nothing is sent until a tone is picked).
+#[tauri::command]
+fn bubble_rewrite(app: AppHandle) {
+    shortcuts::dispatch(&app, "rewrite");
+}
+
 // ── The "Draft email" card (voice 1.5d) ───────────────────────────────────────
 // Ids, indexes and a search's text only; voice::draft_worker owns the card and
 // Outlook. Nothing here can send an email.
@@ -978,6 +1000,15 @@ fn writing_rewrite_copy(id: u64) {
 fn writing_rewrite_dismiss() {
     #[cfg(windows)]
     capture::uia::request(capture::uia::Request::RewriteDismiss);
+}
+
+/// Ignore on a row (§7a.3): that word isn't flagged again this run. Ids only.
+#[tauri::command]
+fn writing_ignore(check_id: u64, index: usize) {
+    #[cfg(windows)]
+    capture::uia::request(capture::uia::Request::Ignore { check_id, index });
+    #[cfg(not(windows))]
+    let _ = (check_id, index);
 }
 
 /// Dismiss: the list and its kept paragraph go until the text changes.
@@ -1335,11 +1366,14 @@ pub fn run() {
             writing_ai_check,
             resume_cards,
             resume_open,
+            bubble_popover,
+            bubble_rewrite,
             writing_rewrite_apply,
             writing_rewrite_copy,
             writing_rewrite_dismiss,
             writing_copy,
             writing_dismiss,
+            writing_ignore,
             chat_send,
             chat_models,
             local_connect,

@@ -528,6 +528,31 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
    - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
    - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
 
+## 25. The mini lantern beside the field (1e, PR #22)
+
+*Where: `phase-1-bubble`.* Settings → Writing → **Show the mini lantern next to the text field** is **off** by default: check that first, with it off nothing appears beside any field. Turn it **on**.
+
+Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
+
+1. **Single-line field** (Outlook's subject line, a browser search box): type `teh lease`.
+   - **See:** a small lantern, 22 px, just **outside the field's right end**, vertically centred, with an amber count. It never covers the text.
+   - Move the window so the field touches the screen's right edge: the lantern moves **inside** the field's right end.
+2. **Multi-line body** (Outlook new mail, Notepad): paste the paragraph.
+   - **See (since 2026-10-18):** the lantern level with your line, just right of where the line's text ends, and it follows the caret as you type and move to other lines. A line running to the right edge: just above your line (or below, on the first line), never over the caret. Same in Word's document body.
+3. **Tall body** (a long Word document or an Outlook body taller than the screen): the lantern sits at the **right edge of the visible part, level with the line you're typing**, and follows that line as you move up and down. Scroll: it hides while the page moves and comes back when it stops.
+4. **Click the lantern:**
+   - **See:** the popover opens below it (above it near the bottom of the screen) with the same rows as the island's list, 3 a page, "1–3 of N", and **Rewrite…** / **Close** at the bottom. **The caret stays in your text**: type a letter, it goes into the field.
+   - Click a replacement: it's typed in (Ctrl+Z undoes it), the count drops.
+   - **Rewrite…**: the island's Rewrite card opens, as with Ctrl+Alt+Shift+R; the mini lantern shows the data-leaving look while the rewrite is sent.
+   - **Close** closes it. Open it again and move the mouse away for **20 s**: it closes by itself. With the mouse resting on it, it stays.
+   - Click into another field: the popover closes.
+5. **Hidden when it should be:** Ctrl+Alt+Shift+P (paused), a password field, an app switched off in Settings → Writing → Apps, Settings → Show Glim as **Hidden**, a fullscreen video in front. In each it disappears within a moment; the island's list is unchanged.
+6. **The 125% monitor:** drag Outlook to DISPLAY1 (left, 125%): the lantern is a little bigger (28 px) and still placed right.
+7. **Turn the setting off:** the lantern disappears at the next reading and never comes back while it's off.
+8. **Ignore (both lists, decided 2026-10-15):** with the setting on again, type `We recieved the keys and recieved the deposit.` in Notepad. Open the popover: each row has **Ignore** at its right. Click it on "recieved": the row goes, the badge recounts, and the island's list loses it too. Type `recieved` in another paragraph: not flagged. Do the same from the island's own list with another typo. **Quit Glim and start it again:** "recieved" is flagged again (nothing was saved). glim.log says `writing: ignore ok (1 ignored this run)`, never the word.
+9. **Outlook mail body (owner's retest 2026-10-18: it didn't show there):** new mail in classic Outlook, type `We musn't` in the body. Note whether the lantern shows. Either way glim.log now has a `bubble:` line saying why (shown at …, hidden (reason), or no place (reason) with the rectangles); send that line.
+
+
 ## 26. Dictation, push-to-talk (voice 1.5b, merged) and the two keys (Decisions A and B, merged in PR #29)
 
 > **Two keys since PR #29 (Decision A, 2026-10-16):** **Ctrl+Alt+Shift+V dictates only** (always typed, never a command) and **Ctrl+Alt+Shift+A asks Glim only** (never typed). Steps 5, 6 and 6b use **A**. Steps 14-17 are new. Ctrl+Alt+Shift+A was checked 2026-10-17: free system-wide (`RegisterHotKey`) and unassigned in Word's key table.

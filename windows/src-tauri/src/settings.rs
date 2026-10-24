@@ -112,6 +112,10 @@ pub struct Settings {
     /// Settings → Writing → Dictation → Words Glim should know: names and
     /// terms, comma separated; whisper's prompt (it never leaves the PC).
     pub voice_words: String,
+    /// Settings → Writing → "Show the mini lantern next to the text field"
+    /// (1e, docs/phase1-plan.md §7a.6): off by default until the owner's live
+    /// tests pass (decided 2026-10-13).
+    pub writing_bubble: bool,
     /// Settings → Email drafts → Your address (voice 1.5d): the only account
     /// a draft is saved in and sent from (by the user), and what "me" means.
     /// Empty until the user fills it in.
@@ -228,6 +232,7 @@ impl Default for Settings {
             ai_auto_check: false,
             voice_model: "base".into(),
             voice_words: String::new(),
+            writing_bubble: false,
             draft_from: String::new(),
             draft_recipients: BTreeMap::new(),
             approval_sound: false,
@@ -519,6 +524,7 @@ mod tests {
   "aiAutoCheck": true,
   "voiceModel": "small",
   "voiceWords": "Glim, HOA, Okafor",
+  "writingBubble": true,
   "draftFrom": "me@example.com",
   "draftRecipients": { "maria": "maria.lopez@example.com" },
   "approvalSound": true,
@@ -644,6 +650,14 @@ mod tests {
         let loaded = parse(&custom_with("writingApps", Some(json!(["WINWORD.EXE"])))).unwrap();
         assert!(loaded.writing_apps.is_empty());
         assert_eq!(loaded.screen, "cursor");
+    }
+
+    #[test]
+    fn the_mini_lantern_is_off_unless_turned_on() {
+        assert!(!Settings::default().writing_bubble);
+        assert!(!parse(br#"{"screen":"active"}"#).unwrap().writing_bubble, "a file from before 1e");
+        assert!(parse(br#"{"writingBubble":true}"#).unwrap().writing_bubble);
+        assert!(parse(&custom_with("writingBubble", None)).map(|s| !s.writing_bubble).unwrap());
     }
 
     #[test]
@@ -958,6 +972,7 @@ mod tests {
                 "aiAutoCheck",
                 "voiceModel",
                 "voiceWords",
+                "writingBubble",
                 "draftFrom",
                 "draftRecipients",
                 "approvalSound",
