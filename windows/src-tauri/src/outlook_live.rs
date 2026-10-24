@@ -77,7 +77,7 @@ fn dry_run_probe() {
             let Ok(e) = entries.item(i) else { continue };
             total += 1;
             let name = e.text("Name");
-            let first = name.split(|c: char| c.is_whitespace() || c == ',').filter(|w| !w.is_empty()).next().unwrap_or("").to_string();
+            let first = name.split(|c: char| c.is_whitespace() || c == ',').find(|w| !w.is_empty()).unwrap_or("").to_string();
             if first.len() >= 3 && first.chars().all(char::is_alphabetic) {
                 *firsts.entry(first).or_default() += 1;
             }

@@ -447,7 +447,7 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
 4. **Add a site:** type `mail.google.com`, then **Add**, and write an email in Gmail in Chrome. *(Retest 2026-10-14: Google Docs can't be used for this, see step 6.)*
    - **See:** nothing is checked there. Outlook (and claude.ai) still are.
 5. **Remove** both; Notepad gets its count again within a second, and Gmail within a second of typing.
-6. **Google Docs is not supported yet (Decision D, 2026-10-17, branch `docs-unsupported`):** open a Google Doc in Chrome (screen reader support on or off, it doesn't matter) and click into the page; type the test sentence.
+6. **Google Docs is not supported yet (Decision D, 2026-10-17, merged in PR #31):** open a Google Doc in Chrome (screen reader support on or off, it doesn't matter) and click into the page; type the test sentence.
    - **See:** after ~3 s, **"Glim can't read Google Docs yet"** with "Google Docs keeps its text where Glim can't reach it…" and **Got it** / **Not now**. **No count and no suggestions** in Docs, even while typing. glim.log: `writing: Google Docs document, not supported yet: nothing read (…)` and `writing: Google Docs notice offered` (no text).
    - Typing doesn't stop the notice from showing (it did on 2026-10-16).
    - Click **Not now**. Quit and restart Glim, back to the Doc: the notice comes back. Click **Got it**, restart again: it never comes back (log: `writing: Google Docs tip dismissed`).
@@ -528,9 +528,34 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
    - **See:** the list opens with "Nothing to fix here." and **Check with AI** (and Rewrite…). Click it: the AI's suggestion appears with its AI mark.
    - Click into another app's window that Glim doesn't check (e.g. File Explorer's address bar), then click the lantern: the empty list may still open (it stays with the last checked field, like suggestions do); **Check with AI** then says "Click in the paragraph you want checked first."
 
-## 26. Dictation, push-to-talk (voice 1.5b, merged) and the two keys (Decisions A and B, branch `voice-modes`)
+## 25. The mini lantern beside the field (1e, PR #22)
 
-> **Two keys since `voice-modes` (Decision A, 2026-10-16):** **Ctrl+Alt+Shift+V dictates only** (always typed, never a command) and **Ctrl+Alt+Shift+A asks Glim only** (never typed). Steps 5, 6 and 6b use **A**. Steps 14-17 are new. Ctrl+Alt+Shift+A was checked 2026-10-17: free system-wide (`RegisterHotKey`) and unassigned in Word's key table.
+*Where: `phase-1-bubble`.* Settings → Writing → **Show the mini lantern next to the text field** is **off** by default: check that first, with it off nothing appears beside any field. Turn it **on**.
+
+Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
+
+1. **Single-line field** (Outlook's subject line, a browser search box): type `teh lease`.
+   - **See:** a small lantern, 22 px, just **outside the field's right end**, vertically centred, with an amber count. It never covers the text.
+   - Move the window so the field touches the screen's right edge: the lantern moves **inside** the field's right end.
+2. **Multi-line body** (Outlook new mail, Notepad): paste the paragraph.
+   - **See (since 2026-10-18):** the lantern level with your line, just right of where the line's text ends, and it follows the caret as you type and move to other lines. A line running to the right edge: just above your line (or below, on the first line), never over the caret. Same in Word's document body.
+3. **Tall body** (a long Word document or an Outlook body taller than the screen): the lantern sits at the **right edge of the visible part, level with the line you're typing**, and follows that line as you move up and down. Scroll: it hides while the page moves and comes back when it stops.
+4. **Click the lantern:**
+   - **See:** the popover opens below it (above it near the bottom of the screen) with the same rows as the island's list, 3 a page, "1–3 of N", and **Rewrite…** / **Close** at the bottom. **The caret stays in your text**: type a letter, it goes into the field.
+   - Click a replacement: it's typed in (Ctrl+Z undoes it), the count drops.
+   - **Rewrite…**: the island's Rewrite card opens, as with Ctrl+Alt+Shift+R; the mini lantern shows the data-leaving look while the rewrite is sent.
+   - **Close** closes it. Open it again and move the mouse away for **20 s**: it closes by itself. With the mouse resting on it, it stays.
+   - Click into another field: the popover closes.
+5. **Hidden when it should be:** Ctrl+Alt+Shift+P (paused), a password field, an app switched off in Settings → Writing → Apps, Settings → Show Glim as **Hidden**, a fullscreen video in front. In each it disappears within a moment; the island's list is unchanged.
+6. **The 125% monitor:** drag Outlook to DISPLAY1 (left, 125%): the lantern is a little bigger (28 px) and still placed right.
+7. **Turn the setting off:** the lantern disappears at the next reading and never comes back while it's off.
+8. **Ignore (both lists, decided 2026-10-15):** with the setting on again, type `We recieved the keys and recieved the deposit.` in Notepad. Open the popover: each row has **Ignore** at its right. Click it on "recieved": the row goes, the badge recounts, and the island's list loses it too. Type `recieved` in another paragraph: not flagged. Do the same from the island's own list with another typo. **Quit Glim and start it again:** "recieved" is flagged again (nothing was saved). glim.log says `writing: ignore ok (1 ignored this run)`, never the word.
+9. **Outlook mail body (owner's retest 2026-10-18: it didn't show there):** new mail in classic Outlook, type `We musn't` in the body. Note whether the lantern shows. Either way glim.log now has a `bubble:` line saying why (shown at …, hidden (reason), or no place (reason) with the rectangles); send that line.
+
+
+## 26. Dictation, push-to-talk (voice 1.5b, merged) and the two keys (Decisions A and B, merged in PR #29)
+
+> **Two keys since PR #29 (Decision A, 2026-10-16):** **Ctrl+Alt+Shift+V dictates only** (always typed, never a command) and **Ctrl+Alt+Shift+A asks Glim only** (never typed). Steps 5, 6 and 6b use **A**. Steps 14-17 are new. Ctrl+Alt+Shift+A was checked 2026-10-17: free system-wide (`RegisterHotKey`) and unassigned in Word's key table.
 
 *Where: branch `voice-dictation`.* Needs, put there by hand (Glim downloads nothing): `whisper-server.exe` and its DLLs from whisper.cpp **b5454** (the Windows x64 zip), and `ggml-base.en-q5_1.bin`, all in `%LOCALAPPDATA%\Glim\whisper\`. Claude clean-up needs the API key from section 12 and **Brain: Claude API**; each utterance costs a fraction of a cent (Haiku). **Ctrl+Alt+Shift+V takes Word's InsertAutoText on that key** (decided 2026-10-14).
 
@@ -577,11 +602,11 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
 4. **Close** closes the card without opening anything.
 5. **A card number in a HANDOFF.md** (in a scratch repo, e.g. `~/resume-test/HANDOFF.md` with `## In progress` holding `4111 1111 1111 1111`): its row says "Part of it is withheld…" and doesn't show that section. Delete the scratch folder after.
 
-## 28. Draft an email (voice 1.5d, draft PR #27, with the 4c fixes of 2026-10-17)
+## 28. Draft an email (voice 1.5d, merged in PR #27, with the 4c fixes of 2026-10-17)
 
 > **4c (after the 2026-10-16 test, where every draft request came back as a question):** draft requests use **Ctrl+Alt+Shift+A** (Ask Glim). Claude now passes recipients as said ("me", a name, or a spoken address) and never asks for an address (live-checked 2026-10-17: "draft an email to me …" and "… to myself …" → a draft to "me"). "me"/"myself" = Settings → Email drafts → **Your address** (it was **empty** in your settings.json after last night's test: fill it in and reopen Settings to check it stayed). A spoken address ("jordan lee at example dot com") is joined up, then looked up in Outlook's address book: found → filled in; not found → one chip to confirm. While the card asks **who**, hold **either** voice key and say the answer (a name, "the second one", or an address). Never from leasing@ (refused even if Settings names it).
 
-*Where: branch `voice-draft-email`.* Needs classic Outlook, **open and signed in** (on 2026-10-15 a background start for COM never answered on this PC, see HANDOFF.md), and Settings → Writing → **Email drafts → Your address** = your own address. Glim never sends: every step ends in Outlook's Drafts at most.
+*Where: main (merged in PR #27).* Needs classic Outlook, **open and signed in** (on 2026-10-15 a background start for COM never answered on this PC, see HANDOFF.md), and Settings → Writing → **Email drafts → Your address** = your own address. Glim never sends: every step ends in Outlook's Drafts at most.
 
 0. **The automated part first** (Claude Code runs it, with Outlook open): `GLIM_LIVE_ME=<your address> cargo test --lib outlook_live::dry_run_probe -- --ignored --nocapture --test-threads=1` (read-only: your account found, the address book counted, a first name with 2+ matches, whether Outlook adds your signature), then with `GLIM_LIVE_DRAFTS=1 GLIM_LIVE_AMBIGUOUS=<that name>` `outlook_live::three_test_drafts`: three **[GLIM TEST]** drafts to you, checked in your own Drafts (from your account, to you only, not sent), then deleted from Drafts and Deleted Items. If Outlook shows "A program is trying to access e-mail address information", say what it showed.
 1. **To one person:** hold **Ctrl+Alt+Shift+A**: "draft an email to <a colleague with a unique name> saying the plumber comes Tuesday at ten". **See:** the **Draft email** card: To with their name and address, a subject, the body; **Create draft** enabled; the card doesn't close by itself.
@@ -601,6 +626,33 @@ Use this paragraph in Notepad (it has one spelling mistake, so the suggestions l
     - **Cancel** on the card: the draft in Outlook is unchanged.
     - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
     - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
+
+> **Numbering note (2026-10-20):** §29 is used twice in open drafts: #34 (calendar glance) and #40 (your own apps). Whichever merges second becomes §30. §31-§33 below are for #42, #43 and #44, which had no hand test of their own.
+
+## 31. Session pill labels clear the mini lantern (PR #42, cherry-pick of upstream #522)
+
+*Where: a build with PR #42. Needs a Claude Code session in a folder with a long name.*
+
+1. **Long name:** start Claude Code in a folder with a long name (e.g. `my-very-long-project-name-here`) and open the island so its session pills show. **See:** the label starts to the right of the 24 px lantern; no letter sits under it. A name too long for the pill is cut at its right end, not under the lantern.
+2. **Short name:** a session in a short folder (e.g. `glim`): the label still reads fine, a little right of centre.
+3. **Not touched:** hold Ctrl+Alt+Shift+V: the **Dictating** label beside the pill's lantern looks as before (this PR doesn't change it).
+
+## 32. Open Claude falls back to the claude:// protocol (PR #43, cherry-pick of upstream #417)
+
+*Where: a build with PR #43. The new step only matters for a Store (MSIX) install of the Claude desktop app; the classic installer's path is unchanged.*
+
+1. **Claude running:** with the Claude desktop app open, click **Open Claude** on its pill's card (or the Claude desktop pill). **See:** Claude comes to the front, as before.
+2. **Claude closed, classic install:** quit Claude, click **Open Claude** again. **See:** Claude starts, as before.
+3. **Store install (only if this PC has one; skip otherwise):** with Claude installed from the Microsoft Store and closed, click **Open Claude**. **See:** Claude opens (before this PR nothing happened). No browser window, no "pick an app" prompt.
+4. **Voice is separate:** Ctrl+Alt+Shift+A "open Claude" still opens the Claude app (it uses a different path, `activate_package`).
+
+## 33. Plan usage says the gauge needs the Claude Code CLI (PR #44, adapted from upstream #479)
+
+*Where: a build with PR #44. Nothing to set up.*
+
+1. **The hint:** Settings → Claude Code & Agents → **Plan usage**. **See:** under the Claude text and before its switch: "The numbers come from the Claude Code command-line tool. The Claude desktop app does not report them, so the gauge stays empty if you only use the desktop app."
+2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
+3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
 
 ## After testing
 

@@ -24,6 +24,8 @@ export default defineConfig({
         island: resolve(__dirname, "index.html"),
         settings: resolve(__dirname, "settings.html"),
         character: resolve(__dirname, "character.html"),
+        // The mini lantern beside the text field (1e, docs/phase1-plan.md §7a).
+        bubble: resolve(__dirname, "bubble.html"),
         // Dev-only text-capture debug panel (GLIM_DEV=1); see src/capture/.
         capture: resolve(__dirname, "capture.html"),
       },
