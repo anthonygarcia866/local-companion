@@ -81,3 +81,11 @@ The "Coucou" items to replace, in order:
 - **Temp files** named `<name>.coucou-<pid>` next to the user's config files during an atomic write (`config_file.rs`, `recap.rs`). They're briefly visible in those folders. Rename them to `.glim-<pid>`.
 
 Not an asset, but worth fixing at the same time: the installer's `shortDescription` / `longDescription` (`tauri.conf.json`) say "local-only" and "only ever connects to this computer". That stays true until 1c lands; the 1c PR must change it.
+
+## 5. Cherry-picked from upstream (owner's queue, 2026-10-19)
+
+The owner asked for these few upstream fixes as **cherry-picks** (`git cherry-pick -x -m 1 <upstream merge commit>`), each in its own draft PR. That's an exception to "nothing here is merged or cherry-picked" above, made for small, self-contained bug fixes in code Glim still shares with upstream. Never a wholesale merge of upstream.
+
+| Upstream PR | What | Glim PR / status |
+|---|---|---|
+| [#522](https://github.com/Louis-CFM/coucou/pull/522) (`9300d91`) | Pill labels reserve left padding so the mascot doesn't cover them (`style.css`, 1 line) | `cherry/pill-label-padding`, draft PR |
