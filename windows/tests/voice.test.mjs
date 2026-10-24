@@ -246,7 +246,9 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   assert.equal(saves, 2);
   // Fix d: the words whisper always hears are named, the same list as Rust's.
   const { BUILT_IN_WORDS } = await import("../src/settings/writing.ts");
-  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C\./);
+  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim\./);
+  // Only the app's own names: people, places and work terms are the user's to add.
+  assert.equal(BUILT_IN_WORDS, "Claude, Claude Code, Codex, Glim");
   assert.ok(read("src-tauri/src/voice/mod.rs").includes(`pub const BUILT_IN_WORDS: &str = "${BUILT_IN_WORDS}";`), "the same list as Rust's");
 });
 

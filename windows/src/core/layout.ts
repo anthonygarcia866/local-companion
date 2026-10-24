@@ -28,7 +28,8 @@ export type IslandViewName =
   | "resume"
   | "writingDocsTip"
   | "voice"
-  | "draft";
+  | "draft"
+  | "calendar";
 
 export type BotStateName =
   | "idle"
@@ -195,6 +196,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // The Draft email card (views/draft.ts): the title, To/Cc/Bcc lines (chips
   // wrap), the subject, the search, the body (scrolls) and the buttons.
   draft: { height: 330, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // The calendar glance (views/calendar.ts): the next event (title, time,
+  // countdown, place) and Join; or the morning summary's list.
+  calendar: { height: 210, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually

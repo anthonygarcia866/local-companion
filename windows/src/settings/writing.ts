@@ -365,7 +365,7 @@ export function modelFile(size: string): string {
  */
 /** Words whisper always hears before the user's own: Rust's
  *  voice::BUILT_IN_WORDS (fix d, 2026-10-17), shown so nobody types them again. */
-export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim";
 
 export function dictationGroup(host: WritingHost): HTMLElement {
   const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;

@@ -687,6 +687,12 @@ fn process_table() -> HashMap<u32, Proc> {
     out
 }
 
+/// Whether a process with this executable name (any case) is running. The
+/// process list only: nothing is opened or attached.
+pub fn process_running(exe: &str) -> bool {
+    process_table().values().any(|p| p.exe.eq_ignore_ascii_case(exe))
+}
+
 /// The ancestors of a process, nearest first, below the desktop shell.
 pub fn process_ancestors(pid: u32) -> Vec<u32> {
     session_window::ancestors(&process_table(), pid)

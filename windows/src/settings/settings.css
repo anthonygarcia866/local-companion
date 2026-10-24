@@ -556,3 +556,23 @@ select option {
 html[dir="rtl"] :is(.diff, .path, .keycap, input[type="password"], input[type="text"]) {
   direction: ltr;
 }
+
+/* Settings → Calendar: one calendar per row, its mailbox beside the name. */
+.calendar-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.calendar-mailbox {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

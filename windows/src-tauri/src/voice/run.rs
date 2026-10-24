@@ -213,7 +213,7 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
             return;
         }
     };
-    // "unit four B" → "unit 4B" (fix d), before anything reads it.
+    // "unit seven D" → "unit 7D" (fix d), before anything reads it.
     let transcript = super::unit_numbers(&transcript);
     let words = transcript.split_whitespace().count();
     crate::log::line(format!("voice: held {:.1}s, transcribed ({}) {:.1}s, {words} words, {m}", held.as_secs_f64(), cfg.size, t0.elapsed().as_secs_f64()));
