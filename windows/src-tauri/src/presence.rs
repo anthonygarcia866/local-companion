@@ -133,6 +133,12 @@ fn visibility(app: &AppHandle) -> Visibility {
         .unwrap_or(Visibility::Normal)
 }
 
+/// For the mini lantern (1e, §7a.5): the user picked Hidden, and whether a
+/// fullscreen app is in front.
+pub fn hidden_and_fullscreen(app: &AppHandle) -> (bool, bool) {
+    (visibility(app) == Visibility::Hidden, fullscreen())
+}
+
 /// What should be on screen now.
 pub fn current(app: &AppHandle) -> Presence {
     presence(visibility(app), fullscreen(), RECORDING.load(Ordering::SeqCst), PEEK.load(Ordering::SeqCst))

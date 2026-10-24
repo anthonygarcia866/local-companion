@@ -22,6 +22,7 @@ import { aiSection } from "./ai";
 import { writingSection } from "./writing";
 import { privacySection } from "./privacy";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
+import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import { folderRows, installLabel } from "./claude-folders";
@@ -1027,6 +1028,7 @@ async function render() {
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
   const ai = await aiSection({ settings: () => settings, save });
+  const phoneEl = await phoneSection({ settings: () => settings, save, toggle });
   const knownApps = (await Bridge.writingKnownApps()) ?? [];
   const toneDefaults = (await Bridge.writingToneDefaults()) ?? [];
   const pauseBuiltins = (await Bridge.writingPauseBuiltins()) ?? { apps: [], sites: [] };
@@ -1045,7 +1047,7 @@ async function render() {
     h("div", { class: "row" }, h("label", { text: "Glim" }), h("span", { class: "version", text: version })),
     h("div", {
       class: "hint",
-      text: t("No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com."),
+      text: t("No telemetry. Glim connects only to this computer, to api.anthropic.com when you ask for a rewrite, and to api.pushover.net when phone notifications are on."),
     }),
   );
   // In the sidebar's order (settings/nav.ts NAV).
@@ -1062,6 +1064,7 @@ async function render() {
       activePillsSection(connected),
       localSection(),
     ),
+    phoneEl,
     about,
   ];
   const nav = settingsNav();
