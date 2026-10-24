@@ -3726,17 +3726,6 @@
    "ru": {"one": "{count} запрос", "few": "{count} запроса", "many": "{count} запросов", "other": "{count} запроса"},
    "id": {"other": "{count} permintaan"}
   },
-  "No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com.": {
-   "zh-Hans": "无遥测。Glim 只连接本机；当你要求改写时，也会连接 api.anthropic.com。",
-   "hi": "कोई टेलीमेट्री नहीं। Glim केवल इस कंप्यूटर से जुड़ता है, और जब आप दोबारा लिखवाते हैं तब api.anthropic.com से।",
-   "es": "Sin telemetría. Glim solo se conecta a este equipo y, cuando pides una reescritura, a api.anthropic.com.",
-   "ar": "لا قياس عن بُعد. يتصل Glim بهذا الكمبيوتر فقط، وبـ api.anthropic.com عندما تطلب إعادة صياغة.",
-   "fr": "Aucune télémétrie. Glim ne se connecte qu'à cet ordinateur et, quand vous demandez une réécriture, à api.anthropic.com.",
-   "bn": "কোনো টেলিমেট্রি নেই। Glim শুধু এই কম্পিউটারে সংযোগ করে, আর আপনি আবার লেখাতে চাইলে api.anthropic.com-এ।",
-   "pt-BR": "Sem telemetria. O Glim só se conecta a este computador e, quando você pede uma reescrita, a api.anthropic.com.",
-   "ru": "Без телеметрии. Glim подключается только к этому компьютеру и, когда вы просите переписать текст, к api.anthropic.com.",
-   "id": "Tanpa telemetri. Glim hanya terhubung ke komputer ini dan, saat Anda meminta tulis ulang, ke api.anthropic.com."
-  },
   "Writing": {
    "zh-Hans": "写作",
    "hi": "लेखन",
@@ -5035,6 +5024,50 @@
    "ru": "Не удалось открыть {app}. Оно установлено?",
    "id": "Tidak bisa membuka {app}. Apakah sudah terpasang?"
   },
+  "A small lantern beside the field you type in, with the count; click it for the suggestions. It never takes the focus from your text.": {
+   "zh-Hans": "在你输入的文本框旁显示一个带计数的小灯笼；点击它查看建议。它绝不会抢走文字的焦点。",
+   "hi": "जिस फ़ील्ड में आप टाइप करते हैं उसके पास गिनती वाली एक छोटी लालटेन; सुझावों के लिए उस पर क्लिक करें। यह आपके टेक्स्ट से फ़ोकस कभी नहीं हटाती।",
+   "es": "Un pequeño farol junto al campo donde escribes, con el número; haz clic en él para ver las sugerencias. Nunca le quita el foco a tu texto.",
+   "ar": "فانوس صغير بجانب الحقل الذي تكتب فيه، مع العدد؛ انقر عليه لرؤية الاقتراحات. لا يأخذ التركيز من نصك أبدًا.",
+   "fr": "Une petite lanterne à côté du champ où vous tapez, avec le nombre ; cliquez dessus pour voir les suggestions. Elle ne prend jamais le focus à votre texte.",
+   "bn": "আপনি যে ফিল্ডে লেখেন তার পাশে সংখ্যাসহ একটি ছোট লণ্ঠন; পরামর্শ দেখতে সেটিতে ক্লিক করুন। এটি কখনও আপনার লেখা থেকে ফোকাস সরায় না।",
+   "pt-BR": "Uma pequena lanterna ao lado do campo onde você digita, com a contagem; clique nela para ver as sugestões. Ela nunca tira o foco do seu texto.",
+   "ru": "Маленький фонарик рядом с полем, где вы печатаете, с числом; нажмите на него, чтобы увидеть предложения. Он никогда не забирает фокус у вашего текста.",
+   "id": "Lentera kecil di samping kolom tempat Anda mengetik, dengan jumlahnya; klik untuk melihat saran. Lentera ini tidak pernah mengambil fokus dari teks Anda."
+  },
+  "Show the mini lantern next to the text field": {
+   "zh-Hans": "在文本框旁显示迷你灯笼",
+   "hi": "टेक्स्ट फ़ील्ड के पास छोटी लालटेन दिखाएँ",
+   "es": "Mostrar el minifarol junto al campo de texto",
+   "ar": "إظهار الفانوس الصغير بجانب حقل النص",
+   "fr": "Afficher la mini-lanterne à côté du champ de texte",
+   "bn": "টেক্সট ফিল্ডের পাশে ছোট লণ্ঠন দেখান",
+   "pt-BR": "Mostrar a minilanterna ao lado do campo de texto",
+   "ru": "Показывать мини-фонарик рядом с текстовым полем",
+   "id": "Tampilkan lentera mini di samping kolom teks"
+  },
+  "Ignore": {
+   "zh-Hans": "忽略",
+   "hi": "अनदेखा करें",
+   "es": "Ignorar",
+   "ar": "تجاهل",
+   "fr": "Ignorer",
+   "bn": "উপেক্ষা করুন",
+   "pt-BR": "Ignorar",
+   "ru": "Пропустить",
+   "id": "Abaikan"
+  },
+  "Ignore “{word}” until Glim quits": {
+   "zh-Hans": "在 Glim 退出前忽略“{word}”",
+   "hi": "Glim बंद होने तक “{word}” को अनदेखा करें",
+   "es": "Ignorar «{word}» hasta que Glim se cierre",
+   "ar": "تجاهل ”{word}“ حتى يُغلق Glim",
+   "fr": "Ignorer « {word} » jusqu'à la fermeture de Glim",
+   "bn": "Glim বন্ধ না হওয়া পর্যন্ত “{word}” উপেক্ষা করুন",
+   "pt-BR": "Ignorar “{word}” até o Glim fechar",
+   "ru": "Пропускать «{word}», пока Glim не закрыт",
+   "id": "Abaikan “{word}” sampai Glim ditutup"
+  },
   "Classic Outlook isn't installed or didn't start, so there's no draft.": {
    "zh-Hans": "经典版 Outlook 未安装或未能启动，因此没有草稿。",
    "hi": "क्लासिक Outlook इंस्टॉल नहीं है या शुरू नहीं हुआ, इसलिए कोई ड्राफ़्ट नहीं बना।",
@@ -5804,6 +5837,347 @@
    "pt-BR": "Você pode adicionar até {n} apps.",
    "ru": "Можно добавить не более {n} приложений.",
    "id": "Anda bisa menambahkan hingga {n} aplikasi."
+  },
+  "No telemetry. Glim connects only to this computer, to api.anthropic.com when you ask for a rewrite, and to api.pushover.net when phone notifications are on.": {
+   "zh-Hans": "没有遥测。Glim 只连接这台电脑；在你要求改写时连接 api.anthropic.com；在开启手机通知时连接 api.pushover.net。",
+   "hi": "कोई टेलीमेट्री नहीं। Glim केवल इस कंप्यूटर से जुड़ता है, जब आप दोबारा लिखवाने को कहें तब api.anthropic.com से, और फ़ोन सूचनाएँ चालू होने पर api.pushover.net से।",
+   "es": "Sin telemetría. Glim solo se conecta a este equipo, a api.anthropic.com cuando pides una reescritura y a api.pushover.net cuando las notificaciones al teléfono están activadas.",
+   "ar": "لا قياس عن بُعد. يتصل Glim بهذا الكمبيوتر فقط، وبـ api.anthropic.com عندما تطلب إعادة صياغة، وبـ api.pushover.net عندما تكون إشعارات الهاتف مفعّلة.",
+   "fr": "Aucune télémétrie. Glim se connecte uniquement à cet ordinateur, à api.anthropic.com quand vous demandez une réécriture, et à api.pushover.net quand les notifications sur le téléphone sont activées.",
+   "bn": "কোনো টেলিমেট্রি নেই। Glim শুধু এই কম্পিউটারের সাথে যুক্ত হয়, আপনি পুনর্লিখন চাইলে api.anthropic.com-এর সাথে, আর ফোন বিজ্ঞপ্তি চালু থাকলে api.pushover.net-এর সাথে।",
+   "pt-BR": "Sem telemetria. O Glim só se conecta a este computador, a api.anthropic.com quando você pede uma reescrita e a api.pushover.net quando as notificações no celular estão ativadas.",
+   "ru": "Никакой телеметрии. Glim подключается только к этому компьютеру, к api.anthropic.com, когда вы просите переписать текст, и к api.pushover.net, когда включены уведомления на телефон.",
+   "id": "Tanpa telemetri. Glim hanya terhubung ke komputer ini, ke api.anthropic.com saat Anda meminta penulisan ulang, dan ke api.pushover.net saat notifikasi ponsel aktif."
+  },
+  "Phone": {
+   "zh-Hans": "手机",
+   "hi": "फ़ोन",
+   "es": "Teléfono",
+   "ar": "الهاتف",
+   "fr": "Téléphone",
+   "bn": "ফোন",
+   "pt-BR": "Celular",
+   "ru": "Телефон",
+   "id": "Ponsel"
+  },
+  "Short status messages to your phone through Pushover, like \"Claude Code in local-companion needs approval\". Never commands, code, file names, prompts or anything you typed.": {
+   "zh-Hans": "通过 Pushover 向你的手机发送简短的状态消息，例如“Claude Code in local-companion needs approval”。绝不包含命令、代码、文件名、提示词或你输入的任何内容。",
+   "hi": "Pushover के ज़रिए आपके फ़ोन पर छोटे स्थिति संदेश, जैसे \"Claude Code in local-companion needs approval\"। कभी कमांड, कोड, फ़ाइल नाम, प्रॉम्प्ट या आपका टाइप किया कुछ भी नहीं।",
+   "es": "Mensajes de estado breves a tu teléfono a través de Pushover, como \"Claude Code in local-companion needs approval\". Nunca comandos, código, nombres de archivo, prompts ni nada que hayas escrito.",
+   "ar": "رسائل حالة قصيرة إلى هاتفك عبر Pushover، مثل \"Claude Code in local-companion needs approval\". لا أوامر ولا شيفرة ولا أسماء ملفات ولا مطالبات ولا أي شيء كتبته.",
+   "fr": "De courts messages d'état sur votre téléphone via Pushover, comme « Claude Code in local-companion needs approval ». Jamais de commandes, de code, de noms de fichiers, de prompts ni rien de ce que vous avez tapé.",
+   "bn": "Pushover-এর মাধ্যমে আপনার ফোনে ছোট অবস্থা-বার্তা, যেমন \"Claude Code in local-companion needs approval\"। কখনো কমান্ড, কোড, ফাইলের নাম, প্রম্পট বা আপনার টাইপ করা কিছু নয়।",
+   "pt-BR": "Mensagens curtas de status no seu celular pelo Pushover, como \"Claude Code in local-companion needs approval\". Nunca comandos, código, nomes de arquivos, prompts ou qualquer coisa que você digitou.",
+   "ru": "Короткие сообщения о состоянии на телефон через Pushover, например «Claude Code in local-companion needs approval». Никогда — команды, код, имена файлов, промпты или то, что вы набрали.",
+   "id": "Pesan status singkat ke ponsel Anda melalui Pushover, seperti \"Claude Code in local-companion needs approval\". Tidak pernah perintah, kode, nama file, prompt, atau apa pun yang Anda ketik."
+  },
+  "Pushover keys": {
+   "zh-Hans": "Pushover 密钥",
+   "hi": "Pushover कुंजियाँ",
+   "es": "Claves de Pushover",
+   "ar": "مفاتيح Pushover",
+   "fr": "Clés Pushover",
+   "bn": "Pushover কী",
+   "pt-BR": "Chaves do Pushover",
+   "ru": "Ключи Pushover",
+   "id": "Kunci Pushover"
+  },
+  "User key": {
+   "zh-Hans": "用户密钥",
+   "hi": "यूज़र कुंजी",
+   "es": "Clave de usuario",
+   "ar": "مفتاح المستخدم",
+   "fr": "Clé utilisateur",
+   "bn": "ইউজার কী",
+   "pt-BR": "Chave de usuário",
+   "ru": "Ключ пользователя",
+   "id": "Kunci pengguna"
+  },
+  "App token": {
+   "zh-Hans": "应用令牌",
+   "hi": "ऐप टोकन",
+   "es": "Token de la app",
+   "ar": "رمز التطبيق",
+   "fr": "Jeton d'application",
+   "bn": "অ্যাপ টোকেন",
+   "pt-BR": "Token do app",
+   "ru": "Токен приложения",
+   "id": "Token aplikasi"
+  },
+  "Save keys": {
+   "zh-Hans": "保存密钥",
+   "hi": "कुंजियाँ सहेजें",
+   "es": "Guardar claves",
+   "ar": "حفظ المفاتيح",
+   "fr": "Enregistrer les clés",
+   "bn": "কী সংরক্ষণ করুন",
+   "pt-BR": "Salvar chaves",
+   "ru": "Сохранить ключи",
+   "id": "Simpan kunci"
+  },
+  "Seconds before an approval pings": {
+   "zh-Hans": "审批等待多少秒后通知",
+   "hi": "अनुमोदन पर सूचना से पहले सेकंड",
+   "es": "Segundos antes de avisar de una aprobación",
+   "ar": "الثواني قبل الإشعار بموافقة منتظرة",
+   "fr": "Secondes avant d'alerter pour une approbation",
+   "bn": "অনুমোদনের বিজ্ঞপ্তির আগে সেকেন্ড",
+   "pt-BR": "Segundos antes de avisar sobre uma aprovação",
+   "ru": "Секунд до уведомления о подтверждении",
+   "id": "Detik sebelum persetujuan memberi notifikasi"
+  },
+  "Quiet hours": {
+   "zh-Hans": "勿扰时段",
+   "hi": "शांत समय",
+   "es": "Horas de silencio",
+   "ar": "ساعات الهدوء",
+   "fr": "Heures calmes",
+   "bn": "নীরব সময়",
+   "pt-BR": "Horário silencioso",
+   "ru": "Тихие часы",
+   "id": "Jam tenang"
+  },
+  "from": {
+   "zh-Hans": "从",
+   "hi": "से",
+   "es": "de",
+   "ar": "من",
+   "fr": "de",
+   "bn": "থেকে",
+   "pt-BR": "de",
+   "ru": "с",
+   "id": "dari"
+  },
+  "to": {
+   "zh-Hans": "到",
+   "hi": "तक",
+   "es": "a",
+   "ar": "إلى",
+   "fr": "à",
+   "bn": "পর্যন্ত",
+   "pt-BR": "até",
+   "ru": "до",
+   "id": "sampai"
+  },
+  "Send test notification": {
+   "zh-Hans": "发送测试通知",
+   "hi": "परीक्षण सूचना भेजें",
+   "es": "Enviar notificación de prueba",
+   "ar": "إرسال إشعار تجريبي",
+   "fr": "Envoyer une notification de test",
+   "bn": "পরীক্ষামূলক বিজ্ঞপ্তি পাঠান",
+   "pt-BR": "Enviar notificação de teste",
+   "ru": "Отправить тестовое уведомление",
+   "id": "Kirim notifikasi uji"
+  },
+  "Sent. Check your phone.": {
+   "zh-Hans": "已发送。请查看你的手机。",
+   "hi": "भेज दिया। अपना फ़ोन देखें।",
+   "es": "Enviada. Revisa tu teléfono.",
+   "ar": "تم الإرسال. تحقق من هاتفك.",
+   "fr": "Envoyée. Regardez votre téléphone.",
+   "bn": "পাঠানো হয়েছে। আপনার ফোন দেখুন।",
+   "pt-BR": "Enviada. Confira seu celular.",
+   "ru": "Отправлено. Проверьте телефон.",
+   "id": "Terkirim. Periksa ponsel Anda."
+  },
+  "Send notifications to my phone": {
+   "zh-Hans": "向我的手机发送通知",
+   "hi": "मेरे फ़ोन पर सूचनाएँ भेजें",
+   "es": "Enviar notificaciones a mi teléfono",
+   "ar": "إرسال إشعارات إلى هاتفي",
+   "fr": "Envoyer des notifications sur mon téléphone",
+   "bn": "আমার ফোনে বিজ্ঞপ্তি পাঠান",
+   "pt-BR": "Enviar notificações para o meu celular",
+   "ru": "Отправлять уведомления на мой телефон",
+   "id": "Kirim notifikasi ke ponsel saya"
+  },
+  "Off by default. While it's off, Glim can't reach Pushover at all.": {
+   "zh-Hans": "默认关闭。关闭时，Glim 完全无法连接 Pushover。",
+   "hi": "डिफ़ॉल्ट रूप से बंद। बंद रहने पर Glim Pushover तक पहुँच ही नहीं सकता।",
+   "es": "Desactivado por defecto. Mientras esté desactivado, Glim no puede conectarse a Pushover.",
+   "ar": "متوقف افتراضيًا. ما دام متوقفًا لا يستطيع Glim الوصول إلى Pushover إطلاقًا.",
+   "fr": "Désactivé par défaut. Tant qu'il est désactivé, Glim ne peut pas joindre Pushover du tout.",
+   "bn": "ডিফল্টভাবে বন্ধ। বন্ধ থাকলে Glim Pushover-এ একেবারেই পৌঁছাতে পারে না।",
+   "pt-BR": "Desativado por padrão. Enquanto estiver desativado, o Glim não consegue acessar o Pushover.",
+   "ru": "По умолчанию выключено. Пока выключено, Glim вообще не может обратиться к Pushover.",
+   "id": "Mati secara bawaan. Selama mati, Glim sama sekali tidak bisa menghubungi Pushover."
+  },
+  "Make a user key and an app token at pushover.net (the iPhone app is a one-time $4.99).": {
+   "zh-Hans": "在 pushover.net 创建用户密钥和应用令牌（iPhone 应用一次性 4.99 美元）。",
+   "hi": "pushover.net पर एक यूज़र कुंजी और एक ऐप टोकन बनाएँ (iPhone ऐप एक बार $4.99 का है)।",
+   "es": "Crea una clave de usuario y un token de app en pushover.net (la app de iPhone cuesta 4,99 $ una sola vez).",
+   "ar": "أنشئ مفتاح مستخدم ورمز تطبيق في pushover.net (تطبيق iPhone بسعر 4.99 دولار لمرة واحدة).",
+   "fr": "Créez une clé utilisateur et un jeton d'application sur pushover.net (l'app iPhone coûte 4,99 $ une seule fois).",
+   "bn": "pushover.net-এ একটি ইউজার কী আর একটি অ্যাপ টোকেন তৈরি করুন (iPhone অ্যাপ এককালীন $4.99)।",
+   "pt-BR": "Crie uma chave de usuário e um token de app em pushover.net (o app para iPhone custa US$ 4,99 uma única vez).",
+   "ru": "Создайте ключ пользователя и токен приложения на pushover.net (приложение для iPhone — разовая покупка за $4.99).",
+   "id": "Buat kunci pengguna dan token aplikasi di pushover.net (aplikasi iPhone sekali bayar $4.99)."
+  },
+  "Notify me when:": {
+   "zh-Hans": "在以下情况通知我：",
+   "hi": "मुझे सूचित करें जब:",
+   "es": "Avisarme cuando:",
+   "ar": "أبلغني عندما:",
+   "fr": "Me prévenir quand :",
+   "bn": "আমাকে জানান যখন:",
+   "pt-BR": "Avisar quando:",
+   "ru": "Уведомлять, когда:",
+   "id": "Beri tahu saya saat:"
+  },
+  "An approval waits": {
+   "zh-Hans": "有审批在等待",
+   "hi": "कोई अनुमोदन प्रतीक्षा में हो",
+   "es": "Una aprobación está esperando",
+   "ar": "تنتظر موافقة",
+   "fr": "Une approbation attend",
+   "bn": "কোনো অনুমোদন অপেক্ষায় থাকে",
+   "pt-BR": "Uma aprovação está esperando",
+   "ru": "Ждёт подтверждение",
+   "id": "Ada persetujuan yang menunggu"
+  },
+  "A session finishes": {
+   "zh-Hans": "会话完成",
+   "hi": "कोई सत्र पूरा हो",
+   "es": "Una sesión termina",
+   "ar": "تنتهي جلسة",
+   "fr": "Une session se termine",
+   "bn": "কোনো সেশন শেষ হয়",
+   "pt-BR": "Uma sessão termina",
+   "ru": "Сеанс завершается",
+   "id": "Sesi selesai"
+  },
+  "A usage or spend limit is hit": {
+   "zh-Hans": "达到使用量或花费上限",
+   "hi": "उपयोग या खर्च की सीमा पूरी हो",
+   "es": "Se alcanza un límite de uso o de gasto",
+   "ar": "يُبلغ حد الاستخدام أو الإنفاق",
+   "fr": "Une limite d'utilisation ou de dépense est atteinte",
+   "bn": "ব্যবহার বা খরচের সীমায় পৌঁছায়",
+   "pt-BR": "Um limite de uso ou de gastos é atingido",
+   "ru": "Достигнут лимит использования или расходов",
+   "id": "Batas penggunaan atau pengeluaran tercapai"
+  },
+  "My next meeting is in 10 minutes": {
+   "zh-Hans": "我的下一个会议在 10 分钟后",
+   "hi": "मेरी अगली मीटिंग 10 मिनट में है",
+   "es": "Mi próxima reunión es en 10 minutos",
+   "ar": "اجتماعي التالي بعد 10 دقائق",
+   "fr": "Ma prochaine réunion est dans 10 minutes",
+   "bn": "আমার পরের মিটিং ১০ মিনিট পরে",
+   "pt-BR": "Minha próxima reunião é em 10 minutos",
+   "ru": "Следующая встреча через 10 минут",
+   "id": "Rapat saya berikutnya dalam 10 menit"
+  },
+  "Needs the calendar glance, not built in yet.": {
+   "zh-Hans": "需要日历速览，尚未加入。",
+   "hi": "कैलेंडर झलक चाहिए, अभी शामिल नहीं है।",
+   "es": "Necesita el vistazo al calendario, que aún no está incluido.",
+   "ar": "يتطلب لمحة التقويم، وهي غير مضمّنة بعد.",
+   "fr": "Nécessite l'aperçu du calendrier, pas encore intégré.",
+   "bn": "ক্যালেন্ডার ঝলক দরকার, এখনো যোগ হয়নি।",
+   "pt-BR": "Precisa da visão rápida da agenda, que ainda não foi incluída.",
+   "ru": "Нужен обзор календаря, его пока нет.",
+   "id": "Memerlukan sekilas kalender, belum disertakan."
+  },
+  "Include the project name": {
+   "zh-Hans": "包含项目名称",
+   "hi": "प्रोजेक्ट का नाम शामिल करें",
+   "es": "Incluir el nombre del proyecto",
+   "ar": "تضمين اسم المشروع",
+   "fr": "Inclure le nom du projet",
+   "bn": "প্রকল্পের নাম রাখুন",
+   "pt-BR": "Incluir o nome do projeto",
+   "ru": "Указывать название проекта",
+   "id": "Sertakan nama proyek"
+  },
+  "Off: \"Claude Code needs approval\".": {
+   "zh-Hans": "关闭时：“Claude Code needs approval”。",
+   "hi": "बंद: \"Claude Code needs approval\"।",
+   "es": "Desactivado: \"Claude Code needs approval\".",
+   "ar": "عند الإيقاف: \"Claude Code needs approval\".",
+   "fr": "Désactivé : « Claude Code needs approval ».",
+   "bn": "বন্ধ: \"Claude Code needs approval\"।",
+   "pt-BR": "Desativado: \"Claude Code needs approval\".",
+   "ru": "Выключено: «Claude Code needs approval».",
+   "id": "Mati: \"Claude Code needs approval\"."
+  },
+  "That doesn't look like a Pushover user key (30 letters and digits).": {
+   "zh-Hans": "这看起来不像 Pushover 用户密钥（30 个字母和数字）。",
+   "hi": "यह Pushover यूज़र कुंजी जैसा नहीं लगता (30 अक्षर और अंक)।",
+   "es": "Eso no parece una clave de usuario de Pushover (30 letras y dígitos).",
+   "ar": "لا يبدو هذا مفتاح مستخدم Pushover (30 حرفًا ورقمًا).",
+   "fr": "Cela ne ressemble pas à une clé utilisateur Pushover (30 lettres et chiffres).",
+   "bn": "এটি Pushover ইউজার কী-এর মতো দেখাচ্ছে না (৩০টি অক্ষর ও অঙ্ক)।",
+   "pt-BR": "Isso não parece uma chave de usuário do Pushover (30 letras e dígitos).",
+   "ru": "Это не похоже на ключ пользователя Pushover (30 букв и цифр).",
+   "id": "Itu tidak tampak seperti kunci pengguna Pushover (30 huruf dan angka)."
+  },
+  "That doesn't look like a Pushover app token (30 letters and digits).": {
+   "zh-Hans": "这看起来不像 Pushover 应用令牌（30 个字母和数字）。",
+   "hi": "यह Pushover ऐप टोकन जैसा नहीं लगता (30 अक्षर और अंक)।",
+   "es": "Eso no parece un token de app de Pushover (30 letras y dígitos).",
+   "ar": "لا يبدو هذا رمز تطبيق Pushover (30 حرفًا ورقمًا).",
+   "fr": "Cela ne ressemble pas à un jeton d'application Pushover (30 lettres et chiffres).",
+   "bn": "এটি Pushover অ্যাপ টোকেনের মতো দেখাচ্ছে না (৩০টি অক্ষর ও অঙ্ক)।",
+   "pt-BR": "Isso não parece um token de app do Pushover (30 letras e dígitos).",
+   "ru": "Это не похоже на токен приложения Pushover (30 букв и цифр).",
+   "id": "Itu tidak tampak seperti token aplikasi Pushover (30 huruf dan angka)."
+  },
+  "Pushover said {status}: {detail}": {
+   "zh-Hans": "Pushover 返回 {status}：{detail}",
+   "hi": "Pushover ने कहा {status}: {detail}",
+   "es": "Pushover respondió {status}: {detail}",
+   "ar": "ردّ Pushover بـ {status}: {detail}",
+   "fr": "Pushover a répondu {status} : {detail}",
+   "bn": "Pushover বলেছে {status}: {detail}",
+   "pt-BR": "O Pushover respondeu {status}: {detail}",
+   "ru": "Pushover ответил {status}: {detail}",
+   "id": "Pushover menjawab {status}: {detail}"
+  },
+  "Phone notifications are off.": {
+   "zh-Hans": "手机通知已关闭。",
+   "hi": "फ़ोन सूचनाएँ बंद हैं।",
+   "es": "Las notificaciones al teléfono están desactivadas.",
+   "ar": "إشعارات الهاتف متوقفة.",
+   "fr": "Les notifications sur le téléphone sont désactivées.",
+   "bn": "ফোন বিজ্ঞপ্তি বন্ধ।",
+   "pt-BR": "As notificações no celular estão desativadas.",
+   "ru": "Уведомления на телефон выключены.",
+   "id": "Notifikasi ponsel mati."
+  },
+  "Save your Pushover keys first.": {
+   "zh-Hans": "请先保存你的 Pushover 密钥。",
+   "hi": "पहले अपनी Pushover कुंजियाँ सहेजें।",
+   "es": "Primero guarda tus claves de Pushover.",
+   "ar": "احفظ مفاتيح Pushover أولًا.",
+   "fr": "Enregistrez d'abord vos clés Pushover.",
+   "bn": "আগে আপনার Pushover কী সংরক্ষণ করুন।",
+   "pt-BR": "Salve suas chaves do Pushover primeiro.",
+   "ru": "Сначала сохраните ключи Pushover.",
+   "id": "Simpan kunci Pushover Anda terlebih dahulu."
+  },
+  "Only when I'm away from this PC": {
+   "zh-Hans": "仅在我离开这台电脑时",
+   "hi": "केवल जब मैं इस पीसी से दूर हूँ",
+   "es": "Solo cuando no estoy en este equipo",
+   "ar": "فقط عندما أكون بعيدًا عن هذا الكمبيوتر",
+   "fr": "Seulement quand je ne suis pas devant ce PC",
+   "bn": "শুধু যখন আমি এই পিসি থেকে দূরে থাকি",
+   "pt-BR": "Só quando eu estiver longe deste computador",
+   "ru": "Только когда меня нет за этим ПК",
+   "id": "Hanya saat saya jauh dari PC ini"
+  },
+  "minutes without keyboard or mouse input": {
+   "zh-Hans": "分钟无键盘或鼠标操作",
+   "hi": "मिनट तक कोई कीबोर्ड या माउस इनपुट नहीं",
+   "es": "minutos sin usar el teclado ni el ratón",
+   "ar": "دقائق دون استخدام لوحة المفاتيح أو الفأرة",
+   "fr": "minutes sans clavier ni souris",
+   "bn": "মিনিট কোনো কিবোর্ড বা মাউস ইনপুট ছাড়া",
+   "pt-BR": "minutos sem usar teclado nem mouse",
+   "ru": "мин. без клавиатуры и мыши",
+   "id": "menit tanpa input keyboard atau mouse"
   }
  }
 }

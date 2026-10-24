@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "bubble",
+  "description": "The mini lantern beside the text field (1e, docs/phase1-plan.md §7a) may only listen for its own state, the writing suggestions and fix results; everything it does goes through Glim's own commands (a fix by its ids, Rewrite…, the popover opening). No permission here can open a network connection, focus or show a window.",
+  "windows": ["bubble"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

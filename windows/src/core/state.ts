@@ -14,6 +14,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import { DEFAULT_PHONE, type PhoneSettings } from "./phone";
 import type { WritingAsk } from "./ask";
 import { needsCard, type VoiceState } from "./voice";
 import type { DraftState } from "./draft";
@@ -184,12 +185,16 @@ export interface Settings {
   /** Settings → Writing → Apps Glim can open: the user's own apps for "open …".
    *  Only the names go to Claude; Rust checks name and path again (voice::own_apps). */
   voiceApps: OwnApp[];
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
   /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
   draftFrom: string;
   /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
   draftRecipients?: Record<string, string>;
   /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
   approvalSound?: boolean;
+  /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
+  phone?: PhoneSettings;
 }
 
 /** One of the user's own apps: what they say after "open", and a full local
@@ -230,7 +235,9 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceModel: "base",
   voiceWords: "",
   voiceApps: [],
+  writingBubble: false,
   draftFrom: "",
+  phone: { ...DEFAULT_PHONE },
 };
 
 type Listener = () => void;
