@@ -80,7 +80,7 @@ export function pillCard(task: AgentTask, openSettings: () => void): HTMLElement
       "div",
       { class: "int-head" },
       dot(task.color, 7),
-      h("b", { text: task.id === "integration_claude" ? "VS Code" : task.name }),
+      h("b", { text: task.id === "integration_claude" ? "Claude Code" : task.name }),
       h("span", { text: t(def?.subtitle ?? N_("Integration")) }),
     ),
     h("div", { class: "int-status" }, dot(status.color, 5), h("span", { text: status.label })),
