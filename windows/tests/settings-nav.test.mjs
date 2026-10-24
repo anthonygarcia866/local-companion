@@ -14,10 +14,10 @@ const { h } = await import("../src/views/dom.ts");
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 test("the sidebar lists the sections in the asked order, Writing with its three parts", () => {
-  assert.deepEqual(NAV.map((e) => e.label), ["General", "Presence", "Writing", "Privacy", "Shortcuts", "Claude Code & Agents", "About"]);
+  assert.deepEqual(NAV.map((e) => e.label), ["General", "Presence", "Writing", "Privacy", "Shortcuts", "Claude Code & Agents", "Phone", "About"]);
   assert.deepEqual(NAV[2].children.map((e) => e.label), ["Apps", "Tones", "Strictness"]);
   // Every entry's target exists in the Settings code.
-  const src = read("src/settings/main.ts") + read("src/settings/writing.ts");
+  const src = read("src/settings/main.ts") + read("src/settings/writing.ts") + read("src/settings/phone.ts");
   for (const e of flatNav()) assert.ok(src.includes(`"${e.id}"`), e.id);
 });
 
@@ -26,7 +26,7 @@ test("the page's sections follow the sidebar's order", () => {
   const order = main.slice(main.indexOf("sections = ["), main.indexOf("];", main.indexOf("sections = [")));
   const at = (s) => order.indexOf(s);
   assert.ok(at("general") < at("presence") && at("presence") < at('"settings-writing"') && at('"settings-writing"') < at("privacy")
-    && at("privacy") < at("shortcuts") && at("shortcuts") < at('"settings-agents"') && at('"settings-agents"') < at("about"), order);
+    && at("privacy") < at("shortcuts") && at("shortcuts") < at('"settings-agents"') && at('"settings-agents"') < at("phoneEl") && at("phoneEl") < at("about"), order);
 });
 
 test("the current entry is the last section whose top has reached the top of the view", () => {

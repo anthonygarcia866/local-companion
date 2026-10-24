@@ -1,5 +1,5 @@
 ﻿
-19:39:01.775 exe: C:\Users\antho\local-companion\windows\target\release\glim.exe (5820928 bytes, built 10/10/2026 19:38:43)
+19:39:01.775 exe: C:\Users\you\local-companion\windows\target\release\glim.exe (5820928 bytes, built 10/10/2026 19:38:43)
 19:39:07.084 dev Glim pid 294256, capture panel up
 19:39:09.500 ordinary notes (phone, address, invoice): Capture debug — msedge.exe | Edit | TextPattern | readable=true | chars=90 | showing=0-90 | via=poll
 19:39:10.630 unit list (101 102 103 104): Capture debug — msedge.exe | Edit | TextPattern | readable=true | chars=46 | showing=0-46 | via=poll

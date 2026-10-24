@@ -177,10 +177,10 @@ mod tests {
 
     #[test]
     fn outlook_signature_and_reply_are_left_out() {
-        let field = "Hi Maria,\r\rThe lease renewel is attached.\r\rBest regards,\rAnthony Garcia\rProperty Manager\rAudii Management LLC\r(555) 123-4567\r\rFrom: Maria Lopez\rSent: Friday, October 10, 2026 9:12 AM\rTo: Anthony\rSubject: Lease\r\rHi, can you send the renewel?";
+        let field = "Hi Maria,\r\rThe lease renewel is attached.\r\rBest regards,\rJane Doe\rProperty Manager\rAcme Management LLC\r(555) 123-4567\r\rFrom: Maria Lopez\rSent: Friday, October 10, 2026 9:12 AM\rTo: Jane\rSubject: Lease\r\rHi, can you send the renewel?";
         assert_eq!(at(field, "renewel is").as_deref(), Some("The lease renewel is attached."));
-        assert_eq!(at(field, "Anthony Garcia"), None);
-        assert_eq!(at(field, "Audii"), None);
+        assert_eq!(at(field, "Jane Doe"), None);
+        assert_eq!(at(field, "Acme"), None);
         assert_eq!(at(field, "can you send"), None);
         // No caret (ValuePattern): the end of the user's own text.
         let own: String = field.chars().take(own_text_end(&field.chars().collect::<Vec<_>>())).collect();
@@ -192,8 +192,8 @@ mod tests {
         let field = "Sounds good, see you Tuesday.\n\nOn Fri, Oct 10, 2026 at 9:12 AM Maria Lopez <maria@example.com> wrote:\n> Can we meet Tuesday?\n> Thanks";
         assert_eq!(at(field, "Tuesday.").as_deref(), Some("Sounds good, see you Tuesday."));
         assert_eq!(at(field, "Can we"), None);
-        let field = "Fixed it.\n-- \nAnthony\nAudii Management";
-        assert_eq!(at(field, "Anthony"), None);
+        let field = "Fixed it.\n-- \nJane\nAcme Management";
+        assert_eq!(at(field, "Jane"), None);
         assert_eq!(at("Fixed.\nSent from my iPhone", "iPhone"), None);
         let field = "See below.\n-----Original Message-----\nFrom: x\nold text";
         assert_eq!(at(field, "old text"), None);
