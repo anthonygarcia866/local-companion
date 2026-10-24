@@ -295,7 +295,7 @@ mod display_tests {
         let rescaled = [lap.clone(), d("DELL U2720Q", 1920, 0, 1920, 1080)];
         assert_eq!(pick_display(&key, &rescaled), Some(1));
         // Unplugged: nothing, so the caller falls back to the primary display.
-        assert_eq!(pick_display(&key, &[lap.clone()]), None);
+        assert_eq!(pick_display(&key, std::slice::from_ref(&lap)), None);
     }
 
     #[test]
@@ -337,7 +337,7 @@ mod display_tests {
     #[test]
     fn active_and_cursor_are_not_saved_displays() {
         let lap = d("eDP-1", 0, 0, 1920, 1200);
-        assert_eq!(pick_display("active", &[lap.clone()]), None);
+        assert_eq!(pick_display("active", std::slice::from_ref(&lap)), None);
         assert_eq!(pick_display("cursor", &[lap]), None);
     }
 
