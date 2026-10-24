@@ -18,7 +18,7 @@ Synthetic speech is clean, evenly paced, accent-free and has no "um"s, so **real
 
 **Machine:** AMD Ryzen AI 7 350 (8 cores / 16 threads), 15 GB RAM, on AC power. whisper.cpp release `b5454` (2026-10-06), prebuilt `whisper-bin-x64.zip` (CPU), 8 threads. Every download was checked against its published SHA-256 (GitHub's asset digest, Hugging Face's LFS hash). Downloads and clips live in the session's scratch folder, not the repo.
 
-**Tool:** `windows/dev/stt-compare/compare.py` and `clips.json` (dev-only; never ships). Re-run with the owner's clips by swapping `clips.json` and the `clips/` folder.
+**Tool:** `windows/dev/stt-compare/compare.py` and `clips.json` (dev-only; never ships). Re-run with the owner's clips by swapping `clips.json` and the `clips/` folder. Since 2026-10-19 it also runs Parakeet (`--parakeet`, below). Recordings, model files and results are git-ignored (`.gitignore`, "Speech-to-text comparison"), and the owner's clips live outside the repo in `%USERPROFILE%\glim-clips\`.
 
 ## How it was scored
 
@@ -84,6 +84,22 @@ Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the new built
 | Command word heard first | 12/12 | 12/12 |
 
 **Small runs fast enough to use** (~2 s after letting go of the key, against ~0.5 s), but on these clips it is not clearly more accurate. **Keep base**, now with the built-in word list (fix d) and the unit-number fix-up; **decide with Anthony's own 22 clips** (`docs/voice-clips-to-record.md`, folder `%USERPROFILE%\glim-clips\` created 2026-10-17). Switching is a Settings change plus `ggml-small.en-q5_1.bin` in `%LOCALAPPDATA%\Glim\whisper` (not there now).
+
+## Third local candidate: NVIDIA Parakeet via sherpa-onnx (prepped 2026-10-19, not run)
+
+Upstream Coucou's Windows app does speech-to-text with **Parakeet TDT 0.6B v3** (int8) through **sherpa-onnx** 1.13.8 (`windows/src-tauri/src/speech/mod.rs` there; the Mac runs the same model through FluidAudio). It's added here so the owner's clips judge it beside base.en and small.en.
+
+| | Parakeet TDT 0.6B v3 (int8) |
+|---|---|
+| Files | encoder / decoder / joiner `.onnx` + `tokens.txt`, from `csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` at upstream's pinned revision `2bda32e`, each SHA-256 checked (`get_parakeet.py`) |
+| Disk | ~670 MB (encoder 652 MB) |
+| Languages | 25 European languages, punctuation and capitals in its output |
+| Vocabulary hint | **None** in this setup: no counterpart to whisper's `--prompt`. sherpa-onnx's hotwords need a different decoder and weren't tried. |
+| How it runs here | sherpa-onnx's Python package in a scratch venv (`compare.py --parakeet <dir>`), loaded once, greedy search, the same settings as upstream; processing = the decode alone |
+| Licences | model CC-BY-4.0 (NVIDIA), sherpa-onnx Apache-2.0 |
+| In Glim it would mean | a new dependency (sherpa-onnx with onnxruntime, linked statically upstream), a ~670 MB download the user starts, no word list |
+
+**Status:** the tooling is checked without the model (argument parsing, WAV reading, scoring through a stand-in recognizer, the downloader's hash checks). It hasn't loaded the real model: on 2026-10-19 the PC had only 0.8 GB free RAM. It runs for the first time on the owner's clips (`docs/voice-clips-to-record.md`, "The run"). No synthetic-clip numbers exist for it.
 
 ## Cloud candidates (prices from the official pages, 2026-10-14; not measured)
 
