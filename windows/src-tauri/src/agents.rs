@@ -37,6 +37,7 @@ pub fn names_relay(text: &str) -> bool {
 /// The shell an agent runs its hook commands through on Windows. On Linux every
 /// agent uses `sh` (or bash), so there is only one way to quote.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::enum_variant_names)] // `PowerShell` is the product's name, not a repeat of `Shell`.
 pub enum Shell {
     /// Git Bash on Windows (Claude Code), `sh` on Linux.
     Sh,

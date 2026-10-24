@@ -224,8 +224,8 @@ fn distance(a: &[char], b: &[char]) -> usize {
     for (i, row) in d.iter_mut().enumerate() {
         row[0] = i;
     }
-    for j in 0..=b.len() {
-        d[0][j] = j;
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
     }
     for i in 1..=a.len() {
         for j in 1..=b.len() {
@@ -244,9 +244,9 @@ fn distance(a: &[char], b: &[char]) -> usize {
 /// first is clearly the best, for "Apply all": it adds no ending, and every
 /// other plain word is further from what was typed, or as far but Harper also
 /// put the first one first.
-fn rank(problem: &str, replacements: &mut Vec<String>) -> bool {
+fn rank(problem: &str, replacements: &mut [String]) -> bool {
     let harper_first = replacements.first().cloned();
-    let all = replacements.clone();
+    let all = replacements.to_vec();
     replacements.sort_by_key(|r| adds_ending(problem, r, &all));
     let Some(top) = replacements.first() else { return false };
     if adds_ending(problem, top, &all) {
