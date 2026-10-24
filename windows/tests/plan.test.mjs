@@ -186,3 +186,17 @@ test("a status line call updates the numbers and nothing else, even when paused"
   emit("hook", { hook_event_name: "StatusLine", session_id: "s1" });
   assert.equal(State.planUsage.fiveHour.usedPct, 42);
 });
+
+// Upstream #479 (adapted 2026-10-19): the gauge is fed by the status-line
+// relay, which only the Claude Code CLI runs. Settings → Plan usage says so,
+// right under the Claude text, so an empty gauge with only the desktop app
+// isn't a mystery.
+test("Settings → Plan usage says the Claude gauge needs the Claude Code CLI", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/settings/main.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  assert.ok(src.includes('get claudeCli() { return t("The numbers come from the Claude Code command-line tool. The Claude desktop app does not report them, so the gauge stays empty if you only use the desktop app."); },'));
+  const section = src.slice(src.indexOf("function planSection("), src.indexOf("\n}\n", src.indexOf("function planSection(")));
+  const cli = section.indexOf("text: PLAN_SETTINGS_TEXT.claudeCli");
+  assert.ok(cli > section.indexOf("text: PLAN_SETTINGS_TEXT.claude,"), "under the Claude text");
+  assert.ok(cli < section.indexOf("PLAN_SETTINGS_TEXT.showClaude"), "before its switch");
+});
