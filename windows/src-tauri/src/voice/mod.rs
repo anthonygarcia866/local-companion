@@ -374,10 +374,10 @@ pub fn level(chunk: &[i16]) -> f32 {
 /// The personal word list (Settings) as whisper's prompt: one line, commas,
 /// at most 400 characters (whisper keeps half its context for the prompt).
 /// Words whisper is always told, before the user's own (Settings →
-/// Dictation): the owner's names and terms (fix d, retest 2026-10-17:
-/// "Claude" heard as "Claw", "unit four B" typed as "Unit 4"), and two unit
-/// numbers so it writes them the way they're used.
-pub const BUILT_IN_WORDS: &str = "Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C";
+/// Dictation): the app's own names (fix d, retest 2026-10-17: "Claude"
+/// heard as "Claw"). People, places and work terms go in the user's own
+/// list, never here; unit numbers are written by unit_numbers below.
+pub const BUILT_IN_WORDS: &str = "Claude, Claude Code, Codex, Glim";
 
 /// whisper's prompt: the built-in words, then the user's list.
 pub fn whisper_prompt(user_words: &str) -> String {
@@ -420,9 +420,9 @@ fn ends_phrase(token: &str) -> bool {
     token.ends_with([',', '.', '!', '?', ';', ':'])
 }
 
-/// "unit four B" / "unit 4 B" / "units four oh two c" → "unit 4B" /
-/// "unit 4B" / "units 402C" (fix d: the owner's unit numbers are a number
-/// and a letter, written together). Only right after "unit"/"units"; a unit
+/// "unit seven D" / "unit 7 D" / "units four oh two c" → "unit 7D" /
+/// "unit 7D" / "units 402C" (fix d: a unit number here is a number and a
+/// letter, written together). Only right after "unit"/"units"; a unit
 /// number with no letter after it is left as it is.
 pub fn unit_numbers(text: &str) -> String {
     let bare = |t: &str| t.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
@@ -626,16 +626,16 @@ pub(crate) mod tests {
         assert_eq!(Mode::Answer.as_str(), "answer");
     }
 
-    /// Fix d (retest 2026-10-17): "unit four B" was typed "Unit 4".
+    /// Fix d (retest 2026-10-17): a unit's letter was dropped ("Unit 7").
     #[test]
     fn unit_numbers_are_a_number_and_a_letter_written_together() {
         for (heard, want) in [
-            ("the leak is in unit four B", "the leak is in unit 4B"),
-            ("Unit 4 B is ready.", "Unit 4B is ready."),
+            ("the leak is in unit seven D", "the leak is in unit 7D"),
+            ("Unit 7 D is ready.", "Unit 7D is ready."),
             ("units four oh two c and 3A", "units 402C and 3A"),
             ("unit twelve bee", "unit 12B"),
             ("unit twenty one D, by Friday", "unit 21D, by Friday"),
-            ("unit 4B stays", "unit 4B stays"),
+            ("unit 7D stays", "unit 7D stays"),
             ("in unit four.", "in unit four."),
             ("unit four a tenant called", "unit four a tenant called"),
             ("unit four, B building", "unit four, B building"),
@@ -646,11 +646,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// Fix d: whisper is always told the owner's words, then the user's own.
+    /// Fix d: whisper is always told the app's words, then the user's own.
     #[test]
     fn whisper_hears_the_built_in_words_first_then_the_users() {
-        let p = whisper_prompt("Okafor, claude, HOA");
-        assert!(p.starts_with("Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C, Okafor"), "{p}");
+        let p = whisper_prompt("Ravenwood, claude, HOA");
+        assert!(p.starts_with("Claude, Claude Code, Codex, Glim, Ravenwood"), "{p}");
         assert_eq!(p.matches("laude,").count() + p.matches("laude Code").count(), 2, "'claude' isn't said twice: {p}");
         assert!(p.ends_with("HOA"));
         assert_eq!(whisper_prompt(""), BUILT_IN_WORDS);
@@ -718,7 +718,7 @@ pub(crate) mod tests {
             assert!(starts_like_command(t), "{t}");
         }
         for t in [
-            "Thanks for the quick turnaround on unit 4B", "The plumber comes Tuesday", "Opened the gate at nine",
+            "Thanks for the quick turnaround on unit 7D", "The plumber comes Tuesday", "Opened the gate at nine",
             "Sending thanks to everyone", "Emailed Maria yesterday", "Gone to lunch", "Undelete is not a word", "",
         ] {
             assert!(!starts_like_command(t), "{t}");

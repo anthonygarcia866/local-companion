@@ -141,7 +141,7 @@ fn claude_clean_up() {
     use super::Mode::{Ask, Dictate};
     let repos = ["dale-cuts".to_string(), "local-companion".to_string()];
     for (said, app, mode) in [
-        ("um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", "OUTLOOK.EXE", Dictate),
+        ("um thanks for the quick turnaround on unit 7D we'll get the lease to you by friday", "OUTLOOK.EXE", Dictate),
         // Decision A's regression: the two sentences hijacked on 2026-10-16.
         ("this is a test of glim dictation in my own voice", "OUTLOOK.EXE", Dictate),
         ("please send the updated lease to the tenant before friday afternoon", "OUTLOOK.EXE", Dictate),
@@ -188,9 +188,9 @@ fn claude_clean_up() {
             let resolved: Vec<_> = d.to.iter().filter_map(|t| super::draft::spoken_address(t)).collect();
             assert_eq!(resolved, ["jordanlee@example.com"], "as said, then normalized: {:?}", d.to);
         }
-        if said.contains("unit 4B") {
+        if said.contains("unit 7D") {
             let Ok(super::Cleanup::Dictate(text)) = &r else { panic!("typed: {r:?}") };
-            assert!(text.contains("4B"), "the unit number kept: {text}");
+            assert!(text.contains("7D"), "the unit number kept: {text}");
         }
         if said == "open claw" {
             // Claude opens it, or asks and Glim's sound-alike opens it (run.rs).
@@ -202,13 +202,13 @@ fn claude_clean_up() {
         }
     }
     // The second request of an edit, on a made-up draft.
-    let current = super::draft::DraftText { subject: "Shift change".into(), body: "Hi Gabriela,\n\nThe shift moves to Tuesday.".into() };
+    let current = super::draft::DraftText { subject: "Shift change".into(), body: "Hi Jordan,\n\nThe shift moves to Tuesday.".into() };
     let t0 = Instant::now();
     let (r, usage) = block_on(dictate::revise(&base, &key, "claude-haiku-5-5", &current, "add that the shift starts at nine"));
     nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
     println!("revise → {r:?} in {:.2}s", t0.elapsed().as_secs_f64());
     let new = r.expect("revised");
     assert!(new.body.contains("Tuesday") && (new.body.contains('9') || new.body.to_lowercase().contains("nine")), "the change applied, the rest kept: {new:?}");
-    assert!(new.body.starts_with("Hi Gabriela,"), "kept as it was: {new:?}");
+    assert!(new.body.starts_with("Hi Jordan,"), "kept as it was: {new:?}");
     println!("total ${:.5}", nanos as f64 / 1e9);
 }
