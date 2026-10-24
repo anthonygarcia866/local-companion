@@ -562,10 +562,10 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 > **Pre-checked by Claude, 2026-10-15 (no voice, no Glim rebuild):** the files are in place (whisper.cpp b5454 `whisper-server.exe`, `whisper.dll`, the 11 `ggml*.dll`; `ggml-base.en-q5_1.bin`, SHA-256 matching the GitHub release digest and Hugging Face). `cargo test --lib voice::live -- --ignored --nocapture --test-threads=1` ran Glim's own code against a copy of that folder: no files → "no-whisper"; base found, small reported missing; one server, **listening on 127.0.0.1 only** (netstat), reused for 20 synthetic clips (~0.5-0.75 s each, 1.1 s for the first with the model load); all 10 command clips → the "heard" card under the no-Claude rule; `stop()` kills it. With `GLIM_LIVE_CLAUDE=1`: dictation cleaned up, "open outlook" → an action, "send it" → "Click Send on the draft to send it.", 0.7-1.1 s each, $0.00041 in all. **Not checked yet (needs a build with this branch + your voice and hands):** every numbered step below.
 
 1. **Settings → Writing → Dictation:** Speech model **Base (faster)**; the hint names `ggml-base.en-q5_1.bin` and the folder. Type `Glim, HOA, Okafor` in **Words Glim should know** and click away.
-2. **Dictate, cleaned up:** click in Notepad, **hold Ctrl+Alt+Shift+V** (the pill says **Dictating** right of the lantern while you hold it), say "um thanks for the quick turnaround on unit 4B we'll get the lease to you by friday", let go.
-   - **See while held:** the lantern turns teal and its flame moves with your voice (s-hear), and a thin teal bar along the pill's bottom edge grows and shrinks with your voice (silent: a sliver). **After:** thinking, then the data-leaving state briefly, then `Thanks for the quick turnaround on unit 4B. We'll get the lease to you by Friday.` is typed at the caret. No card. **Ctrl+Z** undoes it.
+2. **Dictate, cleaned up:** click in Notepad, **hold Ctrl+Alt+Shift+V** (the pill says **Dictating** right of the lantern while you hold it), say "um thanks for the quick turnaround on unit 7D we'll get the lease to you by friday", let go.
+   - **See while held:** the lantern turns teal and its flame moves with your voice (s-hear), and a thin teal bar along the pill's bottom edge grows and shrinks with your voice (silent: a sliver). **After:** thinking, then the data-leaving state briefly, then `Thanks for the quick turnaround on unit 7D. We'll get the lease to you by Friday.` is typed at the caret. No card. **Ctrl+Z** undoes it.
 2b. **The two sentences that turned into a card on 2026-10-16 (Decision A's regression):** in Notepad, hold **V** and say "This is a test of Glim dictation in my own voice", then "Please send the updated lease to the tenant before Friday afternoon". **See:** each typed as you said it, cleaned up (capital, full stop). **No card, no question.**
-2c. **Unit numbers and names (fix d, 2026-10-17):** in Notepad, hold **V** and say "the leak is in unit four B, Gabriela from Orion Housing will check it in AppFolio". **See:** "unit 4B", "Gabriela", "Orion Housing", "AppFolio" spelled right. Settings → Writing → Dictation shows "Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C."
+2c. **Unit numbers and names (fix d, 2026-10-17; built-in list cut to the app's names 2026-10-24):** first add a made-up name to Settings → Writing → Dictation → your words, e.g. "Ravenwood". In Notepad, hold **V** and say "the leak is in unit seven D, ask Claude Code and Ravenwood". **See:** "unit 7D", "Claude Code", "Ravenwood" spelled right. Settings → Writing → Dictation shows "Glim always knows these too: Claude, Claude Code, Codex, Glim." (people, places and work terms are yours to add).
 2d. **A misheard app name (fix d):** hold **A** and say "open Claude" a few times, quickly or mumbled. **See:** the Claude app opens each time, even when the transcript says "Claw" or "Clod" (glim.log: `voice: open_app claude_code ok`, or `voice: open_app by a sound-alike`). "Open the app" still asks which one.
 3. **Too short:** tap the key (under 0.4 s). Nothing happens, nothing is sent.
 4. **No clean-up (raw text):** Settings → AI, set the cap below what's spent. Dictate "the plumber comes tuesday at ten". **See:** the words typed exactly as whisper heard them, a card "Typed in Notepad, not cleaned up" saying the cap is reached, and a grey **~** badge at the lantern's top right (where the count goes) until that card closes (~8 s). The typed text has no marker. Put the cap back.
@@ -626,6 +626,36 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
     - **Cancel** on the card: the draft in Outlook is unchanged.
     - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
     - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
+
+## 29. Calendar glance (branch `calendar-glance`, draft PR, stacked on #27)
+
+*Where: branch `calendar-glance`.* Needs classic Outlook **open** (Glim never starts it for this). Settings → **Calendar** → **Show my next event** is **off** by default: turn it on.
+
+1. **The calendars:** Settings → Calendar lists Outlook's calendars, **one per row**, each with its mailbox beside the name (grey), your default one checked ("(default)"). With Outlook closed it says "Open classic Outlook to choose calendars…" instead.
+   - **If the list is empty with Outlook open** (Glim started before Outlook was ready, or Outlook opened later): wait about a minute, or reopen Settings → Calendar (or click **Calendar** in the sidebar). Glim looks again by itself 10 s, 30 s and 60 s after it sees Outlook running, then every minute, and the list fills in. glim.log: `calendar: 0 found (attempt 1), Outlook is running; next look in 10 s`, then `calendar: 9 found (attempt 3)` (your count). Outlook closed: no retries and nothing logged; Glim only watches for Outlook to start (never starts it).
+2. **The next event:** have (or make, in Outlook) a meeting starting in the next 10 minutes. **See:** the lantern glows (brighter, glancing eyes) from 10 minutes before. Click the lantern: a card with the title, "9:00 AM – 9:30 AM · in 8 min", the location, **Close**.
+   - A Teams or Zoom meeting: a **Join** button. Click it: the meeting opens in Teams/Zoom (or the browser). Nothing else is ever opened from the card.
+   - Two meetings at the same time: "+1 more at the same time".
+   - Up to 10 minutes after it started: "started 3 min ago", Join still there. Then the next event.
+3. **Close:** the card goes; that event doesn't bring it back (the glow stays until it starts).
+4. **Lead time:** Settings → Glow before an event → 5 minutes: the glow starts 5 minutes before instead.
+   - **Outlook opened after Glim, meeting made 12 minutes ahead (fix 2026-10-24):** quit Outlook, start (or keep) Glim, then open Outlook. Open Settings → Calendar a few times while you wait. Make a meeting in Outlook starting 12 minutes from now. **See:** the lantern glows from 10 minutes before (at most a minute late). glim.log: `calendar: N found (attempt k)`, then a `calendar: … events in the next 24 h …` line whenever the count changes (reads are every minute but logged only on a change).
+5. **All-day events:** hidden by default (never "next"). Switch "Hide all-day events" off: they show in the summary as "All day".
+6. **Morning summary (off by default):** switch it on. The next morning (after 6:00), the first read shows "Today: N on your calendar" with times and titles (5 at most, "+N more"), once that day. Close: it doesn't come back that day.
+7. **Read only:** nothing in Outlook changes: no meeting accepted, declined, moved or edited; no Outlook window opens by itself.
+8. **Log:** glim.log has `calendar: N events in the next 24 h (K with a meeting link), next in M min`, `calendar: nothing to show (no-outlook)` when Outlook is closed. `calendar: N found (attempt k)` when Glim finds Outlook's calendars. **Never a title, a location, a calendar name or a link.**
+
+## 30. Your own apps for "open …" (branch `open-app-custom`, draft PR)
+
+*Where: a build with branch `open-app-custom`. Needs a working Claude key (Settings → AI).*
+
+1. **Add one:** Settings → Writing → **Apps Glim can open**. In Explorer, right-click an app's .exe (or its Start-menu shortcut) → **Copy as path**. Name: e.g. "Spotify"; Path: paste. **Add.** **See:** it's listed as `Spotify → C:\…\Spotify.exe` (no quotes); the fields clear.
+2. **Open it:** hold **Ctrl+Alt+Shift+A**: "open Spotify". **See:** the app opens; no card stays. glim.log: `voice: cleanup open_app …`, `voice: open_app own app ok`: never the name or the path.
+3. **Built-ins still work:** "open Outlook", "open Codex", "open Claude": each opens as before.
+4. **Refusals on the page** (nothing is added, the reason shows under Add): name "Outlook" or "claude code" (built in); the same name twice; a path with arguments (`C:\Windows\System32\notepad.exe /a`); a `.bat` or `.txt`; a `\\server\share\app.exe` path; a path without the drive (`notepad.exe`).
+5. **Moved or deleted app:** add an app, then rename its .exe in Explorer, say "open <name>". **See:** "Not opened: Couldn't open <name>. Is it installed?"; nothing else starts. Put the file back.
+6. **Remove:** Remove the app, say "open <name>". **See:** nothing opens (a question card or "heard": Claude no longer knows the name).
+7. **Dictation never opens:** in a text field, hold **Ctrl+Alt+Shift+V** and say "open Spotify": the words are typed, nothing opens.
 
 > **Numbering note (2026-10-20):** §29 is used twice in open drafts: #34 (calendar glance) and #40 (your own apps). Whichever merges second becomes §30. §31-§33 below are for #42, #43 and #44, which had no hand test of their own.
 

@@ -1517,7 +1517,7 @@ Anthony", word.to_uppercase());
 
     #[test]
     fn only_printable_replacements_without_sensitive_numbers_are_offered() {
-        assert!(offerable("received") && offerable("") && offerable("it's") && offerable("Unit 4B"));
+        assert!(offerable("received") && offerable("") && offerable("it's") && offerable("Unit 7B"));
         for bad in ["a\nb", "a\rb", "tab\there", "\u{7}", "4111 1111 1111 1111", "123-45-6789"] {
             assert!(!offerable(bad), "{bad:?}");
         }

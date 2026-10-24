@@ -54,7 +54,7 @@ pub(crate) fn int(n: i32) -> VARIANT {
 }
 
 /// A boolean argument (VT_BOOL).
-fn boolean(b: bool) -> VARIANT {
+pub(crate) fn boolean(b: bool) -> VARIANT {
     let v = if b { VARIANT_TRUE } else { VARIANT_FALSE };
     VARIANT { Anonymous: VARIANT_0 { Anonymous: ManuallyDrop::new(VARIANT_0_0 { vt: VT_BOOL, wReserved1: 0, wReserved2: 0, wReserved3: 0, Anonymous: VARIANT_0_0_0 { boolVal: v } }) } }
 }
@@ -62,6 +62,12 @@ fn boolean(b: bool) -> VARIANT {
 /// One COM object, by name.
 #[derive(Clone)]
 pub struct Disp(IDispatch);
+
+impl From<IDispatch> for Disp {
+    fn from(d: IDispatch) -> Disp {
+        Disp(d)
+    }
+}
 
 impl Disp {
     fn id(&self, name: &str) -> windows::core::Result<i32> {

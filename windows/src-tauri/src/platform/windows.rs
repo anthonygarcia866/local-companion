@@ -8,10 +8,15 @@ use std::process::Command;
 
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use ::windows::core::{BOOL, PWSTR};
-use ::windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, HWND, LPARAM, LocalFree, POINT};
+use ::windows::core::{w, BOOL, PWSTR};
+use ::windows::Win32::Foundation::{
+    CloseHandle, HANDLE, HLOCAL, HWND, LPARAM, LocalFree, POINT, RPC_E_CHANGED_MODE,
+};
 use ::windows::Win32::Security::Authorization::ConvertSidToStringSidW;
 use ::windows::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
+use ::windows::Win32::System::Com::{
+    CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+};
 use ::windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -23,10 +28,13 @@ use ::windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, GetKeyboardLayoutList, MapVirtualKeyExW, ToUnicodeEx, HKL, MAPVK_VK_TO_VSC,
     VK_CONTROL, VK_LBUTTON, VK_MENU, VK_SHIFT,
 };
+use ::windows::Win32::UI::Shell::{
+    ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC,
+};
 use ::windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, GetClassNameW, GetCursorPos, GetWindow, GetWindowLongPtrW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE, WS_EX_NOACTIVATE,
+    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE, SW_SHOWNORMAL, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW,
 };
 
@@ -235,6 +243,36 @@ pub fn open_known_app(app: &str) -> bool {
         "claude" => activate_package("Claude", "Claude"),
         _ => false,
     }
+}
+
+/// Opens one of the user's own apps (Settings, voice::own_apps) at `path`:
+/// checked again here (a full local path to an .exe or .lnk, on a drive
+/// that isn't a network drive, the file there), then ShellExecute "open" on
+/// it with no arguments; no shell. False when any check fails or Windows
+/// refuses.
+pub fn open_own_app(path: &str) -> bool {
+    use ::windows::core::{w, PCWSTR};
+    use ::windows::Win32::Storage::FileSystem::GetDriveTypeW;
+    use ::windows::Win32::UI::Shell::ShellExecuteW;
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if crate::voice::own_apps::path_problem(path).is_some() {
+        return false;
+    }
+    // A mapped network drive (Z:\) would reach the network: checked by its
+    // root before the file is touched. DRIVE_REMOTE is 4.
+    let root: Vec<u16> = format!("{}\\", &path[..2]).encode_utf16().chain(Some(0)).collect();
+    if unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) } == 4 {
+        return false;
+    }
+    let file = std::path::Path::new(path);
+    if !file.is_file() {
+        return false;
+    }
+    let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(Some(0)).collect() };
+    let target = wide(path);
+    let dir = wide(&file.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default());
+    let r = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(target.as_ptr()), None, PCWSTR(dir.as_ptr()), SW_SHOWNORMAL) };
+    r.0 as usize > 32
 }
 
 /// ShellExecute "open" on a file Windows resolves itself (App Paths); no shell.
@@ -657,6 +695,12 @@ fn process_table() -> HashMap<u32, Proc> {
     out
 }
 
+/// Whether a process with this executable name (any case) is running. The
+/// process list only: nothing is opened or attached.
+pub fn process_running(exe: &str) -> bool {
+    process_table().values().any(|p| p.exe.eq_ignore_ascii_case(exe))
+}
+
 /// The ancestors of a process, nearest first, below the desktop shell.
 pub fn process_ancestors(pid: u32) -> Vec<u32> {
     session_window::ancestors(&process_table(), pid)
@@ -730,14 +774,85 @@ fn focus_app(exe: &str) -> bool {
 
 /// The Claude desktop app: brought forward when it runs (Claude Code's own
 /// `claude.exe` has no window of its own, so it is never the one picked),
-/// started from where its installer puts it otherwise.
+/// started from the Squirrel path or its registered MSIX protocol otherwise.
 pub fn open_claude_desktop() -> bool {
-    if focus_app("claude.exe") {
-        return true;
+    open_claude_with(
+        || focus_app("claude.exe"),
+        || {
+            std::env::var_os("LOCALAPPDATA").is_some_and(|base| {
+                let exe = PathBuf::from(base).join("AnthropicClaude").join("claude.exe");
+                exe.is_file() && Command::new(exe).spawn().is_ok()
+            })
+        },
+        activate_claude_protocol,
+    )
+}
+
+fn open_claude_with(
+    focus: impl FnOnce() -> bool,
+    squirrel: impl FnOnce() -> bool,
+    protocol: impl FnOnce() -> bool,
+) -> bool {
+    focus() || squirrel() || protocol()
+}
+
+/// The MSIX manifest registers `claude`; let Windows resolve its current install.
+fn activate_claude_protocol() -> bool {
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        // A Tauri thread may already use MTA. Keep that apartment: the Shell can
+        // delegate activation, and we must not uninitialize someone else's COM.
+        if initialized.is_err() && initialized != RPC_E_CHANGED_MODE {
+            return false;
+        }
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC,
+            lpVerb: w!("open"),
+            lpFile: w!("claude://"),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+        let opened = ShellExecuteExW(&mut info).is_ok();
+        if initialized.is_ok() {
+            CoUninitialize();
+        }
+        opened
     }
-    let Some(base) = std::env::var_os("LOCALAPPDATA") else { return false };
-    let exe = PathBuf::from(base).join("AnthropicClaude").join("claude.exe");
-    exe.is_file() && Command::new(exe).spawn().is_ok()
+}
+
+#[cfg(test)]
+mod claude_launch_tests {
+    use super::open_claude_with;
+    use std::cell::RefCell;
+
+    #[test]
+    fn tries_launchers_in_order_and_stops_after_success() {
+        for (focus, squirrel, protocol, expected, calls) in [
+            (true, true, true, true, vec!["focus"]),
+            (false, true, true, true, vec!["focus", "squirrel"]),
+            (false, false, true, true, vec!["focus", "squirrel", "protocol"]),
+            (false, false, false, false, vec!["focus", "squirrel", "protocol"]),
+        ] {
+            let seen = RefCell::new(Vec::new());
+            let result = open_claude_with(
+                || {
+                    seen.borrow_mut().push("focus");
+                    focus
+                },
+                || {
+                    seen.borrow_mut().push("squirrel");
+                    squirrel
+                },
+                || {
+                    seen.borrow_mut().push("protocol");
+                    protocol
+                },
+            );
+            assert_eq!(result, expected);
+            assert_eq!(seen.into_inner(), calls);
+        }
+    }
 }
 
 // ── Global shortcuts ──────────────────────────────────────────────────────────

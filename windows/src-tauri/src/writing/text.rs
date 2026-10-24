@@ -161,8 +161,8 @@ mod tests {
 
     #[test]
     fn the_paragraph_around_the_caret_is_checked() {
-        let field = "Hi Sam,\n\nThe heater in unit 4B dont work.\nCan you send someone?";
-        assert_eq!(at(field, "dont").as_deref(), Some("The heater in unit 4B dont work."));
+        let field = "Hi Sam,\n\nThe heater in unit 7B dont work.\nCan you send someone?";
+        assert_eq!(at(field, "dont").as_deref(), Some("The heater in unit 7B dont work."));
         let p = paragraph_to_check(field, Some(20)).unwrap();
         assert_eq!(p.start, 9);
         // Word and Outlook end paragraphs with \r.

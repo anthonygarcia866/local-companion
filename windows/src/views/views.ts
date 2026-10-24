@@ -21,6 +21,7 @@ import { buildResume } from "./resume";
 import { buildDocsTip } from "./docs-tip";
 import { buildVoice } from "./voice";
 import { buildDraft } from "./draft";
+import { buildCalendar } from "./calendar";
 import { openToneCard } from "../core/rewrite";
 import { suggestionPage } from "../core/paging";
 import { buildDiffCard } from "./diff";
@@ -336,7 +337,7 @@ export function hasSessionTicker(task: AgentTask): boolean {
 }
 
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
-  const label = task.id === "integration_claude" ? "VS Code" : task.name;
+  const label = task.id === "integration_claude" ? "Claude Code" : task.name;
   const mini = createMiniLantern(task, 24);
   const pill = h(
     "div",
@@ -1045,6 +1046,7 @@ export function buildViews(
   map.set("writingDocsTip", buildDocsTip(actions));
   map.set("voice", buildVoice(actions));
   map.set("draft", buildDraft(actions));
+  map.set("calendar", buildCalendar(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder(tl("Sending by email isn't in this version."), ""));
   map.set("searching", buildPlaceholder(tl("Claude is searching…"), ""));
