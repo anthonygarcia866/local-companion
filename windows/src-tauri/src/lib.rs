@@ -25,6 +25,7 @@ mod settings;
 mod shortcuts;
 mod placement;
 mod pause;
+mod phone;
 mod presence;
 mod tray;
 #[cfg(windows)]
@@ -110,6 +111,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
+    phone::apply_settings(&settings);
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -621,6 +623,54 @@ fn writing_copy(check_id: u64, index: usize, choice: usize) {
 // The key comes in once, on Save, and goes straight to Credential Manager;
 // Settings only ever gets back {set, hint}. Nothing here logs it.
 
+// ── Phone notifications (docs/phone-plan.md) ─────────────────────────────────
+
+/// The island's event: a kind, the pill and its project name. phone.rs
+/// decides the text and whether it goes at all.
+#[tauri::command]
+async fn phone_notify(shared: State<'_, Shared>, kind: phone::Kind, pill_id: String, project: String) -> Result<(), String> {
+    if kind == phone::Kind::Test {
+        return Err("use phone_test".into());
+    }
+    let settings = shared.settings.lock().unwrap().clone();
+    phone::notify(&settings, kind, &pill_id, &project).await
+}
+
+/// Settings → Phone → Send test notification.
+#[tauri::command]
+async fn phone_test(shared: State<'_, Shared>) -> Result<(), String> {
+    let settings = shared.settings.lock().unwrap().clone();
+    phone::notify(&settings, phone::Kind::Test, "", "").await
+}
+
+/// Settings → Phone → Only when I'm away: ms since the last keyboard or
+/// mouse input on this PC, or null.
+#[tauri::command]
+fn phone_idle_ms() -> Option<u64> {
+    phone::idle_ms()
+}
+
+#[tauri::command]
+fn phone_keys_status() -> Result<phone::KeysStatus, String> {
+    phone::status(&phone::vault())
+}
+
+#[tauri::command]
+fn phone_keys_save(user: String, token: String) -> Result<phone::KeysStatus, String> {
+    let saved = phone::save(&phone::vault(), &user, &token);
+    log::line(if saved.is_ok() { "phone: keys saved" } else { "phone: keys not saved" });
+    saved
+}
+
+#[tauri::command]
+fn phone_keys_remove() -> Result<phone::KeysStatus, String> {
+    let removed = phone::remove(&phone::vault());
+    if removed.is_ok() {
+        log::line("phone: keys removed");
+    }
+    removed
+}
+
 #[tauri::command]
 fn ai_key_status() -> Result<ai::key::KeyStatus, String> {
     ai::key::status(&ai::key::vault())
@@ -672,6 +722,7 @@ fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Se
         current.clone()
     };
     writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
+    phone::apply_settings(&updated);
     let _ = app.emit("settings-changed", updated);
 }
 
@@ -1151,6 +1202,7 @@ pub fn run() {
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
+    phone::apply_settings(&loaded);
     let gate = Arc::new(PollGate::new());
     gate.drop_zone.store(loaded.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
 
@@ -1255,6 +1307,12 @@ pub fn run() {
             ai_key_status,
             ai_key_save,
             ai_key_remove,
+            phone_notify,
+            phone_test,
+            phone_idle_ms,
+            phone_keys_status,
+            phone_keys_save,
+            phone_keys_remove,
             ai_spend,
             ai_models,
             writing_known_apps,

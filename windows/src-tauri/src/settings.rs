@@ -124,6 +124,54 @@ pub struct Settings {
     /// waited 30 seconds" (fix e's escalation, 2026-10-17): off by default.
     /// The lantern pulses either way.
     pub approval_sound: bool,
+    /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
+    /// off by default. The Pushover keys are not here (phone.rs).
+    pub phone: PhoneSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PhoneSettings {
+    /// The master switch; also what lets net/mod.rs reach Pushover.
+    pub enabled: bool,
+    /// An approval or question waiting `approval_after_sec` seconds.
+    pub approval: bool,
+    pub approval_after_sec: u32,
+    pub finished: bool,
+    /// A usage or spend limit.
+    pub limit: bool,
+    /// The next meeting in 10 minutes: needs the calendar glance (#34).
+    pub meeting: bool,
+    /// "Claude Code in local-companion …" rather than "Claude Code …".
+    pub include_project: bool,
+    /// Only while the PC has had no keyboard or mouse input for
+    /// `idle_after_min` minutes (decision 2026-10-18: on, 2 min).
+    pub idle_only: bool,
+    pub idle_after_min: u32,
+    /// Nothing is sent between `quiet_from` and `quiet_to` ("HH:MM", local
+    /// time, may cross midnight) while this is on.
+    pub quiet_hours: bool,
+    pub quiet_from: String,
+    pub quiet_to: String,
+}
+
+impl Default for PhoneSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            approval: true,
+            approval_after_sec: 60,
+            finished: true,
+            limit: true,
+            meeting: false,
+            include_project: true,
+            idle_only: true,
+            idle_after_min: 2,
+            quiet_hours: false,
+            quiet_from: "22:00".into(),
+            quiet_to: "07:00".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -183,6 +231,7 @@ impl Default for Settings {
             draft_from: String::new(),
             draft_recipients: BTreeMap::new(),
             approval_sound: false,
+            phone: PhoneSettings::default(),
         }
     }
 }
@@ -472,7 +521,8 @@ mod tests {
   "voiceWords": "Glim, HOA, Okafor",
   "draftFrom": "me@example.com",
   "draftRecipients": { "maria": "maria.lopez@example.com" },
-  "approvalSound": true
+  "approvalSound": true,
+  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
     fn custom() -> Value {
@@ -911,6 +961,7 @@ mod tests {
                 "draftFrom",
                 "draftRecipients",
                 "approvalSound",
+                "phone",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

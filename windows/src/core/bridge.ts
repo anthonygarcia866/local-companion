@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Settings } from "./state";
+import type { PingKind } from "./phone";
 import type { RecapHistory, RecapPrefs } from "../recap/summary";
 
 export const IS_TAURI =
@@ -146,6 +147,15 @@ export const Bridge = {
   aiKeyStatus: () => call<AiKeyStatus>("ai_key_status"),
   aiKeySave: (key: string) => callOrThrow<AiKeyStatus>("ai_key_save", { key }),
   aiKeyRemove: () => callOrThrow<AiKeyStatus>("ai_key_remove"),
+  // Phone notifications (docs/phone-plan.md): only a kind, a pill and its
+  // project go to Rust; phone.rs writes the text and decides whether it goes.
+  phoneNotify: (kind: PingKind, pillId: string, project: string) => call<void>("phone_notify", { kind, pillId, project }),
+  phoneTest: () => callOrThrow<void>("phone_test"),
+  /** Ms since the last keyboard or mouse input on this PC, or null. */
+  phoneIdleMs: () => call<number>("phone_idle_ms"),
+  phoneKeysStatus: () => call<PhoneKeysStatus>("phone_keys_status"),
+  phoneKeysSave: (user: string, token: string) => callOrThrow<PhoneKeysStatus>("phone_keys_save", { user, token }),
+  phoneKeysRemove: () => callOrThrow<PhoneKeysStatus>("phone_keys_remove"),
   aiSpend: () => call<AiSpend>("ai_spend"),
   aiModels: () => call<AiModel[]>("ai_models"),
   /** The built-in apps of Settings → Writing → Apps (1d). */
@@ -332,6 +342,12 @@ export interface DroppedFile {
 }
 
 /** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+export interface PhoneKeysStatus {
+  set: boolean;
+  userHint: string;
+  tokenHint: string;
+}
+
 export interface AiKeyStatus {
   set: boolean;
   hint: string;

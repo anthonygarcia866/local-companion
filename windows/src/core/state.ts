@@ -14,6 +14,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import { DEFAULT_PHONE, type PhoneSettings } from "./phone";
 import type { WritingAsk } from "./ask";
 import { needsCard, type VoiceState } from "./voice";
 import type { DraftState } from "./draft";
@@ -187,6 +188,8 @@ export interface Settings {
   draftRecipients?: Record<string, string>;
   /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
   approvalSound?: boolean;
+  /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
+  phone?: PhoneSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -220,6 +223,7 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceModel: "base",
   voiceWords: "",
   draftFrom: "",
+  phone: { ...DEFAULT_PHONE },
 };
 
 type Listener = () => void;
