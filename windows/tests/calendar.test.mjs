@@ -87,13 +87,13 @@ test("the card: title, time, countdown, place, the others at the same time, and 
   State.view = "calendar";
   State.settings = { ...DEFAULT_SETTINGS, calendarOn: true };
   const soon = Date.now() + 8 * M;
-  State.calendar = nextCalendar(null, glance([ev("Rent review with Gabriela", soon, 30, { location: "Room 12C", hasJoin: true }), ev("Audit", soon, 30)]));
+  State.calendar = nextCalendar(null, glance([ev("Rent review with Jordan", soon, 30, { location: "Room 9F", hasJoin: true }), ev("Audit", soon, 30)]));
   const calls = [];
   const v = buildCalendar({ setView: (n) => calls.push(["view", n]), collapse: () => calls.push(["collapse"]) });
   v.sync();
-  assert.match(v.el.textContent, /Rent review with Gabriela/);
+  assert.match(v.el.textContent, /Rent review with Jordan/);
   assert.match(v.el.textContent, /in 8 min/);
-  assert.match(v.el.textContent, /Room 12C · \+1 more at the same time/);
+  assert.match(v.el.textContent, /Room 9F · \+1 more at the same time/);
   const buttons = () => v.el.find("button").map((b) => b.textContent);
   assert.deepEqual(buttons(), ["Join", "Close"]);
   const n = sent("calendar_join").length;

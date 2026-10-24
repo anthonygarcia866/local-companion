@@ -403,17 +403,17 @@ mod tests {
         let now = 1_792_249_200_000;
         let e = |t: &str, start: i64, join: Option<&str>| Event {
             title: t.into(),
-            location: "Room 12C".into(),
+            location: "Room 9F".into(),
             start_ms: start,
             end_ms: start + 1_800_000,
             all_day: false,
             calendar: "\\\\me@example.com\\Calendar".into(),
             join: join.map(str::to_string),
         };
-        let events = vec![e("Rent review with Gabriela", now + 42 * 60_000, Some("https://zoom.us/j/1")), e("Lunch", now + 3 * 3_600_000, None)];
+        let events = vec![e("Rent review with Jordan", now + 42 * 60_000, Some("https://zoom.us/j/1")), e("Lunch", now + 3 * 3_600_000, None)];
         let line = log_line(&events, now);
         assert_eq!(line, "calendar: 2 events in the next 24 h (1 with a meeting link), next in 42 min");
-        for secret in ["Gabriela", "Lunch", "12C", "zoom", "example.com"] {
+        for secret in ["Jordan", "Lunch", "9F", "zoom", "example.com"] {
             assert!(!line.contains(secret), "{secret}");
         }
         let g = glance(&events, 3, false);
