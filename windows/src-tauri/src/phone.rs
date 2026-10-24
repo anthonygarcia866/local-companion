@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn only_the_folder_name_goes_cleaned_and_short() {
         assert_eq!(clean_project("local-companion").as_deref(), Some("local-companion"));
-        assert_eq!(clean_project("C:\\Users\\antho\\secret-client\\repo").as_deref(), Some("repo"));
+        assert_eq!(clean_project("C:\\Users\\me\\secret-client\\repo").as_deref(), Some("repo"));
         assert_eq!(clean_project("/home/a/b/proj\n").as_deref(), Some("proj"));
         assert_eq!(clean_project("a\u{0007}b").as_deref(), Some("ab"));
         assert_eq!(clean_project(&"x".repeat(100)).map(|s| s.chars().count()), Some(MAX_PROJECT));

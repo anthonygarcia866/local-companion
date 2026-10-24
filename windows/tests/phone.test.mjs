@@ -166,7 +166,7 @@ test("handed back: answered in the terminal, or you touched the PC since, means 
 });
 
 test("the project is the pill's name, nothing else about the session", () => {
-  const tasks = [{ id: "integration_claude", name: "local-companion", sessionCwd: "C:\\Users\\antho\\local-companion" }];
+  const tasks = [{ id: "integration_claude", name: "local-companion", sessionCwd: "C:\\Users\\me\\local-companion" }];
   assert.equal(projectOf(tasks, "integration_claude"), "local-companion");
   assert.equal(projectOf(tasks, "agent_codex"), "");
 });
@@ -198,8 +198,8 @@ afterEach(() => {
 
 test("a Stop asks Rust for a \"finished\" push: kind, pill and project only", async () => {
   replies.set("phone_idle_ms", AWAY);
-  hook({ hook_event_name: "UserPromptSubmit", session_id: "s1", cwd: "C:\\Users\\antho\\local-companion", prompt: "secret prompt text" });
-  hook({ hook_event_name: "Stop", session_id: "s1", cwd: "C:\\Users\\antho\\local-companion", last_assistant_message: "secret answer" });
+  hook({ hook_event_name: "UserPromptSubmit", session_id: "s1", cwd: "C:\\Users\\me\\local-companion", prompt: "secret prompt text" });
+  hook({ hook_event_name: "Stop", session_id: "s1", cwd: "C:\\Users\\me\\local-companion", last_assistant_message: "secret answer" });
   await settle();
   const pushes = sent("phone_notify");
   assert.equal(pushes.length, 1);
@@ -224,16 +224,16 @@ test("a usage or spend limit asks for its push; off, nothing is asked", async ()
 
 test("at the PC, a Stop asks for the idle time and sends nothing", async () => {
   replies.set("phone_idle_ms", AT_PC);
-  hook({ hook_event_name: "UserPromptSubmit", session_id: "s3", cwd: "C:\\Users\\antho\\local-companion", prompt: "x" });
-  hook({ hook_event_name: "Stop", session_id: "s3", cwd: "C:\\Users\\antho\\local-companion" });
+  hook({ hook_event_name: "UserPromptSubmit", session_id: "s3", cwd: "C:\\Users\\me\\local-companion", prompt: "x" });
+  hook({ hook_event_name: "Stop", session_id: "s3", cwd: "C:\\Users\\me\\local-companion" });
   await settle();
   assert.equal(sent("phone_idle_ms").length, 1);
   assert.deepEqual(sent("phone_notify"), []);
 });
 
 test("the relay's handback (110 s) keeps the request for the phone; the session's next event ends it", () => {
-  hook({ hook_event_name: "UserPromptSubmit", session_id: "hb1", cwd: "C:\\Users\\antho\\local-companion", prompt: "x" });
-  hook({ hook_event_name: "PermissionRequest", session_id: "hb1", cwd: "C:\\Users\\antho\\local-companion", request_id: "hb-1", tool_name: "Bash", tool_input: { command: "Remove-Item p1" } });
+  hook({ hook_event_name: "UserPromptSubmit", session_id: "hb1", cwd: "C:\\Users\\me\\local-companion", prompt: "x" });
+  hook({ hook_event_name: "PermissionRequest", session_id: "hb1", cwd: "C:\\Users\\me\\local-companion", request_id: "hb-1", tool_name: "Bash", tool_input: { command: "Remove-Item p1" } });
   assert.equal(State.pendingApproval?.requestId, "hb-1");
   mock.timers.tick(110_000);
   assert.equal(State.pendingApproval, null, "the card is gone");
