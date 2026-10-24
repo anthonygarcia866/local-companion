@@ -621,7 +621,7 @@ mod tests {
     #[test]
     fn a_card_number_withholds_only_its_section() {
         let h = parse(SENSITIVE_CARD);
-        assert_eq!(h.goal.as_deref(), Some("Refund test for unit 4B."), "the other sections are kept");
+        assert_eq!(h.goal.as_deref(), Some("Refund test for unit 7B."), "the other sections are kept");
         assert_eq!(h.in_progress.as_deref(), Some(WITHHELD));
         assert_eq!(h.withheld, ["in progress"]);
         assert!(!format!("{h:?}").contains("4111"), "nothing of the number is kept anywhere");
