@@ -1,15 +1,22 @@
 // The calendar glance's thread: a COM STA that reads Outlook's calendar
-// every few minutes (sooner when Settings change), keeps what it read in
+// every minute (sooner when Settings change), keeps what it read in
 // memory, and sends the island what it shows ("calendar"). The meeting links
 // stay here: the island asks to join an event by (generation, index), and
 // only a checked Teams/Zoom link is opened (calendar::meeting_link).
 //
+// Every path ends in the same loop: Outlook open at launch, opened later,
+// closed and reopened, or the PC waking from sleep. The next read is a
+// deadline (Due) that only a read moves: a Settings list or a Join in
+// between never pushes it back (the 2026-10-24 bug: each Settings list
+// restarted a 5-minute wait, so a meeting made 12 minutes ahead was read
+// too late to glow).
+//
 // The log gets counts, codes and minutes; never a title, a location, a
-// calendar's name or a link.
+// calendar's name or a link. A read is logged only when its counts change.
 
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -21,8 +28,11 @@ pub const EVENT: &str = "calendar";
 /// changed (found after a retry, Outlook started later, or it closed), so
 /// Settings → Calendar asks for the list again.
 pub const FOLDERS_EVENT: &str = "calendar-folders";
-/// How often Outlook is read.
-pub const EVERY: Duration = Duration::from_secs(5 * 60);
+/// How often Outlook is read (a meeting made a few minutes ahead still
+/// glows at its lead time).
+pub const EVERY: Duration = Duration::from_secs(60);
+/// A gap between reads longer than this (the PC slept) is logged once.
+const GAP: Duration = Duration::from_secs(3 * 60);
 /// While Outlook is running but answers no calendars yet (starting, its
 /// profile loading, not yet reachable through COM): look again after these,
 /// then every EVERY. Zero is never taken as final while Outlook runs.
@@ -137,12 +147,49 @@ impl Tracker {
     }
 }
 
-/// A calendar Settings can offer: Outlook's folder path and its name.
+/// When the next read is due, as time since the worker started (a
+/// monotonic clock). Only a read sets it; a sooner retry can bring it
+/// forward; nothing pushes it back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Due(pub Duration);
+
+impl Due {
+    /// After a read at `now` whose next look is `wait` away.
+    pub fn after_read(now: Duration, wait: Duration) -> Due {
+        Due(now + wait)
+    }
+
+    /// Settings wants a look within `wait` (an empty list): sooner only.
+    pub fn sooner(self, now: Duration, wait: Duration) -> Due {
+        Due(self.0.min(now + wait))
+    }
+
+    /// How long to wait for a job before reading: never past the deadline,
+    /// and never more than EVERY, so a clock that stood still while the PC
+    /// slept costs at most one more minute.
+    pub fn timeout(self, now: Duration) -> Duration {
+        self.0.saturating_sub(now).min(EVERY)
+    }
+}
+
+/// The counts a read is logged by: events, and those with a meeting link.
+pub fn counts(events: &[Event]) -> (usize, usize) {
+    (events.len(), events.iter().filter(|e| e.join.is_some()).count())
+}
+
+/// A calendar Settings can offer: Outlook's folder path, its name, and the
+/// mailbox (or data file) it belongs to, for the label.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct CalendarFolder {
     pub id: String,
     pub name: String,
+    pub mailbox: String,
     pub default: bool,
+}
+
+/// The mailbox in a folder path: `\\me@example.com\Calendar\Team` → `me@example.com`.
+pub fn mailbox_of(path: &str) -> String {
+    path.trim_start_matches('\\').split('\\').next().unwrap_or("").to_string()
 }
 
 enum Job {
@@ -222,7 +269,10 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
     let mut generation = 0u64;
     let mut last_log = String::new();
     let mut tracker = Tracker::default();
-    let mut wait = EVERY;
+    let started = Instant::now();
+    let mut due = Due(Duration::ZERO);
+    // Wall-clock time of the last read: a long gap (sleep) is logged once.
+    let mut last_read_ms: Option<i64> = None;
     // The last "nothing to show" glance sent, so a quiet WATCH look while
     // Outlook is closed doesn't resend the same one every 30 s.
     let mut last_sent: Option<&'static str> = None;
@@ -231,7 +281,12 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
         match job {
             Job::Refresh => {
                 let p = prefs(&app);
-                wait = EVERY;
+                let mut wait = EVERY;
+                let wall = now_ms();
+                if let Some(gap) = last_read_ms.map(|t| wall - t).filter(|g| *g > GAP.as_millis() as i64) {
+                    crate::log::line(format!("calendar: reading again after {} min without a read (sleep?)", gap / 60_000));
+                }
+                last_read_ms = Some(wall);
                 // Outlook's process first (no COM while it isn't running),
                 // then attach; 0 is retried, never final, while it runs.
                 let mut attached = Err(super::com::ComError::NotRunning);
@@ -250,6 +305,7 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
                     }
                     wait = step.wait;
                 }
+                due = Due::after_read(started.elapsed(), wait);
                 generation += 1;
                 let g = if !p.on {
                     events.clear();
@@ -270,10 +326,12 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
                                     if due {
                                         crate::calendar_summary_shown(&app, &super::local_date(now, offset));
                                     }
-                                    let line = log_line(&events, now);
-                                    if line != last_log {
-                                        crate::log::line(&line);
-                                        last_log = line;
+                                    // Logged when the counts change, not every minute.
+                                    let (n, joins) = counts(&events);
+                                    let key = format!("read {n}/{joins}");
+                                    if key != last_log {
+                                        crate::log::line(log_line(&events, now));
+                                        last_log = key;
                                     }
                                     glance(&events, generation, due)
                                 }
@@ -300,13 +358,14 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
                 let found: Vec<CalendarFolder> = match attached {
                     Some(cal) => {
                         let default = cal.default_calendar();
-                        cal.calendars().into_iter().map(|(id, name)| CalendarFolder { default: Some(&id) == default.as_ref(), id, name }).collect()
+                        cal.calendars().into_iter().map(|(id, name)| CalendarFolder { default: Some(&id) == default.as_ref(), mailbox: mailbox_of(&id), id, name }).collect()
                     }
                     None => Vec::new(),
                 };
                 crate::log::line(format!("calendar: {} calendars found for Settings{}", found.len(), if found.is_empty() && running { " (Outlook is running; looking again)" } else { "" }));
+                // Never pushes the next read back; an empty list may bring it forward.
                 if let Some(w) = tracker.listed(found.len(), running) {
-                    wait = w;
+                    due = due.sooner(started.elapsed(), w);
                 }
                 let _ = reply.send(found);
             }
@@ -322,10 +381,15 @@ fn worker(app: AppHandle, rx: Receiver<Job>) {
                 }
             }
         }
-        job = match rx.recv_timeout(wait) {
-            Ok(j) => j,
-            Err(RecvTimeoutError::Timeout) => Job::Refresh,
-            Err(RecvTimeoutError::Disconnected) => return,
+        job = loop {
+            match rx.recv_timeout(due.timeout(started.elapsed())) {
+                Ok(j) => break j,
+                // Capped at EVERY: not due yet (the clock stood still in
+                // sleep, or the cap) → wait again for the rest.
+                Err(RecvTimeoutError::Timeout) if due.timeout(started.elapsed()) > Duration::ZERO => continue,
+                Err(RecvTimeoutError::Timeout) => break Job::Refresh,
+                Err(RecvTimeoutError::Disconnected) => return,
+            }
         };
     }
 }
@@ -384,7 +448,7 @@ mod tests {
         // first ~25 s after Glim starts, then has 9 calendars.
         let looks = run(|t| (true, if t >= 25 { Some(9) } else { None }), 400);
         let times: Vec<u64> = looks.iter().map(|l| l.0).collect();
-        assert_eq!(&times[..4], &[0, 10, 40, 340], "10 s, 30 s, then the normal 5 min");
+        assert_eq!(&times[..4], &[0, 10, 40, 100], "10 s, 30 s, then the normal 1 min");
         assert_eq!(looks[0].1, Look::Zero);
         assert_eq!(looks[2].1, Look::Found(9));
         assert_eq!(looks[0].2.as_deref(), Some("calendar: 0 found (attempt 1), Outlook is running; next look in 10 s"));
@@ -395,10 +459,10 @@ mod tests {
     }
 
     #[test]
-    fn zero_while_outlook_runs_backs_off_then_every_five_minutes_and_goes_quiet() {
-        let looks = run(|_| (true, Some(0)), 1_000);
+    fn zero_while_outlook_runs_backs_off_then_every_minute_and_goes_quiet() {
+        let looks = run(|_| (true, Some(0)), 400);
         let times: Vec<u64> = looks.iter().map(|l| l.0).collect();
-        assert_eq!(times, vec![0, 10, 40, 100, 400, 700, 1_000]);
+        assert_eq!(times, vec![0, 10, 40, 100, 160, 220, 280, 340, 400]);
         assert_eq!(looks.iter().filter(|l| l.2.is_some()).count(), 4, "the backoff and the first slow look are logged, then quiet");
         assert!(looks.iter().all(|l| l.1 == Look::Zero && !l.3));
     }
@@ -454,9 +518,142 @@ mod tests {
         let code = &src[..src.find("#[cfg(test)]").unwrap()];
         assert!(code.contains("crate::platform::process_running(OUTLOOK_EXE)"));
         assert!(code.contains("if running {\n                        attached = super::com::Calendar::attach();"), "COM only while Outlook runs");
-        assert!(code.contains("rx.recv_timeout(wait)"), "the next look follows the tracker");
+        assert!(code.contains("rx.recv_timeout(due.timeout(started.elapsed()))"), "the next look is a deadline");
         for banned in ["ShellExecute", "Command::new", "open_known_app"] {
             assert!(!code.contains(banned), "{banned}");
         }
+    }
+
+    #[test]
+    fn only_a_read_moves_the_deadline() {
+        let s = Duration::from_secs;
+        // The worker: only a read sets `due`; a Settings list can only bring it forward.
+        let src = include_str!("worker.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert_eq!(code.matches("due = Due::after_read(").count(), 1, "set by a read only");
+        assert!(code.contains("due = due.sooner(started.elapsed(), w);"));
+        let due = Due::after_read(s(100), EVERY);
+        assert_eq!(due, Due(s(160)));
+        assert_eq!(due.sooner(s(130), s(10)), Due(s(140)));
+        assert_eq!(due.sooner(s(130), EVERY), due, "a later wish never pushes it back");
+        assert_eq!(due.timeout(s(130)), s(30));
+        assert_eq!(due.timeout(s(7_300)), Duration::ZERO, "after a long sleep: read at once");
+        assert_eq!(Due(s(10_000)).timeout(s(0)), EVERY, "never waits more than a minute at a time");
+    }
+
+    #[test]
+    fn the_mailbox_comes_from_the_folder_path() {
+        assert_eq!(mailbox_of("\\\\me@example.com\\Calendar"), "me@example.com");
+        assert_eq!(mailbox_of("\\\\shared@example.com\\Calendar\\Team"), "shared@example.com");
+        assert_eq!(mailbox_of("\\\\Archive\\Calendar"), "Archive");
+        assert_eq!(mailbox_of(""), "");
+    }
+
+    /// A fake Outlook over time, for the worker's whole loop.
+    struct Fake {
+        /// Is OUTLOOK.EXE running at second t.
+        running: fn(u64) -> bool,
+        /// Calendars answered through COM at second t (None = can't attach yet).
+        calendars: fn(u64) -> Option<usize>,
+        /// Events in the calendar at second t: (created at, starts at), seconds.
+        events: Vec<(u64, u64)>,
+    }
+
+    /// Drives the worker's own Tracker and Due the way `worker` does, with
+    /// Settings asking for its list at `lists` (seconds), from launch to
+    /// `until`. Returns each read that got events: (second, events' starts).
+    fn simulate(fake: &Fake, lists: &[u64], until: u64) -> Vec<(u64, Vec<u64>)> {
+        let mut tracker = Tracker::default();
+        let mut due = Due(Duration::ZERO);
+        let mut reads = Vec::new();
+        let mut lists = lists.to_vec();
+        lists.sort_unstable();
+        let mut lists = lists.into_iter().peekable();
+        let mut t = 0u64;
+        while t <= until {
+            let now = Duration::from_secs(t);
+            if due.timeout(now).is_zero() {
+                // Job::Refresh (the glance is on).
+                let running = (fake.running)(t);
+                let attached = if running { (fake.calendars)(t) } else { None };
+                let known = tracker.known();
+                let step = tracker.saw(running, attached.map(|c| if known > 0 { known } else { c }));
+                due = Due::after_read(now, step.wait);
+                if attached.is_some_and(|c| c > 0) {
+                    reads.push((t, fake.events.iter().filter(|(made, _)| *made <= t).map(|(_, start)| *start).collect()));
+                }
+            }
+            while lists.peek().is_some_and(|l| *l == t) {
+                lists.next();
+                // Job::List: Settings asks; never pushes the read back.
+                let running = (fake.running)(t);
+                let n = if running { (fake.calendars)(t).unwrap_or(0) } else { 0 };
+                if let Some(w) = tracker.listed(n, running) {
+                    due = due.sooner(now, w);
+                }
+            }
+            t += 1;
+        }
+        reads
+    }
+
+    /// The largest gap between reads from second `from` on.
+    fn max_gap(reads: &[(u64, Vec<u64>)], from: u64) -> u64 {
+        let times: Vec<u64> = reads.iter().map(|r| r.0).filter(|t| *t >= from).collect();
+        times.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0)
+    }
+
+    #[test]
+    fn the_2026_10_24_case_settings_lists_no_longer_starve_the_reads() {
+        // Glim before Outlook; Outlook reachable at 40 s; Settings asked for
+        // its list at 41 s, 71 s, 353 s and 515 s (as in that log), then every 30 s.
+        let mut lists = vec![41, 71, 353, 515];
+        lists.extend((540..1_800).step_by(30));
+        let fake = Fake { running: |t| t >= 5, calendars: |t| (t >= 40).then_some(9), events: vec![(0, 100_000), (150, 150 + 12 * 60)] };
+        let reads = simulate(&fake, &lists, 1_800);
+        assert!(reads.len() >= 28, "a read every minute: {}", reads.len());
+        assert_eq!(max_gap(&reads, 0), EVERY.as_secs(), "lists never push a read back");
+        // The meeting made at 150 s for 12 minutes later is read within a
+        // minute, before every lead time but the 15-minute one starts.
+        let seen = reads.iter().find(|r| r.1.contains(&(150 + 12 * 60))).expect("read").0;
+        assert!(seen <= 150 + EVERY.as_secs(), "seen at {seen}");
+        for lead_min in [5, 10] {
+            assert!(seen <= 150 + 12 * 60 - lead_min * 60, "glows at its {lead_min}-minute lead time");
+        }
+    }
+
+    #[test]
+    fn outlook_absent_then_present_then_reads_continue() {
+        let fake = Fake { running: |t| t >= 95, calendars: |t| (t >= 125).then_some(9), events: vec![(0, 3_000)] };
+        let reads = simulate(&fake, &[], 1_200);
+        let first = reads.first().expect("found").0;
+        assert!(first <= 160, "found within a minute of being reachable: {first}");
+        assert_eq!(max_gap(&reads, first), EVERY.as_secs());
+        assert!(reads.last().unwrap().0 >= 1_200 - EVERY.as_secs(), "still reading at the end");
+    }
+
+    #[test]
+    fn outlook_closed_and_reopened_resumes_the_same_loop() {
+        let fake = Fake { running: |t| !(300..500).contains(&t), calendars: |t| (!(300..520).contains(&t)).then_some(9), events: vec![(0, 3_000), (450, 1_200)] };
+        let reads = simulate(&fake, &[310, 340], 1_500);
+        assert!(reads.iter().all(|r| !(300..500).contains(&r.0)), "nothing read while closed");
+        let back = reads.iter().find(|r| r.0 >= 500).expect("back").0;
+        assert!(back <= 600, "back within ~1.5 min of reopening: {back}");
+        assert!(reads.iter().find(|r| r.0 >= 500).unwrap().1.contains(&1_200), "and the event made while it was closed is there");
+        assert_eq!(max_gap(&reads, back), EVERY.as_secs(), "then every minute again");
+    }
+
+    #[test]
+    fn a_read_is_logged_only_when_its_counts_change() {
+        let now = 1_792_249_200_000;
+        let e = |start: i64, join: bool| Event { title: "x".into(), location: String::new(), start_ms: start, end_ms: start + 1_800_000, all_day: false, calendar: String::new(), join: join.then(|| "https://zoom.us/j/1".to_string()) };
+        let a = vec![e(now + 42 * 60_000, true)];
+        let b = vec![e(now + 41 * 60_000, true)];
+        assert_eq!(counts(&a), counts(&b), "a minute later, same counts: not logged again");
+        assert_ne!(log_line(&a, now), log_line(&b, now), "though the minutes in the line differ");
+        assert_eq!(counts(&[a[0].clone(), e(now, false)]), (2, 1));
+        let src = include_str!("worker.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(code.contains("let key = format!(\"read {n}/{joins}\");"), "keyed by counts");
     }
 }

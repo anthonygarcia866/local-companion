@@ -72,7 +72,7 @@ export const Bridge = {
    *  window the user was typing in before (core/keyboard.ts). */
   lendKeyboard: (on: boolean) => call<void>("lend_keyboard", { on }),
   /** Settings → Calendar: the calendars classic Outlook has open (empty if it isn't running). */
-  calendarCalendars: () => call<{ id: string; name: string; default: boolean }[]>("calendar_calendars"),
+  calendarCalendars: () => call<{ id: string; name: string; mailbox?: string; default: boolean }[]>("calendar_calendars"),
   /** The calendar card's Join: Rust opens that event's checked Teams/Zoom link. */
   calendarJoin: (generation: number, index: number) => call<void>("calendar_join", { generation, index }),
 

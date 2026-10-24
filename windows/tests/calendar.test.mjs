@@ -150,7 +150,7 @@ test("Settings → Calendar: switches, lead time and calendars are stored; Outlo
   const settings = { ...DEFAULT_SETTINGS };
   let saves = 0;
   const original = internals.invoke;
-  let folders = [{ id: "\\\\me@example.com\\Calendar", name: "Calendar", default: true }, { id: "\\\\me@example.com\\Calendar\\Team", name: "Team", default: false }];
+  let folders = [{ id: "\\\\me@example.com\\Calendar", name: "Calendar", mailbox: "me@example.com", default: true }, { id: "\\\\shared@example.com\\Calendar", name: "Calendar", mailbox: "shared@example.com", default: false }];
   internals.invoke = async (cmd, args) => (cmd === "calendar_calendars" ? folders : original(cmd, args));
   try {
     const section = calendarSection({ settings: () => settings, save: async () => { saves++; } });
@@ -169,6 +169,14 @@ test("Settings → Calendar: switches, lead time and calendars are stored; Outlo
     assert.equal(settings.calendarLeadMin, 5);
     const boxes = role("calendar-folder");
     assert.equal(boxes.length, 2);
+    // One calendar per row, labelled with its mailbox, the default marked:
+    // two calendars both named "Calendar" are told apart.
+    const rows = role("calendar-row");
+    assert.equal(rows.length, 2);
+    assert.match(rows[0].textContent, /Calendar \(default\)/);
+    assert.match(rows[0].textContent, /me@example\.com/);
+    assert.doesNotMatch(rows[1].textContent, /default/);
+    assert.match(rows[1].textContent, /shared@example\.com/);
     assert.deepEqual(boxes.map((b) => b.checked), [true, false], "nothing picked = the default");
     boxes[1].checked = true;
     boxes[1].fire("change");

@@ -70,7 +70,7 @@ export function calendarSection(host: CalendarHost): HTMLElement {
       fill(found);
     });
   };
-  const fill = (found: { id: string; name: string; default: boolean }[] | null) => {
+  const fill = (found: { id: string; name: string; mailbox?: string; default: boolean }[] | null) => {
     clear(list);
     const folders = Array.isArray(found) ? found : [];
     if (folders.length === 0) {
@@ -89,7 +89,15 @@ export function calendarSection(host: CalendarHost): HTMLElement {
         void host.save();
       });
       boxes.push([f.id, box]);
-      list.append(h("label", { class: "check-row" }, box, h("span", { text: f.default ? t("{name} (default)", { name: f.name }) : f.name })));
+      // One calendar per row: its name (the default marked), then the
+      // mailbox it belongs to. Shown here only, never logged.
+      list.append(
+        h("label", { class: "check-row calendar-row", "data-role": "calendar-row" },
+          box,
+          h("span", { class: "calendar-name", text: f.default ? t("{name} (default)", { name: f.name }) : f.name }),
+          f.mailbox ? h("span", { class: "hint calendar-mailbox", text: f.mailbox }) : null,
+        ),
+      );
     }
   };
   reloadList = load;

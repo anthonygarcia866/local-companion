@@ -73,8 +73,37 @@ pub fn meeting_link(url: &str) -> bool {
     teams || zoom
 }
 
+/// Defender Safe Links wraps every link in a work mailbox's invites:
+/// `https://<region>.safelinks.protection.outlook.com/?url=<the link,
+/// percent-encoded>&data=…`. The wrapped link, decoded once, or None. The
+/// caller still checks it with meeting_link.
+fn unwrap_safelink(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://")?;
+    let (host, query) = rest.split_once("/?")?;
+    let host = host.to_ascii_lowercase();
+    if !host.ends_with(".safelinks.protection.outlook.com") || !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') {
+        return None;
+    }
+    let value = query.split('&').find_map(|p| p.strip_prefix("url="))?;
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 /// The first Teams or Zoom meeting link in the event's own text (its
-/// location, then its body), or None. Only https links are looked at.
+/// location, then its body), or None. Only https links are looked at; a
+/// Safe Links-wrapped one counts by the link inside, which is what opens.
 pub fn join_link(texts: &[&str]) -> Option<String> {
     for text in texts {
         let mut from = 0;
@@ -84,6 +113,9 @@ pub fn join_link(texts: &[&str]) -> Option<String> {
             let url = text[start..end].trim_end_matches(['.', ',', ';']);
             if meeting_link(url) {
                 return Some(url.to_string());
+            }
+            if let Some(inner) = unwrap_safelink(url).filter(|u| meeting_link(u)) {
+                return Some(inner);
             }
             from = end.max(start + 1);
         }
@@ -280,6 +312,38 @@ mod tests {
         assert_eq!(join_link(&["https://us02web.zoom.us/j/811?pwd=x.", body]).as_deref(), Some("https://us02web.zoom.us/j/811?pwd=x"));
         assert_eq!(join_link(&["see https://example.com/agenda and http://zoom.us/j/1"]), None);
         assert_eq!(join_link(&[""]), None);
+    }
+
+    /// The plain-text Body of a Teams meeting made in classic Outlook (the
+    /// Teams add-in's block; made-up ids). The "Need help?" and
+    /// "Meeting options" links around it are not meeting links.
+    const TEAMS_BODY: &str = "\r\n________________________________________________________________________________\r\nMicrosoft Teams Need help?<https://aka.ms/JoinTeamsMeeting?omkt=en-US>\r\nJoin the meeting now<https://teams.microsoft.com/l/meetup-join/19%3ameeting_ZmFrZW1lZXRpbmcwMDAx%40thread.v2/0?context=%7b%22Tid%22%3a%2200000000-0000-0000-0000-000000000000%22%2c%22Oid%22%3a%2211111111-1111-1111-1111-111111111111%22%7d>\r\nMeeting ID: 123 456 789 012\r\nPasscode: Ab3cDe\r\n________________________________\r\nDial in by phone\r\n+1 555-0100,,123456789# United States\r\nFor organizers: Meeting options<https://teams.microsoft.com/meetingOptions/?organizerId=11111111-1111-1111-1111-111111111111&tenantId=00000000-0000-0000-0000-000000000000&threadId=19_meeting_ZmFrZW1lZXRpbmcwMDAx@thread.v2&messageId=0&language=en-US> | Reset dial-in PIN<https://dialin.teams.microsoft.com/usp/pstnconferencing>\r\n________________________________________________________________________________\r\n";
+    const TEAMS_LINK: &str = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_ZmFrZW1lZXRpbmcwMDAx%40thread.v2/0?context=%7b%22Tid%22%3a%2200000000-0000-0000-0000-000000000000%22%2c%22Oid%22%3a%2211111111-1111-1111-1111-111111111111%22%7d";
+
+    #[test]
+    fn a_classic_outlook_teams_meeting_body_gets_its_join_link() {
+        // The location Outlook fills in is plain text, so the body has the link.
+        assert_eq!(join_link(&["Microsoft Teams Meeting", TEAMS_BODY]).as_deref(), Some(TEAMS_LINK));
+        // The newer "meet" form, with the passcode in the link.
+        let meet = "Microsoft Teams meeting\r\nJoin: https://teams.microsoft.com/meet/24680135791?p=AbCdEfGh\r\nMeeting ID: 246 801 357 91";
+        assert_eq!(join_link(&["", meet]).as_deref(), Some("https://teams.microsoft.com/meet/24680135791?p=AbCdEfGh"));
+        // Without the meeting link, the block's other links give no Join.
+        let without = TEAMS_BODY.replace(TEAMS_LINK, "https://aka.ms/JoinTeamsMeeting");
+        assert_eq!(join_link(&["Microsoft Teams Meeting", &without]), None);
+    }
+
+    #[test]
+    fn a_safe_links_wrapped_meeting_link_counts_by_the_link_inside() {
+        let enc: String = TEAMS_LINK.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+        let wrapped = format!("https://nam12.safelinks.protection.outlook.com/?url={enc}&data=05%7C02%7Cx&sdata=abc%3D&reserved=0");
+        let body = TEAMS_BODY.replace(TEAMS_LINK, &wrapped);
+        assert_eq!(join_link(&["Microsoft Teams Meeting", &body]).as_deref(), Some(TEAMS_LINK));
+        // Only Safe Links' own host is unwrapped, and the inside is still checked.
+        let fake = format!("https://safelinks.protection.outlook.com.evil.example/?url={enc}");
+        assert_eq!(join_link(&[&fake]), None);
+        let elsewhere = "https://nam12.safelinks.protection.outlook.com/?url=https%3A%2F%2Fevil.example%2Fj%2F1&data=x";
+        assert_eq!(join_link(&[elsewhere]), None);
+        assert_eq!(join_link(&["https://nam12.safelinks.protection.outlook.com/?url=%ZZ"]), None);
     }
 
     #[test]
