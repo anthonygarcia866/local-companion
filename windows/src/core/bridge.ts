@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Settings } from "./state";
+import type { PingKind } from "./phone";
 import type { RecapHistory, RecapPrefs } from "../recap/summary";
 
 export const IS_TAURI =
@@ -122,10 +123,16 @@ export const Bridge = {
   // words, never text from here.
   /** A fix button: replacement `choice` of row `index` of list `checkId`. */
   writingFix: (checkId: number, index: number, choice: number) => call<void>("writing_fix", { checkId, index, choice }),
+  /** The mini lantern's popover opened or closed (1e): Rust lays its window out. */
+  bubblePopover: (open: boolean) => call<void>("bubble_popover", { open }),
+  /** Rewrite… in the mini lantern's popover: the same as Ctrl+Alt+Shift+R. */
+  bubbleRewrite: () => call<void>("bubble_rewrite"),
   /** Apply all: every row of list `checkId`, each with its first replacement. */
   writingFixAll: (checkId: number) => call<void>("writing_fix_all", { checkId }),
   /** A Copy button (fields Glim can't type in). */
   writingCopy: (checkId: number, index: number, choice: number) => call<void>("writing_copy", { checkId, index, choice }),
+  /** Ignore on a row (§7a.3): that word isn't flagged again until Glim quits. Ids only. */
+  writingIgnore: (checkId: number, index: number) => call<void>("writing_ignore", { checkId, index }),
   // The rewrite (1c): a tone id, or which rewrite; never text.
   /** A tone on the Rewrite card: sends the paragraph to the Claude API. */
   writingRewrite: (tone: string) => call<void>("writing_rewrite", { tone }),
@@ -150,6 +157,15 @@ export const Bridge = {
   aiKeyStatus: () => call<AiKeyStatus>("ai_key_status"),
   aiKeySave: (key: string) => callOrThrow<AiKeyStatus>("ai_key_save", { key }),
   aiKeyRemove: () => callOrThrow<AiKeyStatus>("ai_key_remove"),
+  // Phone notifications (docs/phone-plan.md): only a kind, a pill and its
+  // project go to Rust; phone.rs writes the text and decides whether it goes.
+  phoneNotify: (kind: PingKind, pillId: string, project: string) => call<void>("phone_notify", { kind, pillId, project }),
+  phoneTest: () => callOrThrow<void>("phone_test"),
+  /** Ms since the last keyboard or mouse input on this PC, or null. */
+  phoneIdleMs: () => call<number>("phone_idle_ms"),
+  phoneKeysStatus: () => call<PhoneKeysStatus>("phone_keys_status"),
+  phoneKeysSave: (user: string, token: string) => callOrThrow<PhoneKeysStatus>("phone_keys_save", { user, token }),
+  phoneKeysRemove: () => callOrThrow<PhoneKeysStatus>("phone_keys_remove"),
   aiSpend: () => call<AiSpend>("ai_spend"),
   aiModels: () => call<AiModel[]>("ai_models"),
   /** The built-in apps of Settings → Writing → Apps (1d). */
@@ -336,6 +352,12 @@ export interface DroppedFile {
 }
 
 /** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+export interface PhoneKeysStatus {
+  set: boolean;
+  userHint: string;
+  tokenHint: string;
+}
+
 export interface AiKeyStatus {
   set: boolean;
   hint: string;

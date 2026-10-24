@@ -14,6 +14,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import { DEFAULT_PHONE, type PhoneSettings } from "./phone";
 import type { WritingAsk } from "./ask";
 import { needsCard, type VoiceState } from "./voice";
 import type { DraftState } from "./draft";
@@ -182,6 +183,8 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
   /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
   draftFrom: string;
   /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
@@ -200,6 +203,8 @@ export interface Settings {
   calendarSummaryShown?: string;
   /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
   approvalSound?: boolean;
+  /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
+  phone?: PhoneSettings;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -232,12 +237,14 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  writingBubble: false,
   draftFrom: "",
   calendarOn: false,
   calendarLeadMin: DEFAULT_LEAD_MIN,
   calendarHideAllDay: true,
   calendarSummary: false,
   calendarIds: [],
+  phone: { ...DEFAULT_PHONE },
 };
 
 type Listener = () => void;
