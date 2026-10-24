@@ -19,4 +19,5 @@ The Glim name, mascot and app icon (`docs/brand/`, and the icons rendered from t
 ## Changes taken from Coucou after the fork
 
 Cherry-picked from upstream Coucou (MIT), with the original author kept on each commit:
+- Session pill label padding (upstream #522, by GitHub user Ohualtex): `windows/src/style.css`.
 - Claude Desktop launch through its `claude://` protocol (upstream #417, by GitHub user Ohualtex): `windows/src-tauri/src/platform/windows.rs`.
