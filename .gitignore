@@ -15,6 +15,13 @@ DerivedData/
 # Local only (never published)
 .claude/
 _prive/
+settings.local.json
+HANDOFF*.md
+# Logs and voice clips: may hold captured text, paths or the owner's voice
+*.log
+logs/
+glim-clips/
+*.env
 
 # Secrets (never committed)
 .env

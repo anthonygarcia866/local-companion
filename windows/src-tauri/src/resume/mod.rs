@@ -718,7 +718,7 @@ mod tests {
             "password handoff to the user if logged out",
             "tokens: 218 in, 14 out",
             "Worker f5f725a7, sk-tiny, re_try later",
-            "C:\\Users\\antho\\AppData\\Local\\Glim\\glim.exe 12,073,472 bytes",
+            "C:\\Users\\you\\AppData\\Local\\Glim\\glim.exe 12,073,472 bytes",
         ] {
             assert!(!looks_like_secret(s), "{s}");
         }

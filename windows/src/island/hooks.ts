@@ -13,6 +13,7 @@ import { APPROVAL_AGENTS, agentColor, agentName, validateAgent } from "./agents"
 import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
 import { isLimitNotice, limitKind, parseLimit, type AgentLimit } from "../core/limit";
+import { phone, phoneSettings, projectOf, type Ping, type PhoneSettings } from "../core/phone";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
 
@@ -34,8 +35,13 @@ function clearRequestTimer(requestId: string) {
 
 function armRequestTimer(island: Island, requestId: string) {
   clearRequestTimer(requestId);
+  const arrivedAt = performance.now();
   requestTimers.set(requestId, window.setTimeout(() => {
     requestTimers.delete(requestId);
+    const req = [State.pendingApproval, ...State.approvalQueue].find((r) => r?.requestId === requestId);
+    // Claude Code asks in the terminal now and still waits for you: the
+    // phone keeps counting it (docs/phone-plan.md §5).
+    if (req) phone.handedBack(requestId, req.pillId, req.sessionId, projectOf(State.tasks, req.pillId), arrivedAt, performance.now());
     requestGone(island, requestId);
   }, 110_000));
 }
@@ -64,6 +70,20 @@ function dropPendingCard(island: Island): void {
     island.setView(State.defaultView());
   }
   State.notify();
+}
+
+/**
+ * Phone notifications (docs/phone-plan.md): with the feature on, the idle
+ * time comes from Rust ("only when I'm away"), the watcher decides, and a
+ * kind, the pill and its project go to Rust.
+ */
+function pingPhone(decide: (s: PhoneSettings, idleMs: number | null) => Ping | null) {
+  const s = phoneSettings(State.settings.phone);
+  if (!s.enabled) return;
+  void Bridge.phoneIdleMs().then((idleMs) => {
+    const p = decide(s, idleMs);
+    if (p) void Bridge.phoneNotify(p.kind, p.pillId, p.project);
+  });
 }
 
 /** The return to idle that Stop arms, per pill, so the next turn can cancel it. */
@@ -374,6 +394,10 @@ function handleHook(island: Island, payload: HookPayload) {
     if (cancelStopTimer(agentId)) State.setPillBadge(agentId, null);
   };
 
+  // A request handed back to the terminal is answered once its session does
+  // anything else (Yes runs the tool; No, Stop or a new prompt end the turn).
+  if (sessionId && name !== "Notification" && name !== "PermissionRequest") phone.sessionMoved(sessionId);
+
   // The turn that asked for a permission is over — answered in the terminal,
   // interrupted, or a new prompt — so the card would be lying. It goes, and the
   // relay is released without a decision. Same rule as the Mac.
@@ -471,8 +495,11 @@ function handleHook(island: Island, payload: HookPayload) {
       const message = payload.message ?? "";
       if (isLimitNotice(message)) {
         supersedeStop();
-        setLimit(agentId, parseLimit("usage", [message], Date.now()));
+        const limit = parseLimit("usage", [message], Date.now());
+        setLimit(agentId, limit);
         State.updateTask(agentId, "ratelimit");
+        const project = projectOf(State.tasks, agentId);
+        pingPhone((s, idleMs) => phone.limit(agentId, project, "usage", limit.resets, s, new Date(), idleMs));
       } else if (message.endsWith("?")) {
         supersedeStop();
         State.updateTask(agentId, "question");
@@ -483,6 +510,11 @@ function handleHook(island: Island, payload: HookPayload) {
 
     case "Stop": {
       State.updateTask(agentId, "finished");
+      {
+        const waits = [State.pendingApproval, ...State.approvalQueue].some((r) => r?.pillId === agentId);
+        const project = projectOf(State.tasks, agentId);
+        pingPhone((s, idleMs) => phone.finished(agentId, project, waits, s, new Date(), idleMs));
+      }
       // Claude Code puts the turn's answer in the Stop payload itself, so there is
       // no transcript to read (the relay does not even forward its path). Other
       // agents report their last words the same way (Hermes, Codex) or as
@@ -525,8 +557,11 @@ function handleHook(island: Island, payload: HookPayload) {
       // says when it resets, and offers no Retry before then.
       const kind = limitKind(payload.error);
       if (kind) {
-        setLimit(agentId, parseLimit(kind, [payload.last_assistant_message, payload.error_details, payload.message], Date.now()));
+        const limit = parseLimit(kind, [payload.last_assistant_message, payload.error_details, payload.message], Date.now());
+        setLimit(agentId, limit);
         State.updateTask(agentId, "ratelimit");
+        const project = projectOf(State.tasks, agentId);
+        pingPhone((s, idleMs) => phone.limit(agentId, project, kind, limit.resets, s, new Date(), idleMs));
         if (focused && !State.pendingApproval) surface("error", true);
         break;
       }

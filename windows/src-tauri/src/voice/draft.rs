@@ -619,9 +619,9 @@ mod tests {
             assert_eq!(spoken_address(name), None, "{name}");
         }
         let mut o = outlook();
-        o.book.push(c("Anthony Garcia", "anthonygarcia@example.com"));
+        o.book.push(c("Jane Doe", "janedoe@example.com"));
         let none = BTreeMap::new();
-        assert_eq!(resolve("anthony garcia at example dot com", ME_ADDR, &none, search(&o)), Found::One { contact: c("Anthony Garcia", "anthonygarcia@example.com") });
+        assert_eq!(resolve("jane doe at example dot com", ME_ADDR, &none, search(&o)), Found::One { contact: c("Jane Doe", "janedoe@example.com") });
         // Not in the address book: a chip to confirm (whisper may have misheard).
         assert_eq!(
             resolve("tony at example dot com", ME_ADDR, &none, search(&o)),
