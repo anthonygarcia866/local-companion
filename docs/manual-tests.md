@@ -627,6 +627,23 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
     - After 10 minutes, or after deleting the draft: "No draft from Glim in the last 10 minutes to change…", nothing changed.
     - glim.log: `voice: edit_draft`, `draft: read the last draft back (ok)`, `voice: edit_draft ok …s`, `draft: change shown on the card`, `draft: changed in Drafts and opened`. Never the subject or the text.
 
+## 29. Calendar glance (branch `calendar-glance`, draft PR, stacked on #27)
+
+*Where: branch `calendar-glance`.* Needs classic Outlook **open** (Glim never starts it for this). Settings → **Calendar** → **Show my next event** is **off** by default: turn it on.
+
+1. **The calendars:** Settings → Calendar lists Outlook's calendars, **one per row**, each with its mailbox beside the name (grey), your default one checked ("(default)"). With Outlook closed it says "Open classic Outlook to choose calendars…" instead.
+   - **If the list is empty with Outlook open** (Glim started before Outlook was ready, or Outlook opened later): wait about a minute, or reopen Settings → Calendar (or click **Calendar** in the sidebar). Glim looks again by itself 10 s, 30 s and 60 s after it sees Outlook running, then every minute, and the list fills in. glim.log: `calendar: 0 found (attempt 1), Outlook is running; next look in 10 s`, then `calendar: 9 found (attempt 3)` (your count). Outlook closed: no retries and nothing logged; Glim only watches for Outlook to start (never starts it).
+2. **The next event:** have (or make, in Outlook) a meeting starting in the next 10 minutes. **See:** the lantern glows (brighter, glancing eyes) from 10 minutes before. Click the lantern: a card with the title, "9:00 AM – 9:30 AM · in 8 min", the location, **Close**.
+   - A Teams or Zoom meeting: a **Join** button. Click it: the meeting opens in Teams/Zoom (or the browser). Nothing else is ever opened from the card.
+   - Two meetings at the same time: "+1 more at the same time".
+   - Up to 10 minutes after it started: "started 3 min ago", Join still there. Then the next event.
+3. **Close:** the card goes; that event doesn't bring it back (the glow stays until it starts).
+4. **Lead time:** Settings → Glow before an event → 5 minutes: the glow starts 5 minutes before instead.
+   - **Outlook opened after Glim, meeting made 12 minutes ahead (fix 2026-10-24):** quit Outlook, start (or keep) Glim, then open Outlook. Open Settings → Calendar a few times while you wait. Make a meeting in Outlook starting 12 minutes from now. **See:** the lantern glows from 10 minutes before (at most a minute late). glim.log: `calendar: N found (attempt k)`, then a `calendar: … events in the next 24 h …` line whenever the count changes (reads are every minute but logged only on a change).
+5. **All-day events:** hidden by default (never "next"). Switch "Hide all-day events" off: they show in the summary as "All day".
+6. **Morning summary (off by default):** switch it on. The next morning (after 6:00), the first read shows "Today: N on your calendar" with times and titles (5 at most, "+N more"), once that day. Close: it doesn't come back that day.
+7. **Read only:** nothing in Outlook changes: no meeting accepted, declined, moved or edited; no Outlook window opens by itself.
+8. **Log:** glim.log has `calendar: N events in the next 24 h (K with a meeting link), next in M min`, `calendar: nothing to show (no-outlook)` when Outlook is closed. `calendar: N found (attempt k)` when Glim finds Outlook's calendars. **Never a title, a location, a calendar name or a link.**
 > **Numbering note (2026-10-20):** §29 is used twice in open drafts: #34 (calendar glance) and #40 (your own apps). Whichever merges second becomes §30. §31-§33 below are for #42, #43 and #44, which had no hand test of their own.
 
 ## 31. Session pill labels clear the mini lantern (PR #42, cherry-pick of upstream #522)
