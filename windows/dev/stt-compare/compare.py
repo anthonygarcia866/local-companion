@@ -11,9 +11,15 @@ with each model, and scores:
     pay with the model kept loaded) and wall time per clip.
 
 Usage (from windows/dev/stt-compare):
-  python -I compare.py [--prompt "<vocabulary hint>"] <work dir> <whisper-cli.exe> <model.bin> [<model.bin> ...]
+  python -I compare.py [--prompt "<vocabulary hint>"] [--parakeet <model dir>] <work dir> <whisper-cli.exe> <model.bin> [<model.bin> ...]
 With --prompt, whisper gets the user's names and words as its initial
 prompt (the local counterpart of the cloud services' keyterms).
+With --parakeet, NVIDIA's Parakeet TDT 0.6B v3 (int8) runs too, through
+sherpa-onnx's Python package (upstream Coucou's Windows speech-to-text,
+windows/src-tauri/src/speech/mod.rs there): the dir holds the four files
+get_parakeet.py fetches. It is loaded once and kept, so its processing time
+is the decode alone, like whisper's "total minus load". Parakeet takes no
+vocabulary hint: with --prompt it still runs plain (marked "hint": false).
 The work dir gets clips/ and results.json; nothing is written in the repo.
 """
 
@@ -147,12 +153,101 @@ def transcribe(cli: str, model: str, wav: str, threads: int, prompt: str | None 
     return text, wall, proc, timings.get("load"), p.returncode
 
 
+# Parakeet through sherpa-onnx: the files and the version upstream Coucou
+# uses (get_parakeet.py has their URLs and SHA-256).
+PARAKEET_NAME = "parakeet-tdt-0.6b-v3-int8"
+PARAKEET_FILES = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt")
+SHERPA_VERSION = "1.13.8"
+
+
+def read_wav_f32(path: str) -> np.ndarray:
+    """A 16 kHz mono 16-bit WAV as float32 samples in [-1, 1] (what sherpa-onnx takes)."""
+    with wave.open(path, "rb") as w:
+        if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (16000, 1, 2):
+            raise ValueError(f"{path}: needs 16 kHz mono 16-bit, got {w.getframerate()} Hz, {w.getnchannels()} ch, {8 * w.getsampwidth()} bit")
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    return pcm.astype(np.float32) / 32768.0
+
+
+def load_parakeet(model_dir: str, threads: int):
+    """The recognizer, loaded once (upstream's settings: nemo_transducer,
+    greedy search), and how long the load took."""
+    missing = [f for f in PARAKEET_FILES if not os.path.isfile(os.path.join(model_dir, f))]
+    if missing:
+        sys.exit(f"--parakeet {model_dir}: missing {', '.join(missing)} (run get_parakeet.py)")
+    import sherpa_onnx  # only needed with --parakeet
+
+    if getattr(sherpa_onnx, "__version__", "?") != SHERPA_VERSION:
+        print(f"note: sherpa-onnx {getattr(sherpa_onnx, '__version__', '?')}, upstream uses {SHERPA_VERSION}", flush=True)
+    p = lambda f: os.path.join(model_dir, f)
+    t0 = time.perf_counter()
+    rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+        encoder=p("encoder.int8.onnx"), decoder=p("decoder.int8.onnx"), joiner=p("joiner.int8.onnx"), tokens=p("tokens.txt"),
+        num_threads=threads, sample_rate=16000, feature_dim=80, decoding_method="greedy_search", model_type="nemo_transducer",
+    )
+    return rec, time.perf_counter() - t0
+
+
+def transcribe_parakeet(rec, wav: str):
+    """Same shape as transcribe(): text, wall, proc, load, rc. The model is
+    already loaded, so wall = proc = this clip's decode."""
+    samples = read_wav_f32(wav)
+    t0 = time.perf_counter()
+    stream = rec.create_stream()
+    stream.accept_waveform(16000, samples)
+    rec.decode_stream(stream)
+    took = time.perf_counter() - t0
+    return stream.result.text.strip(), took, took, None, 0
+
+
+def score(c, wav, text, wall, proc, load, rc):
+    """One clip's row: WER both ways, command start, missed terms, times."""
+    hyp, ref = norm(text), norm(c["ref"])
+    errs, words = wer(ref, hyp)
+    lenient_errs, _ = wer(lenient(c["ref"]), lenient(text))
+    terms = c.get("terms", [])
+    missed = [t for t in terms if not term_hit(hyp, t)]
+    row = {
+        "id": c["id"], "kind": c["kind"], "audio_s": round(duration(wav), 2), "text": text,
+        "wer_errors": errs, "lenient_errors": lenient_errs, "ref_words": words, "terms": len(terms), "terms_missed": missed,
+        "wall_s": round(wall, 3), "proc_s": None if proc is None else round(proc, 3), "load_s": load, "rc": rc,
+    }
+    if c.get("command"):
+        row["command"] = c["command"]
+        row["command_ok"] = starts_with_command(hyp, c["command"])
+    return row
+
+
+def run_all(name, clips, clip_dir, one):
+    """Scores every clip with `one(wav)` (after one warm-up clip)."""
+    one(os.path.join(clip_dir, clips[0]["id"] + ".wav"))
+    rows = []
+    for c in clips:
+        wav = os.path.join(clip_dir, c["id"] + ".wav")
+        row = score(c, wav, *one(wav))
+        rows.append(row)
+        print(f"{name} {c['id']}: wer {row['wer_errors']}/{row['ref_words']} proc {row['proc_s']}s cmd {row.get('command_ok', '-')} missed {row['terms_missed']}", flush=True)
+    return rows
+
+
+def parse_args(argv):
+    """--prompt and --parakeet in any order before the positional ones."""
+    args, prompt, parakeet = list(argv), None, None
+    while args and args[0] in ("--prompt", "--parakeet"):
+        if len(args) < 2:
+            sys.exit(f"{args[0]} needs a value")
+        if args[0] == "--prompt":
+            prompt = args[1]
+        else:
+            parakeet = args[1]
+        args = args[2:]
+    if len(args) < 2 or (len(args) < 3 and not parakeet):
+        sys.exit(__doc__)
+    return prompt, parakeet, args[0], args[1], args[2:]
+
+
 def main():
-    args = sys.argv[1:]
-    prompt = None
-    if args and args[0] == "--prompt":
-        prompt, args = args[1], args[2:]
-    work, cli, models = args[0], args[1], args[2:]
+    prompt, parakeet, work, cli, models = parse_args(sys.argv[1:])
     threads = min(8, os.cpu_count() or 4)
     clips = json.load(open(os.path.join(HERE, "clips.json"), encoding="utf-8"))["clips"]
     clip_dir = os.path.join(work, "clips")
@@ -161,28 +256,14 @@ def main():
     results = {"threads": threads, "prompt": prompt, "models": {}}
     for model in models:
         name = os.path.basename(model)
-        # One warm-up so the first clip doesn't pay for the file cache.
-        transcribe(cli, model, os.path.join(clip_dir, clips[0]["id"] + ".wav"), threads, prompt)
-        rows = []
-        for c in clips:
-            wav = os.path.join(clip_dir, c["id"] + ".wav")
-            text, wall, proc, load, rc = transcribe(cli, model, wav, threads, prompt)
-            hyp, ref = norm(text), norm(c["ref"])
-            errs, words = wer(ref, hyp)
-            lenient_errs, _ = wer(lenient(c["ref"]), lenient(text))
-            terms = c.get("terms", [])
-            missed = [t for t in terms if not term_hit(hyp, t)]
-            row = {
-                "id": c["id"], "kind": c["kind"], "audio_s": round(duration(wav), 2), "text": text,
-                "wer_errors": errs, "lenient_errors": lenient_errs, "ref_words": words, "terms": len(terms), "terms_missed": missed,
-                "wall_s": round(wall, 3), "proc_s": None if proc is None else round(proc, 3), "load_s": load, "rc": rc,
-            }
-            if c.get("command"):
-                row["command"] = c["command"]
-                row["command_ok"] = starts_with_command(hyp, c["command"])
-            rows.append(row)
-            print(f"{name} {c['id']}: wer {errs}/{words} proc {row['proc_s']}s cmd {row.get('command_ok', '-')} missed {missed}", flush=True)
-        results["models"][name] = {"size_mb": round(os.path.getsize(model) / 1e6), "rows": rows}
+        rows = run_all(name, clips, clip_dir, lambda wav: transcribe(cli, model, wav, threads, prompt))
+        results["models"][name] = {"size_mb": round(os.path.getsize(model) / 1e6), "hint": prompt is not None, "rows": rows}
+    if parakeet:
+        rec, load = load_parakeet(parakeet, threads)
+        print(f"{PARAKEET_NAME}: loaded in {load:.1f}s", flush=True)
+        rows = run_all(PARAKEET_NAME, clips, clip_dir, lambda wav: transcribe_parakeet(rec, wav))
+        size = sum(os.path.getsize(os.path.join(parakeet, f)) for f in PARAKEET_FILES)
+        results["models"][PARAKEET_NAME] = {"size_mb": round(size / 1e6), "hint": False, "load_s": round(load, 2), "rows": rows}
     out = os.path.join(work, "results-prompted.json" if prompt else "results.json")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=1)
