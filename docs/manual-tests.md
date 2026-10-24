@@ -644,6 +644,19 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 6. **Morning summary (off by default):** switch it on. The next morning (after 6:00), the first read shows "Today: N on your calendar" with times and titles (5 at most, "+N more"), once that day. Close: it doesn't come back that day.
 7. **Read only:** nothing in Outlook changes: no meeting accepted, declined, moved or edited; no Outlook window opens by itself.
 8. **Log:** glim.log has `calendar: N events in the next 24 h (K with a meeting link), next in M min`, `calendar: nothing to show (no-outlook)` when Outlook is closed. `calendar: N found (attempt k)` when Glim finds Outlook's calendars. **Never a title, a location, a calendar name or a link.**
+
+## 30. Your own apps for "open …" (branch `open-app-custom`, draft PR)
+
+*Where: a build with branch `open-app-custom`. Needs a working Claude key (Settings → AI).*
+
+1. **Add one:** Settings → Writing → **Apps Glim can open**. In Explorer, right-click an app's .exe (or its Start-menu shortcut) → **Copy as path**. Name: e.g. "Spotify"; Path: paste. **Add.** **See:** it's listed as `Spotify → C:\…\Spotify.exe` (no quotes); the fields clear.
+2. **Open it:** hold **Ctrl+Alt+Shift+A**: "open Spotify". **See:** the app opens; no card stays. glim.log: `voice: cleanup open_app …`, `voice: open_app own app ok`: never the name or the path.
+3. **Built-ins still work:** "open Outlook", "open Codex", "open Claude": each opens as before.
+4. **Refusals on the page** (nothing is added, the reason shows under Add): name "Outlook" or "claude code" (built in); the same name twice; a path with arguments (`C:\Windows\System32\notepad.exe /a`); a `.bat` or `.txt`; a `\\server\share\app.exe` path; a path without the drive (`notepad.exe`).
+5. **Moved or deleted app:** add an app, then rename its .exe in Explorer, say "open <name>". **See:** "Not opened: Couldn't open <name>. Is it installed?"; nothing else starts. Put the file back.
+6. **Remove:** Remove the app, say "open <name>". **See:** nothing opens (a question card or "heard": Claude no longer knows the name).
+7. **Dictation never opens:** in a text field, hold **Ctrl+Alt+Shift+V** and say "open Spotify": the words are typed, nothing opens.
+
 > **Numbering note (2026-10-20):** §29 is used twice in open drafts: #34 (calendar glance) and #40 (your own apps). Whichever merges second becomes §30. §31-§33 below are for #42, #43 and #44, which had no hand test of their own.
 
 ## 31. Session pill labels clear the mini lantern (PR #42, cherry-pick of upstream #522)
