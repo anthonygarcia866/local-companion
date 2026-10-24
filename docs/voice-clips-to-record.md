@@ -1,6 +1,6 @@
-# Voice clips to record: base vs small, in your own voice
+# Voice clips to record: base vs small vs Parakeet, in your own voice
 
-For Anthony, one sitting of about 15 minutes. These 22 clips replace the synthetic Windows voices of the first run (`docs/voice-stt-results.md`). They settle the one open choice there: whisper **base.en** (fast, ~1 s) or **small.en** (~3× slower, maybe more accurate on a real voice). medium.en is out: it runs slower than real time on this PC.
+For Anthony, one sitting of about 15 minutes. These 22 clips replace the synthetic Windows voices of the first run (`docs/voice-stt-results.md`). They settle the open choice there between three local candidates: whisper **base.en** (fast, ~1 s), whisper **small.en** (~3× slower, maybe more accurate on a real voice) and **NVIDIA Parakeet TDT 0.6B v3** through sherpa-onnx (upstream Coucou's Windows speech-to-text; added 2026-10-19, not measured yet). medium.en is out: it runs slower than real time on this PC. The same recordings judge all three, so nothing changes for you: record once.
 
 The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It's **6 dictation, 12 commands and 4 hard clips**:
 - each of the ten approved command words starts a clip;
@@ -69,16 +69,19 @@ The mix differs from plan §3 on purpose (8 dictation / 8 commands / 4 hard). It
 2. **Set up the work dir:**
    - copy `compare.py`, plus `clips-owner.json` saved as `clips.json`;
    - add whisper-cli (b5454 `whisper-bin-x64.zip`) and the base.en / small.en `q5_1` models, each checked against its published SHA-256 again. Copies are in the 2026-10-14 session scratch folder if it still exists.
-3. **Run it twice,** both models each time: plain, then with `--prompt "Glim, HOA, Ravenwood, Halloway, Bluefin Plumbing, maple-notes, lease renewal, gate code, unit 7D, Codex, Claude Code, Section 8"`. That hint list is what you'd keep in Settings → Writing → Dictation → Words Glim should know.
+   - **Parakeet:** `python -I get_parakeet.py <scratch>\parakeet` fetches upstream's four files (about 670 MB, pinned revision, each SHA-256 checked; it refuses to write inside the repo). Then make a venv in scratch with sherpa-onnx at upstream's version: `python -m venv <scratch>\stt-venv`, then `<scratch>\stt-venv\Scripts\python -m pip install sherpa-onnx==1.13.8 numpy` (a `cp312-win_amd64` wheel exists on PyPI). Run compare.py with that venv's python.
+   - **Memory:** Parakeet's encoder alone is 652 MB on disk. Check free RAM first and close apps if it's under ~3 GB (on 2026-10-19 the PC had 0.8 GB free, so the tooling was only checked without the model).
+3. **Run it twice,** all three each time: plain, then with `--prompt "Glim, HOA, Ravenwood, Halloway, Bluefin Plumbing, maple-notes, lease renewal, gate code, unit 7D, Codex, Claude Code, Section 8"`, adding `--parakeet <scratch>\parakeet` both times. That hint list is what you'd keep in Settings → Writing → Dictation → Words Glim should know. **Parakeet takes no hint** (whisper's prompt has no counterpart here), so it runs plain both times; its results are marked `"hint": false`. Compare it with whisper *with* the hint, since that's how Glim runs whisper today.
 4. **Report:** add a "Run 2 (owner's voice)" section to `docs/voice-stt-results.md` with:
    - lenient WER;
    - command word heard first (12 command clips + h1 + h2);
    - key terms missed;
    - processing time, median and worst.
 
-   Recommend base or small. Then delete `%USERPROFILE%\glim-clips\`.
+   Recommend base, small or Parakeet. Then delete `%USERPROFILE%\glim-clips\`.
 
 **How the pick is made:**
 - small.en must beat base.en clearly on **your** clips, on names and commands, with the hint on, to be worth ~3× the wait.
 - A tie, or a small edge, keeps **base**.
+- **Parakeet (rule adopted by Anthony, 2026-10-19):** it wins only if it clearly beats base.en *with the hint* on names and commands, despite having **no** hint of its own, and answers fast enough for push-to-talk (median processing ≤ ~1.5 s on these clips). Adopting it costs more than a model swap: Glim would add sherpa-onnx (with onnxruntime) as a dependency, a ~670 MB model, and lose the word list and the built-in words (Claude's clean-up would still fix names it can).
 - Any clip where a command word isn't heard first is reported on its own: that's the §4.1 safety rule.
