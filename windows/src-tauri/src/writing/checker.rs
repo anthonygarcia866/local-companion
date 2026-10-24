@@ -293,7 +293,7 @@ fn replacement(edit: &Edit, problem: &str) -> Option<String> {
 /// Whether a word the spell checker flagged is worth showing. Not: single
 /// letters ("W-9"), words with digits ("2C"), words next to a digit or a
 /// hyphen and a digit, all-capital acronyms ("HVAC"), and capitalized words
-/// inside a sentence (names: "Audii Management").
+/// inside a sentence (names: "Acme Management").
 fn worth_spelling(chars: &[char], start: usize, end: usize) -> bool {
     let word = &chars[start..end];
     if word.len() < 2 || word.iter().any(|c| c.is_ascii_digit()) {
@@ -487,7 +487,7 @@ mod tests {
         for text in [
             "The tenant at unit 4B reported a leak.",
             "Units 101 102 103 104 need new smoke detectors.",
-            "Please call Anthony Garcia at Audii Management LLC about 1408 Jefferson Ave.",
+            "Please call Jane Doe at Acme Management LLC about 123 Main Street",
             "Sent the 3-day notice to the tenant in Apt 2C, balance $1,234.56 due 10/31.",
             "FYI the HVAC guy said the AC compressor is shot, ETA Tues.",
             "Can you send me the W-9 ASAP?",

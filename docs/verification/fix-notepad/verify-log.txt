@@ -1,5 +1,5 @@
 ﻿
-15:23:17.436 exe: C:\Users\antho\AppData\Local\Glim\glim.exe (11806720 bytes, built 10/11/2026 15:22:18)
+15:23:17.436 exe: C:\Users\you\AppData\Local\Glim\glim.exe (11806720 bytes, built 10/11/2026 15:22:18)
 15:23:17.566 in front before the test: LogiOverlay; idle 363157 ms
 15:23:26.714 dev Glim pid 342084, visibility normal (saved: normal)
 15:23:27.773 Notepad text: 'We recieved the payment today.'
