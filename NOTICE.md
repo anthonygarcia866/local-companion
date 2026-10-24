@@ -15,3 +15,8 @@ Upstream's macOS/iOS source tree (`NotchBuddy/`), its iPhone relay (`relay/`) an
 ## Glim's own brand
 
 The Glim name, mascot and app icon (`docs/brand/`, and the icons rendered from them) are © 2026 Anthony Garcia. All rights reserved: they are **not** covered by the MIT License, which applies to the code only.
+
+## Changes taken from Coucou after the fork
+
+Cherry-picked from upstream Coucou (MIT), with the original author kept on each commit:
+- Plan-usage note (adapted) that the gauge needs the Claude Code CLI (upstream #479, by GitHub user Rhytam23): `windows/src/settings/main.ts`, `windows/src/i18n/extra.json`.
