@@ -682,6 +682,18 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
 3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
 
+## 34. Glim hides from screen shares and recordings (branch `capture-exclusion`, draft PR)
+
+*Where: a build with the capture-exclusion PR, started normally (not by a verify script). Nothing is sent anywhere; the screenshots stay on this PC.*
+
+1. **On by default:** Settings → Privacy. **See:** "Hide Glim in screen shares and recordings" is on, with "Screen shares, recordings and screenshots show what's behind Glim, not its cards." under it.
+2. **Screenshot:** with the island showing a card (e.g. the resume card from the tray's **Pick up where you left off**), press Win+Shift+S and take a rectangle over the island. **See:** the snip shows what's behind the island, not the island or its card. Also take one with the mini lantern on (Settings → Writing) and with Settings open: none of Glim's windows are in the snip.
+3. **Screen share:** start a Teams (or Zoom) meeting alone and share the whole screen; look at the preview. **See:** no island, no card, no Settings window in the shared picture, while they stay normal on your own screen.
+4. **Off:** turn the switch off and repeat step 2. **See:** the island and card are in the snip again, straight away (no restart). Turn it back on.
+5. **Log:** `%APPDATA%\Glim\glim.log` has `capture-exclude: on (N windows)` at launch and `capture-exclude: off (setting)` after step 4; no window titles, nothing else. `capture-exclude: unsupported` would mean this Windows is older than 10 (2004).
+6. **Verify scripts still see Glim:** `scriptserify-presence.ps1` starts the dev Glim with `GLIM_CAPTURABLE=1`; its PNGs show the island, not black (the log says `capture-exclude: off (GLIM_CAPTURABLE)`).
+7. **Budget line (no action):** after 50 Ask Glim requests, and when you quit from the tray, glim.log has one `budget: last N ask median X.Xs $0.00XXXX/request` line; it ends `OVER` if the median is over 2.0 s or $0.001.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

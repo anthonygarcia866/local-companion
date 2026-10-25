@@ -6464,6 +6464,28 @@
    "pt-BR": "minutos sem usar teclado nem mouse",
    "ru": "мин. без клавиатуры и мыши",
    "id": "menit tanpa input keyboard atau mouse"
+  },
+  "Hide Glim in screen shares and recordings": {
+   "zh-Hans": "在屏幕共享和录制中隐藏 Glim",
+   "hi": "स्क्रीन शेयर और रिकॉर्डिंग में Glim छिपाएँ",
+   "es": "Ocultar Glim al compartir pantalla y en grabaciones",
+   "ar": "إخفاء Glim في مشاركة الشاشة والتسجيلات",
+   "fr": "Masquer Glim dans les partages d'écran et les enregistrements",
+   "bn": "স্ক্রিন শেয়ার ও রেকর্ডিংয়ে Glim লুকান",
+   "pt-BR": "Ocultar o Glim no compartilhamento de tela e em gravações",
+   "ru": "Скрывать Glim при демонстрации экрана и записи",
+   "id": "Sembunyikan Glim saat berbagi layar dan merekam"
+  },
+  "Screen shares, recordings and screenshots show what's behind Glim, not its cards.": {
+   "zh-Hans": "屏幕共享、录制和截图只会显示 Glim 后面的内容，不会显示它的卡片。",
+   "hi": "स्क्रीन शेयर, रिकॉर्डिंग और स्क्रीनशॉट में Glim के पीछे की चीज़ें दिखती हैं, उसके कार्ड नहीं।",
+   "es": "Al compartir pantalla, grabar o hacer capturas se ve lo que hay detrás de Glim, no sus tarjetas.",
+   "ar": "تُظهر مشاركة الشاشة والتسجيلات ولقطات الشاشة ما خلف Glim، لا بطاقاته.",
+   "fr": "Les partages d'écran, enregistrements et captures montrent ce qu'il y a derrière Glim, pas ses cartes.",
+   "bn": "স্ক্রিন শেয়ার, রেকর্ডিং ও স্ক্রিনশটে Glim-এর পেছনের জিনিস দেখা যায়, এর কার্ড নয়।",
+   "pt-BR": "Compartilhamentos de tela, gravações e capturas mostram o que está atrás do Glim, não os cartões dele.",
+   "ru": "При демонстрации экрана, записи и на скриншотах видно то, что под Glim, а не его карточки.",
+   "id": "Berbagi layar, rekaman, dan tangkapan layar menampilkan apa yang ada di balik Glim, bukan kartunya."
   }
  }
 }

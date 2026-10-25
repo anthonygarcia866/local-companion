@@ -389,6 +389,7 @@ async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
     };
     drop(current);
     if let Some(u) = &usage {
+        crate::ai::budget::note_ask(started.elapsed().as_millis() as u64, u.cost_nanos);
         if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
             crate::log::line(format!("voice: could not record the spend: {err}"));
         }
@@ -464,6 +465,10 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
     match &usage {
         Some(u) => {
             crate::log::line(format!("voice: cleanup {outcome} {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, started.elapsed().as_secs_f64()));
+            // The budget line covers the Ask lane only (plan §6).
+            if mode != Mode::Dictate {
+                crate::ai::budget::note_ask(started.elapsed().as_millis() as u64, u.cost_nanos);
+            }
             if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
                 crate::log::line(format!("voice: could not record the spend: {err}"));
             }

@@ -75,3 +75,24 @@ test("the section adds, refuses and removes the user's entries; built-ins are lo
   assert.deepEqual(settings.pauseApps, []);
   assert.equal(saves, 2);
 });
+
+test("Glim hides from screen capture unless the switch is turned off", () => {
+  assert.equal(DEFAULT_SETTINGS.hideFromCapture, true);
+  const settings = { ...DEFAULT_SETTINGS };
+  delete settings.hideFromCapture; // a settings.json from before the switch
+  let saves = 0;
+  const el = privacySection({ settings: () => settings, save: async () => { saves++; } }, BUILTIN);
+  const sw = el.find("button").find((b) => b.getAttribute("data-role") === "hide-from-capture");
+  assert.ok(sw.classList.contains("on"), "on when the file has no value");
+  assert.equal(sw.getAttribute("aria-pressed"), "true");
+  sw.fire("click");
+  assert.equal(settings.hideFromCapture, false);
+  assert.equal(sw.getAttribute("aria-pressed"), "false");
+  sw.fire("click");
+  assert.equal(settings.hideFromCapture, true);
+  assert.equal(saves, 2);
+  // Rust holds the same default and re-applies it on every save.
+  const rs = read("src-tauri/src/settings.rs");
+  assert.ok(rs.includes("hide_from_capture: true,"));
+  assert.ok(read("src-tauri/src/lib.rs").includes("screen_capture::apply(&app);"));
+});

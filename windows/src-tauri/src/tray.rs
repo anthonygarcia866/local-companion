@@ -40,6 +40,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app: &AppHandle, event| match event.id.as_ref() {
             "quit" => {
+                crate::ai::budget::on_quit();
                 #[cfg(windows)]
                 crate::voice::whisper::stop();
                 app.exit(0);
