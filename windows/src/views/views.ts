@@ -478,19 +478,17 @@ export function buildApproval(actions: ViewActions): ViewHost {
       code.classList.toggle("expanded", expandedFor(req) !== null);
       // On screen (open, not folded) with the whole command in view: the
       // Allow key's clock (core/allow.ts). A box that scrolls or cuts off
-      // isn't the whole command. Measured when the key is pressed, without
-      // the "Press again" line, which only takes room while it is showing.
+      // isn't the whole command. Measured when the key is pressed, exactly
+      // as the card is on screen: the "Press again" and reason lines take
+      // room from the box, and a measurement without them could pass a
+      // command whose last lines are out of view (security review of #59,
+      // 2026-10-25). A destructive command's second press doesn't measure
+      // (allow.ts returns "ok" first), so bug 2 can't come back through it.
       if (req && State.mode === "expanded") {
-        cardOnScreen(req, performance.now(), () => {
-          const shown = [confirm.style.display, why.style.display];
-          confirm.style.display = "none";
-          why.style.display = "none";
-          // Expanded and scrolling: shown once its end has been in view.
-          const fits = code.scrollWidth <= code.clientWidth + 1
-            && (code.scrollHeight <= code.clientHeight + 1 || (code.classList.contains("expanded") && code.scrollTop + code.clientHeight >= code.scrollHeight - 1));
-          [confirm.style.display, why.style.display] = shown;
-          return fits;
-        });
+        cardOnScreen(req, performance.now(), () =>
+          code.scrollWidth <= code.clientWidth + 1
+            // Expanded and scrolling: shown once its end has been in view.
+            && (code.scrollHeight <= code.clientHeight + 1 || (code.classList.contains("expanded") && code.scrollTop + code.clientHeight >= code.scrollHeight - 1)));
       }
       // A destructive command's first press (core/allow.ts): the card asks
       // for the second and counts down the seconds left for it.

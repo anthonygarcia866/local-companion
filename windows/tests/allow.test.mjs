@@ -441,8 +441,9 @@ test("the card: expanded to the whole command, \"Press again to allow\", and a r
     assert.equal(press(State.pendingApproval, true, 2_000), "expand");
     card.sync();
     assert.ok(code.classList.contains("expanded"), "the box wraps and grows");
-    // Wrapped, it fits the expanded box.
+    // Wrapped, it fits the expanded box (with the "Press again" line showing).
     code.scrollWidth = 300;
+    code.scrollHeight = 15;
     assert.equal(confirm.textContent, "Press again to allow · 3");
     at(2_500);
     assert.equal(press(State.pendingApproval, true, 2_500), "too-soon");
@@ -461,6 +462,25 @@ test("the card: expanded to the whole command, \"Press again to allow\", and a r
     assert.equal(press(State.pendingApproval, true, 12_000), "expand");
     card.sync();
     assert.equal(confirm.textContent, "Read it, then press twice to allow");
+    // At the boundary (security review of #59): it would fit without the
+    // "Press again" line, but with it showing its last line is out of view.
+    cardOffScreen();
+    State.pendingApproval = req(LONG, { requestId: "V4" });
+    code.scrollWidth = 900;
+    code.scrollHeight = 30;
+    code.scrollTop = 0;
+    at(30_000);
+    card.sync();
+    at(32_000);
+    assert.equal(press(State.pendingApproval, true, 32_000), "expand");
+    card.sync();
+    code.scrollWidth = 300;
+    assert.equal(confirm.style.display, "", "the line is on screen");
+    assert.equal(code.clientHeight, 20, "and takes room from the box");
+    at(34_000);
+    assert.equal(press(State.pendingApproval, true, 34_000), "scroll", "measured as displayed: not allowed");
+    code.scrollTop = 10;
+    assert.equal(press(State.pendingApproval, true, 34_100), "ok", "scrolled to the end: allowed");
     // Taller than the expanded box (it scrolls): not until scrolled to its end.
     cardOffScreen();
     State.pendingApproval = req(LONG, { requestId: "V3" });
