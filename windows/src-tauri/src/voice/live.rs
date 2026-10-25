@@ -10,6 +10,9 @@
 // - `claude_clean_up`: GLIM_LIVE_CLAUDE=1 reads the saved key from Windows
 //   Credential Manager (never printed) and sends three short made-up
 //   transcripts (a fraction of a cent).
+// - `ask_routing`: GLIM_LIVE_CLAUDE=1, four Ask phrases (a routine, a
+//   remember, an open_app, a plain question): prints the tool each was routed
+//   to and the cost only, never the answer's text.
 //
 // Only counts, timings, codes and the synthetic clips' transcripts are printed.
 
@@ -130,6 +133,48 @@ fn whisper_on_this_pc() {
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert!(!server_pids().contains(&server.unwrap()), "stopped");
     println!("stop(): server gone");
+}
+
+#[test]
+#[ignore = "live: GLIM_LIVE_CLAUDE=1 sends to the Claude API"]
+fn ask_routing() {
+    // Glim learns #57 + #58: "When I say X" and "Remember:" go to their own
+    // tools under the one SYSTEM_ASK passage.
+    assert_eq!(std::env::var("GLIM_LIVE_CLAUDE").as_deref(), Ok("1"));
+    use crate::ai::{claude, dictate, key};
+    let key = key::load(&key::vault()).expect("vault").expect("a saved key");
+    let base = crate::net::Url::parse(claude::API_BASE).unwrap();
+    let repos = ["maple-notes".to_string()];
+    let tool = |r: &Result<super::Cleanup, super::CleanupFailed>| match r {
+        Ok(super::Cleanup::SaveRoutine { .. }) => "save_routine".to_string(),
+        Ok(super::Cleanup::Remember { .. }) => "remember".to_string(),
+        Ok(super::Cleanup::Open(_)) | Ok(super::Cleanup::OpenOwn(_)) => "open_app".to_string(),
+        Ok(super::Cleanup::Clarify(_)) => "clarify".to_string(),
+        Ok(super::Cleanup::Resume(_)) => "resume_work".to_string(),
+        Ok(super::Cleanup::Draft(_)) => "draft_email".to_string(),
+        Ok(super::Cleanup::EditDraft(_)) => "edit_draft".to_string(),
+        Ok(super::Cleanup::Dictate(_)) => "dictate".to_string(),
+        Err(f) => format!("failed ({})", f.code()),
+    };
+    let mut nanos = 0;
+    let mut got = Vec::new();
+    for (said, want) in [
+        ("when I say work mode, open Outlook and Codex", "save_routine"),
+        ("remember: when I say the office I mean Outlook", "remember"),
+        ("open Outlook", "open_app"),
+        ("what's the weather like tomorrow", "clarify"),
+    ] {
+        let cx = dictate::Context { mode: super::Mode::Ask, app: "notepad.exe", today: "2026-10-25", repos: &repos, own_apps: &[], asked: None, remembered: "" };
+        let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
+        let cost = usage.as_ref().map_or(0, |u| u.cost_nanos);
+        nanos += cost;
+        println!("{want:<12} -> {:<12} ${:.5}", tool(&r), cost as f64 / 1e9);
+        got.push((want, tool(&r)));
+    }
+    println!("total ${:.5}", nanos as f64 / 1e9);
+    for (want, routed) in got {
+        assert_eq!(routed, want);
+    }
 }
 
 #[test]
