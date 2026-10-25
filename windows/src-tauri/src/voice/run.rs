@@ -337,8 +337,11 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         }
     }
     // Not a routine, not a learned shortcut that worked: Claude's answer may
-    // carry the tip (send(), TIP_RESULTS). Never on the dictation key.
-    TIP.store(correcting, Ordering::SeqCst);
+    // carry the tip (send(), TIP_RESULTS). Never on the dictation key. Try
+    // again on a learned shortcut's card (`local` false) is a correction too:
+    // its answer says how to make it stick. (What #57 learns from that answer
+    // is unchanged: only `correcting` stops learning.)
+    TIP.store(correcting || !local, Ordering::SeqCst);
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
     // "Open claw": Claude asked which app; a word that sounds like exactly
     // one app opens it (fix d). Only after Claude answered (§4.1).
@@ -904,7 +907,7 @@ mod tests {
         let off = act.find("TIP.store(false, Ordering::SeqCst);").unwrap();
         let routine = act.find("run_routine(app, mode, routine).await;").unwrap();
         let replay = act.find("if replay(app, mode, transcript, &key, slot, &action).await {").unwrap();
-        let armed = act.find("TIP.store(correcting, Ordering::SeqCst);").unwrap();
+        let armed = act.find("TIP.store(correcting || !local, Ordering::SeqCst);").unwrap();
         let claude = act.find("let cleanup = clean_up(").unwrap();
         assert!(off < routine && routine < replay && replay < armed && armed < claude);
     }
@@ -932,6 +935,24 @@ mod tests {
         let src = include_str!("run.rs").replace("\r\n", "\n");
         assert!(src.contains("    } else if correcting {\n        Some(NotLearned::Correction)"));
         assert_eq!(NotLearned::Correction.code(), "correction");
+    }
+
+    /// Try again on a learned shortcut's card (Glim learns §3 + §1): the ask
+    /// goes to Claude with the tip armed, and only from that path.
+    #[test]
+    fn try_again_arms_the_correction_tip() {
+        let src = include_str!("run.rs").replace("\r\n", "\n");
+        let src = &src[..src.find("#[cfg(test)]").unwrap()];
+        let try_again = &src[src.find("pub fn try_again(").unwrap()..src.find("fn propose_routine(").unwrap()];
+        assert!(try_again.contains("act(&app, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
+        assert_eq!(src.matches(", false).await;").count(), 1);
+        assert!(src.contains("TIP.store(correcting || !local, Ordering::SeqCst);"));
+        // Learning from Try again's answer is #57's, unchanged.
+        assert!(!src.contains("} else if correcting || !local {"));
+        // The tip then rides on Claude's card, or its own when an app opened.
+        let armed = AtomicBool::new(true);
+        let card = VoiceEvent { phase: "failed", code: "open-failed".into(), ..Default::default() };
+        assert!(tip_for(&card, &armed));
     }
 
     /// A correction is the next Ask within a minute that starts "no", "I
