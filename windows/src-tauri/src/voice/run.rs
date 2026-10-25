@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use super::{Cleanup, CleanupFailed, Decision, Mode, VoiceEvent, EVENT, MIN_HELD_MS};
 use crate::ai::dictate::Asked;
 use crate::capture::uia::{request, Request};
+use crate::learn::{self, Action, NotLearned};
 
 /// One utterance at a time: the key repeating while held is ignored.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -63,10 +64,39 @@ fn set_question(asked: Option<Asked>) {
     *PENDING.lock().unwrap() = asked.map(|asked| Pending { asked, since: Instant::now() });
 }
 
+/// The learned shortcut that ran last, for Try again on its card: its key
+/// and the ask, in memory only, for TRY_AGAIN_FOR.
+struct Replayed {
+    key: String,
+    slot: bool,
+    transcript: String,
+    at: Instant,
+}
+
+static REPLAYED: std::sync::Mutex<Option<Replayed>> = std::sync::Mutex::new(None);
+const TRY_AGAIN_FOR: Duration = Duration::from_secs(120);
+
+/// A routine Claude proposed, waiting for Save on its card (plan §2).
+struct Proposed {
+    name: String,
+    steps: Vec<Action>,
+    at: Instant,
+}
+
+static PROPOSED: std::sync::Mutex<Option<Proposed>> = std::sync::Mutex::new(None);
+const PROPOSAL_FOR: Duration = Duration::from_secs(120);
+
+/// The check after opening an app (plan §1): its window in front within this.
+const CAME_FORWARD_WITHIN: Duration = Duration::from_secs(5);
+
 /// Cancel / Close on the question card (or its timeout): nothing waits now.
 pub fn cancel_question() {
     if PENDING.lock().unwrap().take().is_some() {
         crate::log::line("voice: question closed");
+    }
+    // Cancel on a routine's card: nothing is saved.
+    if PROPOSED.lock().unwrap().take().is_some() {
+        crate::log::line("learn: routine not saved (cancel)");
     }
 }
 
@@ -192,7 +222,7 @@ pub fn answer_typed(app: &AppHandle, text: String) -> bool {
     crate::log::line(format!("voice: typed answer, {} words", text.split_whitespace().count()));
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        act(&app, &text, Mode::Answer, Some(asked)).await;
+        act(&app, &text, Mode::Answer, Some(asked), true).await;
         ACTIVE.store(false, Ordering::SeqCst);
     });
     true
@@ -238,12 +268,14 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
         send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
         return;
     }
-    act(app, &transcript, mode, asked).await;
+    act(app, &transcript, mode, asked, true).await;
 }
 
-/// After the words are known (spoken or typed into the card): the clean-up,
-/// voice::decide, and what follows.
-async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>) {
+/// After the words are known (spoken or typed into the card): a routine or
+/// a learned shortcut (Ask key only, matched on this PC first), else the
+/// clean-up, voice::decide, and what follows. `local` false: Try again on a
+/// learned shortcut's card, straight to Claude.
+async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>, local: bool) {
     let m = mode.as_str();
     // "Never mind" (fix c): the card closes, nothing goes to Claude, nothing
     // is asked back. Dictation still types those words.
@@ -251,18 +283,50 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         dismiss(app, mode);
         return;
     }
+    // Glim learns (plan §1-§2): the Ask key only, never an answer to a
+    // question, never with a card number or a "this"/"that" in it.
+    let gist = (mode == Mode::Ask && asked.is_none() && !crate::capture::sensitive::contains_sensitive_number(transcript))
+        .then(|| learn::gist(transcript, &learn::app_words(&super::own_apps::names(&own_apps(app)))));
+    let learning = learning_on(app);
+    if let Some(g) = gist.as_ref().filter(|_| !learn::deictic(transcript)) {
+        if let Some(routine) = learn::with(|l| l.routines.find(g).cloned()) {
+            run_routine(app, mode, routine).await;
+            return;
+        }
+        let found = learn::with(|l| l.shortcuts.find(g).map(|(i, a)| (l.shortcuts.items[i].key.clone(), l.shortcuts.items[i].slot, a)));
+        if let Some((key, slot, action)) = found.filter(|_| local && learning) {
+            if replay(app, mode, transcript, &key, slot, &action).await {
+                return;
+            }
+        }
+    }
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
     // "Open claw": Claude asked which app; a word that sounds like exactly
     // one app opens it (fix d). Only after Claude answered (§4.1).
+    let mut corrected = false;
     let cleanup = match cleanup {
         Ok(Cleanup::Clarify(q)) if mode != Mode::Dictate => match super::open_sound_alike(transcript) {
             Some(app_name) => {
                 crate::log::line("voice: open_app by a sound-alike");
+                corrected = true;
                 Ok(Cleanup::Open(app_name))
             }
             None => Ok(Cleanup::Clarify(q)),
         },
         other => other,
+    };
+    // What may be learned from this answer if it works (plan §1).
+    let why_not = if !learning {
+        Some(NotLearned::Off)
+    } else if corrected {
+        Some(NotLearned::Unconfirmed)
+    } else {
+        None
+    };
+    let learn_from = |action: Action, check: Check| {
+        if let Some(g) = gist.clone() {
+            tauri::async_runtime::spawn(learn_after(g, transcript.to_string(), why_not, action, check));
+        }
     };
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
@@ -294,14 +358,24 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         }
         Decision::Resume { repo } => {
             // Only a repo Glim reads goes to the island; the log never names it.
-            let repo = repo.and_then(|r| super::match_repo(&r, &known_repos()));
+            let known = known_repos();
+            let asked_for = repo.is_some();
+            let repo = repo.and_then(|r| super::match_repo(&r, &known));
             crate::log::line(format!("voice: resume_work ({})", if repo.is_some() { "a repo first" } else { "all repos" }));
             send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
             let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo }));
+            // It worked when the card had repos to show (and the one named).
+            if !known.is_empty() && (repo.is_some() || !asked_for) {
+                learn_from(Action::ResumeWork { repo }, Check::Shown);
+            }
         }
         Decision::Open { app: which } => {
             // Low risk, no confirmation (plan §5): the app opening says it worked.
+            let before = crate::platform::foreground_exe();
             let opened = crate::platform::open_known_app(which);
+            if opened {
+                learn_from(Action::OpenApp { app: which.to_string() }, Check::Forward { exe: super::app_exe(which), before });
+            }
             crate::log::line(format!("voice: open_app {which} {}", if opened { "ok" } else { "failed" }));
             let e = if opened {
                 VoiceEvent { phase: "idle", mode: m, ..Default::default() }
@@ -314,8 +388,13 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             // The path from Settings as they are now (the app may have been
             // removed since), checked again in open_own_app. The log never
             // names the app or its path.
-            let opened = super::own_apps::find(&own_apps(app), &name).is_some_and(|a| crate::platform::open_own_app(&a.path));
+            let before = crate::platform::foreground_exe();
+            let own = super::own_apps::find(&own_apps(app), &name);
+            let opened = own.as_ref().is_some_and(|a| crate::platform::open_own_app(&a.path));
             crate::log::line(format!("voice: open_app own app {}", if opened { "ok" } else { "failed" }));
+            if let Some(a) = own.filter(|_| opened) {
+                learn_from(Action::OpenApp { app: a.name }, Check::Forward { exe: learn::own_exe(&a.path), before });
+            }
             let e = if opened {
                 VoiceEvent { phase: "idle", mode: m, ..Default::default() }
             } else {
@@ -332,6 +411,7 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             crate::log::line("voice: edit_draft");
             edit_last_draft(app, mode, &change).await;
         }
+        Decision::SaveRoutine { name, steps } => propose_routine(app, mode, name, steps),
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
@@ -389,6 +469,7 @@ async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
     };
     drop(current);
     if let Some(u) = &usage {
+        crate::ai::budget::note_ask(started.elapsed().as_millis() as u64, u.cost_nanos);
         if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
             crate::log::line(format!("voice: could not record the spend: {err}"));
         }
@@ -407,6 +488,247 @@ async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
         }
         Err(_) => super::draft_worker::note(app, "edit-failed"),
     }
+}
+
+// ── Glim learns (docs/glim-learns-plan.md §1, §2) ─────────────────────────────
+
+/// Settings → Ask Glim → "Learn shortcuts from what I ask" (on by default).
+fn learning_on(app: &AppHandle) -> bool {
+    app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().learn_shortcuts).unwrap_or(true)
+}
+
+/// How Glim sees a call worked before it learns it (plan §1, "Check after
+/// acting").
+enum Check {
+    /// The app's window came to the front within 5 s: a window of `exe`, or
+    /// (when Glim can't know the app's file) of another app than `before`.
+    Forward { exe: Option<String>, before: Option<String> },
+    /// The resume card had repos to show.
+    Shown,
+}
+
+async fn came_forward(exe: Option<String>, before: Option<String>) -> bool {
+    let until = Instant::now() + CAME_FORWARD_WITHIN;
+    loop {
+        if crate::platform::foreground_exe().is_some_and(|front| learn::forward_ok(&front, exe.as_deref(), before.as_deref())) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// After Claude's open_app or resume_work worked: kept as a shortcut when its
+/// words may be learned and Glim saw it work. The log has the tool and a code.
+async fn learn_after(g: learn::Gist, transcript: String, why_not: Option<NotLearned>, action: Action, check: Check) {
+    let tool = action.tool();
+    let verdict = match why_not {
+        Some(no) => Err(no),
+        None => learn::learnable(&transcript, &g),
+    };
+    drop(transcript);
+    if let Err(no) = verdict {
+        let code = no.code();
+        crate::log::line(format!("learn: not learned ({code})"));
+        return;
+    }
+    let worked = match check {
+        Check::Forward { exe, before } => came_forward(exe, before).await,
+        Check::Shown => true,
+    };
+    if !worked {
+        let code = NotLearned::Unconfirmed.code();
+        crate::log::line(format!("learn: not learned ({code})"));
+        return;
+    }
+    learn::with(|l| {
+        l.shortcuts.learn(&g, action, learn::now());
+        l.save_shortcuts();
+    });
+    crate::log::line(format!("learn: saved shortcut ({tool})"));
+}
+
+/// A learned call checked against today's state: a built-in app, an own app
+/// as Settings has it now, a repo Glim still reads.
+enum Step {
+    Open(&'static str),
+    OpenOwn(super::own_apps::OwnApp),
+    Resume(Option<String>),
+}
+
+fn validate(app: &AppHandle, a: &Action) -> Option<Step> {
+    match a {
+        Action::OpenApp { app: which } => match super::OPENABLE.iter().find(|v| **v == which.as_str()) {
+            Some(v) => Some(Step::Open(v)),
+            None => super::own_apps::find(&own_apps(app), which).map(Step::OpenOwn),
+        },
+        Action::ResumeWork { repo } => {
+            let known = known_repos();
+            if known.is_empty() {
+                return None;
+            }
+            match repo {
+                Some(r) => super::match_repo(r, &known).map(|r| Step::Resume(Some(r))),
+                None => Some(Step::Resume(None)),
+            }
+        }
+    }
+}
+
+/// Runs a checked call, then checks it worked. `learned`: the resume card
+/// says it came from a learned shortcut (with Try again).
+async fn run_step(app: &AppHandle, step: &Step, learned: bool) -> bool {
+    match step {
+        Step::Open(which) => {
+            let before = crate::platform::foreground_exe();
+            crate::platform::open_known_app(which) && came_forward(super::app_exe(which), before).await
+        }
+        Step::OpenOwn(own) => {
+            let before = crate::platform::foreground_exe();
+            crate::platform::open_own_app(&own.path) && came_forward(learn::own_exe(&own.path), before).await
+        }
+        Step::Resume(repo) => {
+            let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo, "learned": learned }));
+            true
+        }
+    }
+}
+
+/// A learned shortcut, through today's checks. True when it worked (its card
+/// says "Learned"); false: nothing shown, the ask goes on to Claude. Two
+/// failures in a row delete it.
+async fn replay(app: &AppHandle, mode: Mode, transcript: &str, key: &str, slot: bool, action: &Action) -> bool {
+    let tool = action.tool();
+    let step = validate(app, action);
+    let ok = match &step {
+        Some(s) => run_step(app, s, true).await,
+        None => false,
+    };
+    let deleted = learn::with(|l| {
+        let Some(i) = l.shortcuts.items.iter().position(|s| s.key == key && s.slot == slot) else { return false };
+        let deleted = if ok {
+            l.shortcuts.used(i, learn::now());
+            false
+        } else {
+            l.shortcuts.failed(i)
+        };
+        l.save_shortcuts();
+        deleted
+    });
+    if !ok {
+        crate::log::line(format!("learn: replay failed -> claude ({tool})"));
+        if deleted {
+            crate::log::line(format!("learn: shortcut deleted, 2 failed replays ({tool})"));
+        }
+        return false;
+    }
+    crate::log::line(format!("learn: replay ok ({tool})"));
+    *REPLAYED.lock().unwrap() = Some(Replayed { key: key.to_string(), slot, transcript: transcript.to_string(), at: Instant::now() });
+    let e = match &step {
+        // The resume card shows the note itself.
+        Some(Step::Resume(_)) => VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() },
+        _ => VoiceEvent { phase: "learned", code: tool.into(), app: learn::step_view(action).name, mode: mode.as_str(), ..Default::default() },
+    };
+    send(app, e);
+    true
+}
+
+/// Try again on a learned shortcut's card: the shortcut is deleted and the
+/// ask goes to Claude. False when there's nothing to try again.
+pub fn try_again(app: &AppHandle) -> bool {
+    let Some(r) = REPLAYED.lock().unwrap().take() else { return false };
+    if r.at.elapsed() > TRY_AGAIN_FOR || ACTIVE.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    learn::with(|l| {
+        if l.shortcuts.remove(&r.key, r.slot) {
+            l.save_shortcuts();
+        }
+    });
+    crate::log::line("learn: try again, shortcut deleted");
+    let _ = app.emit("learn-changed", ());
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        act(&app, &r.transcript, Mode::Ask, None, false).await;
+        ACTIVE.store(false, Ordering::SeqCst);
+    });
+    true
+}
+
+/// "When I say X, …": checked, then the card listing every step (Save /
+/// Cancel). Nothing is stored before Save.
+fn propose_routine(app: &AppHandle, mode: Mode, name: String, steps: Vec<Action>) {
+    let own = super::own_apps::names(&own_apps(app));
+    let n = steps.len();
+    if let Some(code) = learn::with(|l| l.routines.problem(&name, &steps, &own)) {
+        crate::log::line(format!("learn: routine refused ({code})"));
+        send(app, VoiceEvent { phase: "failed", code: format!("routine-{code}"), mode: mode.as_str(), ..Default::default() });
+        return;
+    }
+    crate::log::line(format!("learn: routine proposed ({n} steps)"));
+    let views = steps.iter().map(learn::step_view).collect();
+    *PROPOSED.lock().unwrap() = Some(Proposed { name: name.clone(), steps, at: Instant::now() });
+    send(app, VoiceEvent { phase: "routine-ask", text: name, steps: views, mode: mode.as_str(), ..Default::default() });
+}
+
+/// Save on the routine's card. False when nothing waits (cancelled, too old)
+/// or it can't be saved now (the card says why).
+pub fn save_proposed(app: &AppHandle) -> bool {
+    let Some(p) = PROPOSED.lock().unwrap().take() else { return false };
+    if p.at.elapsed() > PROPOSAL_FOR {
+        return false;
+    }
+    let own = super::own_apps::names(&own_apps(app));
+    let n = p.steps.len();
+    let name = p.name.clone();
+    let saved = learn::with(|l| {
+        let r = l.routines.add(&p.name, p.steps, &own, learn::now());
+        if r.is_ok() {
+            l.save_routines();
+        }
+        r
+    });
+    match saved {
+        Ok(()) => {
+            crate::log::line(format!("learn: routine saved ({n} steps)"));
+            send(app, VoiceEvent { phase: "routine-saved", text: name, mode: "ask", ..Default::default() });
+            let _ = app.emit("learn-changed", ());
+            true
+        }
+        Err(code) => {
+            crate::log::line(format!("learn: routine refused ({code})"));
+            send(app, VoiceEvent { phase: "failed", code: format!("routine-{code}"), mode: "ask", ..Default::default() });
+            false
+        }
+    }
+}
+
+/// Saying a routine's name: its steps in order, each checked as a shortcut
+/// is. The first one that doesn't work stops it, and the card names it.
+async fn run_routine(app: &AppHandle, mode: Mode, r: learn::Routine) {
+    let total = r.steps.len();
+    for (i, a) in r.steps.iter().enumerate() {
+        let ok = match validate(app, a) {
+            Some(step) => run_step(app, &step, false).await,
+            None => false,
+        };
+        if !ok {
+            let k = i + 1;
+            crate::log::line(format!("learn: routine stopped at step {k} of {total}"));
+            send(app, VoiceEvent { phase: "routine", code: format!("failed:{k}/{total}"), text: r.name.clone(), steps: vec![learn::step_view(a)], mode: mode.as_str(), ..Default::default() });
+            return;
+        }
+    }
+    crate::log::line(format!("learn: routine ran {total}/{total} steps"));
+    // A resume step's card is up: it stays in front of a "done" card.
+    let e = if r.steps.iter().any(|a| matches!(a, Action::ResumeWork { .. })) {
+        VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() }
+    } else {
+        VoiceEvent { phase: "routine", code: "ok".into(), text: r.name.clone(), steps: r.steps.iter().map(learn::step_view).collect(), mode: mode.as_str(), ..Default::default() }
+    };
+    send(app, e);
 }
 
 /// 1c's checks before anything goes to Claude (key, cap; Brain = Local isn't
@@ -459,11 +781,16 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
+        Ok(Cleanup::SaveRoutine { .. }) => "save_routine".to_string(),
         Err(f) => f.code(),
     };
     match &usage {
         Some(u) => {
             crate::log::line(format!("voice: cleanup {outcome} {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, started.elapsed().as_secs_f64()));
+            // The budget line covers the Ask lane only (plan §6).
+            if mode != Mode::Dictate {
+                crate::ai::budget::note_ask(started.elapsed().as_millis() as u64, u.cost_nanos);
+            }
             if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
                 crate::log::line(format!("voice: could not record the spend: {err}"));
             }

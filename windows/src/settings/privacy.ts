@@ -2,7 +2,9 @@
 // sites Glim never reads in. The built-in password managers and payment
 // sites are shown locked; the user's own entries are added, checked as they
 // are typed (core/pause.ts) and removed. Rust rebuilds its pause list as soon
-// as settings.json is saved.
+// as settings.json is saved. Also the switch that keeps Glim's windows out of
+// screen capture (docs/glim-learns-plan.md §5, on by default; Rust applies
+// it on save, screen_capture.rs).
 
 import type { PauseBuiltins } from "../core/bridge";
 import type { Settings } from "../core/state";
@@ -82,12 +84,25 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
   }
   draw();
 
+  const hideLabel = t("Hide Glim in screen shares and recordings");
+  const hidden = host.settings().hideFromCapture !== false;
+  const hide = h("button", { class: hidden ? "switch on" : "switch", type: "button", "aria-pressed": String(hidden), "data-role": "hide-from-capture", "aria-label": hideLabel }) as HTMLButtonElement;
+  hide.addEventListener("click", () => {
+    const next = !hide.classList.contains("on");
+    hide.classList.toggle("on", next);
+    hide.setAttribute("aria-pressed", String(next));
+    host.settings().hideFromCapture = next;
+    void host.save();
+  });
+
   return h(
     "section",
     {},
     h("h2", {}, h("span", { text: t("Privacy") })),
     h("div", { class: "hint", text: t("Glim never reads fields in these apps or on these sites: nothing is checked, kept or rewritten there.") }),
     body,
+    h("div", { class: "row" }, h("label", { text: hideLabel }), hide),
+    h("div", { class: "hint", text: t("Screen shares, recordings and screenshots show what's behind Glim, not its cards.") }),
     h("div", { class: "hint", text: t("Glim keeps nothing you write: only these settings, the API spend numbers, and your API key in Windows Credential Manager.") }),
     h("div", { class: "hint", text: t("Network: this computer only, plus api.anthropic.com when you ask for a rewrite.") }),
   );

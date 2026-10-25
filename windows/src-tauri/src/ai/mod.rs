@@ -3,6 +3,7 @@
 // requests go only through net::request (the network checkpoint).
 
 pub mod key;
+pub mod budget;
 pub mod check;
 pub mod claude;
 pub mod dictate;
