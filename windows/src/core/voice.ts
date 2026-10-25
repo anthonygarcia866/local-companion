@@ -42,7 +42,7 @@ export interface VoiceEvent {
   /** "failed" / "not-typed": why; "typed": why it wasn't cleaned up ("" = it was); "heard":
    *  that, or "command" / "no-field" (voice::heard_code). */
   code: string;
-  /** The app typed into ("Word"). */
+  /** The app typed into ("Word"); "remembered": the learned shortcuts the rule removed, quoted. */
   app: string;
   /** Which key ("dictate" / "ask"), or "answer" while a question card waits. */
   mode?: VoiceMode;

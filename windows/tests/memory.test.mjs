@@ -35,6 +35,15 @@ test("what was remembered, and the refusals that say why", () => {
   for (const code of codes) assert.notEqual(memoryProblemText(code), "Nothing to remember.", code);
 });
 
+test("M2: a rule that replaced a learned shortcut says so on its card", () => {
+  const rule = at({ phase: "remembered", text: "When I say the office I mean Codex", code: "rule", app: "“open office”", mode: "ask" });
+  assert.equal(voiceText(rule).note, "Kept on this PC as a rule. It goes to Claude with the Ask Glim requests it matches. Removed the learned shortcut for “open office”.");
+  // Rust sends the removed shortcuts in `app`, and only for a rule.
+  const run = read("src-tauri/src/voice/run.rs");
+  assert.match(run, /which == crate::memory::Kind::Rule \{ learn::with\(\|l\| l\.rule_saved\(&saved\)\) \}/);
+  assert.match(run, /phase: "remembered", text: saved, code: kind\.into\(\), app: removed/);
+});
+
 test("after a correction the result card adds the tip; an app that opened gets a tip card", () => {
   const heard = at({ phase: "heard", text: "no the other one", tip: true, mode: "ask" });
   State.voice = heard;

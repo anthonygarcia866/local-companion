@@ -76,14 +76,14 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       if (v.code.startsWith("memory-")) return { title: t("Not saved"), body: "", note: memoryProblemText(v.code) };
       if (v.code.startsWith("routine-")) return { title: t("Routine not saved"), body: "", note: failedText(v.code, v.app) };
       return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
-    case "remembered":
-      return {
-        title: t("I'll remember that"),
-        body: v.text,
-        note: v.code === "fact"
-          ? t("Kept on this PC as a fact about you. It goes to Claude with your Ask Glim requests.")
-          : t("Kept on this PC as a rule. It goes to Claude with the Ask Glim requests it matches."),
-      };
+    case "remembered": {
+      const kept = v.code === "fact"
+        ? t("Kept on this PC as a fact about you. It goes to Claude with your Ask Glim requests.")
+        : t("Kept on this PC as a rule. It goes to Claude with the Ask Glim requests it matches.");
+      // M2: the rule replaced a learned shortcut for the same words.
+      const removed = v.app ? t("Removed the learned shortcut for {words}.", { words: v.app }) : "";
+      return { title: t("I'll remember that"), body: v.text, note: removed ? `${kept} ${removed}` : kept };
+    }
     case "tip":
       return { title: t("Tip"), body: "", note: tipText() };
     case "learned":
