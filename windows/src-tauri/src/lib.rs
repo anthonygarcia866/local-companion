@@ -22,6 +22,7 @@ mod recap;
 mod resume;
 mod screen_capture;
 mod learn;
+mod memory;
 mod session_window;
 mod settings;
 mod shortcuts;
@@ -908,6 +909,35 @@ fn learn_routine_delete(name: String) -> bool {
     gone
 }
 
+// ── Remembered rules and facts (docs/glim-learns-plan.md §3) ──────────────────
+
+/// Settings → Memory: what is remembered (shown on this PC only).
+#[tauri::command]
+fn memory_list() -> memory::Memory {
+    memory::with(|m| (m.clone(), false))
+}
+
+#[tauri::command]
+fn memory_delete(kind: memory::Kind, text: String) -> bool {
+    let gone = memory::with(|m| {
+        let gone = m.remove(kind, &text);
+        (gone, gone)
+    });
+    if gone {
+        log::line(format!("memory: a {} deleted (Settings)", kind.as_str()));
+    }
+    gone
+}
+
+#[tauri::command]
+fn memory_forget_all() {
+    memory::with(|m| {
+        *m = memory::Memory::default();
+        ((), true)
+    });
+    log::line("memory: everything forgotten (Settings)");
+}
+
 /// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
 /// Windows' own microphone privacy page. A fixed settings link, nothing
 /// from the island; no network.
@@ -1494,6 +1524,9 @@ pub fn run() {
             learn_forget_shortcuts,
             learn_routine_rename,
             learn_routine_delete,
+            memory_list,
+            memory_delete,
+            memory_forget_all,
             open_mic_settings,
             draft_pick,
             draft_change,
@@ -1543,6 +1576,8 @@ pub fn run() {
             let handle = app.handle().clone();
             // What Glim learned (shortcuts, routines): loaded once, counts logged.
             learn::with(|_| ());
+            // What is remembered (Settings → Memory): loaded once, counts logged.
+            memory::with(|_| ((), false));
             // Launch at startup follows the setting at every launch, not only
             // when it changes (the entry may be missing, or point at an old copy).
             autostart::sync(loaded.autostart, false);

@@ -73,8 +73,19 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "question":
       return { title: v.text, body: "", note: t("Hold either voice shortcut and say your answer, or type it below.") };
     case "failed":
+      if (v.code.startsWith("memory-")) return { title: t("Not saved"), body: "", note: memoryProblemText(v.code) };
       if (v.code.startsWith("routine-")) return { title: t("Routine not saved"), body: "", note: failedText(v.code, v.app) };
       return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
+    case "remembered":
+      return {
+        title: t("I'll remember that"),
+        body: v.text,
+        note: v.code === "fact"
+          ? t("Kept on this PC as a fact about you. It goes to Claude with your Ask Glim requests.")
+          : t("Kept on this PC as a rule. It goes to Claude with the Ask Glim requests it matches."),
+      };
+    case "tip":
+      return { title: t("Tip"), body: "", note: tipText() };
     case "learned":
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
     case "routine-ask":
@@ -89,6 +100,27 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     }
   }
   return { title: "", body: "", note: "" };
+}
+
+/** After a correction (Glim learns §3): how to make it stick. */
+export function tipText(): string {
+  return t("Tip: say “Remember: …” and I'll get it right next time.");
+}
+
+/** Why Glim didn't keep something (memory::filter, Memory::add). */
+export function memoryProblemText(code: string): string {
+  switch (code.replace(/^memory-/, "")) {
+    case "number": return t("Not saved: Glim doesn't keep ID numbers, long numbers, email addresses or phone numbers.");
+    case "health": return t("Not saved: Glim doesn't keep health details.");
+    case "money": return t("Not saved: Glim doesn't keep money details (amounts, pay, accounts, debts).");
+    case "customer": return t("Not saved: Glim doesn't keep tenant or customer details (units, leases, residents).");
+    case "fact-long": return t("A fact about you is 8 words or fewer. Say it shorter.");
+    case "rule-long": return t("A rule is up to 200 characters. Say it shorter.");
+    case "duplicate": return t("Already remembered.");
+    case "rules-full": return t("Glim keeps 50 rules. Remove some in Settings → Memory first.");
+    case "facts-full": return t("Glim keeps 30 facts about you. Remove some in Settings → Memory first.");
+  }
+  return t("Nothing to remember.");
 }
 
 /** A routine's steps, numbered, one a line. */
@@ -218,6 +250,7 @@ export function buildVoice(host: AskHost): ViewHost {
     body.style.display = words.body ? "" : "none";
     body.style.whiteSpace = v.steps.length ? "pre-line" : "";
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
+    if (v.tip && !v.copied) note.textContent = `${words.note} ${tipText()}`.trim();
     answer.style.display = v.phase === "question" ? "" : "none";
     // No box to type in (an answer spoken, or not a question): give it back.
     if (v.phase !== "question") returnKeyboard("voice");

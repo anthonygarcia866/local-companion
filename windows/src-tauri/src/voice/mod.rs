@@ -178,6 +178,9 @@ pub enum Cleanup {
     /// `save_routine` (Glim learns §2): a routine to confirm on a card,
     /// each step already one of the allowed calls.
     SaveRoutine { name: String, steps: Vec<crate::learn::Action> },
+    /// `remember` (Glim learns §3): a rule or a fact to keep, if Glim's
+    /// filter lets it (memory.rs).
+    Remember { kind: crate::memory::Kind, text: String },
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -235,6 +238,9 @@ pub enum Decision {
     /// "When I say X, …": the card listing every step, saved on Save
     /// (plan §2, decided 2026-10-24). Nothing runs now.
     SaveRoutine { name: String, steps: Vec<crate::learn::Action> },
+    /// "Remember: …": kept on the PC if memory::filter lets it; the card
+    /// shows what was saved, or why not.
+    Remember { kind: crate::memory::Kind, text: String },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -295,6 +301,7 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         Ok(Cleanup::EditDraft(change)) => Decision::EditDraft { change },
         Ok(Cleanup::SaveRoutine { name, .. }) if crate::capture::sensitive::contains_sensitive_number(&name) => Decision::Sensitive,
         Ok(Cleanup::SaveRoutine { name, steps }) => Decision::SaveRoutine { name, steps },
+        Ok(Cleanup::Remember { kind, text }) => Decision::Remember { kind, text },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }
@@ -352,6 +359,9 @@ pub struct VoiceEvent {
     /// "routine-ask" / "routine": the routine's steps (Glim learns §2).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<crate::learn::StepView>,
+    /// Glim learns §3: the user just corrected Glim; the card adds "Tip:
+    /// say 'Remember: …'" ("tip": a card of its own).
+    pub tip: bool,
 }
 
 /// 16-bit mono PCM as a WAV file, in memory.

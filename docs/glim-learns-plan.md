@@ -1,6 +1,6 @@
 # Glim learns: shortcuts, routines and remembered rules (plan)
 
-Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** §1-§2 built 2026-10-25 (PR `learned-shortcuts`, draft); §3 and §5-§6 in their own PRs.
+Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** §1-§2 built 2026-10-25 (PR `learned-shortcuts`), §3 (PR `remember-rules`), §5-§6 (PR `capture-exclusion`).
 
 **Credit.** The ideas are adapted from Atticus, an MIT-licensed voice assistant ([atticus-mac](https://github.com/SaarthurR/atticus-mac), [atticus-windows](https://github.com/FindlayHi/atticus-windows)): its README and `atticus.py`'s `learn`, `replay`, `like`, `gist`, `relevant_rules` and `remember_workflow`. No code is copied. If a later PR ports any, it carries the MIT notice in `NOTICE.md`.
 
@@ -65,6 +65,7 @@ Builds on #40 (the user's own apps in `open_app`).
 - **Facts:** "about me" lines of **8 words or fewer** (e.g. "Prefers short replies", "Likes meetings after ten"), at most 30.
 - **Filter (both kinds, run by Glim, not trusted to Claude):** the card/SSN/IBAN scan, plus a local refusal list: **health**, **money** (amounts, accounts, salary, debts), **IDs and numbers** (any run of 4 or more digits, email addresses, phone numbers) and **tenant or customer data** (unit/apt numbers, lease, tenant, resident, owner names next to a unit). A refusal shows *"Not saved: Glim doesn't keep health, money, ID or customer details."* `remember`'s tool description says the same, so Claude rarely offers one.
 - **What goes in the prompt (Ask lane only).** If all rules and facts together are under **~4,000 characters**, all of them go in. Past that: every fact, then the rules sharing at least one non-stop word with the transcript, best overlap first, at most 15. Dictation requests never carry any of it.
+  > **⚠ Amended 2026-10-25 (decision 2, "only relevant rules per request"):** rules are **always** chosen by relevance, not all of them under 4,000 characters: every fact, then only the rules sharing a non-stop word with the request, most shared first (then the newest), at most 15, the whole block within 4,000 characters (`memory::for_request`).
 - **Correction tip.** When the user had to correct Glim (pressed "Try again", or their next Ask within 60 s starts with "no", "not that", "I meant" or "wrong"), the result card adds one line: *"Tip: say 'Remember: …' and I'll get it right next time."* At most once per correction, never on the dictation key. Glim doesn't save a rule by itself (§8).
 - **Settings → Ask Glim → Memory:** rules and facts listed, each editable and deletable, plus **Forget everything** (rules, facts, shortcuts, routines).
 

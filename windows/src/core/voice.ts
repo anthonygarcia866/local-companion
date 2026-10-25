@@ -15,6 +15,9 @@
 // ran, Claude wasn't asked: Try again), "routine-ask" (Save / Cancel on a
 // routine's steps), "routine-saved", "routine" (a routine ran, or stopped at
 // a step: code "ok" or "failed:k/n").
+// Glim learns §3: "remembered" (what Glim kept, or a "failed" memory-… code
+// saying why not), and the correction tip: `tip` on a result card, or a
+// "tip" card of its own.
 
 import type { PresenceKind } from "../island/presence";
 import { N_, t } from "../i18n/i18n";
@@ -29,7 +32,7 @@ export interface StepView {
 
 export interface VoiceEvent {
   phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle"
-    | "learned" | "routine-ask" | "routine-saved" | "routine";
+    | "learned" | "routine-ask" | "routine-saved" | "routine" | "remembered" | "tip";
   /** 0..1, while listening. */
   level: number;
   /** "typed" / "not-typed": false = the raw transcript, not cleaned up. */
@@ -45,6 +48,8 @@ export interface VoiceEvent {
   mode?: VoiceMode;
   /** "routine-ask" / "routine": the routine's steps. */
   steps?: StepView[];
+  /** The user just corrected Glim: the card adds the "Remember" tip. */
+  tip?: boolean;
 }
 
 export type VoiceMode = "dictate" | "ask" | "answer";
@@ -66,6 +71,8 @@ export interface VoiceState {
   question: string;
   /** A routine's steps (Glim learns §2); [] otherwise. */
   steps: StepView[];
+  /** The correction tip goes on this card (Glim learns §3). */
+  tip: boolean;
 }
 
 /** The phases while the key is held or the utterance is on its way. */
@@ -105,6 +112,7 @@ export function nextVoice(cur: VoiceState | null, e: VoiceEvent): VoiceState | n
     mode,
     question: runningPhase && mode === "answer" ? asked : "",
     steps: Array.isArray(e.steps) ? e.steps : [],
+    tip: e.tip === true,
   };
 }
 
@@ -162,7 +170,7 @@ export function rawBadge(v: VoiceState | null): boolean {
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {
   if (v.phase === "question" || v.phase === "routine-ask") return 60_000;
-  return v.phase === "typed" || v.phase === "learned" || v.phase === "routine-saved" ? 8_000 : 30_000;
+  return v.phase === "typed" || v.phase === "learned" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
 }
 
 /** A routine's step or a shortcut's call, in words. */

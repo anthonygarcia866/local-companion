@@ -109,8 +109,38 @@ fn quiet(asked: &Option<Asked>, mode: Mode) -> VoiceEvent {
     }
 }
 
-fn send(app: &AppHandle, e: VoiceEvent) {
+fn send(app: &AppHandle, mut e: VoiceEvent) {
+    // The correction tip (Glim learns §3) rides on the next result card.
+    e.tip = tip_for(&e, &TIP);
     let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+}
+
+/// Whether this event carries the armed tip (and disarms it): Claude's
+/// result cards only, never a routine's refusal (its "failed" code).
+fn tip_for(e: &VoiceEvent, armed: &AtomicBool) -> bool {
+    e.tip || (takes_tip(e.phase) && !e.code.starts_with("routine-") && armed.swap(false, Ordering::SeqCst))
+}
+
+/// When the last Ask request was: a correction is the next one within a
+/// minute (memory::is_correction).
+static LAST_ASK: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+const CORRECTION_WITHIN: Duration = Duration::from_secs(60);
+/// A correction's tip is waiting for its result card: once per correction.
+static TIP: AtomicBool = AtomicBool::new(false);
+/// The result cards that can carry the tip line: Claude's answers. Never
+/// a learned shortcut's or a routine's card (#57), nor dictation's.
+const TIP_RESULTS: [&str; 4] = ["heard", "question", "failed", "remembered"];
+
+fn takes_tip(phase: &str) -> bool {
+    TIP_RESULTS.contains(&phase)
+}
+
+/// Whether this Ask corrects the one before it (within CORRECTION_WITHIN),
+/// noting it as the last Ask either way.
+fn correction_now(transcript: &str, last: &mut Option<Instant>, now: Instant) -> bool {
+    let recent = last.is_some_and(|t| now.saturating_duration_since(t) < CORRECTION_WITHIN);
+    *last = Some(now);
+    recent && crate::memory::is_correction(transcript)
 }
 
 /// The virtual-key code of a binding's main key ("Ctrl+Alt+Shift+V" → V).
@@ -283,6 +313,12 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         dismiss(app, mode);
         return;
     }
+    // Glim learns §3: "no, …", "I meant …" within a minute of the last Ask
+    // (learned replays and routines count as one) is a correction. Its tip is
+    // armed only for Claude's answer below: a routine or a learned shortcut
+    // shows its own card and never carries the tip (#57's path unchanged).
+    let correcting = mode == Mode::Ask && correction_now(transcript, &mut LAST_ASK.lock().unwrap(), Instant::now());
+    TIP.store(false, Ordering::SeqCst);
     // Glim learns (plan §1-§2): the Ask key only, never an answer to a
     // question, never with a card number or a "this"/"that" in it.
     let gist = (mode == Mode::Ask && asked.is_none() && !crate::capture::sensitive::contains_sensitive_number(transcript))
@@ -300,6 +336,12 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             }
         }
     }
+    // Not a routine, not a learned shortcut that worked: Claude's answer may
+    // carry the tip (send(), TIP_RESULTS). Never on the dictation key. Try
+    // again on a learned shortcut's card (`local` false) is a correction too:
+    // its answer says how to make it stick. (What #57 learns from that answer
+    // is unchanged: only `correcting` stops learning.)
+    TIP.store(correcting || !local, Ordering::SeqCst);
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
     // "Open claw": Claude asked which app; a word that sounds like exactly
     // one app opens it (fix d). Only after Claude answered (§4.1).
@@ -320,6 +362,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         Some(NotLearned::Off)
     } else if corrected {
         Some(NotLearned::Unconfirmed)
+    } else if correcting {
+        Some(NotLearned::Correction)
     } else {
         None
     };
@@ -331,6 +375,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
+    // An app opening shows no card: the tip gets one of its own.
+    let tip_card = matches!(decision, Decision::Open { .. } | Decision::OpenOwn { .. });
     // A new question waits (its request: the earlier one, then this answer);
     // anything else ends the question.
     set_question(match &decision {
@@ -412,10 +458,36 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             edit_last_draft(app, mode, &change).await;
         }
         Decision::SaveRoutine { name, steps } => propose_routine(app, mode, name, steps),
+        Decision::Remember { kind: which, text } => {
+            // Glim's own filter decides (memory.rs); the card shows what was
+            // kept, or why not. The log names the kind and the code only.
+            let added = crate::memory::with(|mem| {
+                let r = mem.add(which, &text);
+                let changed = r.is_ok();
+                (r, changed)
+            });
+            let kind = which.as_str();
+            match added {
+                Ok(saved) => {
+                    crate::log::line(format!("memory: saved a {kind}"));
+                    send(app, VoiceEvent { phase: "remembered", text: saved, code: kind.into(), mode: m, ..Default::default() });
+                    let _ = app.emit("memory-changed", ());
+                }
+                Err(code) => {
+                    crate::log::line(format!("memory: refused ({code})"));
+                    send(app, VoiceEvent { phase: "failed", code: format!("memory-{code}"), mode: m, ..Default::default() });
+                }
+            }
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
         }
+    }
+    // A correction whose result had no card (an app opened): the tip gets a
+    // card of its own. Either way it is said once.
+    if TIP.swap(false, Ordering::SeqCst) && tip_card {
+        send(app, VoiceEvent { phase: "tip", mode: m, ..Default::default() });
     }
 }
 
@@ -765,11 +837,24 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         crate::writing::tones::current_kind()
     );
     let today = crate::writing::ask::today();
+    // Glim learns §3: every fact and the rules relevant to this request,
+    // Ask lane only (never dictation). The log has the counts.
+    let remembered = match mode {
+        Mode::Dictate => String::new(),
+        _ => {
+            let about = asked.map(|a| format!("{} {transcript}", a.request)).unwrap_or_else(|| transcript.to_string());
+            crate::memory::with(|mem| (mem.for_request(&about), false))
+        }
+    };
+    let (rules, facts) = crate::memory::Memory::counts(&remembered);
+    if rules + facts > 0 {
+        crate::log::line(format!("memory: sent {rules} rules, {facts} facts"));
+    }
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
         Ok(base) => {
             let repos = known_repos();
             let own = super::own_apps::names(&own_apps(app));
-            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked };
+            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked, remembered: &remembered };
             dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
         }
         Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
@@ -782,6 +867,7 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
         Ok(Cleanup::SaveRoutine { .. }) => "save_routine".to_string(),
+        Ok(Cleanup::Remember { .. }) => "remember".to_string(),
         Err(f) => f.code(),
     };
     match &usage {
@@ -803,6 +889,84 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #57 + #58: the correction tip rides only on Claude's answers. A
+    /// learned replay's card and a routine's cards never carry it.
+    #[test]
+    fn the_tip_never_rides_on_a_learned_replay_or_a_routine() {
+        for phase in ["learned", "routine-ask", "routine-saved", "routine", "idle", "typed", "listening", "cleaning"] {
+            assert!(!takes_tip(phase), "{phase}");
+        }
+        for phase in ["heard", "question", "failed", "remembered"] {
+            assert!(takes_tip(phase), "{phase}");
+        }
+        // The order in act(): the tip is off through the local match and
+        // armed only once a routine or a working replay would have returned.
+        let src = include_str!("run.rs").replace("\r\n", "\n");
+        let act = &src[src.find("async fn act(").unwrap()..src.find("/// A spoken \"never mind\"").unwrap()];
+        let off = act.find("TIP.store(false, Ordering::SeqCst);").unwrap();
+        let routine = act.find("run_routine(app, mode, routine).await;").unwrap();
+        let replay = act.find("if replay(app, mode, transcript, &key, slot, &action).await {").unwrap();
+        let armed = act.find("TIP.store(correcting || !local, Ordering::SeqCst);").unwrap();
+        let claude = act.find("let cleanup = clean_up(").unwrap();
+        assert!(off < routine && routine < replay && replay < armed && armed < claude);
+    }
+
+    /// The armed tip, event by event (review of the #57/#58 merge): a
+    /// learned replay's card and a routine's cards, its refusal included,
+    /// never take it; Claude's answer to a correction takes it, once.
+    #[test]
+    fn the_armed_tip_lands_on_claudes_card_once_and_never_on_a_routine_or_a_replay() {
+        let ev = |phase: &'static str, code: &str| VoiceEvent { phase, code: code.into(), ..Default::default() };
+        let armed = AtomicBool::new(true);
+        assert!(!tip_for(&ev("learned", "open_app"), &armed), "a learned replay");
+        assert!(!tip_for(&ev("routine", "ok"), &armed), "a routine that ran");
+        assert!(!tip_for(&ev("routine", "failed:2/3"), &armed), "a routine that stopped");
+        assert!(!tip_for(&ev("routine-ask", ""), &armed), "a routine's Save card");
+        assert!(!tip_for(&ev("failed", "routine-name-taken"), &armed), "a routine's refusal");
+        assert!(armed.load(Ordering::SeqCst), "still waiting for Claude's card");
+        assert!(tip_for(&ev("heard", ""), &armed), "a correction's answer: the tip");
+        assert!(!armed.load(Ordering::SeqCst));
+        assert!(!tip_for(&ev("failed", "open-failed"), &armed), "once per correction");
+        // Never armed, never a tip.
+        let idle = AtomicBool::new(false);
+        assert!(!tip_for(&ev("heard", ""), &idle));
+        // A correction is never learned as a shortcut.
+        let src = include_str!("run.rs").replace("\r\n", "\n");
+        assert!(src.contains("    } else if correcting {\n        Some(NotLearned::Correction)"));
+        assert_eq!(NotLearned::Correction.code(), "correction");
+    }
+
+    /// Try again on a learned shortcut's card (Glim learns §3 + §1): the ask
+    /// goes to Claude with the tip armed, and only from that path.
+    #[test]
+    fn try_again_arms_the_correction_tip() {
+        let src = include_str!("run.rs").replace("\r\n", "\n");
+        let src = &src[..src.find("#[cfg(test)]").unwrap()];
+        let try_again = &src[src.find("pub fn try_again(").unwrap()..src.find("fn propose_routine(").unwrap()];
+        assert!(try_again.contains("act(&app, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
+        assert_eq!(src.matches(", false).await;").count(), 1);
+        assert!(src.contains("TIP.store(correcting || !local, Ordering::SeqCst);"));
+        // Learning from Try again's answer is #57's, unchanged.
+        assert!(!src.contains("} else if correcting || !local {"));
+        // The tip then rides on Claude's card, or its own when an app opened.
+        let armed = AtomicBool::new(true);
+        let card = VoiceEvent { phase: "failed", code: "open-failed".into(), ..Default::default() };
+        assert!(tip_for(&card, &armed));
+    }
+
+    /// A correction is the next Ask within a minute that starts "no", "I
+    /// meant"…; a learned replay or a routine counts as the Ask before it.
+    #[test]
+    fn a_correction_follows_any_ask_within_a_minute() {
+        let t0 = Instant::now();
+        let mut last = None;
+        assert!(!correction_now("open Codex", &mut last, t0), "the first Ask");
+        assert!(correction_now("no, I meant Outlook", &mut last, t0 + Duration::from_secs(20)), "a correction");
+        assert!(!correction_now("work mode", &mut last, t0 + Duration::from_secs(30)), "a routine's name is no correction");
+        assert!(!correction_now("no, the other one", &mut last, t0 + Duration::from_secs(95)), "over a minute later");
+        assert!(!correction_now("open Outlook", &mut last, t0 + Duration::from_secs(100)));
+    }
 
     #[test]
     fn each_key_has_its_shortcut_and_a_waiting_question_turns_either_into_an_answer() {
