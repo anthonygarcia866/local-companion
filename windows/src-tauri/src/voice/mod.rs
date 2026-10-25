@@ -670,7 +670,12 @@ pub(crate) mod tests {
         assert!(!f.contains("Command::new") && !f.contains("cmd") && !f.contains("powershell"), "no shell");
         // run.rs looks the name up in the current Settings, never trusts a path from elsewhere.
         let run = include_str!("run.rs");
-        assert!(run.contains("super::own_apps::find(&own_apps(app), &name).is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        assert!(run.contains("let own = super::own_apps::find(&own_apps(app), &name);\n") || run.contains("let own = super::own_apps::find(&own_apps(app), &name);\r\n"));
+        assert!(run.contains("own.as_ref().is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        // A learned shortcut or a routine step too (Glim learns): looked up
+        // again in today's Settings, then opened by that path.
+        assert!(run.contains("None => super::own_apps::find(&own_apps(app), which).map(Step::OpenOwn),"));
+        assert!(run.contains("crate::platform::open_own_app(&own.path) && came_forward("));
         assert!(run.contains("own_apps: &own,"), "Claude is offered the names");
     }
 

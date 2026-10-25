@@ -682,6 +682,23 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
 3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
 
+## 35. Learned shortcuts and routines (branch `learned-shortcuts`, draft PR)
+
+*Where: a build with the learned-shortcuts PR, the Claude key set, Outlook and one own app (Settings → Writing → Apps Glim can open). Everything learned stays in `%LOCALAPPDATA%\Glim\learn\`.*
+
+1. **On by default:** Settings → **Ask Glim**. **See:** "Learn shortcuts from what I ask" is on; "Nothing learned yet."; "No routines yet."
+2. **Learn:** hold **Ctrl+Alt+Shift+A**, say "open Outlook". Outlook comes forward as before (the lantern shows data leaving while Claude has it). glim.log: `voice: cleanup open_app …`, then `learn: saved shortcut (open_app)`. Settings → Ask Glim now lists "“open any app” → Open Outlook".
+3. **Replay:** close Outlook, then say "open Outlook" again. **See:** Outlook opens with **no** data-leaving lantern, and a card "Opened Outlook" with "Learned shortcut: Claude wasn't asked." and **Try again**. glim.log: `learn: replay ok (open_app)` and **no** `voice: cleanup` line for it.
+4. **Another app, same words:** say "open Codex" (or your own app's name). **See:** it opens the same way, from the shortcut (Learned card, no cleanup line).
+5. **Try again:** on a Learned card, click **Try again**. **See:** the lantern shows data leaving (Claude is asked), the app opens, and glim.log has `learn: try again, shortcut deleted`; Settings no longer lists it until it is learned again.
+6. **Never learned:** say "open this", then "where was I". **See:** each goes to Claude every time; glim.log `learn: not learned (deictic)` / `(command-word)`. Dictation (Ctrl+Alt+Shift+V) never shows a Learned card and never adds anything to Settings.
+7. **Resume:** say "where was I on <one of your repos>" twice. The second time the resume card opens at once with "Learned shortcut: Claude wasn't asked." and Try again; Open in Claude Code still needs its click.
+8. **Routine:** say "When I say work mode, open Outlook and Codex". **See:** a card "Save the routine “work mode”?" listing "1. Open Outlook 2. Open Codex", Save / Cancel. Cancel: nothing in Settings. Say it again and click **Save**: "Saved “work mode”"; Settings lists it.
+9. **Run it:** close both apps, say "work mode" (or "run work mode"). **See:** Outlook, then Codex open; a card "Ran “work mode”"; glim.log `learn: routine ran 2/2 steps`. With Codex uninstalled or an own app's file moved, the card says "Step 2 of 2 (Open Codex) didn't work."
+10. **Rename / Remove:** in Settings → Ask Glim, rename "work mode" to "open" (**See:** "That's one of Glim's command words…"), then to "focus time" (saved; saying "focus time" runs it). **Remove** deletes it.
+11. **Learning off:** turn the switch off; say "open Outlook": Claude is asked every time (no Learned card), nothing new is learned; "focus time" still runs.
+12. **Logs:** glim.log has tool names, codes and counts only: no app name, repo, routine name or what you said in any `learn:` line.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
