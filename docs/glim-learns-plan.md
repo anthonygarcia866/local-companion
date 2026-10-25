@@ -1,6 +1,6 @@
 # Glim learns: shortcuts, routines and remembered rules (plan)
 
-Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** §3 built 2026-10-25 (PR `remember-rules`, draft); §1-§2 and §5-§6 in their own PRs.
+Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** §1-§2 built 2026-10-25 (PR `learned-shortcuts`), §3 (PR `remember-rules`), §5-§6 (PR `capture-exclusion`).
 
 **Credit.** The ideas are adapted from Atticus, an MIT-licensed voice assistant ([atticus-mac](https://github.com/SaarthurR/atticus-mac), [atticus-windows](https://github.com/FindlayHi/atticus-windows)): its README and `atticus.py`'s `learn`, `replay`, `like`, `gist`, `relevant_rules` and `remember_workflow`. No code is copied. If a later PR ports any, it carries the MIT notice in `NOTICE.md`.
 
@@ -83,6 +83,7 @@ Builds on #40 (the user's own apps in `open_app`).
 - Call `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` on every Glim window (island, pill, cards, mini lantern, Settings) when it's created. Screen shares, recordings and screenshots then show what's behind Glim, not Glim, so the user's cards (transcripts, drafts) don't leak into a Teams share.
 - Needs Windows 10 2004 or later. If the call fails, log `capture-exclude: unsupported` once and carry on.
 - Check before shipping: that it holds for the transparent island window, and whether `PrintWindow` (our test screenshots, CLAUDE.md) still sees Glim's own window. If it doesn't, a dev-only environment variable `GLIM_CAPTURABLE=1` turns the exclusion off for tests.
+- **Checked 2026-10-25** (a window of the probe's own, Windows 11): once excluded, `PrintWindow` with `PW_RENDERFULLCONTENT` (the verify scripts' call; WebView2 needs it) comes back black; `PrintWindow` without the flag still drew that plain GDI window; a screen copy was black. So the override is needed, and the verify scripts set `GLIM_CAPTURABLE=1`. Not yet checked on Glim's own transparent island (needs a build).
 - Settings switch "Hide Glim in screen shares and recordings" (default **on**, §9 decision 4; `GLIM_CAPTURABLE=1` turns it off for tests). Its own small PR, independent of §1–3.
 
 ## 6. Separate item (b): cost and latency budget

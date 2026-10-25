@@ -3,6 +3,7 @@
 // `npm run dev` alone.
 
 import type { ResumeCard } from "../views/resume";
+import type { LearnView } from "./learn";
 
 /** What is remembered (memory::Memory). */
 export interface Memory {
@@ -198,6 +199,14 @@ export const Bridge = {
   voiceAnswer: (text: string) => call<boolean>("voice_answer", { text }),
   /** The question card closed (Cancel, Close or its clock): nothing waits for an answer. */
   voiceCancel: () => call<void>("voice_cancel"),
+  // Glim learns (docs/glim-learns-plan.md §1-§2).
+  voiceTryAgain: () => call<boolean>("voice_try_again"),
+  voiceRoutineSave: () => call<boolean>("voice_routine_save"),
+  learnList: () => call<LearnView>("learn_list"),
+  learnForgetShortcut: (key: string, slot: boolean) => call<boolean>("learn_forget_shortcut", { key, slot }),
+  learnForgetShortcuts: () => call<void>("learn_forget_shortcuts"),
+  learnRoutineRename: (name: string, to: string) => call<string | null>("learn_routine_rename", { name, to }),
+  learnRoutineDelete: (name: string) => call<boolean>("learn_routine_delete", { name }),
   // Settings → Memory (Glim learns §3).
   memoryList: () => call<Memory>("memory_list"),
   memoryDelete: (kind: "rule" | "fact", text: string) => call<boolean>("memory_delete", { kind, text }),

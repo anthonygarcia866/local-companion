@@ -50,6 +50,16 @@ pub const SAMPLE_RATE: u32 = 16_000;
 /// gets their names, never a path.
 pub const OPENABLE: [&str; 4] = ["outlook", "codex", "claude_code", "claude"];
 
+/// The program file an `open_app` app runs as, for the check after opening
+/// it (Glim learns §1); None when Glim can't know it (the Codex package's).
+pub fn app_exe(app: &str) -> Option<String> {
+    match app {
+        "outlook" => Some("OUTLOOK.EXE".into()),
+        "claude" | "claude_code" => Some("Claude.exe".into()),
+        _ => None,
+    }
+}
+
 /// An `open_app` app's name for the card.
 pub fn app_label(app: &str) -> &'static str {
     match app {
@@ -165,6 +175,9 @@ pub enum Cleanup {
     /// `edit_draft` (fix b, 2026-10-17): a change to the email Glim just
     /// drafted, in the user's words.
     EditDraft(String),
+    /// `save_routine` (Glim learns §2): a routine to confirm on a card,
+    /// each step already one of the allowed calls.
+    SaveRoutine { name: String, steps: Vec<crate::learn::Action> },
     /// `remember` (Glim learns §3): a rule or a fact to keep, if Glim's
     /// filter lets it (memory.rs).
     Remember { kind: crate::memory::Kind, text: String },
@@ -222,6 +235,9 @@ pub enum Decision {
     /// Change the email Glim just drafted: shown on the card first, then
     /// updated in Outlook on a click. Nothing is ever sent.
     EditDraft { change: String },
+    /// "When I say X, …": the card listing every step, saved on Save
+    /// (plan §2, decided 2026-10-24). Nothing runs now.
+    SaveRoutine { name: String, steps: Vec<crate::learn::Action> },
     /// "Remember: …": kept on the PC if memory::filter lets it; the card
     /// shows what was saved, or why not.
     Remember { kind: crate::memory::Kind, text: String },
@@ -283,6 +299,8 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         }
         Ok(Cleanup::EditDraft(change)) if crate::capture::sensitive::contains_sensitive_number(&change) => Decision::Sensitive,
         Ok(Cleanup::EditDraft(change)) => Decision::EditDraft { change },
+        Ok(Cleanup::SaveRoutine { name, .. }) if crate::capture::sensitive::contains_sensitive_number(&name) => Decision::Sensitive,
+        Ok(Cleanup::SaveRoutine { name, steps }) => Decision::SaveRoutine { name, steps },
         Ok(Cleanup::Remember { kind, text }) => Decision::Remember { kind, text },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
@@ -336,8 +354,11 @@ pub struct VoiceEvent {
     /// "failed" / "typed" outcome codes ("no-whisper", "sensitive", "paused",
     /// an apply Outcome code…); "heard"/"typed": why it wasn't cleaned up.
     pub code: String,
-    /// The app typed into ("Word").
+    /// The app typed into ("Word"); "learned": the app a shortcut opened.
     pub app: String,
+    /// "routine-ask" / "routine": the routine's steps (Glim learns §2).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<crate::learn::StepView>,
     /// Glim learns §3: the user just corrected Glim; the card adds "Tip:
     /// say 'Remember: …'" ("tip": a card of its own).
     pub tip: bool,
@@ -659,7 +680,12 @@ pub(crate) mod tests {
         assert!(!f.contains("Command::new") && !f.contains("cmd") && !f.contains("powershell"), "no shell");
         // run.rs looks the name up in the current Settings, never trusts a path from elsewhere.
         let run = include_str!("run.rs");
-        assert!(run.contains("super::own_apps::find(&own_apps(app), &name).is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        assert!(run.contains("let own = super::own_apps::find(&own_apps(app), &name);\n") || run.contains("let own = super::own_apps::find(&own_apps(app), &name);\r\n"));
+        assert!(run.contains("own.as_ref().is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        // A learned shortcut or a routine step too (Glim learns): looked up
+        // again in today's Settings, then opened by that path.
+        assert!(run.contains("None => super::own_apps::find(&own_apps(app), which).map(Step::OpenOwn),"));
+        assert!(run.contains("crate::platform::open_own_app(&own.path) && came_forward("));
         assert!(run.contains("own_apps: &own,"), "Claude is offered the names");
     }
 

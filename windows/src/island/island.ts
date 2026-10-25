@@ -5,7 +5,7 @@ import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
 import { DEFAULT_LEAD_MIN, glowing, nextEvent, withCalendarGlow } from "../core/calendar";
-import { CONFIRM_WINDOW_MS, cardOffScreen, press } from "../core/allow";
+import { CONFIRM_WINDOW_MS, REASON_MS, cardOffScreen, expandedFor, press } from "../core/allow";
 import { ApprovalWait, playSoftChime } from "../core/approval-wait";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_V_H, PANEL_W,
@@ -13,6 +13,7 @@ import {
   dockedBot, dockedSize, islandFrame, islandSize, isVerticalDock, pillGeometry,
   QUESTION_PICKER_H,
   VOICE_QUESTION_H,
+  APPROVAL_EXPANDED_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
@@ -587,8 +588,10 @@ export class Island {
     const req = State.pendingApproval;
     const now = performance.now();
     const check = press(req, State.mode === "expanded" && State.view === "approval", now);
-    if (check === "armed" && req) {
-      void Bridge.log(`allow key armed req=${req.requestId}`);
+    if ((check === "armed" || check === "expand") && req) {
+      void Bridge.log(`allow key ${check === "armed" ? "armed" : "expanded"} req=${req.requestId}`);
+      // Expanded: the card grows to the whole command.
+      if (check === "expand") this.animateGeometry(false);
       State.notify();
       // The card counts down each second, and drops "Press again…" when the
       // window closes.
@@ -599,6 +602,9 @@ export class Island {
     if (!req || check !== "ok") {
       if (req) void Bridge.log(`allow key refused (${check}) req=${req.requestId}`);
       this.emote("annoyed");
+      // The card says why for a moment (views.ts allowReason), then drops it.
+      State.notify();
+      window.setTimeout(() => State.notify(), REASON_MS + 50);
       return;
     }
     void Bridge.log(`decide allow (key) req=${req.requestId}`);
@@ -742,6 +748,10 @@ export class Island {
     }
     if (State.mode === "expanded" && State.view === "voice" && (State.voice?.phase === "question" || answering(State.voice))) {
       h = VOICE_QUESTION_H;
+    }
+    // A cut-off command expanded by the Allow key: room for all of it.
+    if (State.mode === "expanded" && State.view === "approval" && expandedFor(State.pendingApproval?.requestId)) {
+      h = APPROVAL_EXPANDED_H;
     }
     ({ w, h } = dockedSize(State.dock, State.mode, { w, h }));
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;

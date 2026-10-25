@@ -37,8 +37,9 @@ async function main() {
 
   const island = new Island(root);
   /** Reads the repos' HANDOFF.md files (Rust) and opens the resume card. */
-  const showResume = async (repo?: string | null) => {
+  const showResume = async (repo?: string | null, learned = false) => {
     State.resume = withFirst((await Bridge.resumeCards()) ?? [], repo);
+    State.resumeLearned = learned;
     island.alert("resume");
     State.notify();
   };
@@ -229,7 +230,7 @@ async function main() {
   // (Rust sends the repo it named, one Glim reads, to put first), and the
   // dev switch `--resume-card`. Never by itself. Nothing opens without a
   // click on a row.
-  await onEvent<{ repo?: string | null } | null>("resume-show", (e) => void showResume(e?.repo));
+  await onEvent<{ repo?: string | null; learned?: boolean } | null>("resume-show", (e) => void showResume(e?.repo, e?.learned === true));
 
   await onEvent<WritingAsk>("writing-ask", (ask) => {
     const where = askPlacement({

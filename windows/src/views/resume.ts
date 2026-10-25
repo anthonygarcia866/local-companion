@@ -45,6 +45,7 @@ export function openNote(repo: string, opened: boolean): string {
 export function closeResume(host: AskHost | null) {
   if (!State.resume) return;
   State.resume = null;
+  State.resumeLearned = false;
   if (host && State.view === "resume" && State.mode === "expanded") {
     const next = State.lanternView();
     if (next) host.setView(next);
@@ -60,6 +61,11 @@ export function buildResume(host: AskHost): ViewHost {
   const close = h("button", { class: "link-btn", type: "button", "data-role": "resume-close", onclick: () => closeResume(host) }) as HTMLButtonElement;
   const el = h("div", { class: "view" }, card(null, stack(98, 16, title, rows, h("div", { class: "rewrite-actions" }, note, close))));
   let busy = false;
+
+  const tryAgain = async () => {
+    closeResume(host);
+    await Bridge.voiceTryAgain();
+  };
 
   const open = async (repo: string) => {
     if (busy) return;
@@ -77,6 +83,13 @@ export function buildResume(host: AskHost): ViewHost {
     title.textContent = t("Pick up where you left off");
     close.textContent = t("Close");
     clear(rows);
+    // From a learned shortcut (Glim learns §1): Try again forgets it and asks Claude.
+    if (State.resumeLearned) {
+      rows.append(h("div", { class: "resume-meta", "data-role": "resume-learned" },
+        h("span", { text: t("Learned shortcut: Claude wasn't asked.") }), " ",
+        h("button", { class: "link-btn", type: "button", "data-role": "resume-try-again", text: t("Try again"), onclick: () => void tryAgain() }),
+      ));
+    }
     if (cards.length === 0) {
       rows.append(h("div", { class: "hint", text: t("No HANDOFF.md found in the folders under your home folder.") }));
       return;

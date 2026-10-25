@@ -89,8 +89,11 @@ $notepad = $null
 
 function GlimDev([string[]]$argv) {
   $env:GLIM_DEV = "1"
+  # Glim hides from screen capture by default; PrintWindow needs it shown.
+  $env:GLIM_CAPTURABLE = "1"
   if ($argv.Count -gt 0) { Start-Process -FilePath $Exe -ArgumentList $argv | Out-Null } else { Start-Process -FilePath $Exe | Out-Null }
   $env:GLIM_DEV = ""
+  $env:GLIM_CAPTURABLE = ""
 }
 function StopGlim { Get-Process glim -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 800 }
 function WindowNamed([string]$part) {

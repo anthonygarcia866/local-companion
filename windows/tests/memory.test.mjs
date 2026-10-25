@@ -57,8 +57,10 @@ test("after a correction the result card adds the tip; an app that opened gets a
   State.mode = "hidden";
   // Rust: once per correction, never on the dictation key.
   const run = read("src-tauri/src/voice/run.rs");
-  assert.match(run, /if mode == Mode::Ask \{[\s\S]*?TIP\.store\(recent && crate::memory::is_correction\(transcript\), Ordering::SeqCst\);[\s\S]*?\} else \{\n\s+TIP\.store\(false, Ordering::SeqCst\);/);
-  assert.match(run, /TIP_RESULTS\.contains\(&e\.phase\) && TIP\.swap\(false, Ordering::SeqCst\)/);
+  // With #57: off through the local match (routine, learned shortcut), armed
+  // only for Claude's answer; only the Ask key notes a correction.
+  assert.match(run, /let correcting = mode == Mode::Ask && correction_now\(transcript, &mut LAST_ASK\.lock\(\)\.unwrap\(\), Instant::now\(\)\);\n\s+TIP\.store\(false, Ordering::SeqCst\);[\s\S]*?run_routine\(app, mode, routine\)\.await;\n\s+return;[\s\S]*?if replay\([\s\S]*?return;[\s\S]*?TIP\.store\(correcting, Ordering::SeqCst\);\n\s+let cleanup = clean_up\(/);
+  assert.match(run, /if takes_tip\(e\.phase\) && TIP\.swap\(false, Ordering::SeqCst\)/);
 });
 
 test("Settings → Memory: the lists with Remove, Forget everything, and where they go", async () => {

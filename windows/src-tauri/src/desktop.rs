@@ -334,7 +334,10 @@ fn create_window(app: &AppHandle, _mode: DesktopMode) -> Option<WebviewWindow> {
     }
     let built = builder.build();
     match built {
-        Ok(win) => Some(win),
+        Ok(win) => {
+            crate::screen_capture::apply_to(app, &win);
+            Some(win)
+        }
         Err(err) => {
             crate::log::line(format!("desktop Mochi window failed: {err}"));
             None

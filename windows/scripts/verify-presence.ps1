@@ -11,7 +11,9 @@
     --mascot-state / --dev-chat to it). Pill sizes are set in settings.json
     while Glim is stopped (backed up first, restored at the end).
   - Screenshots are PrintWindow captures of Glim's own island window only
-    (never the screen). Transparent parts come out black.
+    (never the screen). Transparent parts come out black. The dev Glim gets
+    GLIM_CAPTURABLE=1: Glim hides from screen capture by default, and an
+    excluded window prints black (screen_capture.rs).
   - After every step it reads the island window's real state: visible,
     WS_EX_NOACTIVATE (never takes focus), WS_EX_TRANSPARENT (click-through),
     and whose window is in the foreground (never Glim's, except the chat step,
@@ -125,8 +127,10 @@ function StopGlim { Get-Process glim -ErrorAction SilentlyContinue | Stop-Proces
 function StartGlim([bool]$dev = $true) {
   $script:island = [IntPtr]::Zero
   $env:GLIM_DEV = if ($dev) { "1" } else { "" }
+  $env:GLIM_CAPTURABLE = if ($dev) { "1" } else { "" }
   Start-Process -FilePath $Exe | Out-Null
   $env:GLIM_DEV = ""
+  $env:GLIM_CAPTURABLE = ""
 }
 function SetSetting([string]$key, $value) {
   $j = Get-Content $settingsPath -Raw -Encoding utf8 | ConvertFrom-Json

@@ -255,8 +255,15 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **Again and again (bug 2, 2026-10-18):** press, wait 4 s, press, wait 4 s, press, wait 4 s, then press twice: allowed. glim.log never shows `allow key refused (cut-off)` for a command that fits on the card.
 6. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
    - **See:** refused (`not-open`). Open the island on the card again: it needs its own 1.5 s again.
-7. **A long command:** one too long to show whole on the card (or cut short with "…").
-   - **See:** refused (`cut-off`); clicking still works.
+7. **A long command (fix 2026-10-25, branch `allow-key-expand`):** ask for a long, harmless bash command that doesn't fit on one line (e.g. `cd <repo> && git status && git log --oneline -5 && npm test`). Wait 2 s, press Ctrl+Alt+Shift+Y once.
+   - **See:** nothing allowed yet: the card **grows** and shows the whole command wrapped (past ~10 lines it scrolls inside the box), with **Press again to allow · 3** counting down (glim.log: `allow key expanded`). Press again **within 3 s, but at least 1.5 s after it grew**: allowed.
+   - **Too soon after expanding:** press, then again at once: refused, and the card says "Too soon: read it, then press again." for a moment (`allow key refused (too-soon)`). Press again: allowed.
+   - **Window passed:** press once to expand, wait 4 s: the line goes; the card stays expanded. The next press brings the line back; one more allows.
+   - **Longer than the expanded box** (it scrolls, e.g. a 15-line heredoc): after expanding, a press says "Scroll to the end of the command, then press again." Scroll the box to its last line with the wheel, then press: allowed.
+   - **Long and destructive:** a long command with `rm -rf` on a temp folder. Press: it expands ("Read it, then press twice to allow"). Then press, press (**Press again to allow · 3** between them): allowed. Three presses in all; expanding is not one of the two.
+   - **Too long even for the relay** (over 32 KB, hard to hit by hand): the card says "Too long to show in full: click Allow." and the key stays refused (`too-long`); clicking Allow still works.
+   - **Short commands are unchanged:** `npm test`: one press after 2 s.
+   - **Folded:** refused, and the card says "Open the card first, then press the key." when you open it within ~3 s.
 8. **Waiting too long:** get a card and don't answer for 35 s.
    - **See:** after ~30 s the lantern pops, again every ~4 s until you answer. No sound (off by default).
    - Settings → Claude Code → **Soft sound when a permission waits**: on. Another card, wait 35 s: one soft two-note chime at ~30 s, not repeated. Turn it off again if you like.
@@ -682,6 +689,35 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
 3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
 
+## 34. Glim hides from screen shares and recordings (branch `capture-exclusion`, draft PR)
+
+*Where: a build with the capture-exclusion PR, started normally (not by a verify script). Nothing is sent anywhere; the screenshots stay on this PC.*
+
+1. **On by default:** Settings → Privacy. **See:** "Hide Glim in screen shares and recordings" is on, with "Screen shares, recordings and screenshots show what's behind Glim, not its cards." under it.
+2. **Screenshot:** with the island showing a card (e.g. the resume card from the tray's **Pick up where you left off**), press Win+Shift+S and take a rectangle over the island. **See:** the snip shows what's behind the island, not the island or its card. Also take one with the mini lantern on (Settings → Writing) and with Settings open: none of Glim's windows are in the snip.
+3. **Screen share:** start a Teams (or Zoom) meeting alone and share the whole screen; look at the preview. **See:** no island, no card, no Settings window in the shared picture, while they stay normal on your own screen.
+4. **Off:** turn the switch off and repeat step 2. **See:** the island and card are in the snip again, straight away (no restart). Turn it back on.
+5. **Log:** `%APPDATA%\Glim\glim.log` has `capture-exclude: on (N windows)` at launch and `capture-exclude: off (setting)` after step 4; no window titles, nothing else. `capture-exclude: unsupported` would mean this Windows is older than 10 (2004).
+6. **Verify scripts still see Glim:** `scripts\verify-presence.ps1` starts the dev Glim with `GLIM_CAPTURABLE=1`; its PNGs show the island, not black (the log says `capture-exclude: off (GLIM_CAPTURABLE)`).
+7. **Budget line (no action):** after 50 Ask Glim requests, and when you quit from the tray, glim.log has one `budget: last N ask median X.Xs $0.00XXXX/request` line; it ends `OVER` if the median is over 2.0 s or $0.001.
+
+## 35. Learned shortcuts and routines (branch `learned-shortcuts`, draft PR)
+
+*Where: a build with the learned-shortcuts PR, the Claude key set, Outlook and one own app (Settings → Writing → Apps Glim can open). Everything learned stays in `%LOCALAPPDATA%\Glim\learn\`.*
+
+1. **On by default:** Settings → **Ask Glim**. **See:** "Learn shortcuts from what I ask" is on; "Nothing learned yet."; "No routines yet."
+2. **Learn:** hold **Ctrl+Alt+Shift+A**, say "open Outlook". Outlook comes forward as before (the lantern shows data leaving while Claude has it). glim.log: `voice: cleanup open_app …`, then `learn: saved shortcut (open_app)`. Settings → Ask Glim now lists "“open any app” → Open Outlook".
+3. **Replay:** close Outlook, then say "open Outlook" again. **See:** Outlook opens with **no** data-leaving lantern, and a card "Opened Outlook" with "Learned shortcut: Claude wasn't asked." and **Try again**. glim.log: `learn: replay ok (open_app)` and **no** `voice: cleanup` line for it.
+4. **Another app, same words:** say "open Codex" (or your own app's name). **See:** it opens the same way, from the shortcut (Learned card, no cleanup line).
+5. **Try again:** on a Learned card, click **Try again**. **See:** the lantern shows data leaving (Claude is asked), the app opens, and glim.log has `learn: try again, shortcut deleted`; Settings no longer lists it until it is learned again.
+6. **Never learned:** say "open this", then "where was I". **See:** each goes to Claude every time; glim.log `learn: not learned (deictic)` / `(command-word)`. Dictation (Ctrl+Alt+Shift+V) never shows a Learned card and never adds anything to Settings.
+7. **Resume:** say "where was I on <one of your repos>" twice. The second time the resume card opens at once with "Learned shortcut: Claude wasn't asked." and Try again; Open in Claude Code still needs its click.
+8. **Routine:** say "When I say work mode, open Outlook and Codex". **See:** a card "Save the routine “work mode”?" listing "1. Open Outlook 2. Open Codex", Save / Cancel. Cancel: nothing in Settings. Say it again and click **Save**: "Saved “work mode”"; Settings lists it.
+9. **Run it:** close both apps, say "work mode" (or "run work mode"). **See:** Outlook, then Codex open; a card "Ran “work mode”"; glim.log `learn: routine ran 2/2 steps`. With Codex uninstalled or an own app's file moved, the card says "Step 2 of 2 (Open Codex) didn't work."
+10. **Rename / Remove:** in Settings → Ask Glim, rename "work mode" to "open" (**See:** "That's one of Glim's command words…"), then to "focus time" (saved; saying "focus time" runs it). **Remove** deletes it.
+11. **Learning off:** turn the switch off; say "open Outlook": Claude is asked every time (no Learned card), nothing new is learned; "focus time" still runs.
+12. **Logs:** glim.log has tool names, codes and counts only: no app name, repo, routine name or what you said in any `learn:` line.
+
 ## 36. Remembered rules and facts (branch `remember-rules`, draft PR)
 
 *Where: a build with the remember-rules PR and the Claude key set. What is remembered stays in `%LOCALAPPDATA%\Glim\learn\memory.json`; what is sent goes to api.anthropic.com with Ask requests.*
@@ -695,6 +731,7 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 7. **Correction tip:** say "open Codex", then within a minute "no, I meant Outlook". **See:** after Outlook opens, a small card "Tip: say “Remember: …” and I'll get it right next time." Only once; never after a dictation.
 8. **Remove / Forget everything:** Remove one entry in Settings → Memory; then **Forget everything**: both lists empty, and the next Ask has no `memory: sent` line.
 9. **Logs:** no `memory:` line ever contains a rule's or a fact's words.
+
 
 ## After testing
 
