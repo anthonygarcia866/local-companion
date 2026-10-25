@@ -547,6 +547,11 @@ pub fn pin_to_monitor(win: &WebviewWindow, x: i32, y: i32) {
 }
 
 /// Not tracked on Linux: the compositor hands focus back when the island lets go.
+/// Windows only (Glim learns' check after opening an app).
+pub fn foreground_exe() -> Option<String> {
+    None
+}
+
 pub fn foreground_other_than(_own: &WebviewWindow) -> Option<isize> {
     None
 }

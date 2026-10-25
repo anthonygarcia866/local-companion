@@ -13,7 +13,9 @@
 // opens the resume card for `resume_work` (decided 2026-10-15), opens
 // classic Outlook for `open_app` (codex and claude_code wait for the owner),
 // and shows the "Draft email" card for `draft_email` (1.5d, decided
-// 2026-10-16; the draft is saved in Outlook, never sent).
+// 2026-10-16; the draft is saved in Outlook, never sent). `save_routine`
+// (Glim learns §2, decided 2026-10-24) only proposes a routine: Glim shows
+// its steps on a card and saves it on the user's Save.
 //
 // §4.1: no answer within ~4 s cancels the request (a late answer is
 // dropped, so nothing is typed twice); that, an outage, no key or the monthly
@@ -49,7 +51,9 @@ they mean themselves, or an email address in the spoken words unchanged ('jordan
 yourself); Glim looks them up on this PC, so never ask for an email address or who 'me' is. The body is the user's message cleaned \
 up, with no sign-off or signature (Outlook adds the signature). To change the email Glim just drafted ('the email you just drafted', \
 'add … to it', 'change the subject', 'make it shorter'), call edit_draft with the change in the user's words; never ask which email. \
-Sending email is never a tool: for 'send it' call clarify with 'Click Send on the draft to send it.' If it is unclear, \
+Sending email is never a tool: for 'send it' call clarify with 'Click Send on the draft to send it.' When the user \
+says 'When I say X, …' (or 'whenever I say X'), call save_routine: X is the name, the steps are the apps to open and the work \
+to pick up, in order. If it is unclear, \
 call clarify with one short question. When the message includes Glim's earlier question, the transcript is the user's answer \
 to it: combine it with their earlier request.";
 
@@ -75,8 +79,37 @@ fn open_app_tool(own: &[String]) -> Value {
             "input_schema": { "type": "object", "properties": { "app": { "type": "string", "enum": values } }, "required": ["app"] } })
 }
 
-/// The action schema (plan §4), all five; open_app also offers `own` (the
-/// user's own apps' names).
+/// save_routine (Glim learns §2): a name and up to 5 steps, each open_app
+/// (the same enum) or resume_work. Nothing else can be a step.
+fn save_routine_tool(own: &[String]) -> Value {
+    let values: Vec<&str> = BUILT_IN_APPS.iter().copied().chain(own.iter().map(String::as_str)).collect();
+    json!({ "name": "save_routine",
+            "description": "Save a routine the user defines with 'When I say X, …': name is X, exactly the words they will say; steps are what to do, in order, at most 5. A step is open_app (with app) or resume_work (with repo when they named one); nothing else can be a step. Glim shows the steps for the user to confirm; nothing runs now.",
+            "input_schema": { "type": "object", "properties": {
+                "name": { "type": "string" },
+                "steps": { "type": "array", "items": { "type": "object", "properties": {
+                    "tool": { "type": "string", "enum": ["open_app", "resume_work"] },
+                    "app": { "type": "string", "enum": values },
+                    "repo": { "type": "string" } }, "required": ["tool"] } } },
+              "required": ["name", "steps"] } })
+}
+
+/// One step of a routine Claude proposed, validated like the tool it names:
+/// open_app's app must be one it was offered; anything else is no step.
+fn step_of(s: &Value, own: &[String]) -> Option<crate::learn::Action> {
+    let f = |k: &str| s.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("");
+    match f("tool") {
+        "open_app" => {
+            let app = f("app");
+            (!app.is_empty() && (BUILT_IN_APPS.contains(&app) || own.iter().any(|n| n == app))).then(|| crate::learn::Action::OpenApp { app: app.to_string() })
+        }
+        "resume_work" => Some(crate::learn::Action::ResumeWork { repo: Some(f("repo")).filter(|r| !r.is_empty()).map(str::to_string) }),
+        _ => None,
+    }
+}
+
+/// The action schema (plan §4), and save_routine; open_app also offers
+/// `own` (the user's own apps' names).
 pub fn tools_with(own: &[String]) -> Value {
     json!([
         { "name": "dictate", "description": "Type cleaned-up dictated text into the field the user is in.",
@@ -93,6 +126,7 @@ pub fn tools_with(own: &[String]) -> Value {
               "body": { "type": "string" } }, "required": ["to", "body"] } },
         { "name": "edit_draft", "description": "Change the email draft Glim just made (in the last few minutes). `change` is what to change, in the user's words. Never sends.",
           "input_schema": { "type": "object", "properties": { "change": { "type": "string" } }, "required": ["change"] } },
+        save_routine_tool(own),
         { "name": "clarify", "description": "Ask the user one short question.",
           "input_schema": { "type": "object", "properties": { "question": { "type": "string" } }, "required": ["question"] } }
     ])
@@ -205,6 +239,14 @@ pub fn parse_answer(body: &[u8], model: &str, mode: Mode, own: &[String]) -> (Re
             }
         }
         "edit_draft" if !field("change").is_empty() => Ok(Cleanup::EditDraft(field("change").to_string())),
+        "save_routine" => {
+            let name = one_line(field("name"));
+            let steps = input.get("steps").and_then(Value::as_array).and_then(|a| a.iter().map(|s| step_of(s, own)).collect::<Option<Vec<_>>>());
+            match steps {
+                Some(steps) if !name.is_empty() && !steps.is_empty() => Ok(Cleanup::SaveRoutine { name, steps }),
+                _ => Err(CleanupFailed::Outage("bad-answer".into())),
+            }
+        }
         // Anything that doesn't validate: no clean-up (§4).
         _ => Err(CleanupFailed::Outage("bad-answer".into())),
     };
@@ -333,7 +375,7 @@ mod tests {
         assert!(usage.is_some());
         let body = sent_body(&got);
         assert_eq!(body["tool_choice"], json!({ "type": "any" }));
-        assert_eq!(names(&body), ["open_app", "resume_work", "draft_email", "edit_draft", "clarify"]);
+        assert_eq!(names(&body), ["open_app", "resume_work", "draft_email", "edit_draft", "save_routine", "clarify"]);
         assert!(!names(&body).iter().any(|n| n == "send_email"), "sending is never a tool");
         assert_eq!(body["system"], SYSTEM_ASK);
         let content = body["messages"][0]["content"].as_str().unwrap();
@@ -425,6 +467,46 @@ mod tests {
             assert_eq!(p(name, input), Err(CleanupFailed::Outage("bad-answer".into())), "{name}");
         }
         assert_eq!(parse_answer(b"not json", "m", Mode::Ask, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
+    }
+
+    /// Glim learns §2: "When I say work mode, …" comes back as save_routine;
+    /// each step is validated like its tool, and only open_app and
+    /// resume_work can be steps.
+    #[test]
+    fn a_routine_is_proposed_with_validated_steps_only() {
+        use crate::learn::Action;
+        let own = vec!["Spotify".to_string()];
+        let p = |input: Value| parse_answer(&answer("save_routine", input), "m", Mode::Ask, &own).0;
+        assert_eq!(
+            p(json!({ "name": "work mode", "steps": [{ "tool": "open_app", "app": "outlook" }, { "tool": "open_app", "app": "Spotify" }, { "tool": "resume_work", "repo": "my-repo" }, { "tool": "resume_work", "repo": " " }] })),
+            Ok(Cleanup::SaveRoutine {
+                name: "work mode".into(),
+                steps: vec![
+                    Action::OpenApp { app: "outlook".into() },
+                    Action::OpenApp { app: "Spotify".into() },
+                    Action::ResumeWork { repo: Some("my-repo".into()) },
+                    Action::ResumeWork { repo: None },
+                ],
+            })
+        );
+        for bad in [
+            json!({ "name": "work mode", "steps": [] }),
+            json!({ "name": " ", "steps": [{ "tool": "open_app", "app": "outlook" }] }),
+            json!({ "name": "work mode", "steps": [{ "tool": "open_app", "app": "notepad" }] }),
+            json!({ "name": "work mode", "steps": [{ "tool": "open_app", "app": "C:\\x.exe" }] }),
+            json!({ "name": "work mode", "steps": [{ "tool": "draft_email", "to": ["x"] }] }),
+            json!({ "name": "work mode", "steps": [{ "tool": "dictate", "text": "hi" }] }),
+            json!({ "name": "work mode" }),
+        ] {
+            assert_eq!(p(bad.clone()), Err(CleanupFailed::Outage("bad-answer".into())), "{bad}");
+        }
+        // Never on the dictation key; the steps share open_app's enum.
+        assert_eq!(parse_answer(&answer("save_routine", json!({ "name": "x y", "steps": [{ "tool": "resume_work" }] })), "m", Mode::Dictate, &own).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        let tools = tools_for(Mode::Ask, &own);
+        let t = tools.as_array().unwrap().iter().find(|t| t["name"] == "save_routine").unwrap();
+        assert_eq!(t["input_schema"]["properties"]["steps"]["items"]["properties"]["app"]["enum"], json!(["claude_code", "claude", "codex", "outlook", "Spotify"]));
+        assert_eq!(t["input_schema"]["properties"]["steps"]["items"]["properties"]["tool"]["enum"], json!(["open_app", "resume_work"]));
+        assert!(SYSTEM_ASK.contains("call save_routine"));
     }
 
     /// "Add your own apps": their names join open_app's enum and its

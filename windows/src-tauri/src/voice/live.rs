@@ -102,6 +102,7 @@ fn whisper_on_this_pc() {
             super::Decision::Open { .. } | super::Decision::OpenOwn { .. } => "open app",
             super::Decision::Draft(_) => "draft card",
             super::Decision::EditDraft { .. } => "edit card",
+            super::Decision::SaveRoutine { .. } => "routine card",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {

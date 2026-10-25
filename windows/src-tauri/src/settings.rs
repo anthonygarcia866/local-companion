@@ -145,6 +145,10 @@ pub struct Settings {
     /// waited 30 seconds" (fix e's escalation, 2026-10-17): off by default.
     /// The lantern pulses either way.
     pub approval_sound: bool,
+    /// Settings → Ask Glim → "Learn shortcuts from what I ask"
+    /// (docs/glim-learns-plan.md §1, decided 2026-10-24): on by default.
+    /// Off: nothing is learned or replayed; routines still run.
+    pub learn_shortcuts: bool,
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
@@ -260,6 +264,7 @@ impl Default for Settings {
             calendar_ids: Vec::new(),
             calendar_summary_shown: String::new(),
             approval_sound: false,
+            learn_shortcuts: true,
             phone: PhoneSettings::default(),
         }
     }
@@ -559,6 +564,7 @@ mod tests {
   "calendarIds": ["\\\\me@example.com\\Calendar"],
   "calendarSummaryShown": "2026-10-17",
   "approvalSound": true,
+  "learnShortcuts": false,
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
@@ -689,6 +695,13 @@ mod tests {
         assert!(!parse(br#"{"screen":"active"}"#).unwrap().writing_bubble, "a file from before 1e");
         assert!(parse(br#"{"writingBubble":true}"#).unwrap().writing_bubble);
         assert!(parse(&custom_with("writingBubble", None)).map(|s| !s.writing_bubble).unwrap());
+    }
+
+    #[test]
+    fn glim_learns_shortcuts_unless_turned_off() {
+        assert!(Settings::default().learn_shortcuts);
+        assert!(parse(br#"{"screen":"active"}"#).unwrap().learn_shortcuts, "a file from before the switch");
+        assert!(!parse(br#"{"learnShortcuts":false}"#).unwrap().learn_shortcuts);
     }
 
     #[test]
@@ -1014,6 +1027,7 @@ mod tests {
                 "calendarIds",
                 "calendarSummaryShown",
                 "approvalSound",
+                "learnShortcuts",
                 "phone",
             ]
         );
