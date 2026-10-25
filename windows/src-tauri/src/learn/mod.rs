@@ -157,6 +157,9 @@ pub enum NotLearned {
     /// Glim didn't see it work, or Claude needed a sound-alike, a question,
     /// or the sensitive scan stopped it.
     Unconfirmed,
+    /// The ask corrected the one before ("no, I meant …"): its words only
+    /// make sense right after that one (review of the #57/#58 merge).
+    Correction,
 }
 
 impl NotLearned {
@@ -167,6 +170,7 @@ impl NotLearned {
             NotLearned::Short => "short",
             NotLearned::CommandWord => "command-word",
             NotLearned::Unconfirmed => "unconfirmed",
+            NotLearned::Correction => "correction",
         }
     }
 }

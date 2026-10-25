@@ -111,10 +111,14 @@ fn quiet(asked: &Option<Asked>, mode: Mode) -> VoiceEvent {
 
 fn send(app: &AppHandle, mut e: VoiceEvent) {
     // The correction tip (Glim learns §3) rides on the next result card.
-    if takes_tip(e.phase) && TIP.swap(false, Ordering::SeqCst) {
-        e.tip = true;
-    }
+    e.tip = tip_for(&e, &TIP);
     let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+}
+
+/// Whether this event carries the armed tip (and disarms it): Claude's
+/// result cards only, never a routine's refusal (its "failed" code).
+fn tip_for(e: &VoiceEvent, armed: &AtomicBool) -> bool {
+    e.tip || (takes_tip(e.phase) && !e.code.starts_with("routine-") && armed.swap(false, Ordering::SeqCst))
 }
 
 /// When the last Ask request was: a correction is the next one within a
@@ -355,6 +359,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         Some(NotLearned::Off)
     } else if corrected {
         Some(NotLearned::Unconfirmed)
+    } else if correcting {
+        Some(NotLearned::Correction)
     } else {
         None
     };
@@ -901,6 +907,31 @@ mod tests {
         let armed = act.find("TIP.store(correcting, Ordering::SeqCst);").unwrap();
         let claude = act.find("let cleanup = clean_up(").unwrap();
         assert!(off < routine && routine < replay && replay < armed && armed < claude);
+    }
+
+    /// The armed tip, event by event (review of the #57/#58 merge): a
+    /// learned replay's card and a routine's cards, its refusal included,
+    /// never take it; Claude's answer to a correction takes it, once.
+    #[test]
+    fn the_armed_tip_lands_on_claudes_card_once_and_never_on_a_routine_or_a_replay() {
+        let ev = |phase: &'static str, code: &str| VoiceEvent { phase, code: code.into(), ..Default::default() };
+        let armed = AtomicBool::new(true);
+        assert!(!tip_for(&ev("learned", "open_app"), &armed), "a learned replay");
+        assert!(!tip_for(&ev("routine", "ok"), &armed), "a routine that ran");
+        assert!(!tip_for(&ev("routine", "failed:2/3"), &armed), "a routine that stopped");
+        assert!(!tip_for(&ev("routine-ask", ""), &armed), "a routine's Save card");
+        assert!(!tip_for(&ev("failed", "routine-name-taken"), &armed), "a routine's refusal");
+        assert!(armed.load(Ordering::SeqCst), "still waiting for Claude's card");
+        assert!(tip_for(&ev("heard", ""), &armed), "a correction's answer: the tip");
+        assert!(!armed.load(Ordering::SeqCst));
+        assert!(!tip_for(&ev("failed", "open-failed"), &armed), "once per correction");
+        // Never armed, never a tip.
+        let idle = AtomicBool::new(false);
+        assert!(!tip_for(&ev("heard", ""), &idle));
+        // A correction is never learned as a shortcut.
+        let src = include_str!("run.rs").replace("\r\n", "\n");
+        assert!(src.contains("    } else if correcting {\n        Some(NotLearned::Correction)"));
+        assert_eq!(NotLearned::Correction.code(), "correction");
     }
 
     /// A correction is the next Ask within a minute that starts "no", "I
