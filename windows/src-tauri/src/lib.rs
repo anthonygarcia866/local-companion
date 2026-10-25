@@ -20,6 +20,8 @@ mod pipe;
 mod platform;
 mod recap;
 mod resume;
+mod screen_capture;
+mod learn;
 mod session_window;
 mod settings;
 mod shortcuts;
@@ -122,6 +124,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     phone::apply_settings(&settings);
+    screen_capture::apply(&app);
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -411,6 +414,7 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    ai::budget::on_quit();
     #[cfg(windows)]
     voice::whisper::stop();
     app.exit(0);
@@ -812,6 +816,96 @@ fn voice_answer(app: AppHandle, text: String) -> bool {
 fn voice_cancel() {
     #[cfg(windows)]
     voice::run::cancel_question();
+}
+
+// ── Glim learns (docs/glim-learns-plan.md §1, §2) ─────────────────────────────
+
+/// Try again on a learned shortcut's card: it is deleted and the ask goes to
+/// Claude.
+#[tauri::command]
+fn voice_try_again(app: AppHandle) -> bool {
+    #[cfg(windows)]
+    let ok = voice::run::try_again(&app);
+    #[cfg(not(windows))]
+    let ok = { let _ = app; false };
+    ok
+}
+
+/// Save on a routine's card.
+#[tauri::command]
+fn voice_routine_save(app: AppHandle) -> bool {
+    #[cfg(windows)]
+    let ok = voice::run::save_proposed(&app);
+    #[cfg(not(windows))]
+    let ok = { let _ = app; false };
+    ok
+}
+
+/// Settings → Ask Glim: the learned shortcuts and the routines.
+#[tauri::command]
+fn learn_list() -> learn::LearnView {
+    learn::with(|l| learn::view(l, learn::now()))
+}
+
+#[tauri::command]
+fn learn_forget_shortcut(key: String, slot: bool) -> bool {
+    let gone = learn::with(|l| {
+        let gone = l.shortcuts.remove(&key, slot);
+        if gone {
+            l.save_shortcuts();
+        }
+        gone
+    });
+    if gone {
+        log::line("learn: a shortcut forgotten (Settings)");
+    }
+    gone
+}
+
+#[tauri::command]
+fn learn_forget_shortcuts() {
+    let n = learn::with(|l| {
+        let n = l.shortcuts.items.len();
+        l.shortcuts.items.clear();
+        l.save_shortcuts();
+        n
+    });
+    log::line(format!("learn: {n} shortcuts forgotten (Settings)"));
+}
+
+/// Rename a routine: None when done, else why not (a code Settings words).
+#[tauri::command]
+fn learn_routine_rename(shared: State<Shared>, name: String, to: String) -> Option<String> {
+    let own = voice::own_apps::names(&shared.settings.lock().unwrap().voice_apps);
+    let done = learn::with(|l| {
+        let r = l.routines.rename(&name, &to, &own);
+        if r.is_ok() {
+            l.save_routines();
+        }
+        r
+    });
+    match done {
+        Ok(()) => {
+            log::line("learn: a routine renamed (Settings)");
+            None
+        }
+        Err(code) => Some(code.to_string()),
+    }
+}
+
+#[tauri::command]
+fn learn_routine_delete(name: String) -> bool {
+    let gone = learn::with(|l| {
+        let gone = l.routines.remove(&name);
+        if gone {
+            l.save_routines();
+        }
+        gone
+    });
+    if gone {
+        log::line("learn: a routine deleted (Settings)");
+    }
+    gone
 }
 
 /// Push-to-talk's card when Windows blocks the microphone (voice plan §6):
@@ -1393,6 +1487,13 @@ pub fn run() {
             voice_copy,
             voice_answer,
             voice_cancel,
+            voice_try_again,
+            voice_routine_save,
+            learn_list,
+            learn_forget_shortcut,
+            learn_forget_shortcuts,
+            learn_routine_rename,
+            learn_routine_delete,
             open_mic_settings,
             draft_pick,
             draft_change,
@@ -1440,6 +1541,8 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            // What Glim learned (shortcuts, routines): loaded once, counts logged.
+            learn::with(|_| ());
             // Launch at startup follows the setting at every launch, not only
             // when it changes (the entry may be missing, or point at an old copy).
             autostart::sync(loaded.autostart, false);
@@ -1458,6 +1561,8 @@ pub fn run() {
             }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
+            // Every window built so far, before the island is first shown.
+            screen_capture::apply(&handle);
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the

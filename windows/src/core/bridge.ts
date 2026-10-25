@@ -3,6 +3,7 @@
 // `npm run dev` alone.
 
 import type { ResumeCard } from "../views/resume";
+import type { LearnView } from "./learn";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -192,6 +193,14 @@ export const Bridge = {
   voiceAnswer: (text: string) => call<boolean>("voice_answer", { text }),
   /** The question card closed (Cancel, Close or its clock): nothing waits for an answer. */
   voiceCancel: () => call<void>("voice_cancel"),
+  // Glim learns (docs/glim-learns-plan.md §1-§2).
+  voiceTryAgain: () => call<boolean>("voice_try_again"),
+  voiceRoutineSave: () => call<boolean>("voice_routine_save"),
+  learnList: () => call<LearnView>("learn_list"),
+  learnForgetShortcut: (key: string, slot: boolean) => call<boolean>("learn_forget_shortcut", { key, slot }),
+  learnForgetShortcuts: () => call<void>("learn_forget_shortcuts"),
+  learnRoutineRename: (name: string, to: string) => call<string | null>("learn_routine_rename", { name, to }),
+  learnRoutineDelete: (name: string) => call<boolean>("learn_routine_delete", { name }),
   /** Windows' microphone privacy page (a fixed link in Rust). */
   openMicSettings: () => call<void>("open_mic_settings"),
   /** The Draft email card (1.5d): ids, indexes and a search's text only. Nothing sends. */

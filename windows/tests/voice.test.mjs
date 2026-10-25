@@ -206,7 +206,7 @@ test("the island never logs or stores what was heard; the handler sends nothing 
     const src = read(file);
     for (const banned of ["console.", "localStorage", "sessionStorage", "addEventListener"]) assert.ok(!src.includes(banned), `${file}: ${banned}`);
   }
-  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCancel()", "Bridge.voiceAnswer(text)", "Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
+  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCancel()", "Bridge.voiceAnswer(text)", "Bridge.voiceRoutineSave()", "Bridge.voiceTryAgain()", "Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"voice"'));
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);

@@ -34,8 +34,8 @@ use ::windows::Win32::UI::Shell::{
 use ::windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, GetClassNameW, GetCursorPos, GetWindow, GetWindowLongPtrW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE, SW_SHOWNORMAL, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW,
+    SetWindowDisplayAffinity, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE,
+    SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use super::LocalTime;
@@ -569,6 +569,18 @@ fn hwnd_of(win: &WebviewWindow) -> Option<HWND> {
     Some(HWND(raw as *mut _))
 }
 
+/// Keeps `win` out of screen shares, recordings and screenshots
+/// (WDA_EXCLUDEFROMCAPTURE, Windows 10 2004 or later), or lets them see it
+/// again. False when Windows refused (an older Windows).
+pub fn set_capture_excluded(win: &WebviewWindow, excluded: bool) -> bool {
+    hwnd_of(win).is_some_and(|hwnd| set_hwnd_capture_excluded(hwnd, excluded))
+}
+
+fn set_hwnd_capture_excluded(hwnd: HWND, excluded: bool) -> bool {
+    let affinity = if excluded { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
+    unsafe { SetWindowDisplayAffinity(hwnd, affinity).is_ok() }
+}
+
 /// Keeps the settings window from showing the "no drop" cursor.
 ///
 /// wry installs its drop target by walking the webview's child windows **once**,
@@ -632,6 +644,23 @@ pub fn foreground_other_than(own: &WebviewWindow) -> Option<isize> {
     let own = hwnd_of(own)?.0 as isize;
     let front = unsafe { GetForegroundWindow() }.0 as isize;
     (front != 0 && front != own).then_some(front)
+}
+
+/// The program file of the visible window in front now ("OUTLOOK.EXE"):
+/// Glim learns' check that an app it opened came forward. The process list
+/// only; nothing is opened or attached.
+pub fn foreground_exe() -> Option<String> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let front = unsafe { GetForegroundWindow() };
+    if front.0.is_null() || !unsafe { IsWindowVisible(front) }.as_bool() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
+    if pid == 0 {
+        return None;
+    }
+    process_table().remove(&pid).map(|p| p.exe)
 }
 
 /// Gives the keyboard back to `to` if the island (`own`) still has it: a click
@@ -1044,5 +1073,36 @@ mod migration_tests {
         migrate_dir(&base.join("Coucou"), &base.join("Glim"), &mut notes);
         assert!(notes.is_empty() && !base.join("Glim").exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use ::windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DestroyWindow, GetWindowDisplayAffinity, WINDOW_EX_STYLE, WS_POPUP,
+    };
+
+    /// The affinity Windows reports for `hwnd`.
+    fn affinity(hwnd: HWND) -> u32 {
+        let mut got = u32::MAX;
+        unsafe { GetWindowDisplayAffinity(hwnd, &mut got) }.unwrap();
+        got
+    }
+
+    #[test]
+    fn a_window_of_our_own_is_excluded_from_capture_and_let_back_in() {
+        // A hidden popup of the test's own: nothing is shown, nothing is
+        // captured (docs/glim-learns-plan.md §10).
+        let hwnd = unsafe {
+            CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), w!("glim-capture-test"), WS_POPUP, 0, 0, 10, 10, None, None, None, None)
+        }
+        .expect("a hidden test window");
+        assert_eq!(affinity(hwnd), WDA_NONE.0);
+        assert!(set_hwnd_capture_excluded(hwnd, true));
+        assert_eq!(affinity(hwnd), WDA_EXCLUDEFROMCAPTURE.0);
+        assert!(set_hwnd_capture_excluded(hwnd, false));
+        assert_eq!(affinity(hwnd), WDA_NONE.0);
+        let _ = unsafe { DestroyWindow(hwnd) };
     }
 }

@@ -12,7 +12,7 @@ import { installFakeDom } from "./fakedom.mjs";
 installFakeDom();
 const { State, DEFAULT_SETTINGS } = await import("../src/core/state.ts");
 const {
-  ALLOW_DELAY_MS, CONFIRM_WINDOW_MS, DESTRUCTIVE, allowCheck, armedFor, cardOffScreen, cardOnScreen, globMatches, isDestructive, onScreen, press,
+  ALLOW_DELAY_MS, CONFIRM_WINDOW_MS, DESTRUCTIVE, REASON_MS, allowCheck, armedFor, cardOffScreen, cardOnScreen, expandWindow, expandedFor, globMatches, isDestructive, onScreen, press, refusalFor,
 } = await import("../src/core/allow.ts");
 const { ApprovalWait, ESCALATE_AFTER_MS, PULSE_EVERY_MS } = await import("../src/core/approval-wait.ts");
 const { buildApproval } = await import("../src/views/views.ts");
@@ -46,8 +46,9 @@ test("every permission card takes the key, once open showing the whole command",
   assert.equal(check({ request: null }), "no-card");
   assert.equal(check({ request: req("x", { questions: [{ question: "Which?" }] }) }), "question");
   assert.equal(check({ open: false }), "not-open", "folded, queued, or another view");
-  assert.equal(check({ fullyShown: false }), "cut-off");
-  assert.equal(check({ request: req("Bash · npm run something long…") }), "cut-off", "shortened by the relay");
+  assert.equal(check({ fullyShown: false }), "expand", "cut off: the press shows it all first");
+  assert.equal(check({ request: req("Bash · npm run something long…") }), "too-long", "shortened by the relay: click only");
+  assert.equal(check({ request: req("Bash · npm run something long…"), fullyShown: false }), "too-long", "expanding can't show what the relay cut");
   // The old design kept "ask"-rule commands click-only: no longer (owner, 2026-10-17).
   for (const c of ["Bash · git merge origin/main", "Bash · gh pr merge 27 --merge", "Bash · git push origin main", "Edit · src/a.ts", "Bash · npm test"]) {
     assert.equal(check({ request: req(c) }), "ok", c);
@@ -305,7 +306,10 @@ test("the island: the key goes through press(), the wait is ticked, logged and e
   const island = read("src/island/island.ts");
   const fn = island.slice(island.indexOf("  allowApproval() {"), island.indexOf("  takeKeyboard() {"));
   assert.ok(fn.includes('press(req, State.mode === "expanded" && State.view === "approval", now)'));
-  assert.ok(fn.includes('if (check === "armed" && req)') && fn.includes("CONFIRM_WINDOW_MS + 50"), "armed: the card asks, then drops it");
+  assert.ok(fn.includes('if ((check === "armed" || check === "expand") && req)') && fn.includes("CONFIRM_WINDOW_MS + 50"), "armed or expanded: the card asks, then drops it");
+  assert.ok(fn.includes('if (check === "expand") this.animateGeometry(false);'), "expanding grows the card");
+  assert.ok(fn.includes("window.setTimeout(() => State.notify(), REASON_MS + 50);"), "a refusal's reason shows, then goes");
+  assert.ok(island.includes('if (State.mode === "expanded" && State.view === "approval" && expandedFor(State.pendingApproval?.requestId)) {\n      h = APPROVAL_EXPANDED_H;'));
   assert.ok(fn.includes("for (let s = 1_000; s < CONFIRM_WINDOW_MS; s += 1_000) window.setTimeout(() => State.notify(), s);"), "and counts down each second");
   assert.ok(fn.includes('if (!req || check !== "ok")') && fn.includes('this.emote("annoyed")'));
   assert.ok(fn.indexOf('Bridge.approvalDecision(req.requestId, "allow")') > fn.indexOf('check !== "ok"'), "allowed only after the check");
@@ -322,6 +326,195 @@ test("the island: the key goes through press(), the wait is ticked, logged and e
   // The ask-rule reading is gone (no Rust command, no bridge call).
   assert.ok(!read("src-tauri/src/lib.rs").includes("approval_ask_rules"));
   assert.ok(!read("src/core/bridge.ts").includes("approvalAskRules"));
+});
+
+// The Allow key on long commands (fix 2026-10-25; glim.log 2026-10-24: 7
+// presses on 2 bash approvals, every one "refused (cut-off)"). A cut-off
+// command's first press expands the card; the next press, within the
+// window and at least 1.5 s after expanding, allows.
+const LONG = "Bash · cd ~/local-companion && git fetch origin && git merge --no-edit origin/main && npm --prefix windows test && npx tsc --noEmit -p windows";
+const LONG_RM = "Bash · cd ~/local-companion/windows && rm -rf dist target/release/bundle node_modules/.vite && npm ci && npm run build && npm run pack";
+
+// What the card measures: cut off until expanded, then whole (a command that
+// fits the expanded box), unless `scrolls`.
+function longCard(id, { scrolls = false } = {}) {
+  cardOnScreen(id, 0, () => expandedFor(id) !== null && !scrolls);
+}
+
+test("a long command: the first press expands the card, the second allows", () => {
+  cardOffScreen();
+  const r = req(LONG, { requestId: "L1" });
+  longCard("L1");
+  assert.equal(press(r, true, 2_000), "expand", "cut off: shown in full first, never allowed blind");
+  assert.deepEqual(expandedFor("L1"), { requestId: "L1", at: 2_000, armedAt: 2_000 });
+  assert.equal(press(r, true, 3_600), "ok", "the second press, 1.6 s after expanding");
+  assert.equal(expandedFor("L1"), null, "allowed: done");
+  cardOffScreen();
+});
+
+test("the 1.5 s delay still applies after expanding, even on a card open for long", () => {
+  cardOffScreen();
+  const r = req(LONG, { requestId: "L2" });
+  longCard("L2");
+  assert.equal(press(r, true, 60_000), "expand");
+  assert.equal(press(r, true, 60_900), "too-soon", "0.9 s after the whole command appeared");
+  assert.equal(refusalFor("L2", 60_900), "too-soon", "the card says why");
+  assert.equal(refusalFor("L2", 60_900 + REASON_MS + 1), null, "for a moment");
+  assert.equal(press(r, true, 61_600), "ok");
+  cardOffScreen();
+});
+
+test("expanded, the window closes like the two-press one: the next press opens it again", () => {
+  cardOffScreen();
+  const r = req(LONG, { requestId: "L3" });
+  longCard("L3", { scrolls: true });
+  assert.equal(press(r, true, 1_000), "expand");
+  assert.ok(expandWindow("L3", 1_000 + CONFIRM_WINDOW_MS));
+  assert.equal(expandWindow("L3", 1_001 + CONFIRM_WINDOW_MS), null);
+  assert.equal(press(r, true, 10_000), "expand", "too late: this press only opens the window again");
+  assert.equal(expandedFor("L3").at, 1_000, "the card stayed expanded: the delay counts from the first expansion");
+  // Taller than the expanded box: not until its end has been on screen.
+  assert.equal(press(r, true, 10_200), "scroll");
+  assert.equal(refusalFor("L3", 10_200), "scroll", "the card says to scroll");
+  cardOnScreen("L3", 10_300, true); // scrolled to the end
+  assert.equal(press(r, true, 10_400), "ok", "then the next press allows straight away");
+  // Folded: it starts small again and must be expanded again.
+  longCard("L4");
+  assert.equal(press(req(LONG, { requestId: "L4" }), true, 22_000), "expand");
+  cardOffScreen();
+  assert.equal(expandedFor("L4"), null);
+  longCard("L4");
+  assert.equal(press(req(LONG, { requestId: "L4" }), true, 25_000), "expand");
+  cardOffScreen();
+});
+
+test("a long destructive command: expand, then its own two presses", () => {
+  cardOffScreen();
+  const r = req(LONG_RM, { requestId: "LD" });
+  assert.ok(isDestructive(LONG_RM));
+  longCard("LD");
+  assert.equal(press(r, true, 2_000), "expand", "expanding is not one of the two");
+  assert.equal(press(r, true, 2_500), "too-soon");
+  assert.equal(press(r, true, 3_600), "armed", "the first of two");
+  assert.equal(press(r, true, 4_500), "ok", "the second");
+  cardOffScreen();
+});
+
+test("a short command: one press, unchanged", () => {
+  cardOffScreen();
+  cardOnScreen("S1", 0, true);
+  assert.equal(press(req("Bash · npm test", { requestId: "S1" }), true, 1_600), "ok");
+  assert.equal(expandedFor("S1"), null, "nothing to expand");
+  cardOffScreen();
+});
+
+test("a command the relay cut short: refused, and the card says to click", () => {
+  withClock((at) => {
+    cardOffScreen();
+    const cut = `Bash · ${"echo x && ".repeat(40)}…`;
+    const { card } = squeezedCard("T1", cut);
+    at(0);
+    card.sync();
+    const why = card.el.find("div").find((d) => d.getAttribute("data-role") === "allow-why");
+    assert.equal(why.textContent, "Too long to show in full: click Allow.", "said before any press");
+    assert.equal(why.style.display, "");
+    at(2_000);
+    assert.equal(press(State.pendingApproval, true, 2_000), "too-long");
+    assert.equal(expandedFor("T1"), null, "never expanded into an allow");
+    at(5_000);
+    assert.equal(press(State.pendingApproval, true, 5_000), "too-long");
+  });
+});
+
+test("the card: expanded to the whole command, \"Press again to allow\", and a refusal's reason", () => {
+  withClock((at) => {
+    cardOffScreen();
+    const { card, confirm } = squeezedCard("V1", LONG);
+    const code = card.el.find("div").find((d) => d.className.split(" ")[0] === "code");
+    const why = card.el.find("div").find((d) => d.getAttribute("data-role") === "allow-why");
+    // One line of a long command: it doesn't fit.
+    code.scrollWidth = 900;
+    at(0);
+    card.sync();
+    assert.ok(!code.classList.contains("expanded"));
+    at(2_000);
+    assert.equal(press(State.pendingApproval, true, 2_000), "expand");
+    card.sync();
+    assert.ok(code.classList.contains("expanded"), "the box wraps and grows");
+    // Wrapped, it fits the expanded box (with the "Press again" line showing).
+    code.scrollWidth = 300;
+    code.scrollHeight = 15;
+    assert.equal(confirm.textContent, "Press again to allow · 3");
+    at(2_500);
+    assert.equal(press(State.pendingApproval, true, 2_500), "too-soon");
+    card.sync();
+    assert.equal(why.textContent, "Too soon: read it, then press again.");
+    at(2_500 + REASON_MS + 100);
+    card.sync();
+    assert.equal(why.style.display, "none", "the reason goes after a moment");
+    // A destructive one asks for two.
+    cardOffScreen();
+    State.pendingApproval = req(LONG_RM, { requestId: "V2" });
+    code.scrollWidth = 900;
+    at(10_000);
+    card.sync();
+    at(12_000);
+    assert.equal(press(State.pendingApproval, true, 12_000), "expand");
+    card.sync();
+    assert.equal(confirm.textContent, "Read it, then press twice to allow");
+    // At the boundary (security review of #59): it would fit without the
+    // "Press again" line, but with it showing its last line is out of view.
+    cardOffScreen();
+    State.pendingApproval = req(LONG, { requestId: "V4" });
+    code.scrollWidth = 900;
+    code.scrollHeight = 30;
+    code.scrollTop = 0;
+    at(30_000);
+    card.sync();
+    at(32_000);
+    assert.equal(press(State.pendingApproval, true, 32_000), "expand");
+    card.sync();
+    code.scrollWidth = 300;
+    assert.equal(confirm.style.display, "", "the line is on screen");
+    assert.equal(code.clientHeight, 20, "and takes room from the box");
+    at(34_000);
+    assert.equal(press(State.pendingApproval, true, 34_000), "scroll", "measured as displayed: not allowed");
+    code.scrollTop = 10;
+    assert.equal(press(State.pendingApproval, true, 34_100), "ok", "scrolled to the end: allowed");
+    // Taller than the expanded box (it scrolls): not until scrolled to its end.
+    cardOffScreen();
+    State.pendingApproval = req(LONG, { requestId: "V3" });
+    code.scrollWidth = 900;
+    at(20_000);
+    card.sync();
+    at(22_000);
+    assert.equal(press(State.pendingApproval, true, 22_000), "expand");
+    card.sync();
+    code.scrollWidth = 300;
+    code.scrollHeight = 400;
+    code.scrollTop = 0;
+    at(24_000);
+    assert.equal(press(State.pendingApproval, true, 24_000), "scroll");
+    card.sync();
+    assert.equal(why.textContent, "Scroll to the end of the command, then press again.");
+    code.scrollTop = 400 - code.clientHeight;
+    at(24_500);
+    assert.equal(press(State.pendingApproval, true, 24_500), "ok", "its end has been on screen");
+  });
+  // The CSS and the height exist.
+  assert.match(read("src/style.css"), /\.code\.expanded \{[^}]*white-space: pre-wrap;[^}]*overflow-y: auto;/);
+  assert.match(read("src/core/layout.ts"), /export const APPROVAL_EXPANDED_H = 300;/);
+});
+
+test("the relay keeps the card's field up to 32 KB on a permission request", () => {
+  const hook = read("hook/src/main.rs");
+  assert.match(hook, /const MAX_APPROVAL_LEN: usize = 32 \* 1024;/);
+  assert.match(hook, /matches!\(event, "PermissionRequest" \| "PreToolUse"\)/);
+  // The same fields the island shows (hooks.ts APPROVAL_FIELDS).
+  const island = read("src/island/hooks.ts");
+  const shown = [...island.slice(island.indexOf("const APPROVAL_FIELDS = ["), island.indexOf("] as const;")).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  const kept = [...hook.slice(hook.indexOf("const APPROVAL_FIELDS: &[&str] = &["), hook.indexOf("const MAX_APPROVAL_LEN")).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(kept, shown);
 });
 
 test("the soft sound is off by default and has its Settings switch", () => {

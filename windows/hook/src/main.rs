@@ -46,6 +46,14 @@ const DROPPED_FIELDS: &[&str] = &["tool_response", "tool_output", "transcript_pa
 /// less than this anyway.
 const MAX_FIELD_LEN: usize = 2_000;
 
+/// What an approval card shows (the island's hooks.ts APPROVAL_FIELDS): kept
+/// up to MAX_APPROVAL_LEN on a permission request (and the PreToolUse before
+/// it), so the card the Allow key expands shows the whole command (fix
+/// 2026-10-25: long bash commands came with "…" and the key refused them).
+/// Longer still, it is cut with "…" and the key stays refused for it.
+const APPROVAL_FIELDS: &[&str] = &["command", "file_path", "path", "url", "query", "pattern", "prompt"];
+const MAX_APPROVAL_LEN: usize = 32 * 1024;
+
 mod statusline;
 
 /// The live diff needs the whole text of a file edit, once it has happened:
@@ -257,8 +265,28 @@ fn truncate_payload(payload: &mut serde_json::Value, event: &str) {
     } else {
         None
     };
+    // The approval card's own field: taken out before the ordinary cap.
+    let mut shown = Vec::new();
+    if matches!(event, "PermissionRequest" | "PreToolUse") {
+        if let Some(fields) = payload.get_mut("tool_input").and_then(|v| v.as_object_mut()) {
+            for key in APPROVAL_FIELDS {
+                if fields.get(*key).is_some_and(|v| v.is_string()) {
+                    if let Some(serde_json::Value::String(s)) = fields.remove(*key) {
+                        shown.push((key.to_string(), s));
+                    }
+                }
+            }
+        }
+    }
 
     truncate_strings(payload);
+
+    if let Some(fields) = payload.get_mut("tool_input").and_then(|v| v.as_object_mut()) {
+        for (key, mut s) in shown {
+            cut(&mut s, MAX_APPROVAL_LEN);
+            fields.insert(key, serde_json::Value::String(s));
+        }
+    }
 
     if let Some(mut input) = input {
         let mut budget = MAX_DIFF_TOTAL;
@@ -413,6 +441,35 @@ mod tests {
         let s = v["tool_input"]["content"].as_str().unwrap();
         assert!(s.len() <= MAX_FIELD_LEN + 4);
         assert!(s.ends_with('…'));
+    }
+
+    #[test]
+    fn an_approval_keeps_its_whole_command_up_to_the_approval_cap() {
+        // A long bash command (fix 2026-10-25): whole, so the expanded card
+        // shows it all; the other strings keep the ordinary cap.
+        let long = "echo x && ".repeat(600);
+        let mut v = serde_json::json!({ "tool_name": "Bash", "tool_input": { "command": long, "description": "d".repeat(4000) } });
+        truncate_payload(&mut v, "PermissionRequest");
+        assert_eq!(v["tool_input"]["command"].as_str().unwrap(), long);
+        assert!(v["tool_input"]["description"].as_str().unwrap().len() <= MAX_FIELD_LEN + 4);
+        // Past the approval cap: cut, with the "…" the island refuses the key for.
+        let huge = "y".repeat(MAX_APPROVAL_LEN + 10);
+        let mut v = serde_json::json!({ "tool_name": "Bash", "tool_input": { "command": huge } });
+        truncate_payload(&mut v, "PermissionRequest");
+        let s = v["tool_input"]["command"].as_str().unwrap();
+        assert!(s.len() <= MAX_APPROVAL_LEN + 4 && s.ends_with('…'));
+        // Any other event: the ordinary cap.
+        let mut v = serde_json::json!({ "tool_name": "Bash", "tool_input": { "command": long } });
+        truncate_payload(&mut v, "PostToolUse");
+        assert!(v["tool_input"]["command"].as_str().unwrap().ends_with('…'));
+        // Every field the island shows on the card, and only strings.
+        let mut v = serde_json::json!({ "tool_name": "WebFetch", "tool_input": { "url": "u".repeat(5000), "prompt": "p".repeat(5000), "x": 1 } });
+        truncate_payload(&mut v, "PreToolUse");
+        assert_eq!(v["tool_input"]["url"].as_str().unwrap().len(), 5000);
+        assert_eq!(v["tool_input"]["prompt"].as_str().unwrap().len(), 5000);
+        assert_eq!(v["tool_input"]["x"], 1);
+        // The whole event still fits the island's 1 MiB line many times over.
+        assert!(APPROVAL_FIELDS.len() * MAX_APPROVAL_LEN * 2 < 1024 * 1024);
     }
 
     #[test]
