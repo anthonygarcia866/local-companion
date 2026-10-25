@@ -14,9 +14,11 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
+import { DEFAULT_PHONE, type PhoneSettings } from "./phone";
 import type { WritingAsk } from "./ask";
 import { needsCard, type VoiceState } from "./voice";
 import type { DraftState } from "./draft";
+import { DEFAULT_LEAD_MIN, wantsCard, type CalendarState } from "./calendar";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -181,12 +183,38 @@ export interface Settings {
   voiceModel: "base" | "small";
   /** Settings → Writing → Dictation → Words Glim should know: whisper's prompt, never sent anywhere. */
   voiceWords: string;
+  /** Settings → Writing → Apps Glim can open: the user's own apps for "open …".
+   *  Only the names go to Claude; Rust checks name and path again (voice::own_apps). */
+  voiceApps: OwnApp[];
+  /** Settings → Writing (1e, §7a.6): the mini lantern beside the field. Off by default. */
+  writingBubble: boolean;
   /** Settings → Email drafts → Your address (1.5d): the only sender, and "me". */
   draftFrom: string;
   /** Names picked on the Draft email card → addresses. Rust's (draft_forget removes one). */
   draftRecipients?: Record<string, string>;
+  /** Settings → Calendar (calendar glance): show the next Outlook event. Off by default. */
+  calendarOn: boolean;
+  /** Minutes before an event the lantern glows. */
+  calendarLeadMin: number;
+  /** All-day events stay out of the glance (default). */
+  calendarHideAllDay: boolean;
+  /** A summary of the day once a morning (off by default). */
+  calendarSummary: boolean;
+  /** Which calendars (Outlook folder paths); empty = the default calendar. */
+  calendarIds: string[];
+  /** The day the morning summary was last shown. Rust's. */
+  calendarSummaryShown?: string;
   /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
   approvalSound?: boolean;
+  /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
+  phone?: PhoneSettings;
+}
+
+/** One of the user's own apps: what they say after "open", and a full local
+ *  path to an .exe or a shortcut (.lnk). Stored as settings.json `voiceApps`. */
+export interface OwnApp {
+  name: string;
+  path: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -219,7 +247,15 @@ export const DEFAULT_SETTINGS: Settings = {
   aiAutoCheck: false,
   voiceModel: "base",
   voiceWords: "",
+  voiceApps: [],
+  writingBubble: false,
   draftFrom: "",
+  calendarOn: false,
+  calendarLeadMin: DEFAULT_LEAD_MIN,
+  calendarHideAllDay: true,
+  calendarSummary: false,
+  calendarIds: [],
+  phone: { ...DEFAULT_PHONE },
 };
 
 type Listener = () => void;
@@ -363,6 +399,8 @@ class AppState {
   voice: VoiceState | null = null;
   /** The "Draft email" card (core/draft.ts); null for none. */
   draft: DraftState | null = null;
+  /** The calendar glance (core/calendar.ts): Rust's last read; null before the first. */
+  calendar: CalendarState | null = null;
   /** The pill that was in front when the card came up; it comes back after. */
   focusBeforeApproval: string | null = null;
 
@@ -668,6 +706,8 @@ class AppState {
     if (this.writingDocsTip) return "writingDocsTip";
     if (this.draft) return "draft";
     if (needsCard(this.voice)) return "voice";
+    // The next event glows (or the morning summary is up): its card.
+    if (wantsCard(this.calendar, Date.now(), this.settings.calendarLeadMin ?? DEFAULT_LEAD_MIN)) return "calendar";
     if (this.writing.length > 0) return "suggestions";
     return null;
   }

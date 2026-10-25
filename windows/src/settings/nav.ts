@@ -28,9 +28,11 @@ export const NAV: NavEntry[] = [
       { id: "settings-writing-strictness", label: N_("Strictness") },
     ],
   },
+  { id: "settings-calendar", label: N_("Calendar") },
   { id: "settings-privacy", label: N_("Privacy") },
   { id: "settings-shortcuts", label: N_("Shortcuts") },
   { id: "settings-agents", label: N_("Claude Code & Agents") },
+  { id: "settings-phone", label: N_("Phone") },
   { id: "settings-about", label: N_("About") },
 ];
 

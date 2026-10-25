@@ -71,6 +71,8 @@ pub enum Request {
     FixAll { check_id: u64 },
     /// Dismiss the list.
     Dismiss,
+    /// Ignore row `index` of list `check_id` for the rest of this run (§7a.3).
+    Ignore { check_id: u64, index: usize },
     /// 1c: rewrite the paragraph the caret is in, in this tone (a click).
     Rewrite { tone: crate::ai::claude::Tone },
     /// 1c: the API's answer for rewrite `id` (from the async runtime).
@@ -176,6 +178,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let mut last_typable = false;
     let send_list = |s: &crate::writing::Suggestions| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::EVENT, s);
+        // The mini lantern's popover shows the same rows (if its window exists).
+        let _ = app.emit_to(crate::bubble_window::LABEL, crate::writing::EVENT, s);
     };
     let send_result = |outcome: crate::writing::Outcome, app_name: String, done: usize, total: usize, skipped: usize| {
         if total > 0 || skipped > 0 {
@@ -185,6 +189,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         let r = crate::writing::FixResult { outcome, app: app_name, done, total, skipped };
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::RESULT_EVENT, &r);
+        let _ = app.emit_to(crate::bubble_window::LABEL, crate::writing::RESULT_EVENT, &r);
     };
     // Diagnostics for the log: how many focus events and polls arrived, how
     // many readings went to the panel and by which path, and which apps were
@@ -198,6 +203,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     // The one-time "Check writing in [app]?" prompt (1d, §14.2).
     let mut asker = crate::writing::ask::Asker::default();
     let mut docs_tip = crate::writing::docs_tip::DocsTip::default();
+    // The mini lantern (1e, §7a): off by default; its window exists only
+    // once it has been needed.
+    let mut bubble = crate::bubble_window::Driver::default();
+    let mut bubble_last: Option<crate::bubble_window::Decision> = None;
+    // Its last logged reason (bug 3): one line when it changes.
+    let mut bubble_why: Option<crate::bubble_window::Why> = None;
 
     loop {
         let via = match rx.recv_timeout(POLL) {
@@ -256,6 +267,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     Request::Dismiss => {
                         writer.dismiss(send_list);
                         fix_field = None;
+                    }
+                    Request::Ignore { check_id, index } => {
+                        let done = writer.ignore(check_id, index, send_list);
+                        crate::log::line(format!("writing: ignore {} ({} ignored this run)", if done.is_ok() { "ok" } else { "stale" }, writer.ignored_count()));
                     }
                     Request::Rewrite { tone } => {
                         use crate::ai::{claude, key, rewrite, spend};
@@ -478,6 +493,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false };
             writer.observe_in(&r, std::time::Instant::now(), send_list);
             fix_field = None;
+            // Paused: the mini lantern goes too (§7a.5), within this reading.
+            if bubble_last.as_ref().is_some_and(|d| d.window.is_some()) {
+                let parked = crate::bubble_window::Decision { window: None, state: Default::default(), close: true };
+                crate::bubble_window::apply(app, &parked, bubble_last.as_ref());
+                bubble_last = Some(parked);
+            }
             continue;
         }
         let Ok(element) = (unsafe { uia.GetFocusedElement() }) else { continue };
@@ -492,6 +513,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         let reading = read(&uia, &element, pid, &pause, dev);
         let ask = reading.ask;
         let mail_site = reading.mail_site;
+        let (reading_field, reading_caret, reading_line) = (reading.field_rect, reading.caret_rect, reading.line_rect);
         // Google Docs (not supported yet, Decision D): nothing was read; one
         // metadata line per stay, and the one-time notice.
         let in_docs = reading.docs_site && crate::writing::apps::enabled(&reading.capture.meta.app);
@@ -554,6 +576,35 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             crate::writing::tones::set_focus(&capture.meta.app, cat);
         }
         last_typable = checked.is_some() && !capture.meta.read_only && !capture.meta.password;
+        // The mini lantern (§7a): every condition, then where it goes.
+        let prefs = crate::writing::prefs::get();
+        if prefs.bubble || bubble_last.as_ref().is_some_and(|d| d.window.is_some()) {
+            let (hidden, fullscreen) = crate::presence::hidden_and_fullscreen(app);
+            let conditions = crate::writing::bubble::Conditions {
+                setting_on: prefs.bubble,
+                suggestions: writer.count(),
+                rewriting: writer.rewrite_pending(),
+                editable: !capture.meta.read_only,
+                password: capture.meta.password,
+                read: checked.is_some(),
+                app_on: crate::writing::apps::enabled(&capture.meta.app),
+                app_paused: false,
+                paused: crate::writing::paused(),
+                hidden,
+                fullscreen,
+                field_focused: true,
+                app_foreground: foreground_pid() == pid as u32,
+            };
+            let monitors = crate::bubble_window::monitors(app);
+            let input = crate::bubble_window::Input { conditions, field: reading_field, caret: reading_caret, line: reading_line, new_field: !same, monitors: &monitors };
+            let decision = bubble.step(&input, crate::bubble_window::is_open());
+            if let Some(why) = bubble.why().filter(|w| !bubble_why.as_ref().is_some_and(|b| b.same_reason(w))) {
+                crate::log::line(crate::bubble_window::log_line(why, &monitors));
+                bubble_why = Some(why.clone());
+            }
+            crate::bubble_window::apply(app, &decision, bubble_last.as_ref());
+            bubble_last = Some(decision);
+        }
         current = Some((element, capture.meta.clone()));
         if dev && app.emit_to(PANEL, "capture-debug", &capture).is_ok() {
             if via == "event" { by_event += 1 } else { by_poll += 1 }
@@ -637,7 +688,109 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     let mut reading = finish(meta, window_title, text, caret);
     reading.mail_site = mail_site;
     reading.docs_site = docs_site;
+    if reading.text.is_some() {
+        (reading.field_rect, reading.caret_rect, reading.line_rect) = rects(element);
+    }
     reading
+}
+
+/// The field's rectangle, its caret's and the caret's line's (§7a.1),
+/// physical screen pixels. The caret: TextPattern2's caret range, else the
+/// selection's start. A collapsed range often has no rectangle, so then the
+/// next character's left edge stands in for it (1 px wide). The line: the
+/// caret's range grown to its line (2026-10-18), the rectangle on the caret's
+/// row. Geometry only: no text is read here.
+#[allow(clippy::type_complexity)]
+fn rects(
+    element: &IUIAutomationElement,
+) -> (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) {
+    use crate::writing::bubble::Rect;
+    let field = unsafe { element.CurrentBoundingRectangle() }.ok().map(|r| Rect::new(r.left, r.top, r.right, r.bottom));
+    let range = unsafe {
+        let mut active = BOOL::default();
+        element
+            .GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id)
+            .ok()
+            .and_then(|p| p.GetCaretRange(&mut active).ok())
+            .or_else(|| {
+                element
+                    .GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId)
+                    .ok()
+                    .and_then(|p| p.GetSelection().ok())
+                    .filter(|s| s.Length().unwrap_or(0) > 0)
+                    .and_then(|s| s.GetElement(0).ok())
+            })
+    };
+    let caret = range.as_ref().and_then(|r| unsafe {
+        let first = first_rect(r);
+        if first.is_some() {
+            return first.map(|(x, y, _, h)| Rect::new(x, y, x + 1, y + h));
+        }
+        // Collapsed: one character on, then its left edge.
+        let next = r.Clone().ok()?;
+        next.MoveEndpointByUnit(TextPatternRangeEndpoint_End, windows::Win32::UI::Accessibility::TextUnit_Character, 1).ok()?;
+        first_rect(&next).map(|(x, y, _, h)| Rect::new(x, y, x + 1, y + h))
+    });
+    let line = range.zip(caret).and_then(|(r, c)| unsafe {
+        let l = r.Clone().ok()?;
+        l.ExpandToEnclosingUnit(windows::Win32::UI::Accessibility::TextUnit_Line).ok()?;
+        let mid = c.top + c.height() / 2;
+        all_rects(&l).into_iter().map(|(x, y, w, h)| Rect::new(x, y, x + w, y + h)).find(|r| r.top <= mid && mid < r.bottom)
+    });
+    (field, caret, line)
+}
+
+/// All of a range's bounding rectangles: (left, top, width, height), rounded
+/// to physical pixels; the ones with no height left out.
+fn all_rects(range: &IUIAutomationTextRange) -> Vec<(i32, i32, i32, i32)> {
+    use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetUBound, SafeArrayUnaccessData};
+    let mut out = Vec::new();
+    unsafe {
+        let Ok(sa) = range.GetBoundingRectangles() else { return out };
+        if sa.is_null() {
+            return out;
+        }
+        let count = (SafeArrayGetUBound(sa, 1).unwrap_or(-1) + 1).max(0) as usize / 4;
+        let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
+        if count > 0 && SafeArrayAccessData(sa, &mut data).is_ok() && !data.is_null() {
+            let d = std::slice::from_raw_parts(data as *const f64, count * 4);
+            for q in d.as_chunks::<4>().0 {
+                if q[3] > 0.0 {
+                    out.push((q[0].round() as i32, q[1].round() as i32, q[2].round() as i32, q[3].round() as i32));
+                }
+            }
+            let _ = SafeArrayUnaccessData(sa);
+        }
+        let _ = SafeArrayDestroy(sa);
+    }
+    out
+}
+
+/// The first of a range's bounding rectangles: (left, top, width, height),
+/// rounded to physical pixels; None when it has none.
+fn first_rect(range: &IUIAutomationTextRange) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetUBound, SafeArrayUnaccessData};
+    unsafe {
+        let sa = range.GetBoundingRectangles().ok()?;
+        if sa.is_null() {
+            return None;
+        }
+        let upper = SafeArrayGetUBound(sa, 1).unwrap_or(-1);
+        let mut out = None;
+        // Groups of four doubles: left, top, width, height.
+        if upper >= 3 {
+            let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
+            if SafeArrayAccessData(sa, &mut data).is_ok() && !data.is_null() {
+                let d = std::slice::from_raw_parts(data as *const f64, 4);
+                if d[3] > 0.0 {
+                    out = Some((d[0].round() as i32, d[1].round() as i32, d[2].round() as i32, d[3].round() as i32));
+                }
+                let _ = SafeArrayUnaccessData(sa);
+            }
+        }
+        let _ = SafeArrayDestroy(sa);
+        out
+    }
 }
 
 /// The field's labels from UI Automation, never its text.
@@ -887,5 +1040,56 @@ fn foreground_title() -> String {
         let mut buf = [0u16; 512];
         let n = GetWindowTextW(hwnd, &mut buf);
         String::from_utf16_lossy(&buf[..n.max(0) as usize])
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+    use windows::Win32::UI::Accessibility::{TreeScope_Descendants, UIA_ClassNamePropertyId};
+
+    // Read-only: finds classic Outlook's Word body (_WwG) and prints what the
+    // mini lantern would get from it. Geometry only, never text.
+    #[test]
+    #[ignore = "live: needs classic Outlook open"]
+    fn outlook_body_rects() {
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
+            let uia: IUIAutomation = CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER).unwrap();
+            let root = uia.GetRootElement().unwrap();
+            let cond = uia.CreatePropertyCondition(UIA_ClassNamePropertyId, &VARIANT::from("_WwG")).unwrap();
+            let all = root.FindAll(TreeScope_Descendants, &cond).unwrap();
+            for i in 0..all.Length().unwrap() {
+                let e = all.GetElement(i).unwrap();
+                let r = e.CurrentBoundingRectangle().unwrap();
+                let tp2 = e.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id).is_ok();
+                let tp = e.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok();
+                let sel_len = tp.as_ref().and_then(|p| p.GetSelection().ok()).map(|s| s.Length().unwrap_or(-1));
+                let (field, caret, line) = rects(&e);
+                // A caret at the end of the first paragraph: collapsed just
+                // before its mark, then that mark (the fallback's character).
+                if let Some(p) = &tp {
+                    use windows::Win32::UI::Accessibility::{TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Paragraph};
+                    let para = p.DocumentRange().unwrap();
+                    para.ExpandToEnclosingUnit(TextUnit_Paragraph).unwrap();
+                    let end = para.Clone().unwrap();
+                    end.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &para, TextPatternRangeEndpoint_End).unwrap();
+                    let moved = end.Move(TextUnit_Character, -1).unwrap_or(0);
+                    eprintln!("  para rects={:?} end-collapsed moved={moved} rects={:?}", first_rect(&para), first_rect(&end));
+                    let mark = end.Clone().unwrap();
+                    let n = mark.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1).unwrap_or(0);
+                    eprintln!("  +1 char (mark) moved={n} rects={:?}", first_rect(&mark));
+                    let doc_end = p.DocumentRange().unwrap();
+                    doc_end.MoveEndpointByRange(TextPatternRangeEndpoint_Start, &doc_end, TextPatternRangeEndpoint_End).unwrap();
+                    let last = doc_end.Clone().unwrap();
+                    let n2 = last.MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1).unwrap_or(0);
+                    eprintln!("  doc end collapsed rects={:?}; +1 char moved={n2} rects={:?}", first_rect(&doc_end), first_rect(&last));
+                }
+                eprintln!(
+                    "_WwG #{i}: rect=({},{},{},{}) tp2={tp2} tp={} selection_ranges={sel_len:?} -> field={field:?} caret={caret:?} line={line:?}",
+                    r.left, r.top, r.right, r.bottom, tp.is_some()
+                );
+            }
+        }
     }
 }

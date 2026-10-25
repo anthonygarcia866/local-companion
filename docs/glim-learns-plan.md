@@ -1,6 +1,6 @@
 # Glim learns: shortcuts, routines and remembered rules (plan)
 
-Status: **design only, not built, nothing decided.** Open questions for the owner are in §9.
+Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** Not built yet.
 
 **Credit.** The ideas are adapted from Atticus, an MIT-licensed voice assistant ([atticus-mac](https://github.com/SaarthurR/atticus-mac), [atticus-windows](https://github.com/FindlayHi/atticus-windows)): its README and `atticus.py`'s `learn`, `replay`, `like`, `gist`, `relevant_rules` and `remember_workflow`. No code is copied. If a later PR ports any, it carries the MIT notice in `NOTICE.md`.
 
@@ -12,7 +12,7 @@ The rules below come on top of `CLAUDE.md` and `docs/voice-actions-plan.md`, whi
 
 ## 1. Learned shortcuts
 
-**What it does.** After an Ask-lane request succeeds and Glim has checked that it worked, Glim keeps the validated tool call under the request's *gist*. The next time the user asks the same thing, Glim matches the gist **locally**, before any API call, and replays the call: no Claude, no `s-delegate`, no cost, about 0.2 s. The result card carries a small "⚡ Shortcut" tag, so the user knows Claude wasn't asked.
+**What it does.** After an Ask-lane request succeeds and Glim has checked that it worked, Glim keeps the validated tool call under the request's *gist*. The next time the user asks the same thing, Glim matches the gist **locally**, before any API call, and replays the call: no Claude, no `s-delegate`, no cost, about 0.2 s. The result card carries a small "Learned" note, so the user knows Claude wasn't asked.
 
 **Which calls can be learned (an allowlist; anything else is never learned):**
 
@@ -20,7 +20,7 @@ The rules below come on top of `CLAUDE.md` and `docs/voice-actions-plan.md`, whi
 |---|---|---|
 | `open_app` | yes | an enum value (built-in or the user's own app from #40) |
 | `resume_work` | yes | `repo` is a name from the known-repos list. A replay only shows the cards: opening Claude Code still waits for a click (plan §5) |
-| window actions | yes, once a `window` tool exists (§9 Q5) | an enum action on one named app |
+| window actions | not in v1 (§9, decision 5) | an enum action on one named app |
 | `draft_email`, `edit_draft` | **never** | consequential, and free text |
 | `dictate`, `clarify`, answers to a question | **never** | free text, or depends on the moment |
 
@@ -51,7 +51,7 @@ The rules below come on top of `CLAUDE.md` and `docs/voice-actions-plan.md`, whi
 
 Builds on #40 (the user's own apps in `open_app`).
 
-- **Saying it.** In the Ask lane, "When I say *work mode*, open Outlook and Codex and pick up my-repo" → Claude answers with a new tool, `save_routine { name, steps[] }`, each step being one allowed tool call with its normal fields. Glim validates every step, then shows a card: *"Save 'work mode'? 1. Open Outlook 2. Open Codex 3. Resume my-repo"* with **Save** and **Cancel**. Nothing runs and nothing is stored until Save (§9 Q3).
+- **Saying it.** In the Ask lane, "When I say *work mode*, open Outlook and Codex and pick up my-repo" → Claude answers with a new tool, `save_routine { name, steps[] }`, each step being one allowed tool call with its normal fields. Glim validates every step, then shows a card: *"Save 'work mode'? 1. Open Outlook 2. Open Codex 3. Resume my-repo"* with **Save** and **Cancel**. Nothing runs and nothing is stored until Save (§9, decision 3).
 - **Running it.** Saying the name (matched by gist, before shortcuts and before any API call) runs the steps in order. Each step is checked as in §1. On the first failure Glim stops and says which step: *"Step 2 of 3 (Open Codex) didn't work."* Steps after it don't run.
 - **Allowed steps:** `open_app` (built-in or own app), `resume_work` (cards only; Claude Code still opens on a click), window actions once they exist. **Not allowed:** `dictate`, `draft_email`, `edit_draft`, `clarify`, another routine, or anything consequential.
 - **Limits:** at most **5 steps** per routine and **20 routines**. A name is 2–40 characters (letters, digits, spaces, `-'`), not deictic, not a built-in or own app's name, not a §4.1 command word, and not another routine's name.
@@ -73,7 +73,7 @@ Builds on #40 (the user's own apps in `open_app`).
 - **Where:** `%LOCALAPPDATA%\Glim\learn\`: `shortcuts.json`, `routines.json`, `memory.json`. Each write goes to a temp file, then a rename, so a crash can't truncate it. A file that doesn't parse is set aside as `*.bad` and treated as empty (logged as a count, never its text).
 - **What's stored:** gists (the kept words, not the transcript), routine names, validated tool calls (enums and known names only, never paths: #40's paths stay in settings.json), and the user's rules and facts. **Never** audio, raw transcripts or Claude's text.
 - **Network:** no new host, no new dependency. Replays and routines make **fewer** API calls. **Privacy change to call out in the PR (CLAUDE.md): rules and facts go to `api.anthropic.com` inside Ask-lane requests**, after the sensitive scan. Settings says so under the Memory list.
-- **Settings switch:** "Learn shortcuts from what I ask" (default: §9 Q1). Off = no learning and no replay of learned shortcuts; routines and memory still work, since the user made them.
+- **Settings switch:** "Learn shortcuts from what I ask" (default **on**, §9 decision 1). Off = no learning and no replay of learned shortcuts; routines and memory still work, since the user made them.
 - **Logs: counts only**, e.g. `learn: replay ok (open_app)`, `learn: replay failed -> claude`, `learn: saved shortcut (resume_work)`, `learn: not learned (deictic)`, `learn: routine ran 3/3 steps`, `learn: memory refused (filter)`, and at startup `learn: 12 shortcuts, 3 routines, 7 rules, 4 facts`. **Never** a gist, routine name, app name, rule or fact (as #40's log never names an app).
 - **CLAUDE.md** and `docs/voice-actions-plan.md` get the new tools (`save_routine`, `remember`) and the "rules and facts go to the API" line in the PR that builds this, not later.
 
@@ -82,7 +82,7 @@ Builds on #40 (the user's own apps in `open_app`).
 - Call `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` on every Glim window (island, pill, cards, mini lantern, Settings) when it's created. Screen shares, recordings and screenshots then show what's behind Glim, not Glim, so the user's cards (transcripts, drafts) don't leak into a Teams share.
 - Needs Windows 10 2004 or later. If the call fails, log `capture-exclude: unsupported` once and carry on.
 - Check before shipping: that it holds for the transparent island window, and whether `PrintWindow` (our test screenshots, CLAUDE.md) still sees Glim's own window. If it doesn't, a dev-only environment variable `GLIM_CAPTURABLE=1` turns the exclusion off for tests.
-- Settings switch "Hide Glim in screen shares and recordings" (default: §9 Q4). Its own small PR, independent of §1–3.
+- Settings switch "Hide Glim in screen shares and recordings" (default **on**, §9 decision 4; `GLIM_CAPTURABLE=1` turns it off for tests). Its own small PR, independent of §1–3.
 
 ## 6. Separate item (b): cost and latency budget
 
@@ -109,15 +109,15 @@ Paused (Ctrl+Alt+Shift+P) blocks dictation only, as today: shortcuts and routine
 - Learning from the dictation lane, or from typed (non-voice) asks.
 - Editing a routine's steps in place; sharing, exporting or syncing anything.
 - Glim picking up facts about the user without being told.
-- The `window` tool itself (a separate plan and PR, §9 Q5).
+- The `window` tool itself (a separate plan and PR, §9 decision 5).
 
-## 9. Open questions for the owner
+## 9. Decisions (DECIDED 2026-10-24, owner)
 
-1. **"Learn shortcuts" on by default, or off until turned on?** (Recommendation: on: nothing leaves the PC, and it saves API calls.)
-2. **Rules and facts going to `api.anthropic.com` with every Ask request: OK?** (It's the point of remembering, and it's a privacy change.)
-3. **Routines: confirm with a Save card first** (recommended), **or run at once and save** as Atticus does?
-4. **Hide from screen capture: on by default with a switch, or always on?**
-5. **Window actions (snap left/right, maximize, minimize an app): build a `window` tool in this arc,** or keep learning to `open_app` and `resume_work` for now?
+1. **"Learn shortcuts" is ON by default.** A learned result says so on its card ("Learned"), and **Try again** on it removes that shortcut (§1).
+2. **Rules and facts go to `api.anthropic.com` with Ask requests: yes.** The sensitive filter (§3) runs when one is saved; only the rules relevant to the request go with it (§3's selection), and every rule and fact is listed in Settings with Delete. CLAUDE.md's privacy section says so in the PR that builds it.
+3. **Routines: a confirmation card at creation** listing every step (Save / Cancel); once saved, saying the name runs it at once. Steps that would be risky still ask, as they do today.
+4. **Hide from screen capture: a Settings switch, ON by default.** A test-only environment variable turns it off so the PrintWindow verify scripts keep working (§5).
+5. **No `window` tool in v1.** Learning covers `open_app` and `resume_work` only.
 
 ## 10. Test plan (no live clicks on the owner's desktop)
 

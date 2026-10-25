@@ -283,6 +283,10 @@ pub fn process_ancestors(_pid: u32) -> Vec<u32> {
     Vec::new()
 }
 
+pub fn process_running(_exe: &str) -> bool {
+    false
+}
+
 pub fn first_with_window(_pids: &[u32]) -> Option<u32> {
     None
 }

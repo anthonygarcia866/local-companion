@@ -4,6 +4,7 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
+import { DEFAULT_LEAD_MIN, glowing, nextEvent, withCalendarGlow } from "../core/calendar";
 import { CONFIRM_WINDOW_MS, cardOffScreen, press } from "../core/allow";
 import { ApprovalWait, playSoftChime } from "../core/approval-wait";
 import {
@@ -29,6 +30,7 @@ import { t, tn } from "../i18n/i18n";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./pill-status";
 import { DesktopLink } from "./desktop";
+import { phone, phoneSettings, projectOf } from "../core/phone";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
 import { LanternMenu } from "./menu";
 import { startsBarDrag } from "./drag";
@@ -151,6 +153,8 @@ export class Island {
   private uploadDone = false;
   /** How long each permission or question has waited (escalation, wait log). */
   private wait = new ApprovalWait();
+  /** Phone: an idle-time question to Rust is on its way (one at a time). */
+  private askingIdle = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -179,6 +183,27 @@ export class Island {
     if (tick.chime && State.settings.approvalSound === true) playSoftChime();
     for (const e of tick.ended) {
       void Bridge.log(`approval waited ${(e.waitedMs / 1000).toFixed(1)} s (${e.how}${e.escalated ? ", escalated" : ""}) req=${e.requestId}`);
+    }
+    // Phone notifications (docs/phone-plan.md): a request waiting past the
+    // delay pings once, when you're away from the PC. Only the pill and its
+    // project name go to Rust; the idle time is asked for only when one is due.
+    const now = performance.now();
+    // Requests handed back to the terminal still wait there: counted too.
+    const waiting = [
+      ...[State.pendingApproval, ...State.approvalQueue].flatMap((r) =>
+        r ? [{ requestId: r.requestId, pillId: r.pillId, project: projectOf(State.tasks, r.pillId), waitedMs: this.wait.waited(r.requestId, now) }] : [],
+      ),
+      ...phone.inTerminal(now),
+    ];
+    const s = phoneSettings(State.settings.phone);
+    if (phone.due(waiting, s) && !this.askingIdle) {
+      this.askingIdle = true;
+      void Bridge.phoneIdleMs().then((idleMs) => {
+        this.askingIdle = false;
+        for (const p of phone.approvals(waiting, s, new Date(), idleMs)) {
+          void Bridge.phoneNotify(p.kind, p.pillId, p.project);
+        }
+      });
     }
   }
 
@@ -1242,7 +1267,10 @@ export class Island {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
       const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
-      this.lantern.show(forced ?? withPause(withWritingSuggestions(lanternStateFor(this.engine.state, State.mode === "expanded"), suggest), State.paused));
+      // The calendar glance: the next event is minutes away (a resting lantern glows).
+      const cal = State.calendar?.glance.available ? nextEvent(State.calendar.glance.events, Date.now()) : null;
+      const glow = glowing(cal?.event ?? null, Date.now(), State.settings.calendarLeadMin ?? DEFAULT_LEAD_MIN);
+      this.lantern.show(forced ?? withPause(withWritingSuggestions(withCalendarGlow(lanternStateFor(this.engine.state, State.mode === "expanded"), glow), suggest), State.paused));
       // The count of writing suggestions, at the lantern's top right; none
       // while the island is hidden.
       // Dictation typed the raw transcript: its badge takes the spot for the

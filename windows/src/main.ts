@@ -16,6 +16,7 @@ import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "
 import { voiceShown } from "./views/voice";
 import { returnKeyboard } from "./core/keyboard";
 import { draftPlacement, nextDraft, type DraftEvent } from "./core/draft";
+import { nextCalendar, summaryPlacement, type CalendarGlance } from "./core/calendar";
 import { withFirst } from "./views/resume";
 import { isLanternState } from "./mascot/lantern";
 import { PresenceView, isPresenceKind } from "./island/presence";
@@ -268,8 +269,8 @@ async function main() {
   // frame, so those need no redraw.
   /** Rust took a card away (a spoken "never mind", fix c; or its answer
    *  needed no card): the island leaves it rather than show it emptied. */
-  const cardGone = (view: "voice" | "draft") => {
-    returnKeyboard(view);
+  const cardGone = (view: "voice" | "draft" | "calendar") => {
+    if (view !== "calendar") returnKeyboard(view);
     if (State.mode !== "expanded" || State.view !== view) return;
     const next = State.lanternView();
     if (next) island.setView(next);
@@ -308,6 +309,24 @@ async function main() {
     }
     State.notify();
   });
+
+  // The calendar glance (core/calendar.ts): Rust's read of Outlook's
+  // calendar, every few minutes. The morning summary opens by itself, once.
+  await onEvent<CalendarGlance>("calendar", (g) => {
+    const wasOpen = State.calendar?.summaryOpen === true;
+    State.calendar = nextCalendar(State.calendar, g);
+    if (g.summary && !wasOpen) {
+      const where = summaryPlacement({ presence: presence.model.kind, approval: State.pendingApproval !== null });
+      if (where === "drop") State.calendar = { ...State.calendar, summaryOpen: false };
+      else if (where === "show") island.alert("calendar");
+    }
+    if (!g.available) cardGone("calendar");
+    State.notify();
+  });
+  // The countdown and the glow move with the clock, not with Rust's reads.
+  window.setInterval(() => {
+    if (State.calendar?.glance.available) State.notify();
+  }, 20_000);
 
   island.launch();
 }

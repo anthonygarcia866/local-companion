@@ -20,8 +20,10 @@ import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { aiSection } from "./ai";
 import { writingSection } from "./writing";
+import { calendarSection, reloadCalendars } from "./calendar";
 import { privacySection } from "./privacy";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
+import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
 import { renderDiff, statusDot } from "./parts";
 import { folderRows, installLabel } from "./claude-folders";
@@ -243,6 +245,9 @@ function claudeSection(status: HookStatus): HTMLElement {
  */
 const PLAN_SETTINGS_TEXT = {
   get claude() { return t("Shows your Claude plan usage (5-hour and weekly limits) in the island's header. Glim adds a status line relay in ~/.claude/settings.json. If you already have a status line, it keeps working as before. Pro and Max plans only."); },
+  // Upstream #479: the gauge is fed by the status-line relay, which only the
+  // Claude Code CLI runs; the Claude desktop app does not.
+  get claudeCli() { return t("The numbers come from the Claude Code command-line tool. The Claude desktop app does not report them, so the gauge stays empty if you only use the desktop app."); },
   get showClaude() { return t("Show in notch"); },
 };
 
@@ -286,6 +291,7 @@ function planSection(status: HookStatus): HTMLElement {
         class: "hint",
         text: PLAN_SETTINGS_TEXT.claude,
       }),
+      h("div", { class: "hint", "data-role": "plan-claude-cli", text: PLAN_SETTINGS_TEXT.claudeCli }),
       h("div", { class: "row" }, h("label", { text: PLAN_SETTINGS_TEXT.showClaude }), sw),
       h("div", { class: "row" },
         h("label", { text: t("Relay") }),
@@ -1023,6 +1029,7 @@ async function render() {
   settings = { ...settings, ...sanitizeDeclared(settings) };
   const connected: Record<string, boolean> = { ...((await Bridge.agentHooksStatus()) ?? {}) };
   const ai = await aiSection({ settings: () => settings, save });
+  const phoneEl = await phoneSection({ settings: () => settings, save, toggle });
   const knownApps = (await Bridge.writingKnownApps()) ?? [];
   const toneDefaults = (await Bridge.writingToneDefaults()) ?? [];
   const pauseBuiltins = (await Bridge.writingPauseBuiltins()) ?? { apps: [], sites: [] };
@@ -1032,6 +1039,8 @@ async function render() {
   shortcutsListener = null;
   const writing = writingSection({ settings: () => settings, save, watch: (redraw) => declaredViews.push(redraw) }, knownApps, toneDefaults);
   const [general, presence] = generalSections();
+  const calendar = calendarSection({ settings: () => settings, save });
+  calendar.id = "settings-calendar";
   const privacy = privacySection({ settings: () => settings, save }, pauseBuiltins);
   privacy.id = "settings-privacy";
   const shortcuts = shortcutsSection(shortcutReport);
@@ -1041,7 +1050,7 @@ async function render() {
     h("div", { class: "row" }, h("label", { text: "Glim" }), h("span", { class: "version", text: version })),
     h("div", {
       class: "hint",
-      text: t("No telemetry. Glim connects only to this computer and, when you ask for a rewrite, to api.anthropic.com."),
+      text: t("No telemetry. Glim connects only to this computer, to api.anthropic.com when you ask for a rewrite, and to api.pushover.net when phone notifications are on."),
     }),
   );
   // In the sidebar's order (settings/nav.ts NAV).
@@ -1049,6 +1058,7 @@ async function render() {
     general,
     presence,
     h("div", { class: "settings-group", id: "settings-writing" }, writing, ai),
+    calendar,
     privacy,
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },
@@ -1058,6 +1068,7 @@ async function render() {
       activePillsSection(connected),
       localSection(),
     ),
+    phoneEl,
     about,
   ];
   const nav = settingsNav();
@@ -1085,6 +1096,8 @@ function settingsNav(): Nav {
     const heading = (target.querySelector("h2") ?? target.querySelector("h3") ?? target) as HTMLElement;
     heading.setAttribute("tabindex", "-1");
     heading.focus({ preventScroll: true });
+    // Outlook may have opened since the list was asked: ask again.
+    if (id === "settings-calendar") reloadCalendars();
   }, () => sections);
   clear(root);
   root.append(h("div", { class: "settings-layout" }, navView.el, content));

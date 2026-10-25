@@ -32,7 +32,7 @@ impl std::fmt::Debug for Finding {
 pub const MAX_REPLACEMENTS: usize = 3;
 
 /// Rules switched off: wrong on everyday property-management text (tried
-/// 2026-10-10). "unit 4B" → "Did you mean bytes?"; "need to discus" → a
+/// 2026-10-10). "unit 7B" → "Did you mean bytes?"; "need to discus" → a
 /// replacement of "the".
 pub const DISABLED_RULES: [&str; 2] = ["ExpandMemoryShorthands", "NeedToNoun"];
 
@@ -224,8 +224,8 @@ fn distance(a: &[char], b: &[char]) -> usize {
     for (i, row) in d.iter_mut().enumerate() {
         row[0] = i;
     }
-    for j in 0..=b.len() {
-        d[0][j] = j;
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
     }
     for i in 1..=a.len() {
         for j in 1..=b.len() {
@@ -244,9 +244,9 @@ fn distance(a: &[char], b: &[char]) -> usize {
 /// first is clearly the best, for "Apply all": it adds no ending, and every
 /// other plain word is further from what was typed, or as far but Harper also
 /// put the first one first.
-fn rank(problem: &str, replacements: &mut Vec<String>) -> bool {
+fn rank(problem: &str, replacements: &mut [String]) -> bool {
     let harper_first = replacements.first().cloned();
-    let all = replacements.clone();
+    let all = replacements.to_vec();
     replacements.sort_by_key(|r| adds_ending(problem, r, &all));
     let Some(top) = replacements.first() else { return false };
     if adds_ending(problem, top, &all) {
@@ -293,7 +293,7 @@ fn replacement(edit: &Edit, problem: &str) -> Option<String> {
 /// Whether a word the spell checker flagged is worth showing. Not: single
 /// letters ("W-9"), words with digits ("2C"), words next to a digit or a
 /// hyphen and a digit, all-capital acronyms ("HVAC"), and capitalized words
-/// inside a sentence (names: "Audii Management").
+/// inside a sentence (names: "Acme Management").
 fn worth_spelling(chars: &[char], start: usize, end: usize) -> bool {
     let word = &chars[start..end];
     if word.len() < 2 || word.iter().any(|c| c.is_ascii_digit()) {
@@ -485,9 +485,9 @@ mod tests {
     #[test]
     fn real_world_property_management_text_has_nothing_to_report() {
         for text in [
-            "The tenant at unit 4B reported a leak.",
+            "The tenant at unit 7B reported a leak.",
             "Units 101 102 103 104 need new smoke detectors.",
-            "Please call Anthony Garcia at Audii Management LLC about 1408 Jefferson Ave.",
+            "Please call Jane Doe at Acme Management LLC about 123 Main Street",
             "Sent the 3-day notice to the tenant in Apt 2C, balance $1,234.56 due 10/31.",
             "FYI the HVAC guy said the AC compressor is shot, ETA Tues.",
             "Can you send me the W-9 ASAP?",

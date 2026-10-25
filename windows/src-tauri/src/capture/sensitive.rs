@@ -537,8 +537,8 @@ mod tests {
         for text in [
             "Call me at (555) 123-4567 or 555-123-4567, or +1 555 123 4567.",
             "UK office: +44 20 7946 0958",
-            "Meet at 1600 Amphitheatre Parkway, Mountain View, CA 94043-1351.",
-            "Unit 4B, 221 Baker St, Apt 12, ZIP 90210",
+            "Meet at 123 Main Street, Mountain View, CA 94043-1351.",
+            "Unit 7B, 123 Main Street, Apt 12, ZIP 90210",
             "Invoice #2026-0042 total: $1,234.56 due 2026-10-31, PO 450012345.",
             "Rent of $2,450.00 for 10/2026; balance $13,005.75 after 3 payments.",
             "Version 0.2.3, build 17:06, 123-456-7890",

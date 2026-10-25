@@ -15,6 +15,13 @@ DerivedData/
 # Local only (never published)
 .claude/
 _prive/
+settings.local.json
+HANDOFF*.md
+# Logs and voice clips: may hold captured text, paths or the owner's voice
+*.log
+logs/
+glim-clips/
+*.env
 
 # Secrets (never committed)
 .env
@@ -23,3 +30,16 @@ _prive/
 
 # Session handoff notes (local only, see ~/.claude/CLAUDE.md)
 HANDOFF.md
+
+# Speech-to-text comparison: recordings and model files never go in the repo
+# (docs/voice-clips-to-record.md keeps clips in %USERPROFILE%\glim-clips, outside any repo).
+glim-clips/
+*.wav
+*.m4a
+*.mp3
+*.onnx
+ggml-*.bin
+windows/dev/stt-compare/clips/
+windows/dev/stt-compare/work/
+windows/dev/stt-compare/results*.json
+__pycache__/

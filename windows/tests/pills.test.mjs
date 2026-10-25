@@ -17,7 +17,7 @@ test("the catalog holds the Mac's local pills, in the Mac's order, with the Mac'
   // The cloud chat providers and the web services were removed (Glim is
   // local-only), the rest are kept as they were.
   const mac = [
-    ["integration_claude", "VS Code", "#F5F6F8", "workspace", "Integration"],
+    ["integration_claude", "Claude Code", "#F5F6F8", "workspace", "Integration"],
     ["agent_cursor", "Cursor", "#C0C4CC", "workspace", "Integration"],
     ["agent_antigravity", "Antigravity", "#E879F9", "workspace", "Integration"],
     ["agent_codex", "Codex", "#2DD4BF", "workspace", "Integration"],
@@ -183,7 +183,7 @@ test("the main pill always loads, the declared ones join it, and focus starts on
   assert.equal(State.tasks[1].color, "#8AB4F8");
 });
 
-test("an old settings file gets VS Code as its main pill and drops the web-service pills", () => {
+test("an old settings file gets Claude Code as its main pill and drops the web-service pills", () => {
   State.settings = {
     ...DEFAULT_SETTINGS,
     mainPill: undefined,
