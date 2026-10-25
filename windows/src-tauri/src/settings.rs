@@ -149,6 +149,10 @@ pub struct Settings {
     /// (docs/glim-learns-plan.md §5, decided 2026-10-24): on by default.
     /// GLIM_CAPTURABLE=1 overrides it for tests (screen_capture.rs).
     pub hide_from_capture: bool,
+    /// Settings → Ask Glim → "Learn shortcuts from what I ask"
+    /// (docs/glim-learns-plan.md §1, decided 2026-10-24): on by default.
+    /// Off: nothing is learned or replayed; routines still run.
+    pub learn_shortcuts: bool,
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
@@ -265,6 +269,7 @@ impl Default for Settings {
             calendar_summary_shown: String::new(),
             approval_sound: false,
             hide_from_capture: true,
+            learn_shortcuts: true,
             phone: PhoneSettings::default(),
         }
     }
@@ -565,6 +570,7 @@ mod tests {
   "calendarSummaryShown": "2026-10-17",
   "approvalSound": true,
   "hideFromCapture": false,
+  "learnShortcuts": false,
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
@@ -703,6 +709,13 @@ mod tests {
         assert!(parse(br#"{"screen":"active"}"#).unwrap().hide_from_capture, "a file from before the switch");
         assert!(!parse(br#"{"hideFromCapture":false}"#).unwrap().hide_from_capture);
         assert!(parse(&custom_with("hideFromCapture", None)).unwrap().hide_from_capture);
+    }
+
+    #[test]
+    fn glim_learns_shortcuts_unless_turned_off() {
+        assert!(Settings::default().learn_shortcuts);
+        assert!(parse(br#"{"screen":"active"}"#).unwrap().learn_shortcuts, "a file from before the switch");
+        assert!(!parse(br#"{"learnShortcuts":false}"#).unwrap().learn_shortcuts);
     }
 
     #[test]
@@ -1029,6 +1042,7 @@ mod tests {
                 "calendarSummaryShown",
                 "approvalSound",
                 "hideFromCapture",
+                "learnShortcuts",
                 "phone",
             ]
         );

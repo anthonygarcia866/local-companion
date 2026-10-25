@@ -646,6 +646,23 @@ pub fn foreground_other_than(own: &WebviewWindow) -> Option<isize> {
     (front != 0 && front != own).then_some(front)
 }
 
+/// The program file of the visible window in front now ("OUTLOOK.EXE"):
+/// Glim learns' check that an app it opened came forward. The process list
+/// only; nothing is opened or attached.
+pub fn foreground_exe() -> Option<String> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let front = unsafe { GetForegroundWindow() };
+    if front.0.is_null() || !unsafe { IsWindowVisible(front) }.as_bool() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
+    if pid == 0 {
+        return None;
+    }
+    process_table().remove(&pid).map(|p| p.exe)
+}
+
 /// Gives the keyboard back to `to` if the island (`own`) still has it: a click
 /// elsewhere since then already chose another window, and that one stays.
 pub fn give_foreground_back(own: &WebviewWindow, to: isize) -> bool {

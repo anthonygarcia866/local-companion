@@ -28,6 +28,7 @@ export const NAV: NavEntry[] = [
       { id: "settings-writing-strictness", label: N_("Strictness") },
     ],
   },
+  { id: "settings-ask", label: N_("Ask Glim") },
   { id: "settings-calendar", label: N_("Calendar") },
   { id: "settings-privacy", label: N_("Privacy") },
   { id: "settings-shortcuts", label: N_("Shortcuts") },

@@ -22,6 +22,7 @@ import { aiSection } from "./ai";
 import { writingSection } from "./writing";
 import { calendarSection, reloadCalendars } from "./calendar";
 import { privacySection } from "./privacy";
+import { askSection } from "./ask";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
@@ -1039,6 +1040,8 @@ async function render() {
   shortcutsListener = null;
   const writing = writingSection({ settings: () => settings, save, watch: (redraw) => declaredViews.push(redraw) }, knownApps, toneDefaults);
   const [general, presence] = generalSections();
+  const ask = askSection({ settings: () => settings, save });
+  ask.id = "settings-ask";
   const calendar = calendarSection({ settings: () => settings, save });
   calendar.id = "settings-calendar";
   const privacy = privacySection({ settings: () => settings, save }, pauseBuiltins);
@@ -1058,6 +1061,7 @@ async function render() {
     general,
     presence,
     h("div", { class: "settings-group", id: "settings-writing" }, writing, ai),
+    ask,
     calendar,
     privacy,
     shortcuts,

@@ -1,6 +1,6 @@
 # Glim learns: shortcuts, routines and remembered rules (plan)
 
-Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** Not built yet.
+Status: **design approved; decisions recorded in §9 (DECIDED 2026-10-24).** §1-§2 built 2026-10-25 (PR `learned-shortcuts`, draft); §3 and §5-§6 in their own PRs.
 
 **Credit.** The ideas are adapted from Atticus, an MIT-licensed voice assistant ([atticus-mac](https://github.com/SaarthurR/atticus-mac), [atticus-windows](https://github.com/FindlayHi/atticus-windows)): its README and `atticus.py`'s `learn`, `replay`, `like`, `gist`, `relevant_rules` and `remember_workflow`. No code is copied. If a later PR ports any, it carries the MIT notice in `NOTICE.md`.
 

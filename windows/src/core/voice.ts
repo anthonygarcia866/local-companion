@@ -10,13 +10,26 @@
 // asks Glim; the pill names the mode while one is held. While Glim's question
 // card waits, the next utterance from either key answers it (Decision B): the
 // card stays up, "Listening for your answer…".
+//
+// Glim learns (docs/glim-learns-plan.md §1-§2): "learned" (a learned shortcut
+// ran, Claude wasn't asked: Try again), "routine-ask" (Save / Cancel on a
+// routine's steps), "routine-saved", "routine" (a routine ran, or stopped at
+// a step: code "ok" or "failed:k/n").
 
 import type { PresenceKind } from "../island/presence";
-import { N_ } from "../i18n/i18n";
+import { N_, t } from "../i18n/i18n";
 
 /** One event from Rust (voice::VoiceEvent). */
+/** One step of a routine, or what a shortcut does (learn::StepView). */
+export interface StepView {
+  tool: "open_app" | "resume_work";
+  /** The app's or the repo's name; "" = every repo. */
+  name: string;
+}
+
 export interface VoiceEvent {
-  phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle";
+  phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle"
+    | "learned" | "routine-ask" | "routine-saved" | "routine";
   /** 0..1, while listening. */
   level: number;
   /** "typed" / "not-typed": false = the raw transcript, not cleaned up. */
@@ -30,6 +43,8 @@ export interface VoiceEvent {
   app: string;
   /** Which key ("dictate" / "ask"), or "answer" while a question card waits. */
   mode?: VoiceMode;
+  /** "routine-ask" / "routine": the routine's steps. */
+  steps?: StepView[];
 }
 
 export type VoiceMode = "dictate" | "ask" | "answer";
@@ -49,6 +64,8 @@ export interface VoiceState {
   mode: VoiceMode;
   /** The question being answered, while answering one (Decision B); "" otherwise. */
   question: string;
+  /** A routine's steps (Glim learns §2); [] otherwise. */
+  steps: StepView[];
 }
 
 /** The phases while the key is held or the utterance is on its way. */
@@ -87,6 +104,7 @@ export function nextVoice(cur: VoiceState | null, e: VoiceEvent): VoiceState | n
     copied: "",
     mode,
     question: runningPhase && mode === "answer" ? asked : "",
+    steps: Array.isArray(e.steps) ? e.steps : [],
   };
 }
 
@@ -143,8 +161,20 @@ export function rawBadge(v: VoiceState | null): boolean {
 /** How long a result card stays with nobody touching it. A text that wasn't
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {
-  if (v.phase === "question") return 60_000;
-  return v.phase === "typed" ? 8_000 : 30_000;
+  if (v.phase === "question" || v.phase === "routine-ask") return 60_000;
+  return v.phase === "typed" || v.phase === "learned" || v.phase === "routine-saved" ? 8_000 : 30_000;
+}
+
+/** A routine's step or a shortcut's call, in words. */
+export function stepText(s: StepView): string {
+  if (s.tool === "open_app") return t("Open {app}", { app: s.name });
+  return s.name ? t("Pick up {repo}", { repo: s.name }) : t("Pick up where you left off");
+}
+
+/** "failed:2/3" → [2, 3]; null for "ok" or anything else. */
+export function stoppedAt(code: string): [number, number] | null {
+  const m = /^failed:(\d+)\/(\d+)$/.exec(code);
+  return m ? [Number(m[1]), Number(m[2])] : null;
 }
 
 /**

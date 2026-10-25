@@ -209,6 +209,8 @@ export interface Settings {
   /** Settings → Privacy: Glim's windows kept out of screen shares, recordings
    *  and screenshots (docs/glim-learns-plan.md §5). On unless false. */
   hideFromCapture?: boolean;
+  /** Settings → Ask Glim: learn shortcuts from what is asked (docs/glim-learns-plan.md §1). On unless false. */
+  learnShortcuts?: boolean;
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
   phone?: PhoneSettings;
 }
@@ -259,6 +261,7 @@ export const DEFAULT_SETTINGS: Settings = {
   calendarSummary: false,
   calendarIds: [],
   hideFromCapture: true,
+  learnShortcuts: true,
   phone: { ...DEFAULT_PHONE },
 };
 
@@ -397,6 +400,8 @@ class AppState {
   writingAsk: WritingAsk | null = null;
   /** "Pick up where you left off" (views/resume.ts): the repos shown; null when closed. */
   resume: ResumeCard[] | null = null;
+  /** The resume card came from a learned shortcut (Glim learns §1): it says so, with Try again. */
+  resumeLearned = false;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
   writingDocsTip = false;
   /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
