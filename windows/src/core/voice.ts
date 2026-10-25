@@ -10,13 +10,17 @@
 // asks Glim; the pill names the mode while one is held. While Glim's question
 // card waits, the next utterance from either key answers it (Decision B): the
 // card stays up, "Listening for your answer…".
+//
+// Glim learns §3: "remembered" (what Glim kept, or a "failed" memory-… code
+// saying why not), and the correction tip: `tip` on a result card, or a
+// "tip" card of its own.
 
 import type { PresenceKind } from "../island/presence";
 import { N_ } from "../i18n/i18n";
 
 /** One event from Rust (voice::VoiceEvent). */
 export interface VoiceEvent {
-  phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle";
+  phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle" | "remembered" | "tip";
   /** 0..1, while listening. */
   level: number;
   /** "typed" / "not-typed": false = the raw transcript, not cleaned up. */
@@ -30,6 +34,8 @@ export interface VoiceEvent {
   app: string;
   /** Which key ("dictate" / "ask"), or "answer" while a question card waits. */
   mode?: VoiceMode;
+  /** The user just corrected Glim: the card adds the "Remember" tip. */
+  tip?: boolean;
 }
 
 export type VoiceMode = "dictate" | "ask" | "answer";
@@ -49,6 +55,8 @@ export interface VoiceState {
   mode: VoiceMode;
   /** The question being answered, while answering one (Decision B); "" otherwise. */
   question: string;
+  /** The correction tip goes on this card (Glim learns §3). */
+  tip: boolean;
 }
 
 /** The phases while the key is held or the utterance is on its way. */
@@ -87,6 +95,7 @@ export function nextVoice(cur: VoiceState | null, e: VoiceEvent): VoiceState | n
     copied: "",
     mode,
     question: runningPhase && mode === "answer" ? asked : "",
+    tip: e.tip === true,
   };
 }
 
@@ -144,7 +153,7 @@ export function rawBadge(v: VoiceState | null): boolean {
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {
   if (v.phase === "question") return 60_000;
-  return v.phase === "typed" ? 8_000 : 30_000;
+  return v.phase === "typed" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
 }
 
 /**

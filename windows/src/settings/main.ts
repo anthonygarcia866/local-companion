@@ -22,6 +22,7 @@ import { aiSection } from "./ai";
 import { writingSection } from "./writing";
 import { calendarSection, reloadCalendars } from "./calendar";
 import { privacySection } from "./privacy";
+import { memorySection } from "./memory";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
@@ -1043,6 +1044,8 @@ async function render() {
   calendar.id = "settings-calendar";
   const privacy = privacySection({ settings: () => settings, save }, pauseBuiltins);
   privacy.id = "settings-privacy";
+  const memory = memorySection();
+  memory.id = "settings-memory";
   const shortcuts = shortcutsSection(shortcutReport);
   shortcuts.id = "settings-shortcuts";
   const about = h("section", { id: "settings-about" },
@@ -1060,6 +1063,7 @@ async function render() {
     h("div", { class: "settings-group", id: "settings-writing" }, writing, ai),
     calendar,
     privacy,
+    memory,
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },
       claudeSection(status),

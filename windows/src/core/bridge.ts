@@ -3,6 +3,12 @@
 // `npm run dev` alone.
 
 import type { ResumeCard } from "../views/resume";
+
+/** What is remembered (memory::Memory). */
+export interface Memory {
+  rules: string[];
+  facts: string[];
+}
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -192,6 +198,10 @@ export const Bridge = {
   voiceAnswer: (text: string) => call<boolean>("voice_answer", { text }),
   /** The question card closed (Cancel, Close or its clock): nothing waits for an answer. */
   voiceCancel: () => call<void>("voice_cancel"),
+  // Settings → Memory (Glim learns §3).
+  memoryList: () => call<Memory>("memory_list"),
+  memoryDelete: (kind: "rule" | "fact", text: string) => call<boolean>("memory_delete", { kind, text }),
+  memoryForgetAll: () => call<void>("memory_forget_all"),
   /** Windows' microphone privacy page (a fixed link in Rust). */
   openMicSettings: () => call<void>("open_mic_settings"),
   /** The Draft email card (1.5d): ids, indexes and a search's text only. Nothing sends. */

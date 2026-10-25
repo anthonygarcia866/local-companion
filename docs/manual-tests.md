@@ -682,6 +682,20 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 2. **Another language:** switch Glim's language (e.g. French) and reopen Settings: the hint is translated, not in English.
 3. **Spend unaffected:** Settings → AI → Spend still shows Glim's own estimate (it needs neither the desktop app nor the CLI).
 
+## 36. Remembered rules and facts (branch `remember-rules`, draft PR)
+
+*Where: a build with the remember-rules PR and the Claude key set. What is remembered stays in `%LOCALAPPDATA%\Glim\learn\memory.json`; what is sent goes to api.anthropic.com with Ask requests.*
+
+1. **Empty:** Settings → **Memory**. **See:** "No rules yet…", "Nothing yet…", and the line saying facts and matching rules go to api.anthropic.com with Ask Glim requests, never with dictation.
+2. **A rule:** hold **Ctrl+Alt+Shift+A**: "Remember: when I say the office I mean Outlook". **See:** "I'll remember that" with the rule, "Kept on this PC as a rule…". Settings → Memory lists it (reopen Settings if it was open).
+3. **It's used:** say "open the office". **See:** Outlook opens. glim.log: `memory: sent 1 rules, 0 facts` (counts only) before `voice: cleanup open_app …`.
+4. **A fact:** "Remember that I prefer short replies" → "I'll remember that", listed under About you. A 9-word fact → "A fact about you is 8 words or fewer."
+5. **Refusals say why:** "Remember my gate code is 4286" → "Not saved: Glim doesn't keep ID numbers…"; "Remember I'm allergic to peanuts" → health; "Remember my salary comes on Fridays" → money; "Remember the tenant in 7D pays late" → tenant or customer. Nothing new in Settings.
+6. **Dictation never carries it:** with a rule saved, dictate a sentence in Notepad (Ctrl+Alt+Shift+V). glim.log has **no** `memory: sent` line for it.
+7. **Correction tip:** say "open Codex", then within a minute "no, I meant Outlook". **See:** after Outlook opens, a small card "Tip: say “Remember: …” and I'll get it right next time." Only once; never after a dictation.
+8. **Remove / Forget everything:** Remove one entry in Settings → Memory; then **Forget everything**: both lists empty, and the next Ask has no `memory: sent` line.
+9. **Logs:** no `memory:` line ever contains a rule's or a fact's words.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
