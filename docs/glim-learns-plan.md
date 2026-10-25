@@ -135,4 +135,4 @@ All automated, in CI or locally, through the existing fakes (`ai/dictate.rs`'s l
 - **Capture exclusion:** a test creates a hidden window of its own, sets the affinity and reads it back with `GetWindowDisplayAffinity` (no screen capture taken).
 - **Budget:** the §6 unit tests.
 - **Settings pages:** WebDriver (tauri-driver) against a test profile with seeded files: lists render, rename and delete change the files.
-- **Hand tests for the owner** (when at the PC, by the owner, not Claude): a new `docs/manual-tests.md` section per PR, e.g. "say 'open Outlook' twice: the second has the ⚡ tag and no `s-delegate`".
+- **Hand tests for the owner** (when at the PC, by the owner, not Claude): a new `docs/manual-tests.md` section per PR, e.g. "say 'open Outlook' twice: the second has the "Learned" note and no `s-delegate`".
