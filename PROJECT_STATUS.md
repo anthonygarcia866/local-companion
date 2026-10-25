@@ -71,7 +71,7 @@ A Windows desktop companion that keeps the owner in control of what leaves the m
 - **Memory policy:** memory stores learned summaries, never raw captured text.
   - **Keep:** big-picture goals and projects, how the user works, team members and contacts, what is being discussed, and how topics connect. Sources can include everything Glim observes, including the user's email inbox.
   - **Never store**, enforced by a hard filter before any memory write, even inside summaries: SSNs; bank, card and account numbers; dates of birth; phone numbers; personal street addresses; financial figures about individuals; passwords and credentials.
-  - **Tenants** are referred to by role and property/unit ("a tenant at 1408 Jefferson"), never by name. Coworkers and business contacts may be named.
+  - **Tenants** are referred to by role and property/unit ("a tenant at 1200 Example Street"), never by name. Coworkers and business contacts may be named.
   - Memory is plain, user-editable files the user can view, edit and delete.
   - The filter must be testable: a fixture set of fake sensitive data, and a test asserting none of it reaches the memory files.
 - **Outlook inbox learning:** Glim reads the user's classic Outlook mailbox locally through the Outlook COM object model (the local OST cache: no network, so the localhost-only rule holds; no Microsoft Graph or cloud API).

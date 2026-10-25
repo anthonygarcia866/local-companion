@@ -93,7 +93,7 @@ Full write-up: **`docs/voice-stt-results.md`**. Tool: `windows/dev/stt-compare/`
 | `clarify` | `question` | — | Shows the question; the user answers by holding the key again. |
 
 - **Examples** (transcript → tool call):
-  - "hey can you say thanks for the quick turnaround on unit 4B we'll get the lease to you by friday" in Outlook → `dictate { text: "Thanks for the quick turnaround on unit 4B. We'll get the lease to you by Friday." }`
+  - "hey can you say thanks for the quick turnaround on unit 7D we'll get the lease to you by friday" in Outlook → `dictate { text: "Thanks for the quick turnaround on unit 7D. We'll get the lease to you by Friday." }`
   - "open outlook" → `open_app { app: "outlook" }`
   - "pick up from yesterday" → `resume_work {}`; "where was I on dale cuts" → `resume_work { repo: "dale-cuts" }`
   - "draft an email to Maria saying the plumber comes Tuesday at ten" → `draft_email { to: ["Maria"], subject: "Plumber visit Tuesday", body: "Hi Maria,\n\nThe plumber is coming Tuesday at 10am.\n\n…" }`
