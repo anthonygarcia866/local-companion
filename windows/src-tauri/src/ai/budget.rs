@@ -36,7 +36,7 @@ impl Budget {
         }
         self.recent.push_back((ms, nanos));
         self.count += 1;
-        (self.count % WINDOW as u64 == 0).then(|| self.line()).flatten()
+        self.count.is_multiple_of(WINDOW as u64).then(|| self.line()).flatten()
     }
 
     /// The line for what is noted now; None before any request.
