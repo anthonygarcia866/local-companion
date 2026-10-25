@@ -159,8 +159,8 @@ fn claude_clean_up() {
         ("edit the email you just drafted and add that the shift starts at nine", "OUTLOOK.EXE", Ask),
         ("change the email you just drafted to say wednesday instead of tuesday", "notepad.exe", Ask),
         ("add to that email that parking is in the back", "OUTLOOK.EXE", Ask),
-        // Fix d: "unit four B" (fixed up before Claude sees it) and "open claw".
-        ("the leak is in unit four B and the plumber comes thursday", "OUTLOOK.EXE", Dictate),
+        // Fix d: "unit seven D" (fixed up before Claude sees it) and "open claw".
+        ("the leak is in unit seven D and the plumber comes thursday", "OUTLOOK.EXE", Dictate),
         ("open claw", "notepad.exe", Ask),
     ] {
         let fixed = super::unit_numbers(said);
