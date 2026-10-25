@@ -90,3 +90,4 @@ The owner asked for these few upstream fixes as **cherry-picks** (`git cherry-pi
 |---|---|---|
 | [#522](https://github.com/Louis-CFM/coucou/pull/522) (`9300d91`) | Pill labels reserve left padding so the mascot doesn't cover them (`style.css`, 1 line) | `cherry/pill-label-padding`, draft PR |
 | [#417](https://github.com/Louis-CFM/coucou/pull/417) (`72dbcb9`) | Claude Desktop starts via its registered `claude://` protocol when not at the Squirrel path (`platform/windows.rs`) | `cherry/claude-desktop-protocol`, draft PR (Cargo.toml conflict: features already in Glim, kept Glim's) |
+| [#479](https://github.com/Louis-CFM/coucou/pull/479) (`2c1241a`) | The Claude plan gauge needs the Claude Code CLI, not the desktop app: a Settings hint and a README line | `cherry/plan-gauge-cli-note`, draft PR: **adapted, not cherry-picked** (README, settings/main.ts and extra.json conflicted; the Settings hint redone by hand, README part dropped) |
