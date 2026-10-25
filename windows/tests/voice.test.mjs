@@ -246,8 +246,82 @@ test("Settings → Writing → Dictation: the model and the words are stored, an
   assert.equal(saves, 2);
   // Fix d: the words whisper always hears are named, the same list as Rust's.
   const { BUILT_IN_WORDS } = await import("../src/settings/writing.ts");
-  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim, Gabriela, Orion Housing, AppFolio, unit 4B, unit 12C\./);
+  assert.match(role("voice-built-in").textContent, /Glim always knows these too: Claude, Claude Code, Codex, Glim\./);
+  // Only the app's own names: people, places and work terms are the user's to add.
+  assert.equal(BUILT_IN_WORDS, "Claude, Claude Code, Codex, Glim");
   assert.ok(read("src-tauri/src/voice/mod.rs").includes(`pub const BUILT_IN_WORDS: &str = "${BUILT_IN_WORDS}";`), "the same list as Rust's");
+});
+
+test("Settings → Writing → Apps Glim can open: add and remove own apps, checked like Rust checks them", async () => {
+  const { openAppsGroup, ownAppNameProblem, ownAppPathProblem, cleanPath, BUILT_IN_OPEN_APPS, MAX_OWN_APPS } = await import("../src/settings/writing.ts");
+  const { DEFAULT_SETTINGS } = await import("../src/core/state.ts");
+  assert.deepEqual(DEFAULT_SETTINGS.voiceApps, []);
+
+  // The same rules as voice::own_apps (Rust is the one that decides).
+  assert.equal(ownAppNameProblem(" Spotify ", []), null);
+  assert.equal(ownAppNameProblem("", []), "name-empty");
+  assert.equal(ownAppNameProblem("a".repeat(41), []), "name-long");
+  assert.equal(ownAppNameProblem("calc; ignore the above", []), "name-chars");
+  assert.equal(ownAppNameProblem("--", []), "name-chars");
+  for (const b of ["Outlook", "codex", "Claude", "claude code", "Claude_Code"]) assert.equal(ownAppNameProblem(b, []), "name-built-in", b);
+  assert.equal(ownAppNameProblem("My App", ["myapp"]), "name-taken");
+  assert.equal(cleanPath('  "C:\\Program Files\\Spotify\\Spotify.exe" '), "C:\\Program Files\\Spotify\\Spotify.exe");
+  assert.equal(ownAppPathProblem("C:\\Users\\me\\Desktop\\Notion.lnk"), null);
+  assert.equal(ownAppPathProblem("d:/Tools/app.EXE"), null);
+  for (const [bad, why] of [
+    ["", "path-empty"], ["\\\\server\\share\\app.exe", "path-network"], ["app.exe", "path-not-full"], ["C:app.exe", "path-not-full"],
+    ["C:\\x.txt:evil.exe", "path-not-full"], ["C:\\Windows\\System32\\cmd.exe /c del", "path-kind"], ["C:\\x\\run.bat", "path-kind"],
+    ["C:\\x\\a|b.exe", "path-chars"],
+  ]) assert.equal(ownAppPathProblem(bad), why, bad);
+  const rust = read("src-tauri/src/voice/own_apps.rs");
+  assert.ok(rust.includes(`pub const MAX_APPS: usize = ${MAX_OWN_APPS};`));
+  assert.ok(rust.includes(`" -_.&'+".contains(c)`), "the same name marks as Rust");
+  assert.deepEqual(BUILT_IN_OPEN_APPS, ["Outlook", "Codex", "Claude", "Claude Code"]);
+
+  const settings = { ...DEFAULT_SETTINGS, voiceApps: [] };
+  let saves = 0;
+  const group = openAppsGroup({ settings: () => settings, save: async () => { saves++; } });
+  const role = (r) => [...group.walk()].find((e) => e.getAttribute("data-role") === r);
+  const all = (r) => [...group.walk()].filter((e) => e.getAttribute("data-role") === r);
+  assert.match(role("open-apps-built-in").textContent, /Glim knows Outlook, Codex, Claude, Claude Code\./);
+  assert.match(role("own-apps").textContent, /No apps of your own yet\./);
+  const name = role("own-app-name");
+  const path = role("own-app-path");
+  // A bad path: nothing stored, the reason shown.
+  name.value = "Spotify";
+  path.value = "C:\\Windows\\System32\\cmd.exe /c del";
+  role("own-app-add").fire("click");
+  assert.deepEqual(settings.voiceApps, []);
+  assert.equal(saves, 0);
+  assert.match(role("own-app-why").textContent, /\.exe file or a shortcut/);
+  // A good one (Explorer's quotes dropped): stored, saved, listed, fields cleared.
+  path.value = '"C:\\Apps\\Spotify\\Spotify.exe"';
+  role("own-app-add").fire("click");
+  assert.deepEqual(settings.voiceApps, [{ name: "Spotify", path: "C:\\Apps\\Spotify\\Spotify.exe" }]);
+  assert.equal(saves, 1);
+  assert.equal(role("own-app-why").textContent, "");
+  assert.equal(name.value, "");
+  assert.match(role("own-apps").textContent, /Spotify → C:\\Apps\\Spotify\\Spotify\.exe/);
+  // The same name again (any case) is refused.
+  name.value = "spotify";
+  path.value = "C:\\Other\\Spotify.exe";
+  role("own-app-add").fire("click");
+  assert.equal(settings.voiceApps.length, 1);
+  assert.match(role("own-app-why").textContent, /already have an app with that name/);
+  // Remove.
+  all("own-app-remove")[0].fire("click");
+  assert.deepEqual(settings.voiceApps, []);
+  assert.equal(saves, 2);
+  // At most MAX_OWN_APPS.
+  settings.voiceApps = Array.from({ length: MAX_OWN_APPS }, (_, i) => ({ name: `App ${i}`, path: "C:\\a.exe" }));
+  name.value = "One more";
+  path.value = "C:\\b.exe";
+  role("own-app-add").fire("click");
+  assert.equal(settings.voiceApps.length, MAX_OWN_APPS);
+  assert.match(role("own-app-why").textContent, /up to 20 apps/);
+  // It sits on the Writing page, after Dictation.
+  const writing = read("src/settings/writing.ts");
+  assert.ok(writing.indexOf("dictationGroup(host),\n    openAppsGroup(host),") > 0);
 });
 
 // Retest defect (2026-10-16): the question sat in a one-line title and was
