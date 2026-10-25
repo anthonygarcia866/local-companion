@@ -6465,6 +6465,61 @@
    "ru": "мин. без клавиатуры и мыши",
    "id": "menit tanpa input keyboard atau mouse"
   },
+  "Too soon: read it, then press again.": {
+   "zh-Hans": "太快了：先看清楚，再按一次。",
+   "hi": "बहुत जल्दी: पहले पढ़ें, फिर दोबारा दबाएँ।",
+   "es": "Demasiado pronto: léelo y vuelve a pulsar.",
+   "ar": "مبكر جدًا: اقرأه ثم اضغط مرة أخرى.",
+   "fr": "Trop tôt : lisez-la, puis appuyez de nouveau.",
+   "bn": "খুব তাড়াতাড়ি: আগে পড়ুন, তারপর আবার চাপুন।",
+   "pt-BR": "Cedo demais: leia e pressione de novo.",
+   "ru": "Слишком рано: прочитайте и нажмите ещё раз.",
+   "id": "Terlalu cepat: baca dulu, lalu tekan lagi."
+  },
+  "Open the card first, then press the key.": {
+   "zh-Hans": "请先打开卡片，再按这个键。",
+   "hi": "पहले कार्ड खोलें, फिर कुंजी दबाएँ।",
+   "es": "Abre primero la tarjeta y luego pulsa la tecla.",
+   "ar": "افتح البطاقة أولًا، ثم اضغط المفتاح.",
+   "fr": "Ouvrez d'abord la carte, puis appuyez sur la touche.",
+   "bn": "আগে কার্ডটি খুলুন, তারপর কী চাপুন।",
+   "pt-BR": "Abra o cartão primeiro e depois pressione a tecla.",
+   "ru": "Сначала откройте карточку, затем нажмите клавишу.",
+   "id": "Buka kartunya dulu, lalu tekan tombolnya."
+  },
+  "Too long to show in full: click Allow.": {
+   "zh-Hans": "太长，无法完整显示：请点击“允许”。",
+   "hi": "पूरा दिखाने के लिए बहुत लंबा: अनुमति दें पर क्लिक करें।",
+   "es": "Demasiado largo para mostrarlo entero: haz clic en Permitir.",
+   "ar": "أطول من أن يُعرض كاملًا: انقر سماح.",
+   "fr": "Trop long pour être affiché en entier : cliquez sur Autoriser.",
+   "bn": "পুরোটা দেখানোর পক্ষে খুব লম্বা: অনুমতি দিন-এ ক্লিক করুন।",
+   "pt-BR": "Longo demais para mostrar inteiro: clique em Permitir.",
+   "ru": "Слишком длинная, чтобы показать целиком: нажмите «Разрешить».",
+   "id": "Terlalu panjang untuk ditampilkan utuh: klik Izinkan."
+  },
+  "Read it, then press twice to allow": {
+   "zh-Hans": "看清楚后，按两次即可允许",
+   "hi": "पढ़ें, फिर अनुमति देने के लिए दो बार दबाएँ",
+   "es": "Léelo y pulsa dos veces para permitir",
+   "ar": "اقرأه، ثم اضغط مرتين للسماح",
+   "fr": "Lisez-la, puis appuyez deux fois pour autoriser",
+   "bn": "পড়ুন, তারপর অনুমতি দিতে দুবার চাপুন",
+   "pt-BR": "Leia e pressione duas vezes para permitir",
+   "ru": "Прочитайте и нажмите дважды, чтобы разрешить",
+   "id": "Baca dulu, lalu tekan dua kali untuk mengizinkan"
+  },
+  "Scroll to the end of the command, then press again.": {
+   "zh-Hans": "请滚动到命令末尾，然后再按一次。",
+   "hi": "कमांड के अंत तक स्क्रॉल करें, फिर दोबारा दबाएँ।",
+   "es": "Desplázate hasta el final del comando y vuelve a pulsar.",
+   "ar": "مرّر حتى نهاية الأمر، ثم اضغط مرة أخرى.",
+   "fr": "Faites défiler jusqu'à la fin de la commande, puis appuyez de nouveau.",
+   "bn": "কমান্ডের শেষ পর্যন্ত স্ক্রল করুন, তারপর আবার চাপুন।",
+   "pt-BR": "Role até o fim do comando e pressione de novo.",
+   "ru": "Прокрутите команду до конца и нажмите ещё раз.",
+   "id": "Gulir sampai akhir perintah, lalu tekan lagi."
+  },
   "Open {app}": {
    "zh-Hans": "打开 {app}",
    "hi": "{app} खोलें",

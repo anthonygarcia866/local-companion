@@ -213,6 +213,10 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
  */
 export const VOICE_QUESTION_H = 280;
 
+/** An approval card expanded by the Allow key (fix 2026-10-25): the whole
+ *  command, ~10 wrapped lines; longer, it scrolls inside its box. */
+export const APPROVAL_EXPANDED_H = 300;
+
 /** The question view with options to pick from: room for two rows of them. */
 export const QUESTION_PICKER_H = 200;
 

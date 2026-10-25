@@ -255,8 +255,15 @@ Written 2026-10-12. Keep it up to date: every PR that changes what you see adds 
    - **Again and again (bug 2, 2026-10-18):** press, wait 4 s, press, wait 4 s, press, wait 4 s, then press twice: allowed. glim.log never shows `allow key refused (cut-off)` for a command that fits on the card.
 6. **Folded card:** fold the card (the chevron), press Ctrl+Alt+Shift+Y.
    - **See:** refused (`not-open`). Open the island on the card again: it needs its own 1.5 s again.
-7. **A long command:** one too long to show whole on the card (or cut short with "…").
-   - **See:** refused (`cut-off`); clicking still works.
+7. **A long command (fix 2026-10-25, branch `allow-key-expand`):** ask for a long, harmless bash command that doesn't fit on one line (e.g. `cd <repo> && git status && git log --oneline -5 && npm test`). Wait 2 s, press Ctrl+Alt+Shift+Y once.
+   - **See:** nothing allowed yet: the card **grows** and shows the whole command wrapped (past ~10 lines it scrolls inside the box), with **Press again to allow · 3** counting down (glim.log: `allow key expanded`). Press again **within 3 s, but at least 1.5 s after it grew**: allowed.
+   - **Too soon after expanding:** press, then again at once: refused, and the card says "Too soon: read it, then press again." for a moment (`allow key refused (too-soon)`). Press again: allowed.
+   - **Window passed:** press once to expand, wait 4 s: the line goes; the card stays expanded. The next press brings the line back; one more allows.
+   - **Longer than the expanded box** (it scrolls, e.g. a 15-line heredoc): after expanding, a press says "Scroll to the end of the command, then press again." Scroll the box to its last line with the wheel, then press: allowed.
+   - **Long and destructive:** a long command with `rm -rf` on a temp folder. Press: it expands ("Read it, then press twice to allow"). Then press, press (**Press again to allow · 3** between them): allowed. Three presses in all; expanding is not one of the two.
+   - **Too long even for the relay** (over 32 KB, hard to hit by hand): the card says "Too long to show in full: click Allow." and the key stays refused (`too-long`); clicking Allow still works.
+   - **Short commands are unchanged:** `npm test`: one press after 2 s.
+   - **Folded:** refused, and the card says "Open the card first, then press the key." when you open it within ~3 s.
 8. **Waiting too long:** get a card and don't answer for 35 s.
    - **See:** after ~30 s the lantern pops, again every ~4 s until you answer. No sound (off by default).
    - Settings → Claude Code → **Soft sound when a permission waits**: on. Another card, wait 35 s: one soft two-note chime at ~30 s, not repeated. Turn it off again if you like.
