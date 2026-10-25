@@ -691,7 +691,7 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 3. **Screen share:** start a Teams (or Zoom) meeting alone and share the whole screen; look at the preview. **See:** no island, no card, no Settings window in the shared picture, while they stay normal on your own screen.
 4. **Off:** turn the switch off and repeat step 2. **See:** the island and card are in the snip again, straight away (no restart). Turn it back on.
 5. **Log:** `%APPDATA%\Glim\glim.log` has `capture-exclude: on (N windows)` at launch and `capture-exclude: off (setting)` after step 4; no window titles, nothing else. `capture-exclude: unsupported` would mean this Windows is older than 10 (2004).
-6. **Verify scripts still see Glim:** `scriptserify-presence.ps1` starts the dev Glim with `GLIM_CAPTURABLE=1`; its PNGs show the island, not black (the log says `capture-exclude: off (GLIM_CAPTURABLE)`).
+6. **Verify scripts still see Glim:** `scripts\verify-presence.ps1` starts the dev Glim with `GLIM_CAPTURABLE=1`; its PNGs show the island, not black (the log says `capture-exclude: off (GLIM_CAPTURABLE)`).
 7. **Budget line (no action):** after 50 Ask Glim requests, and when you quit from the tray, glim.log has one `budget: last N ask median X.Xs $0.00XXXX/request` line; it ends `OVER` if the median is over 2.0 s or $0.001.
 
 ## 35. Learned shortcuts and routines (branch `learned-shortcuts`, draft PR)
