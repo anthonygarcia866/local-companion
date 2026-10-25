@@ -318,7 +318,10 @@ fn create(app: &AppHandle) {
             .visible(true)
             .build();
         match built {
-            Ok(win) => crate::platform::make_non_activating(&win),
+            Ok(win) => {
+                crate::platform::make_non_activating(&win);
+                crate::screen_capture::apply_to(&handle, &win);
+            }
             Err(err) => {
                 crate::log::line(format!("bubble window failed: {err}"));
                 CREATING.store(false, Ordering::SeqCst);
