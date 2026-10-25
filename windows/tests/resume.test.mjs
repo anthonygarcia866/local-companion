@@ -87,8 +87,11 @@ test("the card's triggers (decided 2026-10-15): the tray item, voice resume_work
   const lib = read("src-tauri/src/lib.rs");
   assert.equal([...lib.matchAll(/"resume-show"/g)].length, 1);
   const run = read("src-tauri/src/voice/run.rs");
-  assert.equal([...run.matchAll(/"resume-show"/g)].length, 1);
-  assert.match(run, /Decision::Resume \{ repo \} => \{[\s\S]*?super::match_repo\(&r, &known_repos\(\)\)[\s\S]*?"resume-show"/);
+  // Claude's resume_work, and a learned shortcut's or a routine's resume
+  // step (Glim learns §1-§2), its repo checked the same way (validate).
+  assert.equal([...run.matchAll(/"resume-show"/g)].length, 2);
+  assert.match(run, /Decision::Resume \{ repo \} => \{[\s\S]*?super::match_repo\(&r, &known\)[\s\S]*?"resume-show"/);
+  assert.match(run, /Action::ResumeWork \{ repo \} => \{[\s\S]*?super::match_repo\(r, &known\)[\s\S]*?Step::Resume\(repo\) => \{\n\s+let _ = app\.emit_to\(crate::island::WINDOW_LABEL, "resume-show"/);
 });
 
 test("voice's repo goes first; the rest keep their order; an unknown name changes nothing", async () => {

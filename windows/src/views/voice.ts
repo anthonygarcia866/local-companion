@@ -13,7 +13,7 @@ import { failureText } from "./rewrite";
 import { Bridge } from "../core/bridge";
 import { State } from "../core/state";
 import { AskClock } from "../core/ask";
-import { answering, cardTimeoutMs, type VoiceState } from "../core/voice";
+import { answering, cardTimeoutMs, stepText, stoppedAt, type VoiceState } from "../core/voice";
 import { borrowKeyboard, returnKeyboard } from "../core/keyboard";
 import type { AskHost } from "./ask";
 import { t } from "../i18n/i18n";
@@ -29,7 +29,8 @@ export function closeVoice(host: AskHost | null) {
   if (!State.voice) return;
   voiceClock.stop();
   returnKeyboard("voice");
-  const wasQuestion = State.voice.phase === "question" || answering(State.voice);
+  // A routine's card closing without Save: Rust drops it (nothing saved).
+  const wasQuestion = State.voice.phase === "question" || State.voice.phase === "routine-ask" || answering(State.voice);
   State.voice = null;
   if (wasQuestion) void Bridge.voiceCancel();
   if (host && State.view === "voice" && State.mode === "expanded") {
@@ -72,9 +73,43 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "question":
       return { title: v.text, body: "", note: t("Hold either voice shortcut and say your answer, or type it below.") };
     case "failed":
+      if (v.code.startsWith("routine-")) return { title: t("Routine not saved"), body: "", note: failedText(v.code, v.app) };
       return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
+    case "learned":
+      return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
+    case "routine-ask":
+      return { title: t("Save the routine “{name}”?", { name: v.text }), body: stepsText(v), note: t("Nothing runs until you save it. Then say “{name}” with Ask Glim.", { name: v.text }) };
+    case "routine-saved":
+      return { title: t("Saved “{name}”", { name: v.text }), body: "", note: t("Say “{name}” with Ask Glim to run it.", { name: v.text }) };
+    case "routine": {
+      const at = stoppedAt(v.code);
+      if (!at) return { title: t("Ran “{name}”", { name: v.text }), body: stepsText(v), note: "" };
+      const step = v.steps[0] ? stepText(v.steps[0]) : "";
+      return { title: t("“{name}” stopped", { name: v.text }), body: "", note: t("Step {k} of {n} ({step}) didn't work. The steps after it didn't run.", { k: String(at[0]), n: String(at[1]), step }) };
+    }
   }
   return { title: "", body: "", note: "" };
+}
+
+/** A routine's steps, numbered, one a line. */
+export function stepsText(v: VoiceState): string {
+  return v.steps.map((s, i) => `${i + 1}. ${stepText(s)}`).join("\n");
+}
+
+/** Why a routine wasn't saved (learn::name_problem, steps_problem). */
+export function routineProblemText(code: string): string {
+  switch (code.replace(/^routine-/, "")) {
+    case "name-length": return t("A routine's name is 2 to 40 characters.");
+    case "name-chars": return t("A routine's name can have letters, digits, spaces, - and ' only.");
+    case "name-deictic": return t("A routine's name can't have words like “this” or “that”.");
+    case "name-app": return t("That's an app's name. Pick another name for the routine.");
+    case "name-command": return t("That's one of Glim's command words. Pick another name.");
+    case "name-taken": return t("You already have a routine with that name.");
+    case "no-steps": return t("A routine needs at least one step.");
+    case "too-many-steps": return t("A routine can have at most 5 steps.");
+    case "too-many-routines": return t("You have 20 routines, the most Glim keeps. Remove one in Settings first.");
+  }
+  return t("Glim couldn't save that routine.");
 }
 
 /** The question card while its answer is on the way (Decision B). */
@@ -102,6 +137,7 @@ export function failedText(code: string, app = ""): string {
     case "sensitive": return failureText("sensitive", null);
     case "open-failed": return t("Couldn't open {app}. Is it installed?", { app });
   }
+  if (code.startsWith("routine-")) return routineProblemText(code);
   return t("Speech-to-text didn't work this time. Try again.");
 }
 
@@ -142,6 +178,22 @@ export function buildVoice(host: AskHost): ViewHost {
     if (!ok && State.voice === v) closeVoice(host);
   };
 
+  const saveRoutine = async () => {
+    const v = State.voice;
+    if (!v || v.phase !== "routine-ask") return;
+    // Rust answers with "routine-saved" or why not; the card follows.
+    const ok = await Bridge.voiceRoutineSave();
+    if (!ok && State.voice === v) closeVoice(host);
+  };
+
+  const tryAgain = async () => {
+    const v = State.voice;
+    if (!v) return;
+    // Rust deletes the shortcut and sends the ask to Claude: its phases follow.
+    const ok = await Bridge.voiceTryAgain();
+    if (!ok && State.voice === v) closeVoice(host);
+  };
+
   const copy = async () => {
     const v = State.voice;
     if (!v) return;
@@ -164,6 +216,7 @@ export function buildVoice(host: AskHost): ViewHost {
     title.classList.toggle("voice-question", asking);
     body.textContent = words.body;
     body.style.display = words.body ? "" : "none";
+    body.style.whiteSpace = v.steps.length ? "pre-line" : "";
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
     answer.style.display = v.phase === "question" ? "" : "none";
     // No box to type in (an answer spoken, or not a question): give it back.
@@ -180,7 +233,21 @@ export function buildVoice(host: AskHost): ViewHost {
         return;
       }
     }
-    if (words.body) row.append(h("button", { class: "apply-all", type: "button", "data-answer": "copy", text: t("Copy"), onclick: () => void copy() }));
+    // A routine's card: Save stores it (Rust checks it again); Cancel drops it.
+    if (v.phase === "routine-ask") {
+      row.append(h("button", { class: "apply-all", type: "button", "data-answer": "routine-save", text: t("Save"), onclick: () => void saveRoutine() }));
+      row.append(h("button", { class: "link-btn", type: "button", "data-answer": "cancel", text: t("Cancel"), onclick: () => closeVoice(host) }));
+      if (State.mode === "expanded" && clockFor !== shown) {
+        clockFor = shown;
+        voiceClock.start(`voice-${shown}`, () => closeVoice(host), cardTimeoutMs(v));
+      }
+      return;
+    }
+    // A learned shortcut ran: Try again forgets it and asks Claude.
+    if (v.phase === "learned") {
+      row.append(h("button", { class: "apply-all", type: "button", "data-answer": "try-again", text: t("Try again"), onclick: () => void tryAgain() }));
+    }
+    if (words.body && v.phase !== "routine") row.append(h("button", { class: "apply-all", type: "button", "data-answer": "copy", text: t("Copy"), onclick: () => void copy() }));
     // Windows blocks the microphone: its privacy page, one click away (plan §6).
     if (v.phase === "failed" && v.code === "mic-blocked") {
       row.append(h("button", { class: "apply-all", type: "button", "data-answer": "mic-settings", text: t("Open microphone settings"), onclick: () => void Bridge.openMicSettings() }));
