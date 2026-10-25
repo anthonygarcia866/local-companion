@@ -926,6 +926,16 @@ body {
   user-select: text;
 }
 
+/* Expanded by the Allow key (core/allow.ts): the whole command, wrapped;
+   past ~10 lines it scrolls inside the box (layout.ts APPROVAL_EXPANDED_H). */
+.code.expanded {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  max-height: 170px;
+  overflow-y: auto;
+}
+
 .stack {
   position: relative;
   z-index: 1;

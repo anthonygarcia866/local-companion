@@ -10,6 +10,16 @@
 // second press within it allows, otherwise it resets, as often as it takes. Everything else is a
 // single press. Claude Code's own "ask" rules play no part: with the owner's
 // settings every card is an ask rule ("let me glance first").
+//
+// A command the card cuts off (fix 2026-10-25: long bash commands never
+// fit one line, so the key refused them all): the first press EXPANDS the
+// card to the whole command (it grows, then scrolls inside the box) and
+// opens the same CONFIRM_WINDOW_MS window, "Press again to allow · 3". A press
+// in it allows (a destructive one then takes its own two presses); too late,
+// and the next press only opens the window again. ALLOW_DELAY_MS counts
+// from the expansion. Never allowed by key: a command the relay shortened
+// ("…": longer than glim-hook's MAX_APPROVAL_LEN), "Too long to show in
+// full: click Allow".
 
 /** How long the card must have been on screen before the key works. */
 export const ALLOW_DELAY_MS = 1_500;
@@ -49,7 +59,15 @@ export function isDestructive(command: string): boolean {
 
 /** Why the key won't allow right now. "ok": allow. "armed": the first of two
  *  presses, the card asks for the second. */
-export type AllowCheck = "ok" | "armed" | "no-card" | "question" | "not-open" | "cut-off" | "too-soon";
+export type AllowCheck = "ok" | "armed" | "expand" | "no-card" | "question" | "not-open" | "too-long" | "too-soon";
+
+/** A cut-off card's first press: the card shows the whole command from `at`;
+ *  the window for the press that allows started at `armedAt`. */
+export interface Expanded {
+  requestId: string;
+  at: number;
+  armedAt: number;
+}
 
 /** The first press of a destructive command: which request, and when. */
 export interface Armed {
@@ -68,20 +86,33 @@ export function allowCheck(o: {
   shownMs: number;
   /** The first press, if one is waiting for its second. */
   armed?: Armed | null;
+  /** The card was expanded to the whole command (a cut-off one's first press). */
+  expanded?: Expanded | null;
   /** Now, on the same clock as `armed.at`. */
   now?: number;
 }): AllowCheck {
   if (!o.request) return "no-card";
   if (o.request.questions) return "question";
   if (!o.open) return "not-open";
+  const now = o.now ?? 0;
   // The second press within the window: the first one passed every check
   // below (the "Press again" line may squeeze the command's box meanwhile).
   const a = o.armed;
-  if (a && a.requestId === o.request.requestId && (o.now ?? 0) - a.at <= CONFIRM_WINDOW_MS) return "ok";
-  // Not the whole command: the box cuts it off, or the relay shortened it ("…").
-  if (!o.fullyShown || (o.request.command ?? "").trimEnd().endsWith("…")) return "cut-off";
-  if (o.shownMs < ALLOW_DELAY_MS) return "too-soon";
+  if (a && a.requestId === o.request.requestId && now - a.at <= CONFIRM_WINDOW_MS) return "ok";
+  // Shortened by the relay: nobody can be shown the rest. Click only.
+  if (relayShortened(o.request.command)) return "too-long";
+  const ex = o.expanded && o.expanded.requestId === o.request.requestId ? o.expanded : null;
+  // Cut off on the card: the press shows it all, and opens the window for
+  // the press that allows (again, once the window has passed).
+  if (!o.fullyShown && (!ex || now - ex.armedAt > CONFIRM_WINDOW_MS)) return "expand";
+  const shownMs = ex ? Math.min(o.shownMs, now - ex.at) : o.shownMs;
+  if (shownMs < ALLOW_DELAY_MS) return "too-soon";
   return isDestructive(o.request.command ?? o.request.tool ?? "") ? "armed" : "ok";
+}
+
+/** The relay cut the command short (glim-hook adds "…" past MAX_APPROVAL_LEN). */
+export function relayShortened(command: string | undefined): boolean {
+  return (command ?? "").trimEnd().endsWith("…");
 }
 
 // ── What the card on screen reports (views.ts buildApproval) ──────────────────
@@ -90,6 +121,12 @@ let shownFor: string | null = null;
 let shownSince = 0;
 let fully: () => boolean = () => false;
 let armed: Armed | null = null;
+let expanded: Expanded | null = null;
+/** The last refusal, for the card's one-line reason (REASON_MS). */
+let refused: { requestId: string; check: AllowCheck; at: number } | null = null;
+
+/** How long a refusal's reason stays on the card. */
+export const REASON_MS = 3_000;
 
 /** The approval card is on screen for `requestId` (called on every sync while
  *  it is): its clock starts when it first shows, and again after it was away.
@@ -101,6 +138,8 @@ export function cardOnScreen(requestId: string, now: number, fullyShown: boolean
     shownFor = requestId;
     shownSince = now;
     armed = null;
+    expanded = null;
+    refused = null;
   }
   fully = typeof fullyShown === "function" ? fullyShown : () => fullyShown;
 }
@@ -111,6 +150,24 @@ export function cardOffScreen() {
   shownFor = null;
   fully = () => false;
   armed = null;
+  // Opened again, it starts small and must be expanded (and read) again.
+  expanded = null;
+}
+
+/** The card shows the whole command for `requestId` (expanded by a press). */
+export function expandedFor(requestId: string | null | undefined): Expanded | null {
+  return requestId && expanded?.requestId === requestId ? expanded : null;
+}
+
+/** The window opened by an expanding press, while it is open. */
+export function expandWindow(requestId: string | null | undefined, now: number): Expanded | null {
+  const ex = expandedFor(requestId);
+  return ex && now - ex.armedAt <= CONFIRM_WINDOW_MS ? ex : null;
+}
+
+/** Why the last press on `requestId` was refused, while the card says so. */
+export function refusalFor(requestId: string | null | undefined, now: number): AllowCheck | null {
+  return requestId && refused?.requestId === requestId && now - refused.at <= REASON_MS ? refused.check : null;
 }
 
 /** How long `requestId`'s card has been on screen, and whether it shows the whole command. */
@@ -138,9 +195,16 @@ export function arm(requestId: string, now: number) {
 /** A press: what the key does now. Arms on a destructive command's first
  *  press, clears the arming when it allows. */
 export function press(request: Parameters<typeof allowCheck>[0]["request"], open: boolean, now: number): AllowCheck {
-  const seen = request?.requestId ? onScreen(request.requestId, now) : { shownMs: 0, fullyShown: false };
-  const check = allowCheck({ request, open, ...seen, armed: armedFor(now), now });
-  if (check === "armed" && request?.requestId) arm(request.requestId, now);
-  if (check === "ok") armed = null;
+  const id = request?.requestId;
+  const seen = id ? onScreen(id, now) : { shownMs: 0, fullyShown: false };
+  const check = allowCheck({ request, open, ...seen, armed: armedFor(now), expanded: expandedFor(id), now });
+  if (check === "armed" && id) arm(id, now);
+  // Shown in full from the first expansion; the window from this press.
+  if (check === "expand" && id) expanded = { requestId: id, at: expanded?.requestId === id ? expanded.at : now, armedAt: now };
+  if (check === "ok") {
+    armed = null;
+    expanded = null;
+  }
+  refused = id && check !== "ok" && check !== "armed" && check !== "expand" ? { requestId: id, check, at: now } : null;
   return check;
 }

@@ -28,7 +28,7 @@ import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
 import { Bridge } from "../core/bridge";
 import { SHORTCUTS, displayKeys, effective } from "../core/shortcuts";
-import { armedFor, cardOnScreen, secondsLeft } from "../core/allow";
+import { armedFor, cardOnScreen, expandWindow, expandedFor, isDestructive, refusalFor, relayShortened, secondsLeft, type AllowCheck } from "../core/allow";
 import { buildRecap } from "./recap";
 import { language, t, tl, tn, type Msg } from "../i18n/i18n";
 
@@ -421,16 +421,28 @@ function keyOf(id: "allowApproval" | "denyApproval"): string {
   return b && b.enabled && b.keys ? displayKeys(b.keys) : "";
 }
 
+/** Why the Allow key didn't allow, in one line on the card (fix 2026-10-25). */
+export function allowReason(check: AllowCheck | null): string {
+  switch (check) {
+    case "too-soon": return t("Too soon: read it, then press again.");
+    case "not-open": return t("Open the card first, then press the key.");
+    case "too-long": return t("Too long to show in full: click Allow.");
+  }
+  return "";
+}
+
 export function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
   // The Allow key's second press (fix e): "Press again to allow · 3…2…1".
   const confirm = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-confirm" });
+  // Why the key didn't allow (too soon, not open, too long to show).
+  const why = h("div", { class: "suggestion-more", role: "status", "data-role": "allow-why" });
   const row = h("div", { class: "actions" });
   const denyKey = h("span", { class: "kbd", "data-role": "deny-key" });
   const allowKey = h("span", { class: "kbd", "data-role": "allow-key" });
   const el = h("div", { class: "view" },
-    card("amber", stack(116, 16, who, code, confirm, row), foldButton(actions)));
+    card("amber", stack(116, 16, who, code, confirm, why, row), foldButton(actions)));
   let rowKey = "";
   // The card pops up under a cursor that was busy with something else: a click
   // meant for the window underneath must not land on Allow. Clicks in the first
@@ -460,16 +472,20 @@ export function buildApproval(actions: ViewActions): ViewHost {
       // name of the tool asking.
       const command = State.pendingApproval?.command || State.pendingApproval?.tool || "…";
       code.textContent = command;
+      // A cut-off command's first Allow-key press shows all of it: the box
+      // wraps, grows, then scrolls (core/allow.ts, style.css .code.expanded).
+      code.classList.toggle("expanded", expandedFor(req) !== null);
       // On screen (open, not folded) with the whole command in view: the
       // Allow key's clock (core/allow.ts). A box that scrolls or cuts off
       // isn't the whole command. Measured when the key is pressed, without
       // the "Press again" line, which only takes room while it is showing.
       if (req && State.mode === "expanded") {
         cardOnScreen(req, performance.now(), () => {
-          const shown = confirm.style.display;
+          const shown = [confirm.style.display, why.style.display];
           confirm.style.display = "none";
+          why.style.display = "none";
           const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
-          confirm.style.display = shown;
+          [confirm.style.display, why.style.display] = shown;
           return fits;
         });
       }
@@ -477,8 +493,21 @@ export function buildApproval(actions: ViewActions): ViewHost {
       // for the second and counts down the seconds left for it.
       const now = performance.now();
       const armed = req ? armedFor(now) : null;
-      confirm.textContent = armed && armed.requestId === req ? t("Press again to allow · {seconds}", { seconds: String(secondsLeft(armed, now)) }) : "";
+      const opened = expandWindow(req, now);
+      if (armed && armed.requestId === req) {
+        confirm.textContent = t("Press again to allow · {seconds}", { seconds: String(secondsLeft(armed, now)) });
+      } else if (opened) {
+        // Expanded by the key: the next press allows (a destructive command
+        // still takes its own two).
+        confirm.textContent = isDestructive(command)
+          ? t("Read it, then press twice to allow")
+          : t("Press again to allow · {seconds}", { seconds: String(secondsLeft({ requestId: opened.requestId, at: opened.armedAt }, now)) });
+      } else {
+        confirm.textContent = "";
+      }
       confirm.style.display = confirm.textContent ? "" : "none";
+      why.textContent = relayShortened(State.pendingApproval?.command) ? allowReason("too-long") : allowReason(refusalFor(req, now));
+      why.style.display = why.textContent ? "" : "none";
       denyKey.textContent = keyOf("denyApproval");
       allowKey.textContent = keyOf("allowApproval");
       denyKey.style.display = denyKey.textContent ? "" : "none";
