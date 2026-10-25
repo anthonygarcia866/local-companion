@@ -145,6 +145,10 @@ pub struct Settings {
     /// waited 30 seconds" (fix e's escalation, 2026-10-17): off by default.
     /// The lantern pulses either way.
     pub approval_sound: bool,
+    /// Settings → Privacy → "Hide Glim in screen shares and recordings"
+    /// (docs/glim-learns-plan.md §5, decided 2026-10-24): on by default.
+    /// GLIM_CAPTURABLE=1 overrides it for tests (screen_capture.rs).
+    pub hide_from_capture: bool,
     /// Settings → Ask Glim → "Learn shortcuts from what I ask"
     /// (docs/glim-learns-plan.md §1, decided 2026-10-24): on by default.
     /// Off: nothing is learned or replayed; routines still run.
@@ -264,6 +268,7 @@ impl Default for Settings {
             calendar_ids: Vec::new(),
             calendar_summary_shown: String::new(),
             approval_sound: false,
+            hide_from_capture: true,
             learn_shortcuts: true,
             phone: PhoneSettings::default(),
         }
@@ -564,6 +569,7 @@ mod tests {
   "calendarIds": ["\\\\me@example.com\\Calendar"],
   "calendarSummaryShown": "2026-10-17",
   "approvalSound": true,
+  "hideFromCapture": false,
   "learnShortcuts": false,
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
@@ -695,6 +701,14 @@ mod tests {
         assert!(!parse(br#"{"screen":"active"}"#).unwrap().writing_bubble, "a file from before 1e");
         assert!(parse(br#"{"writingBubble":true}"#).unwrap().writing_bubble);
         assert!(parse(&custom_with("writingBubble", None)).map(|s| !s.writing_bubble).unwrap());
+    }
+
+    #[test]
+    fn glim_hides_from_screen_capture_unless_turned_off() {
+        assert!(Settings::default().hide_from_capture);
+        assert!(parse(br#"{"screen":"active"}"#).unwrap().hide_from_capture, "a file from before the switch");
+        assert!(!parse(br#"{"hideFromCapture":false}"#).unwrap().hide_from_capture);
+        assert!(parse(&custom_with("hideFromCapture", None)).unwrap().hide_from_capture);
     }
 
     #[test]
@@ -1027,6 +1041,7 @@ mod tests {
                 "calendarIds",
                 "calendarSummaryShown",
                 "approvalSound",
+                "hideFromCapture",
                 "learnShortcuts",
                 "phone",
             ]

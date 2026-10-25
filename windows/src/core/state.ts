@@ -206,6 +206,9 @@ export interface Settings {
   calendarSummaryShown?: string;
   /** Settings → Claude Code: a soft sound when a permission has waited 30 s (off by default). */
   approvalSound?: boolean;
+  /** Settings → Privacy: Glim's windows kept out of screen shares, recordings
+   *  and screenshots (docs/glim-learns-plan.md §5). On unless false. */
+  hideFromCapture?: boolean;
   /** Settings → Ask Glim: learn shortcuts from what is asked (docs/glim-learns-plan.md §1). On unless false. */
   learnShortcuts?: boolean;
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
@@ -257,6 +260,7 @@ export const DEFAULT_SETTINGS: Settings = {
   calendarHideAllDay: true,
   calendarSummary: false,
   calendarIds: [],
+  hideFromCapture: true,
   learnShortcuts: true,
   phone: { ...DEFAULT_PHONE },
 };

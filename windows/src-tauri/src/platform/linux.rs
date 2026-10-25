@@ -380,6 +380,12 @@ pub fn unblock_webview_drops(_app: &AppHandle) {}
 /// Without layer-shell (GNOME, X11, or COUCOU_LAYER_SHELL=0) the window stays
 /// an ordinary always-on-top window that refuses focus; where it lands is then
 /// up to the window manager.
+/// Windows only (WDA_EXCLUDEFROMCAPTURE): Linux has no such switch, so it
+/// says it did nothing.
+pub fn set_capture_excluded(_win: &WebviewWindow, _excluded: bool) -> bool {
+    false
+}
+
 pub fn make_non_activating(win: &WebviewWindow) {
     let Ok(gw) = win.gtk_window() else { return };
     // The pointer watch reports the pointer leaving on every kind of window:

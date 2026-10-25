@@ -20,6 +20,7 @@ mod pipe;
 mod platform;
 mod recap;
 mod resume;
+mod screen_capture;
 mod learn;
 mod session_window;
 mod settings;
@@ -123,6 +124,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     phone::apply_settings(&settings);
+    screen_capture::apply(&app);
     if let Err(err) = settings::save(&settings) {
         log::line(format!("could not save settings: {err}"));
     }
@@ -412,6 +414,7 @@ fn open_file_in_vscode(path: String) -> bool {
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
+    ai::budget::on_quit();
     #[cfg(windows)]
     voice::whisper::stop();
     app.exit(0);
@@ -1558,6 +1561,8 @@ pub fn run() {
             }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
+            // Every window built so far, before the island is first shown.
+            screen_capture::apply(&handle);
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the
