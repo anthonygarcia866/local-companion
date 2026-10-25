@@ -6508,6 +6508,17 @@
    "pt-BR": "Leia e pressione duas vezes para permitir",
    "ru": "Прочитайте и нажмите дважды, чтобы разрешить",
    "id": "Baca dulu, lalu tekan dua kali untuk mengizinkan"
+  },
+  "Scroll to the end of the command, then press again.": {
+   "zh-Hans": "请滚动到命令末尾，然后再按一次。",
+   "hi": "कमांड के अंत तक स्क्रॉल करें, फिर दोबारा दबाएँ।",
+   "es": "Desplázate hasta el final del comando y vuelve a pulsar.",
+   "ar": "مرّر حتى نهاية الأمر، ثم اضغط مرة أخرى.",
+   "fr": "Faites défiler jusqu'à la fin de la commande, puis appuyez de nouveau.",
+   "bn": "কমান্ডের শেষ পর্যন্ত স্ক্রল করুন, তারপর আবার চাপুন।",
+   "pt-BR": "Role até o fim do comando e pressione de novo.",
+   "ru": "Прокрутите команду до конца и нажмите ещё раз.",
+   "id": "Gulir sampai akhir perintah, lalu tekan lagi."
   }
  }
 }

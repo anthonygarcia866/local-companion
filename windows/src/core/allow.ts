@@ -17,7 +17,9 @@
 // opens the same CONFIRM_WINDOW_MS window, "Press again to allow · 3". A press
 // in it allows (a destructive one then takes its own two presses); too late,
 // and the next press only opens the window again. ALLOW_DELAY_MS counts
-// from the expansion. Never allowed by key: a command the relay shortened
+// from the expansion. A command still too long for the expanded box (it
+// scrolls) is allowed by key only once the box was scrolled to its end:
+// "Scroll to the end of the command, then press again". Never allowed by key: a command the relay shortened
 // ("…": longer than glim-hook's MAX_APPROVAL_LEN), "Too long to show in
 // full: click Allow".
 
@@ -59,7 +61,7 @@ export function isDestructive(command: string): boolean {
 
 /** Why the key won't allow right now. "ok": allow. "armed": the first of two
  *  presses, the card asks for the second. */
-export type AllowCheck = "ok" | "armed" | "expand" | "no-card" | "question" | "not-open" | "too-long" | "too-soon";
+export type AllowCheck = "ok" | "armed" | "expand" | "no-card" | "question" | "not-open" | "too-long" | "scroll" | "too-soon";
 
 /** A cut-off card's first press: the card shows the whole command from `at`;
  *  the window for the press that allows started at `armedAt`. */
@@ -80,7 +82,7 @@ export function allowCheck(o: {
   request: { requestId?: string; command?: string; tool?: string; questions?: unknown } | null;
   /** Its card is the view on screen, opened (not folded). */
   open: boolean;
-  /** The whole command fits on the card. */
+  /** The whole command fits on the card (expanded: or its box was scrolled to the end). */
   fullyShown: boolean;
   /** How long this request's card has been on screen. */
   shownMs: number;
@@ -105,6 +107,8 @@ export function allowCheck(o: {
   // Cut off on the card: the press shows it all, and opens the window for
   // the press that allows (again, once the window has passed).
   if (!o.fullyShown && (!ex || now - ex.armedAt > CONFIRM_WINDOW_MS)) return "expand";
+  // Expanded, and still more below: the end must have been on screen.
+  if (!o.fullyShown) return "scroll";
   const shownMs = ex ? Math.min(o.shownMs, now - ex.at) : o.shownMs;
   if (shownMs < ALLOW_DELAY_MS) return "too-soon";
   return isDestructive(o.request.command ?? o.request.tool ?? "") ? "armed" : "ok";

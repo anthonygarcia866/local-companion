@@ -335,10 +335,16 @@ test("the island: the key goes through press(), the wait is ticked, logged and e
 const LONG = "Bash · cd ~/local-companion && git fetch origin && git merge --no-edit origin/main && npm --prefix windows test && npx tsc --noEmit -p windows";
 const LONG_RM = "Bash · cd ~/local-companion/windows && rm -rf dist target/release/bundle node_modules/.vite && npm ci && npm run build && npm run pack";
 
+// What the card measures: cut off until expanded, then whole (a command that
+// fits the expanded box), unless `scrolls`.
+function longCard(id, { scrolls = false } = {}) {
+  cardOnScreen(id, 0, () => expandedFor(id) !== null && !scrolls);
+}
+
 test("a long command: the first press expands the card, the second allows", () => {
   cardOffScreen();
   const r = req(LONG, { requestId: "L1" });
-  cardOnScreen("L1", 0, false);
+  longCard("L1");
   assert.equal(press(r, true, 2_000), "expand", "cut off: shown in full first, never allowed blind");
   assert.deepEqual(expandedFor("L1"), { requestId: "L1", at: 2_000, armedAt: 2_000 });
   assert.equal(press(r, true, 3_600), "ok", "the second press, 1.6 s after expanding");
@@ -349,7 +355,7 @@ test("a long command: the first press expands the card, the second allows", () =
 test("the 1.5 s delay still applies after expanding, even on a card open for long", () => {
   cardOffScreen();
   const r = req(LONG, { requestId: "L2" });
-  cardOnScreen("L2", 0, false);
+  longCard("L2");
   assert.equal(press(r, true, 60_000), "expand");
   assert.equal(press(r, true, 60_900), "too-soon", "0.9 s after the whole command appeared");
   assert.equal(refusalFor("L2", 60_900), "too-soon", "the card says why");
@@ -361,19 +367,23 @@ test("the 1.5 s delay still applies after expanding, even on a card open for lon
 test("expanded, the window closes like the two-press one: the next press opens it again", () => {
   cardOffScreen();
   const r = req(LONG, { requestId: "L3" });
-  cardOnScreen("L3", 0, false);
+  longCard("L3", { scrolls: true });
   assert.equal(press(r, true, 1_000), "expand");
   assert.ok(expandWindow("L3", 1_000 + CONFIRM_WINDOW_MS));
   assert.equal(expandWindow("L3", 1_001 + CONFIRM_WINDOW_MS), null);
   assert.equal(press(r, true, 10_000), "expand", "too late: this press only opens the window again");
   assert.equal(expandedFor("L3").at, 1_000, "the card stayed expanded: the delay counts from the first expansion");
-  assert.equal(press(r, true, 10_200), "ok", "so the next press allows straight away");
+  // Taller than the expanded box: not until its end has been on screen.
+  assert.equal(press(r, true, 10_200), "scroll");
+  assert.equal(refusalFor("L3", 10_200), "scroll", "the card says to scroll");
+  cardOnScreen("L3", 10_300, true); // scrolled to the end
+  assert.equal(press(r, true, 10_400), "ok", "then the next press allows straight away");
   // Folded: it starts small again and must be expanded again.
-  cardOnScreen("L4", 20_000, false);
+  longCard("L4");
   assert.equal(press(req(LONG, { requestId: "L4" }), true, 22_000), "expand");
   cardOffScreen();
   assert.equal(expandedFor("L4"), null);
-  cardOnScreen("L4", 23_000, false);
+  longCard("L4");
   assert.equal(press(req(LONG, { requestId: "L4" }), true, 25_000), "expand");
   cardOffScreen();
 });
@@ -382,7 +392,7 @@ test("a long destructive command: expand, then its own two presses", () => {
   cardOffScreen();
   const r = req(LONG_RM, { requestId: "LD" });
   assert.ok(isDestructive(LONG_RM));
-  cardOnScreen("LD", 0, false);
+  longCard("LD");
   assert.equal(press(r, true, 2_000), "expand", "expanding is not one of the two");
   assert.equal(press(r, true, 2_500), "too-soon");
   assert.equal(press(r, true, 3_600), "armed", "the first of two");
@@ -431,6 +441,8 @@ test("the card: expanded to the whole command, \"Press again to allow\", and a r
     assert.equal(press(State.pendingApproval, true, 2_000), "expand");
     card.sync();
     assert.ok(code.classList.contains("expanded"), "the box wraps and grows");
+    // Wrapped, it fits the expanded box.
+    code.scrollWidth = 300;
     assert.equal(confirm.textContent, "Press again to allow · 3");
     at(2_500);
     assert.equal(press(State.pendingApproval, true, 2_500), "too-soon");
@@ -442,12 +454,32 @@ test("the card: expanded to the whole command, \"Press again to allow\", and a r
     // A destructive one asks for two.
     cardOffScreen();
     State.pendingApproval = req(LONG_RM, { requestId: "V2" });
+    code.scrollWidth = 900;
     at(10_000);
     card.sync();
     at(12_000);
     assert.equal(press(State.pendingApproval, true, 12_000), "expand");
     card.sync();
     assert.equal(confirm.textContent, "Read it, then press twice to allow");
+    // Taller than the expanded box (it scrolls): not until scrolled to its end.
+    cardOffScreen();
+    State.pendingApproval = req(LONG, { requestId: "V3" });
+    code.scrollWidth = 900;
+    at(20_000);
+    card.sync();
+    at(22_000);
+    assert.equal(press(State.pendingApproval, true, 22_000), "expand");
+    card.sync();
+    code.scrollWidth = 300;
+    code.scrollHeight = 400;
+    code.scrollTop = 0;
+    at(24_000);
+    assert.equal(press(State.pendingApproval, true, 24_000), "scroll");
+    card.sync();
+    assert.equal(why.textContent, "Scroll to the end of the command, then press again.");
+    code.scrollTop = 400 - code.clientHeight;
+    at(24_500);
+    assert.equal(press(State.pendingApproval, true, 24_500), "ok", "its end has been on screen");
   });
   // The CSS and the height exist.
   assert.match(read("src/style.css"), /\.code\.expanded \{[^}]*white-space: pre-wrap;[^}]*overflow-y: auto;/);

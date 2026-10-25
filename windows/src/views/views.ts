@@ -427,6 +427,7 @@ export function allowReason(check: AllowCheck | null): string {
     case "too-soon": return t("Too soon: read it, then press again.");
     case "not-open": return t("Open the card first, then press the key.");
     case "too-long": return t("Too long to show in full: click Allow.");
+    case "scroll": return t("Scroll to the end of the command, then press again.");
   }
   return "";
 }
@@ -484,7 +485,9 @@ export function buildApproval(actions: ViewActions): ViewHost {
           const shown = [confirm.style.display, why.style.display];
           confirm.style.display = "none";
           why.style.display = "none";
-          const fits = code.scrollHeight <= code.clientHeight + 1 && code.scrollWidth <= code.clientWidth + 1;
+          // Expanded and scrolling: shown once its end has been in view.
+          const fits = code.scrollWidth <= code.clientWidth + 1
+            && (code.scrollHeight <= code.clientHeight + 1 || (code.classList.contains("expanded") && code.scrollTop + code.clientHeight >= code.scrollHeight - 1));
           [confirm.style.display, why.style.display] = shown;
           return fits;
         });
