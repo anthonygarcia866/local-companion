@@ -79,9 +79,22 @@ fn quiet(asked: &Option<Asked>, mode: Mode) -> VoiceEvent {
     }
 }
 
-fn send(app: &AppHandle, e: VoiceEvent) {
+fn send(app: &AppHandle, mut e: VoiceEvent) {
+    // The correction tip (Glim learns §3) rides on the next result card.
+    if TIP_RESULTS.contains(&e.phase) && TIP.swap(false, Ordering::SeqCst) {
+        e.tip = true;
+    }
     let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
 }
+
+/// When the last Ask request was: a correction is the next one within a
+/// minute (memory::is_correction).
+static LAST_ASK: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+const CORRECTION_WITHIN: Duration = Duration::from_secs(60);
+/// A correction's tip is waiting for its result card: once per correction.
+static TIP: AtomicBool = AtomicBool::new(false);
+/// The result cards that can carry the tip line.
+const TIP_RESULTS: [&str; 4] = ["heard", "question", "failed", "remembered"];
 
 /// The virtual-key code of a binding's main key ("Ctrl+Alt+Shift+V" → V).
 pub fn main_key_vk(binding: &str) -> u16 {
@@ -251,6 +264,16 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         dismiss(app, mode);
         return;
     }
+    // Glim learns §3: "no, …", "I meant …" right after an Ask: the result
+    // says "Tip: say 'Remember: …'". Never on the dictation key.
+    if mode == Mode::Ask {
+        let mut last = LAST_ASK.lock().unwrap();
+        let recent = last.is_some_and(|t| t.elapsed() < CORRECTION_WITHIN);
+        TIP.store(recent && crate::memory::is_correction(transcript), Ordering::SeqCst);
+        *last = Some(Instant::now());
+    } else {
+        TIP.store(false, Ordering::SeqCst);
+    }
     let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
     // "Open claw": Claude asked which app; a word that sounds like exactly
     // one app opens it (fix d). Only after Claude answered (§4.1).
@@ -267,6 +290,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
+    // An app opening shows no card: the tip gets one of its own.
+    let tip_card = matches!(decision, Decision::Open { .. } | Decision::OpenOwn { .. });
     // A new question waits (its request: the earlier one, then this answer);
     // anything else ends the question.
     set_question(match &decision {
@@ -332,10 +357,36 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             crate::log::line("voice: edit_draft");
             edit_last_draft(app, mode, &change).await;
         }
+        Decision::Remember { kind: which, text } => {
+            // Glim's own filter decides (memory.rs); the card shows what was
+            // kept, or why not. The log names the kind and the code only.
+            let added = crate::memory::with(|mem| {
+                let r = mem.add(which, &text);
+                let changed = r.is_ok();
+                (r, changed)
+            });
+            let kind = which.as_str();
+            match added {
+                Ok(saved) => {
+                    crate::log::line(format!("memory: saved a {kind}"));
+                    send(app, VoiceEvent { phase: "remembered", text: saved, code: kind.into(), mode: m, ..Default::default() });
+                    let _ = app.emit("memory-changed", ());
+                }
+                Err(code) => {
+                    crate::log::line(format!("memory: refused ({code})"));
+                    send(app, VoiceEvent { phase: "failed", code: format!("memory-{code}"), mode: m, ..Default::default() });
+                }
+            }
+        }
         Decision::Sensitive => {
             crate::log::line("voice: not sent (sensitive)");
             send(app, VoiceEvent { phase: "failed", code: "sensitive".into(), mode: m, ..Default::default() });
         }
+    }
+    // A correction whose result had no card (an app opened): the tip gets a
+    // card of its own. Either way it is said once.
+    if TIP.swap(false, Ordering::SeqCst) && tip_card {
+        send(app, VoiceEvent { phase: "tip", mode: m, ..Default::default() });
     }
 }
 
@@ -443,11 +494,24 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         crate::writing::tones::current_kind()
     );
     let today = crate::writing::ask::today();
+    // Glim learns §3: every fact and the rules relevant to this request,
+    // Ask lane only (never dictation). The log has the counts.
+    let remembered = match mode {
+        Mode::Dictate => String::new(),
+        _ => {
+            let about = asked.map(|a| format!("{} {transcript}", a.request)).unwrap_or_else(|| transcript.to_string());
+            crate::memory::with(|mem| (mem.for_request(&about), false))
+        }
+    };
+    let (rules, facts) = crate::memory::Memory::counts(&remembered);
+    if rules + facts > 0 {
+        crate::log::line(format!("memory: sent {rules} rules, {facts} facts"));
+    }
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
         Ok(base) => {
             let repos = known_repos();
             let own = super::own_apps::names(&own_apps(app));
-            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked };
+            let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked, remembered: &remembered };
             dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
         }
         Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
@@ -459,6 +523,7 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
         Ok(Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(Cleanup::Resume(_)) => "resume_work".to_string(),
         Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
+        Ok(Cleanup::Remember { .. }) => "remember".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

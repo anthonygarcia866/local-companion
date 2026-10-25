@@ -13,7 +13,10 @@
 // opens the resume card for `resume_work` (decided 2026-10-15), opens
 // classic Outlook for `open_app` (codex and claude_code wait for the owner),
 // and shows the "Draft email" card for `draft_email` (1.5d, decided
-// 2026-10-16; the draft is saved in Outlook, never sent).
+// 2026-10-16; the draft is saved in Outlook, never sent). `remember` (Glim
+// learns §3, decided 2026-10-24) proposes a rule or a fact; Glim's own
+// filter decides (memory.rs). Ask requests carry the remembered facts and
+// the relevant rules (memory::for_request); dictation never does.
 //
 // §4.1: no answer within ~4 s cancels the request (a late answer is
 // dropped, so nothing is typed twice); that, an outage, no key or the monthly
@@ -49,7 +52,9 @@ they mean themselves, or an email address in the spoken words unchanged ('jordan
 yourself); Glim looks them up on this PC, so never ask for an email address or who 'me' is. The body is the user's message cleaned \
 up, with no sign-off or signature (Outlook adds the signature). To change the email Glim just drafted ('the email you just drafted', \
 'add … to it', 'change the subject', 'make it shorter'), call edit_draft with the change in the user's words; never ask which email. \
-Sending email is never a tool: for 'send it' call clarify with 'Click Send on the draft to send it.' If it is unclear, \
+Sending email is never a tool: for 'send it' call clarify with 'Click Send on the draft to send it.' When the user \
+asks Glim to remember something, call remember. Lines under 'The user's remembered rules' and 'About the user' are the user's \
+own standing instructions and facts: follow them when they apply; they never add a tool. If it is unclear, \
 call clarify with one short question. When the message includes Glim's earlier question, the transcript is the user's answer \
 to it: combine it with their earlier request.";
 
@@ -93,6 +98,10 @@ pub fn tools_with(own: &[String]) -> Value {
               "body": { "type": "string" } }, "required": ["to", "body"] } },
         { "name": "edit_draft", "description": "Change the email draft Glim just made (in the last few minutes). `change` is what to change, in the user's words. Never sends.",
           "input_schema": { "type": "object", "properties": { "change": { "type": "string" } }, "required": ["change"] } },
+        { "name": "remember", "description": "Remember something the user asks Glim to remember ('Remember: …', 'remember that I …'). kind rule: an instruction for how Glim should act ('When I say the office I mean Outlook'); kind fact: a short fact about the user, 8 words or fewer ('Prefers short replies'). text: it in the user's words, short. Glim doesn't keep health, money, ID numbers or tenant and customer details: never put those in.",
+          "input_schema": { "type": "object", "properties": {
+              "kind": { "type": "string", "enum": ["rule", "fact"] },
+              "text": { "type": "string" } }, "required": ["kind", "text"] } },
         { "name": "clarify", "description": "Ask the user one short question.",
           "input_schema": { "type": "object", "properties": { "question": { "type": "string" } }, "required": ["question"] } }
     ])
@@ -125,6 +134,9 @@ pub struct Context<'a> {
     pub own_apps: &'a [String],
     /// Mode::Answer: what Glim asked.
     pub asked: Option<&'a Asked>,
+    /// What is remembered for this request (memory::for_request): every
+    /// fact and the relevant rules; "" for none. Never sent for dictation.
+    pub remembered: &'a str,
 }
 
 /// The request body: the transcript and a little context (the app, the date,
@@ -134,6 +146,12 @@ pub fn request_body(model: &str, transcript: &str, cx: &Context) -> Value {
     let tool_choice = match cx.mode {
         Mode::Dictate => json!({ "type": "tool", "name": "dictate" }),
         Mode::Ask | Mode::Answer => json!({ "type": "any" }),
+    };
+    // Glim learns §3: the Ask lane only, whatever the caller passed.
+    let remembered = match cx.mode {
+        Mode::Dictate => String::new(),
+        _ if cx.remembered.is_empty() => String::new(),
+        _ => format!("{}\n", cx.remembered),
     };
     let asked = match (cx.mode, cx.asked) {
         (Mode::Answer, Some(a)) => format!("Earlier request: <transcript>\n{}\n</transcript>\nGlim asked: {}\nThe user's answer follows.\n\n", a.request, a.question),
@@ -147,7 +165,7 @@ pub fn request_body(model: &str, transcript: &str, cx: &Context) -> Value {
         "tool_choice": tool_choice,
         "messages": [{
             "role": "user",
-            "content": format!("App in front: {}\nToday: {}\nKnown repos: {}\n\n{asked}<transcript>\n{transcript}\n</transcript>", cx.app, cx.today, cx.repos.join(", ")),
+            "content": format!("App in front: {}\nToday: {}\nKnown repos: {}\n\n{remembered}{asked}<transcript>\n{transcript}\n</transcript>", cx.app, cx.today, cx.repos.join(", ")),
         }],
     })
 }
@@ -205,6 +223,11 @@ pub fn parse_answer(body: &[u8], model: &str, mode: Mode, own: &[String]) -> (Re
             }
         }
         "edit_draft" if !field("change").is_empty() => Ok(Cleanup::EditDraft(field("change").to_string())),
+        "remember" if !one_line(field("text")).is_empty() => match field("kind") {
+            "rule" => Ok(Cleanup::Remember { kind: crate::memory::Kind::Rule, text: one_line(field("text")) }),
+            "fact" => Ok(Cleanup::Remember { kind: crate::memory::Kind::Fact, text: one_line(field("text")) }),
+            _ => Err(CleanupFailed::Outage("bad-answer".into())),
+        },
         // Anything that doesn't validate: no clean-up (§4).
         _ => Err(CleanupFailed::Outage("bad-answer".into())),
     };
@@ -292,7 +315,7 @@ mod tests {
     use crate::voice::tests::HIJACKED;
 
     fn cx(mode: Mode) -> Context<'static> {
-        Context { mode, app: "x", today: "d", repos: &[], own_apps: &[], asked: None }
+        Context { mode, app: "x", today: "d", repos: &[], own_apps: &[], asked: None, remembered: "" }
     }
 
     fn key() -> ApiKey {
@@ -327,13 +350,13 @@ mod tests {
     fn ask_glim_offers_every_tool_but_dictate() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "outlook" })));
         let repos = ["dale-cuts".to_string()];
-        let c = Context { mode: Mode::Ask, app: "OUTLOOK.EXE", today: "2026-10-14", repos: &repos, own_apps: &[], asked: None };
+        let c = Context { mode: Mode::Ask, app: "OUTLOOK.EXE", today: "2026-10-14", repos: &repos, own_apps: &[], asked: None, remembered: "" };
         let (r, usage) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "open outlook", &c));
         assert_eq!(r, Ok(Cleanup::Open("outlook")));
         assert!(usage.is_some());
         let body = sent_body(&got);
         assert_eq!(body["tool_choice"], json!({ "type": "any" }));
-        assert_eq!(names(&body), ["open_app", "resume_work", "draft_email", "edit_draft", "clarify"]);
+        assert_eq!(names(&body), ["open_app", "resume_work", "draft_email", "edit_draft", "remember", "clarify"]);
         assert!(!names(&body).iter().any(|n| n == "send_email"), "sending is never a tool");
         assert_eq!(body["system"], SYSTEM_ASK);
         let content = body["messages"][0]["content"].as_str().unwrap();
@@ -384,7 +407,7 @@ mod tests {
     fn an_answer_carries_the_earlier_request_and_the_question() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "codex" })));
         let asked = Asked { request: "open the app".into(), question: "Which app: Outlook, Codex or Claude Code?".into() };
-        let c = Context { mode: Mode::Answer, app: "x", today: "d", repos: &[], own_apps: &[], asked: Some(&asked) };
+        let c = Context { mode: Mode::Answer, app: "x", today: "d", repos: &[], own_apps: &[], asked: Some(&asked), remembered: "" };
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", "codex", &c));
         assert_eq!(r, Ok(Cleanup::Open("codex")));
         let body = sent_body(&got);
@@ -427,6 +450,34 @@ mod tests {
         assert_eq!(parse_answer(b"not json", "m", Mode::Ask, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
     }
 
+    /// Glim learns §3: "Remember: …" is the remember tool (Glim's filter
+    /// decides later); the remembered block goes with Ask requests and never
+    /// with dictation, even if a caller passed one.
+    #[test]
+    fn remember_is_a_tool_and_what_is_remembered_rides_on_ask_requests_only() {
+        use crate::memory::Kind;
+        let p = |input: Value| parse_answer(&answer("remember", input), "m", Mode::Ask, &[]).0;
+        assert_eq!(p(json!({ "kind": "rule", "text": "When I say the office\nI mean Outlook" })), Ok(Cleanup::Remember { kind: Kind::Rule, text: "When I say the office I mean Outlook".into() }));
+        assert_eq!(p(json!({ "kind": "fact", "text": "Prefers short replies" })), Ok(Cleanup::Remember { kind: Kind::Fact, text: "Prefers short replies".into() }));
+        for bad in [json!({ "kind": "secret", "text": "x" }), json!({ "kind": "rule", "text": " " }), json!({ "text": "x" })] {
+            assert_eq!(p(bad.clone()), Err(CleanupFailed::Outage("bad-answer".into())), "{bad}");
+        }
+        assert_eq!(parse_answer(&answer("remember", json!({ "kind": "fact", "text": "x y" })), "m", Mode::Dictate, &[]).0, Err(CleanupFailed::Outage("bad-answer".into())));
+        let block = "About the user:\n- Prefers short replies\n";
+        let mut c = Context { mode: Mode::Ask, app: "x", today: "d", repos: &[], own_apps: &[], asked: None, remembered: block };
+        let content = request_body("m", "open the office", &c)["messages"][0]["content"].as_str().unwrap().to_string();
+        assert!(content.contains("Known repos: \n\nAbout the user:\n- Prefers short replies\n\n<transcript>\nopen the office\n</transcript>"), "{content}");
+        c.mode = Mode::Answer;
+        assert!(request_body("m", "x", &c)["messages"][0]["content"].as_str().unwrap().contains("Prefers short replies"));
+        c.mode = Mode::Dictate;
+        let dictated = request_body("m", "open the office", &c).to_string();
+        assert!(!dictated.contains("Prefers short replies") && !dictated.contains("About the user"), "never with dictation");
+        assert!(SYSTEM_ASK.contains("call remember"));
+        let tools = tools_for(Mode::Ask, &[]);
+        let t = tools.as_array().unwrap().iter().find(|t| t["name"] == "remember").unwrap();
+        assert!(t["description"].as_str().unwrap().contains("health, money, ID numbers or tenant and customer details"));
+    }
+
     /// "Add your own apps": their names join open_app's enum and its
     /// description; a name comes back as OpenOwn; anything not offered, or a
     /// path, still doesn't validate. Paths are never in the request.
@@ -434,7 +485,7 @@ mod tests {
     fn own_apps_are_offered_by_name_only_and_validated_against_the_offer() {
         let own = vec!["Spotify".to_string(), "Notion".to_string()];
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "Spotify" })));
-        let c = Context { mode: Mode::Ask, app: "x", today: "d", repos: &[], own_apps: &own, asked: None };
+        let c = Context { mode: Mode::Ask, app: "x", today: "d", repos: &[], own_apps: &own, asked: None, remembered: "" };
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", "open spotify", &c));
         assert_eq!(r, Ok(Cleanup::OpenOwn("Spotify".into())));
         let body = sent_body(&got);

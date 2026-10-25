@@ -102,6 +102,7 @@ fn whisper_on_this_pc() {
             super::Decision::Open { .. } | super::Decision::OpenOwn { .. } => "open app",
             super::Decision::Draft(_) => "draft card",
             super::Decision::EditDraft { .. } => "edit card",
+            super::Decision::Remember { .. } => "remember card",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
@@ -165,7 +166,7 @@ fn claude_clean_up() {
         let fixed = super::unit_numbers(said);
         let said = fixed.as_str();
         let t0 = Instant::now();
-        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, own_apps: &[], asked: None };
+        let cx = dictate::Context { mode, app, today: "2026-10-15", repos: &repos, own_apps: &[], asked: None, remembered: "" };
         let (r, usage) = block_on(dictate::clean_up(&base, &key, "claude-haiku-5-5", said, &cx));
         nanos += usage.as_ref().map_or(0, |u| u.cost_nanos);
         println!("{mode:?} {said:?} → {r:?} in {:.2}s ({})", t0.elapsed().as_secs_f64(), usage.map_or("no usage".into(), |u| format!("{} in={} out={}", u.model, u.input_tokens, u.output_tokens)));

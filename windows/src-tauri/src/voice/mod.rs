@@ -165,6 +165,9 @@ pub enum Cleanup {
     /// `edit_draft` (fix b, 2026-10-17): a change to the email Glim just
     /// drafted, in the user's words.
     EditDraft(String),
+    /// `remember` (Glim learns §3): a rule or a fact to keep, if Glim's
+    /// filter lets it (memory.rs).
+    Remember { kind: crate::memory::Kind, text: String },
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -219,6 +222,9 @@ pub enum Decision {
     /// Change the email Glim just drafted: shown on the card first, then
     /// updated in Outlook on a click. Nothing is ever sent.
     EditDraft { change: String },
+    /// "Remember: …": kept on the PC if memory::filter lets it; the card
+    /// shows what was saved, or why not.
+    Remember { kind: crate::memory::Kind, text: String },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -277,6 +283,7 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         }
         Ok(Cleanup::EditDraft(change)) if crate::capture::sensitive::contains_sensitive_number(&change) => Decision::Sensitive,
         Ok(Cleanup::EditDraft(change)) => Decision::EditDraft { change },
+        Ok(Cleanup::Remember { kind, text }) => Decision::Remember { kind, text },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }
@@ -331,6 +338,9 @@ pub struct VoiceEvent {
     pub code: String,
     /// The app typed into ("Word").
     pub app: String,
+    /// Glim learns §3: the user just corrected Glim; the card adds "Tip:
+    /// say 'Remember: …'" ("tip": a card of its own).
+    pub tip: bool,
 }
 
 /// 16-bit mono PCM as a WAV file, in memory.
