@@ -209,6 +209,19 @@ pub fn own_exe(path: &str) -> Option<String> {
 
 // ── Shortcuts ─────────────────────────────────────────────────────────────────
 
+/// The verbs `fold` makes: a rule about "the office" is about "open the
+/// office".
+const VERBS: [&str; 2] = ["open", "resume"];
+
+/// A shortcut's key as the card says it: the verb first, the app slot as
+/// "…" ("office open" -> "open office").
+fn shown_key(key: &str) -> String {
+    let words: Vec<&str> = key.split(' ').filter(|w| !w.is_empty()).collect();
+    let mut out: Vec<&str> = words.iter().copied().filter(|w| VERBS.contains(w)).collect();
+    out.extend(words.iter().copied().filter(|w| !VERBS.contains(w)).map(|w| if w == SLOT { "…" } else { w }));
+    out.join(" ")
+}
+
 /// A call Glim may keep and run again: only these two tools (plan §1's
 /// allowlist), with today's values.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,6 +323,27 @@ impl Shortcuts {
         let before = self.items.len();
         self.items.retain(|s| !(s.key == key && s.slot == slot));
         self.items.len() != before
+    }
+
+    /// A "Remember:" rule was saved (M2, review of #57/#58): the shortcuts
+    /// whose words it mentions go, so the next such ask reaches Claude with
+    /// the rule instead of replaying the old answer. A shortcut's words are
+    /// its gist without the verb ("open", "resume") and the app slot; it
+    /// matches when they are all in the rule's gist (the same words, folding
+    /// and order-blindness a gist uses). One with no such words ("open
+    /// {app}") never matches. What went, as shown on the card.
+    pub fn forget_for_rule(&mut self, rule: &str) -> Vec<String> {
+        let said: BTreeSet<String> = kept(rule).into_iter().collect();
+        let mut gone = Vec::new();
+        self.items.retain(|s| {
+            let own: Vec<&str> = s.key.split(' ').filter(|w| !w.is_empty() && *w != SLOT && !VERBS.contains(w)).collect();
+            let hit = !own.is_empty() && own.iter().all(|w| said.contains(*w));
+            if hit {
+                gone.push(shown_key(&s.key));
+            }
+            !hit
+        });
+        gone
     }
 
     /// Deletes the shortcuts unused for 30 days; how many went.
@@ -501,6 +535,16 @@ impl Learned {
         if let Err(err) = save(&self.dir.join(ROUTINES_FILE), &self.routines) {
             crate::log::line(format!("learn: could not save the routines ({})", err.kind()));
         }
+    }
+
+    /// A rule was saved: the learned shortcuts it mentions go (saved when
+    /// any did). Routines are the user's own and never go this way.
+    pub fn rule_saved(&mut self, rule: &str) -> Vec<String> {
+        let gone = self.shortcuts.forget_for_rule(rule);
+        if !gone.is_empty() {
+            self.save_shortcuts();
+        }
+        gone
     }
 
     /// The startup line: counts only.
@@ -780,6 +824,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_rule_about_a_shortcuts_words_removes_that_shortcut() {
+        let mut s = Shortcuts::default();
+        s.learn(&gist("open the office", &apps()), open("outlook"), 100);
+        s.learn(&gist("where was I on my-repo", &apps()), Action::ResumeWork { repo: Some("my-repo".into()) }, 100);
+        assert_eq!(s.items.len(), 2);
+        let gone = s.forget_for_rule("When I say the office I mean Codex");
+        assert_eq!(gone, ["open office"]);
+        assert_eq!(s.items.len(), 1);
+        assert!(s.find(&gist("open the office", &apps())).is_none(), "the next ask goes to Claude");
+        assert!(s.find(&gist("where was I on my-repo", &apps())).is_some(), "the other shortcut stays");
+        // The gist's folding and order-blindness: "launch" is "open", any order.
+        s.learn(&gist("launch the office", &apps()), open("outlook"), 100);
+        assert_eq!(s.forget_for_rule("Office means the Codex app"), ["open office"]);
+    }
+
+    #[test]
+    fn a_rule_that_mentions_no_shortcuts_words_changes_nothing() {
+        let mut s = Shortcuts::default();
+        s.learn(&gist("open the office", &apps()), open("outlook"), 100);
+        s.learn(&gist("open outlook", &apps()), open("outlook"), 100);
+        let before = s.clone();
+        assert!(s.forget_for_rule("Prefer short replies").is_empty());
+        // Only some of the words: no match ("office" is needed).
+        assert!(s.forget_for_rule("When I say open, I mean open it now").is_empty());
+        // A slot shortcut ("open {app}") has no words of its own: never matched,
+        // not even by a rule naming the app.
+        assert!(s.forget_for_rule("When I say Outlook I mean classic Outlook").is_empty());
+        assert_eq!(s, before);
+    }
+
+    #[test]
+    fn a_rule_never_removes_a_routine() {
+        let dir = scratch("rule");
+        let mut l = Learned::load(&dir);
+        l.shortcuts.learn(&gist("open the office", &apps()), open("outlook"), now());
+        l.routines.add("office", vec![open("outlook")], &[], 1).unwrap();
+        l.routines.add("work mode", vec![open("codex")], &[], 1).unwrap();
+        let gone = l.rule_saved("When I say the office or work mode I mean Codex");
+        assert_eq!(gone, ["open office"]);
+        assert!(l.shortcuts.items.is_empty());
+        assert_eq!(l.routines.items.len(), 2, "routines are the user's own");
+        // Saved: a restart doesn't bring the shortcut back.
+        assert!(Learned::load(&dir).shortcuts.items.is_empty());
+        // Nothing gone: nothing written.
+        let _ = std::fs::remove_file(dir.join(SHORTCUTS_FILE));
+        assert!(l.rule_saved("Prefer short replies").is_empty());
+        assert!(!dir.join(SHORTCUTS_FILE).exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

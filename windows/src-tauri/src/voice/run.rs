@@ -470,7 +470,15 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             match added {
                 Ok(saved) => {
                     crate::log::line(format!("memory: saved a {kind}"));
-                    send(app, VoiceEvent { phase: "remembered", text: saved, code: kind.into(), mode: m, ..Default::default() });
+                    // M2: a rule beats a learned shortcut for the same words:
+                    // that shortcut goes, so the next ask reaches Claude with
+                    // the rule. Routines stay. The log has the count only.
+                    let gone = if which == crate::memory::Kind::Rule { learn::with(|l| l.rule_saved(&saved)) } else { Vec::new() };
+                    if !gone.is_empty() {
+                        crate::log::line(format!("learn: a rule removed {} shortcuts", gone.len()));
+                    }
+                    let removed = gone.iter().map(|g| format!("“{g}”")).collect::<Vec<_>>().join(", ");
+                    send(app, VoiceEvent { phase: "remembered", text: saved, code: kind.into(), app: removed, mode: m, ..Default::default() });
                     let _ = app.emit("memory-changed", ());
                 }
                 Err(code) => {

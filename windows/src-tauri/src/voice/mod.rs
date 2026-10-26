@@ -354,7 +354,8 @@ pub struct VoiceEvent {
     /// "failed" / "typed" outcome codes ("no-whisper", "sensitive", "paused",
     /// an apply Outcome code…); "heard"/"typed": why it wasn't cleaned up.
     pub code: String,
-    /// The app typed into ("Word"); "learned": the app a shortcut opened.
+    /// The app typed into ("Word"); "learned": the app a shortcut opened;
+    /// "remembered": the learned shortcuts the rule removed, quoted (M2).
     pub app: String,
     /// "routine-ask" / "routine": the routine's steps (Glim learns §2).
     #[serde(skip_serializing_if = "Vec::is_empty")]

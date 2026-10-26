@@ -7157,6 +7157,17 @@
    "pt-BR": "Compartilhamentos de tela, gravações e capturas mostram o que está atrás do Glim, não os cartões dele.",
    "ru": "При демонстрации экрана, записи и на скриншотах видно то, что под Glim, а не его карточки.",
    "id": "Berbagi layar, rekaman, dan tangkapan layar menampilkan apa yang ada di balik Glim, bukan kartunya."
+  },
+  "Removed the learned shortcut for {words}.": {
+   "zh-Hans": "已移除 {words} 的已学会快捷方式。",
+   "hi": "{words} के लिए सीखा हुआ शॉर्टकट हटा दिया।",
+   "es": "Se quitó el atajo aprendido para {words}.",
+   "ar": "أُزيل الاختصار المتعلَّم لـ {words}.",
+   "fr": "Raccourci appris pour {words} supprimé.",
+   "bn": "{words}-এর শেখা শর্টকাট সরানো হয়েছে।",
+   "pt-BR": "O atalho aprendido para {words} foi removido.",
+   "ru": "Выученное действие для {words} удалено.",
+   "id": "Pintasan yang dipelajari untuk {words} dihapus."
   }
  }
 }
