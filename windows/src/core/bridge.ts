@@ -63,6 +63,8 @@ export const Bridge = {
   setSystemLanguages: (languages: string[]) => call<void>("set_system_languages", { languages }),
 
   saveSettings: (settings: Settings) => call<void>("save_settings", { settings }),
+  /** The Settings page has drawn (`ok`) or failed to: one line in glim.log. */
+  settingsPage: (ok: boolean) => call<void>("settings_page", { ok }),
 
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
