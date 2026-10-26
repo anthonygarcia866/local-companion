@@ -731,6 +731,7 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 7. **Correction tip:** say "open Codex", then within a minute "no, I meant Outlook". **See:** after Outlook opens, a small card "Tip: say “Remember: …” and I'll get it right next time." Only once; never after a dictation.
 8. **Remove / Forget everything:** Remove one entry in Settings → Memory; then **Forget everything**: both lists empty, and the next Ask has no `memory: sent` line.
 9. **Logs:** no `memory:` line ever contains a rule's or a fact's words.
+10. **A rule replaces a learned shortcut (M2):** with learning on, say "open the office" twice (Claude opens Outlook, then the 2nd is the **Learned** card). Then "Remember: when I say the office I mean Codex". **See:** "I'll remember that" with "Removed the learned shortcut for “open office”." Settings → Ask Glim no longer lists it; glim.log `learn: a rule removed 1 shortcuts`. Say "open the office": Claude is asked (no Learned card) and Codex opens. A routine named in a rule ("Remember: work mode means Codex first") stays in Settings → Ask Glim.
 
 
 ## After testing
