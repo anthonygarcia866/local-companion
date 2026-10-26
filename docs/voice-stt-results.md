@@ -85,7 +85,7 @@ Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the built-in 
 
 **Small runs fast enough to use** (~2 s after letting go of the key, against ~0.5 s), but on these clips it is not clearly more accurate. **Keep base**, now with the built-in word list (fix d) and the unit-number fix-up; **decide with Anthony's own 22 clips** (`docs/voice-clips-to-record.md`, folder `%USERPROFILE%\glim-clips\` created 2026-10-17). Switching is a Settings change plus `ggml-small.en-q5_1.bin` in `%LOCALAPPDATA%\Glim\whisper` (not there now).
 
-## Third local candidate: NVIDIA Parakeet via sherpa-onnx (prepped 2026-10-19, not run)
+## Third local candidate: NVIDIA Parakeet via sherpa-onnx (prepped 2026-10-19, first run 2026-10-26 on the synthetic clips)
 
 Upstream Coucou's Windows app does speech-to-text with **Parakeet TDT 0.6B v3** (int8) through **sherpa-onnx** 1.13.8 (`windows/src-tauri/src/speech/mod.rs` there; the Mac runs the same model through FluidAudio). It's added here so the owner's clips judge it beside base.en and small.en.
 
@@ -99,7 +99,54 @@ Upstream Coucou's Windows app does speech-to-text with **Parakeet TDT 0.6B v3** 
 | Licences | model CC-BY-4.0 (NVIDIA), sherpa-onnx Apache-2.0 |
 | In Glim it would mean | a new dependency (sherpa-onnx with onnxruntime, linked statically upstream), a ~670 MB download the user starts, no word list |
 
-**Status:** the tooling is checked without the model (argument parsing, WAV reading, scoring through a stand-in recognizer, the downloader's hash checks). It hasn't loaded the real model: on 2026-10-19 the PC had only 0.8 GB free RAM. It runs for the first time on the owner's clips (`docs/voice-clips-to-record.md`, "The run"). No synthetic-clip numbers exist for it.
+**Status (2026-10-19):** the tooling was checked without the model; the PC had only 0.8 GB free RAM that day.
+
+### Run 2026-10-26: the 20 synthetic clips
+
+The owner's 22 clips aren't recorded yet (`%USERPROFILE%\glim-clips\` is empty), so this run uses the same 20 synthetic clips as above (Windows' offline voices, 2.2–9.1 s, median 3.6 s; 10 commands, 6 dictations, 4 hard ones: fast, noise, numbers, a pause).
+
+**Setup:** this PC (AMD Ryzen AI 7 350, ~5 GB free RAM, other apps open), 8 threads. Inputs:
+- whisper.cpp `b5454` `whisper-cli.exe`: the zip matched GitHub's SHA-256.
+- `base.en` q5_1: the copy Glim uses (`%LOCALAPPDATA%\Glim\whisper`).
+- `small.en` q5_1: matched Hugging Face's LFS SHA-256.
+- Parakeet: the four files, each SHA-256 checked by `get_parakeet.py`; sherpa-onnx 1.13.8 in a scratch venv.
+
+Two runs: plain, then whisper with the vocabulary hint used above (`Claude, Claude Code, Codex, Glim, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, HOA`). Parakeet has no hint, so its row is the plain run.
+
+| | base.en plain | small.en plain | **Parakeet** (no hint possible) | base.en + hint | small.en + hint |
+|---|---|---|---|---|---|
+| Lenient WER (222 words) | 2.3% | 2.7% | 3.2% | **0.9%** | **0.5%** |
+| Strict WER | 5.0% | 5.4% | **4.5%** | 2.7% | 2.7% |
+| Terms missed (of 47) | 2 | 4 | 2 | **0** | **0** |
+| Commands start right (of 12) | 12 | 12 | 12 | 12 | 12 |
+| Processing, median (3.6 s clip) | 0.48 s | 1.74 s | **0.24 s** | 0.53 s | 1.79 s |
+| Processing, slowest clip | 0.59 s | 2.00 s | 0.48 s | 0.65 s | 2.10 s |
+| Load (once) | — | — | 1.9 s | — | — |
+| Disk | 60 MB | 190 MB | 670 MB | 60 MB | 190 MB |
+
+Lenient errors by clip kind:
+
+| | command (10) | dictation (6) | fast | noise | numbers | pause |
+|---|---|---|---|---|---|---|
+| base.en plain | 3/69 | 0/102 | 1/23 | 1/12 | 0/8 | 0/8 |
+| small.en plain | 4/69 | 2/102 | 0/23 | 0/12 | 0/8 | 0/8 |
+| Parakeet | 2/69 | 3/102 | 1/23 | 1/12 | 0/8 | 0/8 |
+| base.en + hint | 0/69 | 0/102 | 1/23 | 1/12 | 0/8 | 0/8 |
+| small.en + hint | 1/69 | 0/102 | 0/23 | 0/12 | 0/8 | 0/8 |
+
+Terms missed:
+- **Parakeet:** "HOA" and "Halloway". It got "Glim", which plain base and small missed.
+- **base.en plain:** "Glim" and "HOA".
+- **small.en plain:** "gate code", "Glim", "Priya" and "HOA".
+- **With the hint:** none missed.
+
+**Against the adopted win rule** (`docs/voice-clips-to-record.md`: Parakeet wins only if it clearly beats base.en *with* the word list on names and commands, with no word list of its own, median ~1.5 s or less):
+- Speed passes easily: 0.24 s, half of base.
+- Accuracy does not. Plain, it's level with base (2 terms missed each, more dictation errors). It can't take the word list, which is what brought base and small to 0 missed terms here.
+- **On synthetic speech, Parakeet doesn't win. Keep base.en + the word list.**
+- Synthetic voices are clean and evenly paced, so the owner's own clips remain the deciding run, as planned. The 670 MB download and a sherpa-onnx dependency would also need to be worth it.
+
+Downloads, clips and results stayed in the session's scratch folder, outside the repo (about 870 MB together, no file over 1 GB).
 
 ## Cloud candidates (prices from the official pages, 2026-10-14; not measured)
 
