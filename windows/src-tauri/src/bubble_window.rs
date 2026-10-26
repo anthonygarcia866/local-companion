@@ -321,6 +321,7 @@ fn create(app: &AppHandle) {
             Ok(win) => {
                 crate::platform::make_non_activating(&win);
                 crate::screen_capture::apply_to(&handle, &win);
+                crate::webview_health::watch(&win);
             }
             Err(err) => {
                 crate::log::line(format!("bubble window failed: {err}"));

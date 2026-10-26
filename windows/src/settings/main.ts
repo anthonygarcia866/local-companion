@@ -1134,4 +1134,12 @@ function spy() {
   navView.mark(atEnd && tops.length ? tops[tops.length - 1].id : currentSection(tops));
 }
 
-void main();
+// glim.log says whether the page drew (webview_health.rs): a blank Settings
+// window can then be told apart from a page whose script failed.
+main().then(
+  () => void Bridge.settingsPage(true),
+  (err) => {
+    console.error("[glim] settings page failed", err);
+    void Bridge.settingsPage(false);
+  },
+);
