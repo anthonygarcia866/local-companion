@@ -9,7 +9,8 @@
 //
 // - A render process that exits or hangs: that window's page is reloaded.
 // - The browser process exiting takes every window with it, and a reload
-//   cannot bring it back: it is logged (quit and start Glim again).
+//   cannot bring it back: Glim starts itself again (relaunch.rs, at most
+//   once per 10 minutes, else one Windows notification).
 // - After a wake: the Settings page is reloaded, at once if it is showing,
 //   else the next time it is shown.
 //
@@ -42,6 +43,8 @@ const WAKE_GAP: Duration = Duration::from_secs(120);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Response {
     Reload,
+    /// Every window is gone: start Glim again (relaunch.rs).
+    Relaunch,
     LogOnly,
 }
 
@@ -49,7 +52,7 @@ enum Response {
 /// called in the log, and what Glim does about it.
 fn respond(kind: i32) -> (&'static str, Response) {
     match kind {
-        0 => ("browser process exited", Response::LogOnly),
+        0 => ("browser process exited", Response::Relaunch),
         1 => ("render process exited", Response::Reload),
         2 => ("render process unresponsive", Response::Reload),
         3 => ("frame render process exited", Response::Reload),
@@ -62,7 +65,6 @@ fn respond(kind: i32) -> (&'static str, Response) {
 fn failure_line(label: &str, what: &str, reloaded: bool, total: u32) -> String {
     match (reloaded, what) {
         (true, _) => format!("webview: {label}: {what}; page reloaded ({total} reloads since launch)"),
-        (false, "browser process exited") => format!("webview: {label}: {what}; every window is blank until Glim is started again"),
         (false, _) => format!("webview: {label}: {what}"),
     }
 }
@@ -89,6 +91,7 @@ pub fn watch(win: &WebviewWindow) {
     use webview2_com::{NavigationCompletedEventHandler, ProcessFailedEventHandler};
 
     let label = win.label().to_string();
+    let app = win.app_handle().clone();
     let result = win.with_webview(move |webview| unsafe {
         let core = match webview.controller().CoreWebView2() {
             Ok(core) => core,
@@ -108,6 +111,9 @@ pub fn watch(win: &WebviewWindow) {
                 RELOADS.fetch_add(1, Ordering::Relaxed);
             }
             crate::log::line(failure_line(&name, what, reloaded, RELOADS.load(Ordering::Relaxed)));
+            if response == Response::Relaunch {
+                crate::relaunch::on_browser_exited(&app);
+            }
             Ok(())
         }));
         let mut token = 0i64;
@@ -210,7 +216,7 @@ mod tests {
 
     #[test]
     fn render_failures_reload_and_the_rest_are_logged() {
-        assert_eq!(respond(0), ("browser process exited", Response::LogOnly));
+        assert_eq!(respond(0), ("browser process exited", Response::Relaunch));
         assert_eq!(respond(1).1, Response::Reload);
         assert_eq!(respond(2).1, Response::Reload);
         assert_eq!(respond(3).1, Response::Reload);
@@ -239,7 +245,7 @@ mod tests {
             "webview: settings: render process exited; page reloaded (2 reloads since launch)"
         );
         assert_eq!(failure_line("island", "gpu process exited", false, 0), "webview: island: gpu process exited");
-        assert!(failure_line("island", "browser process exited", false, 0).contains("started again"));
+        assert_eq!(failure_line("island", "browser process exited", false, 0), "webview: island: browser process exited");
     }
 
     #[test]

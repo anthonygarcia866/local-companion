@@ -53,6 +53,8 @@ windows = { version = "0.61", features = [
   # server's lifetime tied to Glim's (a job object kills it with Glim).
   "Win32_Media_Audio",
   "Win32_System_JobObjects",
+  # Relaunch notice (relaunch.rs): the app icon for its balloon.
+  "Win32_System_LibraryLoader",
   "Win32_System_Pipes",
   # Launch at startup (autostart.rs): the HKCU Run entry.
   "Win32_System_Registry",

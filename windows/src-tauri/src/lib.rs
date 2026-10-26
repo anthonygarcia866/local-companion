@@ -34,6 +34,7 @@ mod tray;
 #[cfg(windows)]
 mod webview_drop;
 mod webview_health;
+mod relaunch;
 #[cfg(windows)]
 mod bubble_window;
 mod writing;
@@ -1391,10 +1392,16 @@ fn dev_session() -> bool {
 }
 
 pub fn run() {
+    // A Glim started by relaunch.rs waits for the old one to exit, or the
+    // single-instance plugin below would hand it straight back to it.
+    let relaunched = relaunch::wait_for_previous(&std::env::args().collect::<Vec<_>>());
     // Before anything reads or creates the data folders (settings, log, relay).
     let migrated = platform::migrate_data_dirs();
     for note in &migrated {
         log::line(format!("data folder migration: {note}"));
+    }
+    if relaunched {
+        log::line("relaunch: started after the window engine stopped");
     }
     platform::prepare_environment();
     let loaded = settings::load();
