@@ -336,6 +336,7 @@ fn create_window(app: &AppHandle, _mode: DesktopMode) -> Option<WebviewWindow> {
     match built {
         Ok(win) => {
             crate::screen_capture::apply_to(app, &win);
+            crate::webview_health::watch(&win);
             Some(win)
         }
         Err(err) => {

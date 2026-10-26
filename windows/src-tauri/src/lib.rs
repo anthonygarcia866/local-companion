@@ -33,6 +33,7 @@ mod presence;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+mod webview_health;
 #[cfg(windows)]
 mod bubble_window;
 mod writing;
@@ -1297,6 +1298,7 @@ pub fn show_settings_window(app: &AppHandle) {
         log::line("settings window missing");
         return;
     };
+    webview_health::before_settings_shown(&win);
     let _ = win.unminimize();
     let _ = win.show();
     let _ = win.set_focus();
@@ -1308,6 +1310,13 @@ pub fn show_settings_window(app: &AppHandle) {
 #[tauri::command]
 fn open_settings_window(app: AppHandle) {
     show_settings_window(&app);
+}
+
+/// The Settings page has drawn its sections (`ok`) or failed to: one line in
+/// glim.log either way (webview_health.rs).
+#[tauri::command]
+fn settings_page(ok: bool) {
+    webview_health::settings_page(ok);
 }
 
 /// `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>`,
@@ -1551,6 +1560,7 @@ pub fn run() {
             chat_reset,
             ingest_file,
             open_settings_window,
+            settings_page,
             shortcuts_status,
             shortcuts_suspend,
             recap::recap_history,
@@ -1598,6 +1608,10 @@ pub fn run() {
             desktop::setup(&handle);
             // Every window built so far, before the island is first shown.
             screen_capture::apply(&handle);
+            // Every window built so far keeps its page through a WebView2
+            // process failure; Settings is reloaded after a wake.
+            webview_health::watch_all(&handle);
+            webview_health::start_wake_watch(&handle);
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the
