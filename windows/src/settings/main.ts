@@ -1134,6 +1134,11 @@ function spy() {
   navView.mark(atEnd && tops.length ? tops[tops.length - 1].id : currentSection(tops));
 }
 
+// Each time Glim shows this window (or checks on it), the page answers: a
+// white window that never answers is reloaded, then built again (webview_health.rs).
+void onEvent("settings-opened", () => void Bridge.settingsAlive());
+void onEvent("settings-check", () => void Bridge.settingsAlive());
+
 // glim.log says whether the page drew (webview_health.rs): a blank Settings
 // window can then be told apart from a page whose script failed.
 main().then(

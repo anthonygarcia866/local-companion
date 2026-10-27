@@ -45,7 +45,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 crate::voice::whisper::stop();
                 app.exit(0);
             }
-            "settings" => crate::show_settings_window(app),
+            "settings" => crate::show_settings_window(app, "tray"),
             // Pause is Rust's (pause.rs): the island hears the result.
             "pause" => crate::pause::toggle(app),
             id => {

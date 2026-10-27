@@ -1229,7 +1229,7 @@ fn settings_page_url(app: &AppHandle) -> WebviewUrl {
 /// hidden afterwards. A WebView2 window created later — on the main thread or
 /// not — silently comes up blank in this app, so the window that works is the
 /// one that exists before the island's webview does.
-fn create_settings_window(app: &AppHandle) {
+pub(crate) fn create_settings_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)
         .additional_browser_args(BROWSER_ARGS)
@@ -1254,8 +1254,12 @@ fn create_settings_window(app: &AppHandle) {
                     let _ = hidden.hide();
                 }
             });
+            Some(win)
         }
-        Err(err) => log::line(format!("settings window failed: {err}")),
+        Err(err) => {
+            log::line(format!("settings window failed: {err}"));
+            None
+        }
     }
 }
 
@@ -1294,7 +1298,8 @@ fn create_capture_panel(app: &AppHandle) {
     }
 }
 
-pub fn show_settings_window(app: &AppHandle) {
+/// `from` says who opened it, in glim.log (tray, island, command).
+pub fn show_settings_window(app: &AppHandle, from: &str) {
     let Some(win) = app.get_webview_window("settings") else {
         log::line("settings window missing");
         return;
@@ -1306,11 +1311,20 @@ pub fn show_settings_window(app: &AppHandle) {
     // Settings → Calendar asks Outlook for its calendars again (its list
     // may have been empty when the page was built at launch).
     let _ = app.emit_to("settings", "settings-opened", ());
+    // The page must answer; a white one is reloaded, then built again.
+    webview_health::settings_shown(app, from);
 }
 
 #[tauri::command]
 fn open_settings_window(app: AppHandle) {
-    show_settings_window(&app);
+    show_settings_window(&app, "island");
+}
+
+/// The Settings page heard `settings-opened` or `settings-check`: it is alive
+/// (webview_health.rs).
+#[tauri::command]
+fn settings_page_alive() {
+    webview_health::settings_answered();
 }
 
 /// The Settings page has drawn its sections (`ok`) or failed to: one line in
@@ -1439,7 +1453,7 @@ pub fn run() {
                 return;
             }
             if dev_open_settings(&argv) {
-                show_settings_window(app);
+                show_settings_window(app, "command");
                 return;
             }
             if let Some(fix) = dev_fix(&argv) {
@@ -1568,6 +1582,7 @@ pub fn run() {
             ingest_file,
             open_settings_window,
             settings_page,
+            settings_page_alive,
             shortcuts_status,
             shortcuts_suspend,
             recap::recap_history,
@@ -1619,6 +1634,7 @@ pub fn run() {
             // process failure; Settings is reloaded after a wake.
             webview_health::watch_all(&handle);
             webview_health::start_wake_watch(&handle);
+            webview_health::start_ui_watch(&handle);
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the
