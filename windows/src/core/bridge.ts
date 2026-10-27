@@ -65,6 +65,8 @@ export const Bridge = {
   saveSettings: (settings: Settings) => call<void>("save_settings", { settings }),
   /** The Settings page has drawn (`ok`) or failed to: one line in glim.log. */
   settingsPage: (ok: boolean) => call<void>("settings_page", { ok }),
+  /** The Settings page heard settings-opened / settings-check: it is alive (webview_health.rs). */
+  settingsAlive: () => call<void>("settings_page_alive"),
 
   /** Shrink the window down to the invisible wake strip (hidden) or back to full. */
   setCollapsed: (collapsed: boolean) => call<void>("set_collapsed", { collapsed }),
