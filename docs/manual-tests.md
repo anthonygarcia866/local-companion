@@ -746,6 +746,12 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 6. **Work mode:** say "When I say work mode, open Outlook and put it on the left, then open Chrome and put it on the right", check the card lists the 4 steps, Save. Close both apps, say "work mode". **See:** both open and end up side by side, no Claude call (no data-leaving lantern).
 7. **Learned:** say "put Outlook on the left" twice (move it away in between). The second time: a "Moved Outlook / Learned shortcut" card, no data-leaving lantern.
 
+## 38. Faster answers: the pre-warm (branch `prewarm`)
+
+1. Hold Ask Glim, say "open Outlook", release; do it 5 times (close Outlook in between). glim.log: each press ends with `voice: key-up to done … ms (warm)` and the medians.
+2. Quit Glim, start it with `GLIM_NO_PREWARM=1` set, repeat step 1: the lines say `(cold)`. Compare "median warm" with "median cold" (warm should be lower; how much depends on the network).
+3. A quick tap of the key (shorter than 0.4 s): nothing happens, no error in glim.log.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
