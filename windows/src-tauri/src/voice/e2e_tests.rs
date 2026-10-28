@@ -28,7 +28,8 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 
 use super::run::{self, Effects};
-use super::{Asked, Cleanup, CleanupFailed, Mode, VoiceEvent};
+use super::{Cleanup, CleanupFailed, Mode, VoiceEvent};
+use crate::ai::dictate::Asked;
 use crate::ai::{claude, dictate, key};
 
 /// What a live run may spend (nano-dollars): about one cent.
