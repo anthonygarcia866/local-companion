@@ -178,6 +178,18 @@ impl Effects for Fake {
         self.act(format!("window {} {}{other}", exe.to_lowercase().trim_end_matches(".exe"), at.as_str()));
         async { Ok(()) }
     }
+    fn start_watch(&self, target: crate::watch::Target) -> Result<(), &'static str> {
+        let what = match &target {
+            crate::watch::Target::Window { exe, phrase, gone, .. } => format!("window {} {:?}{}", exe.to_lowercase().trim_end_matches(".exe"), phrase, if *gone { " gone" } else { "" }),
+            t => t.kind().to_string(),
+        };
+        self.act(format!("watch {what}"));
+        Ok(())
+    }
+    fn stop_watching(&self) -> usize {
+        self.act("stop watching".into());
+        1
+    }
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {
         // Chrome, as the user would add it (Settings → Writing → Apps).
         vec![super::own_apps::OwnApp { name: "Chrome".into(), path: r"C:\Program Files\Google\Chrome\Application\chrome.exe".into() }]
@@ -370,6 +382,21 @@ fn rules_beat_shortcuts_and_a_card_number_is_never_remembered() {
         type_in(&fx, "put Notepad on the left", Some(tool("window", json!({ "app": "notepad", "where": "left" })))).await;
         type_in(&fx, "put Outlook on top", Some(tool("window", json!({ "app": "outlook", "where": "top" })))).await;
         assert_eq!(fx.actions_since(n), Vec::<String>::new(), "refused before anything moved");
+
+        // "Tell me when …" (watch.rs): each target, then "stop watching" on
+        // this PC (no Claude call).
+        let n = fx.with(|r| r.actions.len());
+        type_in(&fx, "tell me when Claude Code finishes", Some(tool("watch", json!({ "target": "claude_code" })))).await;
+        assert_eq!(fx.last_event().phase, "watching");
+        type_in(&fx, "let me know when Codex is done", Some(tool("watch", json!({ "target": "codex" })))).await;
+        type_in(&fx, "tell me when build passed shows in Chrome", Some(tool("watch", json!({ "target": "window", "app": "Chrome", "phrase": "build passed" })))).await;
+        let e = fx.last_event();
+        assert_eq!((e.phase, e.app.as_str(), e.text.as_str()), ("watching", "Chrome", "build passed"), "{e:?}");
+        let asked = answered();
+        type_in(&fx, "Stop watching.", None).await;
+        assert_eq!(answered(), asked, "stop watching never reaches Claude");
+        assert_eq!(fx.last_event().phase, "watch-stopped");
+        assert_eq!(fx.actions_since(n), ["watch claude_code", "watch codex", "watch window chrome \"build passed\"", "stop watching"]);
 
         // A valid test card number (Luhn-checked) said with "remember".
         let card = "remember my card number 4111 1111 1111 1111";

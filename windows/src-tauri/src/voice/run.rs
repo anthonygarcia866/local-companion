@@ -110,6 +110,10 @@ pub trait Effects: Clone + Send + Sync + 'static {
     /// it was asked to go (read back), else a card's code.
     fn arrange_window(&self, exe: String, at: crate::window_tool::Where, display: crate::window_tool::Display) -> impl Future<Output = Result<(), &'static str>> + Send;
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp>;
+    /// "Tell me when …" (watch.rs): Ok when it is watching now.
+    fn start_watch(&self, target: crate::watch::Target) -> Result<(), &'static str>;
+    /// "Stop watching": how many ended.
+    fn stop_watching(&self) -> usize;
     fn known_repos(&self) -> Vec<String>;
     fn learning_on(&self) -> bool;
     /// "Never mind": the draft card closes too.
@@ -151,6 +155,12 @@ impl Effects for AppHandle {
     }
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {
         app_own_apps(self)
+    }
+    fn start_watch(&self, target: crate::watch::Target) -> Result<(), &'static str> {
+        crate::watch::start(self, target)
+    }
+    fn stop_watching(&self) -> usize {
+        crate::watch::stop_all()
     }
     fn known_repos(&self) -> Vec<String> {
         known_repos()
@@ -404,6 +414,12 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
         dismiss(app, mode);
         return;
     }
+    // "Stop watching" (watch.rs): on this PC, nothing goes to Claude.
+    if mode != Mode::Dictate && super::stops_watching(transcript) {
+        let n = app.stop_watching();
+        send(app, VoiceEvent { phase: "watch-stopped", code: n.to_string(), mode: mode.as_str(), ..Default::default() });
+        return;
+    }
     // Glim learns §3: "no, …", "I meant …" within a minute of the last Ask
     // (learned replays and routines count as one) is a correction. Its tip is
     // armed only for Claude's answer below: a routine or a learned shortcut
@@ -573,6 +589,32 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
                 }
                 Err(code) => send(app, VoiceEvent { phase: "failed", code: code.into(), app: name, mode: m, ..Default::default() }),
             }
+        }
+        Decision::Watch { target, app: which, phrase, gone } => {
+            let t = match target.as_str() {
+                "claude_code" => Some(crate::watch::Target::ClaudeCode),
+                "codex" => Some(crate::watch::Target::Codex),
+                _ => window_exe_of(app, &which).map(|exe| crate::watch::Target::Window {
+                    exe,
+                    label: learn::step_view(&Action::OpenApp { app: which.clone() }).name,
+                    phrase: phrase.clone(),
+                    gone,
+                }),
+            };
+            let label = t.as_ref().map(|t| match t {
+                crate::watch::Target::Window { label, .. } => label.clone(),
+                _ => String::new(),
+            });
+            let started = match t {
+                Some(t) => app.start_watch(t),
+                None => Err("window-missing"),
+            };
+            let code = if gone { format!("{target}-gone") } else { target.clone() };
+            let e = match started {
+                Ok(()) => VoiceEvent { phase: "watching", code, app: label.unwrap_or_default(), text: phrase, mode: m, ..Default::default() },
+                Err(why) => VoiceEvent { phase: "failed", code: why.into(), app: label.unwrap_or_default(), mode: m, ..Default::default() },
+            };
+            send(app, e);
         }
         Decision::Draft(spoken) => {
             crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
@@ -1030,6 +1072,7 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
         Ok(Cleanup::SaveRoutine { .. }) => "save_routine".to_string(),
         Ok(Cleanup::Remember { .. }) => "remember".to_string(),
         Ok(Cleanup::Window { .. }) => "window".to_string(),
+        Ok(Cleanup::Watch { .. }) => "watch".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

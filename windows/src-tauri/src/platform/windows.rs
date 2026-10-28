@@ -885,31 +885,83 @@ fn process_elevated(pid: u32) -> Option<bool> {
 /// (the check before the call is learned). Never a password manager's or
 /// Glim's own window. Codes for the card: window-missing (no window of that
 /// app), window-refused, window-no-other-display, window-failed.
-pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::window_tool::Display) -> Result<(), &'static str> {
-    use crate::window_tool::{self as wt, Where};
-    use ::windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE};
+/// The app's own top-level window Glim may act on (the window action, the
+/// "tell me when" watch): the one in front if it is the app's, else its
+/// topmost. Never a password manager's (by file name, or by title inside
+/// another app: a browser extension's popout), never Glim's own, never an
+/// elevated (admin) app's or one whose process Glim can't look into.
+fn app_window(exe: &str) -> Result<HWND, &'static str> {
+    use crate::window_tool as wt;
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     if let Some(code) = wt::refused(exe) {
         return Err(code);
     }
     let me = std::process::id();
     let table = process_table();
     let ours = |pid: u32| table.get(&pid).is_some_and(|p| p.exe.eq_ignore_ascii_case(exe)) && pid != me;
-    // A password manager's window inside another app (a browser extension's
-    // popout) is skipped by its title, the one in front included.
     let windows: Vec<isize> = top_windows().into_iter().filter(|(_, pid, title)| ours(*pid) && !wt::title_refused(title)).map(|(h, _, _)| h).collect();
     let front = unsafe { GetForegroundWindow() }.0 as isize;
     let Some(raw) = windows.iter().copied().find(|h| *h == front).or_else(|| windows.first().copied()) else {
         return Err("window-missing");
     };
     let hwnd = HWND(raw as *mut _);
-    // Never an elevated (admin) app's window, nor one whose process Glim
-    // can't look into: Windows would refuse most of it anyway (UIPI), and
-    // Glim doesn't try.
+    // Windows would refuse most of an admin app's anyway (UIPI); Glim doesn't try.
     let mut pid = 0u32;
     unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
     if pid == 0 || pid == me || process_elevated(pid) != Some(false) {
         return Err("window-refused");
     }
+    Ok(hwnd)
+}
+
+/// The "tell me when" watch on a window (watch.rs): its pixels through
+/// PrintWindow (into memory, never saved), read with Windows' own OCR
+/// (Windows.Media.Ocr, on this PC; no network). The text is returned for one
+/// check and never logged. None: no window Glim may read, or OCR failed.
+pub fn ocr_window(exe: &str) -> Option<String> {
+    use ::windows::Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap};
+    use ::windows::Media::Ocr::OcrEngine;
+    use ::windows::Security::Cryptography::CryptographicBuffer;
+    use ::windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    };
+    use ::windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+    let hwnd = app_window(exe).ok()?;
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        return None;
+    }
+    let (r, _) = window_rect(hwnd)?;
+    let (w, h) = (r.w.clamp(1, 8000), r.h.clamp(1, 8000));
+    let pixels = unsafe {
+        let screen = GetDC(None);
+        let dc = CreateCompatibleDC(Some(screen));
+        let bmp = CreateCompatibleBitmap(screen, w, h);
+        let old = SelectObject(dc, bmp.into());
+        // PW_RENDERFULLCONTENT (2): what the app draws, GPU windows too.
+        let printed = PrintWindow(hwnd, dc, PRINT_WINDOW_FLAGS(2)).as_bool();
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER { biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: w, biHeight: -h, biPlanes: 1, biBitCount: 32, biCompression: BI_RGB.0, ..Default::default() },
+            ..Default::default()
+        };
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let rows = GetDIBits(dc, bmp, 0, h as u32, Some(buf.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
+        SelectObject(dc, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(dc);
+        ReleaseDC(None, screen);
+        (printed && rows == h).then_some(buf)?
+    };
+    let engine = OcrEngine::TryCreateFromUserProfileLanguages().ok()?;
+    let buffer = CryptographicBuffer::CreateFromByteArray(&pixels).ok()?;
+    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(&buffer, BitmapPixelFormat::Bgra8, w, h, BitmapAlphaMode::Ignore).ok()?;
+    let result = engine.RecognizeAsync(&bitmap).ok()?.get().ok()?;
+    result.Text().ok().map(|t| t.to_string())
+}
+
+pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::window_tool::Display) -> Result<(), &'static str> {
+    use crate::window_tool::{self as wt, Where};
+    use ::windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE};
+    let hwnd = app_window(exe)?;
     let works = work_areas();
     let (rect, _) = window_rect(hwnd).ok_or("window-failed")?;
     let Some(mon) = wt::pick(&works, &rect, display) else {

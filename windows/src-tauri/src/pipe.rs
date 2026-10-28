@@ -214,6 +214,9 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
         .to_string();
 
     note_session_window(&pipe, &payload, &event);
+    // "Tell me when Claude Code finishes" (watch.rs): its Stop.
+    #[cfg(windows)]
+    crate::watch::on_hook(&app, &event, &payload);
     // Counts for the weekly recap — never the command, path or prompt itself.
     crate::recap::observe(&app, &payload);
 

@@ -195,6 +195,9 @@ pub enum Cleanup {
     /// `window` (window_tool.rs): an offered app's window, where it goes
     /// (a window_tool::Where word), "other" for the other screen.
     Window { app: String, at: String, display: Option<String> },
+    /// `watch` (watch.rs): claude_code / codex, or window with an offered
+    /// app and the phrase to look for (gone: when it disappears).
+    Watch { target: String, app: String, phrase: String, gone: bool },
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -258,6 +261,8 @@ pub enum Decision {
     /// Move an app's window (window_tool.rs). No confirmation, like Open:
     /// it moves a window the user can move back.
     Window { app: String, at: String, display: Option<String> },
+    /// "Tell me when …": a watch on this PC (watch.rs), no AI while waiting.
+    Watch { target: String, app: String, phrase: String, gone: bool },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -298,6 +303,13 @@ fn decide_dictation(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, f
     }
 }
 
+/// "Stop watching" (watch.rs): matched on this PC, never sent to Claude.
+pub fn stops_watching(transcript: &str) -> bool {
+    let words: String = transcript.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>().to_lowercase();
+    let said = words.split_whitespace().filter(|w| !["glim", "please", "ok", "okay", "hey"].contains(w)).collect::<Vec<_>>().join(" ");
+    matches!(said.as_str(), "stop watching" | "stop watching it" | "stop watching that" | "cancel the watch" | "cancel watching" | "stop the watch")
+}
+
 /// The Ask Glim key, or an answer to a question card: never typed.
 fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> Decision {
     match cleanup {
@@ -321,6 +333,9 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         Ok(Cleanup::Remember { kind, text }) => Decision::Remember { kind, text },
         Ok(Cleanup::Window { app, at, display }) if crate::window_tool::Where::parse(&at).is_some() => Decision::Window { app, at, display },
         Ok(Cleanup::Window { .. }) => Decision::Heard { transcript: transcript.to_string() },
+        // The phrase stays on this PC; a card number in it is refused anyway.
+        Ok(Cleanup::Watch { phrase, .. }) if crate::capture::sensitive::contains_sensitive_number(&phrase) => Decision::Sensitive,
+        Ok(Cleanup::Watch { target, app, phrase, gone }) => Decision::Watch { target, app, phrase, gone },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }
@@ -634,6 +649,20 @@ pub fn prompt_from(words: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// "Stop watching" is matched on this PC; anything longer goes to Claude.
+    #[test]
+    fn stop_watching_is_heard_on_this_pc() {
+        for said in ["Stop watching.", "Glim, stop watching", "OK stop watching it", "Cancel the watch!"] {
+            assert!(stops_watching(said), "{said}");
+        }
+        for said in ["stop watching TV shows tonight", "watching", "stop", "keep watching"] {
+            assert!(!stops_watching(said), "{said}");
+        }
+        // A phrase with a card number is never watched for (nor kept).
+        let card = Ok(Cleanup::Watch { target: "window".into(), app: "outlook".into(), phrase: "4111 1111 1111 1111".into(), gone: false });
+        assert_eq!(decide(Mode::Ask, "tell me when my card shows", card, false), Decision::Sensitive);
+    }
 
     /// Where act() starts in run.rs (generic over the Effects seam).
     const ACT_FN: &str = "async fn act<F: Effects>(";
