@@ -61,6 +61,7 @@ pub fn apply(app: &AppHandle) {
     let want = wanted(setting, var.as_deref());
     let windows = app.webview_windows();
     let refused = windows.values().filter(|win| !crate::platform::set_capture_excluded(win, want)).count();
+    windows.values().for_each(note_visible);
     note(reason(setting, var.as_deref()), windows.len(), want && refused > 0);
 }
 
@@ -76,6 +77,15 @@ pub fn apply_to(app: &AppHandle, win: &WebviewWindow) {
     let want = wanted(setting(app), override_var().as_deref());
     if !crate::platform::set_capture_excluded(win, want) && want {
         note("on", 1, true);
+    }
+    note_visible(win);
+}
+
+/// For glim.exe --selftest: which windows were visible when the affinity was
+/// applied (only those may keep one once hidden).
+fn note_visible(win: &WebviewWindow) {
+    if crate::selftest::on() && crate::platform::window_state(win).is_some_and(|(visible, _)| visible) {
+        crate::selftest::applied_while_visible(win.label());
     }
 }
 
