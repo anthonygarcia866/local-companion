@@ -32,6 +32,20 @@ const code = (page) => card(page).locator(".code");
 const why = (page) => card(page).locator('[data-role="allow-why"]');
 const confirm = (page) => card(page).locator('[data-role="allow-confirm"]');
 
+/** The command box and both buttons are inside the card, none cut off by its
+ *  edge (a box that won't shrink pushed them out once, 2026-10-28). */
+async function nothingCutOff(page) {
+  const out = await card(page).locator(".code").evaluate((box) => {
+    const edge = box.closest(".stack").parentElement.getBoundingClientRect();
+    const parts = [box, ...box.closest(".stack").querySelectorAll(".actions button")];
+    return parts.filter((p) => {
+      const r = p.getBoundingClientRect();
+      return r.top < edge.top - 1 || r.bottom > edge.bottom + 1;
+    }).map((p) => p.textContent.slice(0, 20));
+  });
+  expect(out, "cut off by the card's edge").toEqual([]);
+}
+
 /** Rust's answers to the voice card's buttons: done. */
 function fakeRust() {
   window.__glim.replies.voice_routine_save = true;
@@ -79,19 +93,18 @@ test("approval: a press before 1.5 s is refused, with the message", async ({ pag
   noConsoleErrors(problems);
 });
 
-// KNOWN BUG (found by this test, 2026-10-28): the "Too soon" line takes room
-// from the command box, so even "npm test" is clipped and the next press
-// expands the card instead of allowing it (3 presses for a short command).
-// Marked as failing: when the card is fixed this starts passing, and the
-// marker must come off.
+// Found by this test (2026-10-28), fixed the same day: the "Too soon" line
+// took room from the command box, so even "npm test" was clipped and the next
+// press expanded the card instead of allowing it (3 presses). The box no
+// longer shrinks (style.css .code).
 test("approval: after a too-soon press, the next press (1.5 s on) allows a short command", async ({ page }) => {
-  test.fail(true, "known bug: the reason line squeezes the command box (2026-10-28)");
   const problems = await openIsland(page);
   const id = await ask(page, "npm test");
   await expect(code(page)).toHaveText("Bash · npm test");
   await page.waitForTimeout(SETTLE);
   await press(page);
   await expect(why(page)).toBeVisible();
+  await nothingCutOff(page);
   await page.waitForTimeout(AFTER_DELAY);
   await press(page);
   await expect.poll(() => allowed(page, id), { timeout: 2_000 }).toBe(true);
@@ -202,6 +215,7 @@ test("approval: the boundary, a command at the expanded box's exact limit", asyn
   await expect(why(page)).toHaveText("Scroll to the end of the command, then press again.");
   expect(await allowed(page, over), "last line out of view").toBe(false);
   await shot(page, "approval-boundary-over-refused");
+  await nothingCutOff(page);
   // Scrolled to its end: allowed.
   await code(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await press(page);
@@ -252,6 +266,19 @@ test("voice: the Learned card says Claude wasn't asked, with Try again", async (
   await c.getByRole("button", { name: "Try again" }).click();
   await expect.poll(async () => (await sent(page, "voice_try_again")).length).toBe(1);
   console.log("voice learned: card + Try again -> voice_try_again");
+  noConsoleErrors(problems);
+});
+
+test("voice: a shortcut just learned says “Learned: say … any time”", async ({ page }) => {
+  const problems = await openIsland(page);
+  await voice(page, { phase: "learned-new", app: "Outlook", text: "Open Outlook", mode: "ask" });
+  const c = voiceCard(page, "Opened Outlook");
+  await expect(c).toHaveCount(1);
+  await expect(c).toContainText("Learned: say “Open Outlook” any time. Claude won't be asked.");
+  await expect(c.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expectOnScreen(c.locator(".title"));
+  await shot(page, "voice-learned-new");
+  console.log("voice learned-new: the note names the words to say");
   noConsoleErrors(problems);
 });
 

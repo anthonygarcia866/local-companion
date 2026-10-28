@@ -924,6 +924,10 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: text;
+  /* A status line ("Too soon…", "Press again…") never squeezes the box: a
+     command that fits keeps fitting, so the Allow key's measurement (taken
+     as the card is drawn, views.ts) doesn't call it cut off (2026-10-28). */
+  flex-shrink: 0;
 }
 
 /* Expanded by the Allow key (core/allow.ts): the whole command, wrapped;
@@ -934,6 +938,9 @@ body {
   text-overflow: clip;
   max-height: 170px;
   overflow-y: auto;
+  /* Expanded, the box gives way to the status lines and scrolls instead, so
+     the card's buttons stay in view (the Allow key then needs its end seen). */
+  flex-shrink: 1;
 }
 
 .stack {

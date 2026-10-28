@@ -409,13 +409,26 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
     let gist = (mode == Mode::Ask && asked.is_none() && !crate::capture::sensitive::contains_sensitive_number(transcript))
         .then(|| learn::gist(transcript, &learn::app_words(&super::own_apps::names(&app.own_apps()))));
     let learning = app.learning_on();
+    // A remembered rule beats a learned shortcut (exact, gist or "open
+    // {app}"): one sharing a word with the request (its verb aside: a rule
+    // saying "open" isn't about every app) sends it to Claude, with the rule,
+    // instead of replaying, and nothing is learned from it (it would never
+    // replay while the rule is kept). The log has counts only.
+    let ruled = gist.as_ref().is_some_and(|g| {
+        let said = learn::rule_words(g);
+        !said.is_empty() && crate::memory::with(|m| (!m.relevant_rules(&said).is_empty(), false))
+    });
     if let Some(g) = gist.as_ref().filter(|_| !learn::deictic(transcript)) {
         if let Some(routine) = learn::with(|l| l.routines.find(g).cloned()) {
             run_routine(app, mode, routine).await;
             return;
         }
         let found = learn::with(|l| l.shortcuts.find(g).map(|(i, a)| (l.shortcuts.items[i].key.clone(), l.shortcuts.items[i].slot, a)));
-        if let Some((key, slot, action)) = found.filter(|_| local && learning) {
+        let found = found.filter(|_| local && learning);
+        if found.is_some() && ruled {
+            crate::log::line("learn: skipped (rule), 1 shortcut");
+        }
+        if let Some((key, slot, action)) = found.filter(|_| !ruled) {
             if replay(app, mode, transcript, &key, slot, &action).await {
                 return;
             }
@@ -449,6 +462,8 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
         Some(NotLearned::Unconfirmed)
     } else if correcting {
         Some(NotLearned::Correction)
+    } else if ruled {
+        Some(NotLearned::Rule)
     } else {
         None
     };
@@ -693,6 +708,9 @@ async fn learn_after<F: Effects>(app: F, g: learn::Gist, transcript: String, why
         Some(no) => Err(no),
         None => learn::learnable(&transcript, &g),
     };
+    // The card's "Learned: say “…” any time" quotes what was said (shown,
+    // never logged).
+    let said = transcript.trim().trim_end_matches(['.', '!', '?', ',']).to_string();
     drop(transcript);
     if let Err(no) = verdict {
         let code = no.code();
@@ -708,11 +726,18 @@ async fn learn_after<F: Effects>(app: F, g: learn::Gist, transcript: String, why
         crate::log::line(format!("learn: not learned ({code})"));
         return;
     }
-    learn::with(|l| {
-        l.shortcuts.learn(&g, action, learn::now());
+    // An opened app's card says so (the resume card is already up for
+    // resume_work and says it on its next replay).
+    let opened = matches!(action, Action::OpenApp { .. }).then(|| learn::step_view(&action).name);
+    let new = learn::with(|l| {
+        let new = l.shortcuts.learn(&g, action, learn::now());
         l.save_shortcuts();
+        new
     });
     crate::log::line(format!("learn: saved shortcut ({tool})"));
+    if let Some(name) = opened.filter(|_| new) {
+        send(&app, VoiceEvent { phase: "learned-new", text: said, app: name, mode: Mode::Ask.as_str(), ..Default::default() });
+    }
 }
 
 /// A learned call checked against today's state: a built-in app, an own app
@@ -987,7 +1012,7 @@ mod tests {
     /// learned replay's card and a routine's cards never carry it.
     #[test]
     fn the_tip_never_rides_on_a_learned_replay_or_a_routine() {
-        for phase in ["learned", "routine-ask", "routine-saved", "routine", "idle", "typed", "listening", "cleaning"] {
+        for phase in ["learned", "learned-new", "routine-ask", "routine-saved", "routine", "idle", "typed", "listening", "cleaning"] {
             assert!(!takes_tip(phase), "{phase}");
         }
         for phase in ["heard", "question", "failed", "remembered"] {

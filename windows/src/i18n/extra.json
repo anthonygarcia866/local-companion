@@ -6839,6 +6839,17 @@
    "ru": "Выученное действие: Claude не спрашивали.",
    "id": "Pintasan yang dipelajari: Claude tidak ditanya."
   },
+  "Learned: say “{words}” any time. Claude won't be asked.": {
+   "zh-Hans": "已学会：随时说“{words}”。不会询问 Claude。",
+   "hi": "सीख लिया: कभी भी “{words}” कहें। Claude से नहीं पूछा जाएगा।",
+   "es": "Aprendido: di “{words}” cuando quieras. No se preguntará a Claude.",
+   "ar": "تم التعلّم: قل “{words}” في أي وقت. لن يُسأل Claude.",
+   "fr": "Appris : dites « {words} » quand vous voulez. Claude ne sera pas sollicité.",
+   "bn": "শেখা হয়েছে: যেকোনো সময় “{words}” বলুন। Claude-কে জিজ্ঞেস করা হবে না।",
+   "pt-BR": "Aprendido: diga “{words}” quando quiser. O Claude não será consultado.",
+   "ru": "Запомнил: говорите «{words}» в любое время. Claude не будут спрашивать.",
+   "id": "Dipelajari: ucapkan “{words}” kapan saja. Claude tidak akan ditanya."
+  },
   "Save the routine “{name}”?": {
    "zh-Hans": "保存例程“{name}”？",
    "hi": "रूटीन “{name}” सहेजें?",

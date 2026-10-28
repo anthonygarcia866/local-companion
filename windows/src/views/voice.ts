@@ -88,6 +88,8 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       return { title: t("Tip"), body: "", note: tipText() };
     case "learned":
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
+    case "learned-new":
+      return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned: say “{words}” any time. Claude won't be asked.", { words: v.text }) };
     case "routine-ask":
       return { title: t("Save the routine “{name}”?", { name: v.text }), body: stepsText(v), note: t("Nothing runs until you save it. Then say “{name}” with Ask Glim.", { name: v.text }) };
     case "routine-saved":
