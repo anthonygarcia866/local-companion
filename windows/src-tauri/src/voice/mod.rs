@@ -27,6 +27,8 @@ pub mod own_apps;
 pub mod draft_worker;
 #[cfg(all(test, windows))]
 mod live;
+#[cfg(all(test, windows))]
+mod e2e_tests;
 
 use serde::Serialize;
 
