@@ -271,6 +271,79 @@ impl Run {
     }
 }
 
+/// Learned shortcuts, routines and memory are process-wide: one test at a
+/// time uses them, each from empty.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+fn fresh() -> std::sync::MutexGuard<'static, ()> {
+    let one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    crate::learn::with(|l| {
+        l.shortcuts.items.clear();
+        l.routines.items.clear();
+    });
+    crate::memory::with(|m| {
+        *m = crate::memory::Memory::default();
+        ((), false)
+    });
+    one
+}
+
+fn fake() -> Fake {
+    Fake { rec: Arc::new(Mutex::new(Rec { front: Some("Code.exe".into()), ..Default::default() })), key: None }
+}
+
+/// Typed words straight into the router (no whisper), as the card's text box
+/// sends them; background learning awaited.
+async fn type_in(fx: &Fake, text: &str, canned: Option<Value>) {
+    println!("[typed] {text:?}");
+    fx.with(|r| r.canned = canned);
+    run::act(fx, text, Mode::Ask, None, true).await;
+    fx.settle().await;
+}
+
+/// The fixes from stage 4's findings, without whisper (runs in every
+/// `cargo test`): a remembered rule beats a learned shortcut, the new
+/// shortcut says "Learned: say … any time", and a valid card number in a
+/// "remember" is refused before anything is saved or sent.
+#[test]
+fn rules_beat_shortcuts_and_a_card_number_is_never_remembered() {
+    let _one = fresh();
+    let fx = fake();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let answered = || fx.with(|r| r.answered);
+        type_in(&fx, "open Outlook", Some(tool("open_app", json!({ "app": "outlook" })))).await;
+        assert_eq!(shortcut_keys(), ["open {app}"]);
+        let e = fx.last_event();
+        assert_eq!((e.phase, e.text.as_str(), e.app.as_str()), ("learned-new", "open Outlook", "Outlook"), "{e:?}");
+        type_in(&fx, "open Outlook", None).await;
+        assert_eq!((answered(), fx.last_event().phase), (1, "learned"), "replayed, no Claude call");
+
+        type_in(&fx, "remember: open Claude means the desktop app", Some(tool("remember", json!({ "kind": "rule", "text": "open Claude means the desktop app" })))).await;
+        assert_eq!(crate::memory::with(|m| (m.rules.len(), false)), 1);
+        let n = fx.with(|r| r.actions.len());
+        type_in(&fx, "open Claude", Some(tool("open_app", json!({ "app": "claude" })))).await;
+        assert_eq!(answered(), 3, "the rule beat the \"open {{app}}\" shortcut: Claude asked");
+        assert_eq!(fx.with(|r| r.last_rules), 1, "with the rule");
+        assert_eq!(fx.actions_since(n), ["open claude"]);
+        assert_ne!(fx.last_event().phase, "learned-new", "nothing learned from an ask a rule sent to Claude");
+        // The rule is about Claude, not every "open": Outlook still replays.
+        type_in(&fx, "open Outlook", None).await;
+        assert_eq!((answered(), fx.last_event().phase), (3, "learned"), "a rule's verb doesn't block other apps");
+
+        // A valid test card number (Luhn-checked) said with "remember".
+        let card = "remember my card number 4111 1111 1111 1111";
+        assert!(crate::capture::sensitive::contains_sensitive_number(card));
+        let (sent, blocked) = fx.with(|r| (r.answered, r.blocked));
+        type_in(&fx, card, Some(tool("remember", json!({ "kind": "fact", "text": "my card is 4111 1111 1111 1111" })))).await;
+        assert_eq!(fx.with(|r| (r.answered, r.blocked)), (sent, blocked + 1), "stopped before sending");
+        assert_eq!(crate::memory::with(|m| ((m.rules.len(), m.facts.len()), false)), (1, 0), "nothing saved");
+        let e = fx.last_event();
+        assert_eq!((e.phase, e.code.as_str()), ("failed", "sensitive"), "{e:?}");
+        assert!(!shortcut_keys().iter().any(|k| k.contains("card")), "nothing learned from it");
+    });
+}
+
 fn shortcut_keys() -> Vec<String> {
     crate::learn::with(|l| l.shortcuts.items.iter().map(|s| s.key.clone()).collect())
 }
@@ -288,6 +361,7 @@ fn voice_without_a_mic() {
         key::load(&v).unwrap().unwrap()
     });
     println!("voice e2e: Claude {}", if key.is_some() { "LIVE (capped at $0.01)" } else { "canned answers (no GLIM_VOICE_API_KEY)" });
+    let _one = fresh();
     let fx = Fake { rec: Arc::new(Mutex::new(Rec { front: Some("Code.exe".into()), ..Default::default() })), key };
     let r = Run { fx: fx.clone(), clips, prompt: super::whisper_prompt(VOICE_WORDS) };
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
