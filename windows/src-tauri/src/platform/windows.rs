@@ -33,9 +33,9 @@ use ::windows::Win32::UI::Shell::{
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, EnumWindows, GetClassNameW, GetCursorPos, GetWindow, GetWindowLongPtrW,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
-    SetWindowDisplayAffinity, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE,
-    SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetWindowDisplayAffinity, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+    SetForegroundWindow, SetWindowDisplayAffinity, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE,
+    GW_OWNER, SW_HIDE, SW_RESTORE, SW_SHOWNORMAL, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 use super::LocalTime;
@@ -578,7 +578,31 @@ pub fn set_capture_excluded(win: &WebviewWindow, excluded: bool) -> bool {
 
 fn set_hwnd_capture_excluded(hwnd: HWND, excluded: bool) -> bool {
     let affinity = if excluded { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
-    unsafe { SetWindowDisplayAffinity(hwnd, affinity).is_ok() }
+    unsafe {
+        // Never on a hidden window. Seen 2026-10-27 with the hidden Settings
+        // window: Windows went on drawing a white copy of it on top of
+        // everything, which clicks went through and only ending Glim cleared,
+        // while IsWindowVisible kept saying it was hidden. A window shown
+        // later gets it then (screen_capture::after_show).
+        if !IsWindowVisible(hwnd).as_bool() {
+            return true;
+        }
+        // Nothing to change: no call at all.
+        let mut now = 0u32;
+        if GetWindowDisplayAffinity(hwnd, &mut now).is_ok() && now == affinity.0 {
+            return true;
+        }
+        SetWindowDisplayAffinity(hwnd, affinity).is_ok()
+    }
+}
+
+/// Hides `win` with Win32 itself, for a window Glim never showed.
+pub fn hide_window(win: &WebviewWindow) {
+    if let Some(hwnd) = hwnd_of(win) {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
 }
 
 /// Keeps the settings window from showing the "no drop" cursor.
@@ -1080,7 +1104,7 @@ mod migration_tests {
 mod capture_tests {
     use super::*;
     use ::windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetWindowDisplayAffinity, WINDOW_EX_STYLE, WS_POPUP,
+        CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP, WS_VISIBLE,
     };
 
     /// The affinity Windows reports for `hwnd`.
@@ -1092,17 +1116,44 @@ mod capture_tests {
 
     #[test]
     fn a_window_of_our_own_is_excluded_from_capture_and_let_back_in() {
-        // A hidden popup of the test's own: nothing is shown, nothing is
-        // captured (docs/glim-learns-plan.md §10).
+        // A popup of the test's own, far off every screen and never
+        // activated: nothing is seen, nothing is captured
+        // (docs/glim-learns-plan.md §10).
         let hwnd = unsafe {
-            CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), w!("glim-capture-test"), WS_POPUP, 0, 0, 10, 10, None, None, None, None)
+            CreateWindowExW(
+                WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                w!("STATIC"),
+                w!("glim-capture-test"),
+                WS_POPUP | WS_VISIBLE,
+                -30000,
+                -30000,
+                10,
+                10,
+                None,
+                None,
+                None,
+                None,
+            )
         }
-        .expect("a hidden test window");
+        .expect("a test window");
         assert_eq!(affinity(hwnd), WDA_NONE.0);
         assert!(set_hwnd_capture_excluded(hwnd, true));
         assert_eq!(affinity(hwnd), WDA_EXCLUDEFROMCAPTURE.0);
         assert!(set_hwnd_capture_excluded(hwnd, false));
         assert_eq!(affinity(hwnd), WDA_NONE.0);
+        let _ = unsafe { DestroyWindow(hwnd) };
+    }
+
+    /// A hidden window is left alone: on the hidden Settings window the call
+    /// left a white copy of it on screen (2026-10-27).
+    #[test]
+    fn a_hidden_window_is_left_alone() {
+        let hwnd = unsafe {
+            CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), w!("glim-capture-test-hidden"), WS_POPUP, 0, 0, 10, 10, None, None, None, None)
+        }
+        .expect("a hidden test window");
+        assert!(set_hwnd_capture_excluded(hwnd, true), "not a refusal");
+        assert_eq!(affinity(hwnd), WDA_NONE.0, "untouched while hidden");
         let _ = unsafe { DestroyWindow(hwnd) };
     }
 }

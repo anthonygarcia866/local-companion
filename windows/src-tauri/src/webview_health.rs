@@ -466,6 +466,7 @@ fn rebuild_settings(app: &AppHandle) {
     if was_showing {
         SHOWN_AT.store(now_ms(), Ordering::Relaxed);
         let _ = win.show();
+        crate::screen_capture::after_show(app, &win);
         let _ = win.set_focus();
     }
 }
@@ -498,9 +499,18 @@ pub fn start_ui_watch(app: &AppHandle) {
                 _ => {}
             }
             let visible = settings_visible();
-            if visible && !was_visible && !shown_recently(SHOWN_AT.load(Ordering::Relaxed), now) {
-                crate::log::line("settings window: became visible without Glim opening it");
-                check_settings(&app, "showing up by itself");
+            if shown_unexpectedly(visible, was_visible, SHOWN_AT.load(Ordering::Relaxed), now) {
+                // Hidden with Win32 itself: Tauri still takes the window for
+                // hidden, so its hide() may do nothing.
+                crate::log::line("window shown unexpectedly: settings");
+                let app2 = app.clone();
+                post(&app, move || {
+                    if let Some(win) = app2.get_webview_window(SETTINGS) {
+                        crate::platform::hide_window(&win);
+                    }
+                });
+                was_visible = false;
+                continue;
             }
             was_visible = visible;
         }
@@ -517,6 +527,13 @@ fn ui_stuck(last_pong: u64, now: u64) -> bool {
 /// Glim showed Settings within the last 3 s (the watch looks once a second).
 fn shown_recently(shown_at: u64, now: u64) -> bool {
     shown_at != 0 && now.saturating_sub(shown_at) < 3_000
+}
+
+/// Windows has Settings on screen though Glim didn't show it: Glim never
+/// showed it since launch (so already on screen when the watch starts
+/// counts too), or it came back after a close without Glim opening it.
+fn shown_unexpectedly(visible: bool, was_visible: bool, shown_at: u64, now: u64) -> bool {
+    visible && (shown_at == 0 || (!was_visible && !shown_recently(shown_at, now)))
 }
 
 #[cfg(test)]
@@ -615,6 +632,29 @@ mod tests {
         assert!(shown_recently(10_000, 11_500));
         assert!(!shown_recently(10_000, 13_001));
         assert!(!shown_recently(0, 500), "never shown by Glim");
+    }
+
+    #[test]
+    fn a_settings_window_glim_did_not_show_is_caught() {
+        // On screen from launch, never shown by Glim: caught, even with no change.
+        assert!(shown_unexpectedly(true, true, 0, 5_000));
+        assert!(shown_unexpectedly(true, false, 0, 5_000));
+        // Glim just opened it, or it has been open since Glim did.
+        assert!(!shown_unexpectedly(true, false, 4_000, 5_000));
+        assert!(!shown_unexpectedly(true, true, 1_000, 60_000));
+        // Back on screen after a close, long after Glim last opened it.
+        assert!(shown_unexpectedly(true, false, 1_000, 60_000));
+        // Hidden is fine.
+        assert!(!shown_unexpectedly(false, true, 0, 5_000));
+    }
+
+    #[test]
+    fn a_window_shown_unexpectedly_is_hidden_with_win32() {
+        let code = include_str!("webview_health.rs").replace("\r\n", "\n");
+        let watch = &code[code.find("pub fn start_ui_watch").unwrap()..code.find("fn ui_stuck(").unwrap()];
+        assert!(watch.contains("crate::log::line(\"window shown unexpectedly: settings\");"));
+        assert!(watch.contains("crate::platform::hide_window(&win);"));
+        assert!(!watch.contains("win.hide()"), "Tauri's hide can be a no-op here");
     }
 
     /// No webview is touched inside WebView2's own callback: the reload and

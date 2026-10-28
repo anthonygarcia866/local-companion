@@ -454,6 +454,7 @@ fn show(app: &AppHandle, d: &Desktop, at: (f64, f64)) {
     if let Some(win) = window(app) {
         if !PARK {
             let _ = win.show();
+            crate::screen_capture::after_show(app, &win);
         }
         let _ = win.set_always_on_top(true);
     }
