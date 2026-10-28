@@ -11,3 +11,6 @@ src-tauri/gen/schemas/
 .env
 .env.*
 !.env.example
+
+# Page tests (playwright.config.mjs): screenshots and traces
+e2e-results/
