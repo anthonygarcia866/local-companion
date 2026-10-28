@@ -1140,9 +1140,7 @@ mod tests {
         assert_eq!(t.warm.len(), TIMINGS_KEPT);
         // The pre-warm starts at key-down, before anything is heard, and the
         // timing is taken from key-up.
-        let src = include_str!("run.rs").replace("
-", "
-");
+        let src = include_str!("run.rs").replace("\r\n", "\n");
         let down = &src[src.find("pub fn on_key_down").unwrap()..];
         assert!(down.find("start_prewarm();").unwrap() < down.find("super::mic::record(").unwrap());
         assert!(down.find("let released = Instant::now();").unwrap() > down.find("super::mic::record(").unwrap());
