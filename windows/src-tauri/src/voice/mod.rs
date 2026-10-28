@@ -62,6 +62,15 @@ pub fn app_exe(app: &str) -> Option<String> {
     }
 }
 
+/// The program file whose window the `window` action moves: app_exe's, and
+/// the Codex app's (its window belongs to Codex.exe).
+pub fn window_exe(app: &str) -> Option<String> {
+    match app {
+        "codex" => Some("Codex.exe".into()),
+        _ => app_exe(app),
+    }
+}
+
 /// An `open_app` app's name for the card.
 pub fn app_label(app: &str) -> &'static str {
     match app {
@@ -183,6 +192,9 @@ pub enum Cleanup {
     /// `remember` (Glim learns §3): a rule or a fact to keep, if Glim's
     /// filter lets it (memory.rs).
     Remember { kind: crate::memory::Kind, text: String },
+    /// `window` (window_tool.rs): an offered app's window, where it goes
+    /// (a window_tool::Where word), "other" for the other screen.
+    Window { app: String, at: String, display: Option<String> },
 }
 
 /// Why there is no clean-up (§4.1): each of these falls back to the raw
@@ -243,6 +255,9 @@ pub enum Decision {
     /// "Remember: …": kept on the PC if memory::filter lets it; the card
     /// shows what was saved, or why not.
     Remember { kind: crate::memory::Kind, text: String },
+    /// Move an app's window (window_tool.rs). No confirmation, like Open:
+    /// it moves a window the user can move back.
+    Window { app: String, at: String, display: Option<String> },
 }
 
 /// Everything §4.1 decides, after the transcript and the clean-up.
@@ -304,6 +319,8 @@ fn decide_request(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>) -> 
         Ok(Cleanup::SaveRoutine { name, .. }) if crate::capture::sensitive::contains_sensitive_number(&name) => Decision::Sensitive,
         Ok(Cleanup::SaveRoutine { name, steps }) => Decision::SaveRoutine { name, steps },
         Ok(Cleanup::Remember { kind, text }) => Decision::Remember { kind, text },
+        Ok(Cleanup::Window { app, at, display }) if crate::window_tool::Where::parse(&at).is_some() => Decision::Window { app, at, display },
+        Ok(Cleanup::Window { .. }) => Decision::Heard { transcript: transcript.to_string() },
         // `dictate` isn't offered to Ask; an app Glim can't open; no clean-up.
         Ok(Cleanup::Dictate(_)) | Ok(Cleanup::Open(_)) | Ok(Cleanup::OpenOwn(_)) | Err(_) => Decision::Heard { transcript: transcript.to_string() },
     }

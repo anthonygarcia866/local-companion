@@ -26,9 +26,13 @@ import { N_, t } from "../i18n/i18n";
 /** One event from Rust (voice::VoiceEvent). */
 /** One step of a routine, or what a shortcut does (learn::StepView). */
 export interface StepView {
-  tool: "open_app" | "resume_work";
+  tool: "open_app" | "resume_work" | "window";
   /** The app's or the repo's name; "" = every repo. */
   name: string;
+  /** window: left | right | maximize | minimize | restore | center. */
+  where?: string;
+  /** window: "other" = the other screen. */
+  display?: string;
 }
 
 export interface VoiceEvent {
@@ -174,9 +178,25 @@ export function cardTimeoutMs(v: VoiceState): number {
   return v.phase === "typed" || v.phase === "learned" || v.phase === "learned-new" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
 }
 
+/** The window action (Rust window_tool.rs), in words. */
+function windowText(where: string, app: string): string {
+  switch (where) {
+    case "left": return t("Put {app} on the left", { app });
+    case "right": return t("Put {app} on the right", { app });
+    case "maximize": return t("Maximize {app}", { app });
+    case "minimize": return t("Minimize {app}", { app });
+    case "center": return t("Center {app}", { app });
+  }
+  return t("Restore {app}", { app });
+}
+
 /** A routine's step or a shortcut's call, in words. */
 export function stepText(s: StepView): string {
   if (s.tool === "open_app") return t("Open {app}", { app: s.name });
+  if (s.tool === "window") {
+    const step = windowText(s.where ?? "", s.name);
+    return s.display === "other" ? t("{step}, on the other screen", { step }) : step;
+  }
   return s.name ? t("Pick up {repo}", { repo: s.name }) : t("Pick up where you left off");
 }
 

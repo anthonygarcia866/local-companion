@@ -106,6 +106,9 @@ pub trait Effects: Clone + Send + Sync + 'static {
     fn foreground_exe(&self) -> Option<String>;
     fn open_known_app(&self, which: &'static str) -> bool;
     fn open_own_app(&self, path: &str) -> bool;
+    /// The `window` action (window_tool.rs): Ok once the window is where
+    /// it was asked to go (read back), else a card's code.
+    fn arrange_window(&self, exe: String, at: crate::window_tool::Where, display: crate::window_tool::Display) -> impl Future<Output = Result<(), &'static str>> + Send;
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp>;
     fn known_repos(&self) -> Vec<String>;
     fn learning_on(&self) -> bool;
@@ -142,6 +145,9 @@ impl Effects for AppHandle {
     }
     fn open_own_app(&self, path: &str) -> bool {
         crate::platform::open_own_app(path)
+    }
+    fn arrange_window(&self, exe: String, at: crate::window_tool::Where, display: crate::window_tool::Display) -> impl Future<Output = Result<(), &'static str>> + Send {
+        async move { tauri::async_runtime::spawn_blocking(move || crate::platform::arrange_window(&exe, at, display)).await.unwrap_or(Err("window-failed")) }
     }
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {
         app_own_apps(self)
@@ -476,7 +482,7 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
     // An app opening shows no card: the tip gets one of its own.
-    let tip_card = matches!(decision, Decision::Open { .. } | Decision::OpenOwn { .. });
+    let tip_card = matches!(decision, Decision::Open { .. } | Decision::OpenOwn { .. } | Decision::Window { .. });
     // A new question waits (its request: the earlier one, then this answer);
     // anything else ends the question.
     set_question(match &decision {
@@ -547,6 +553,26 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
                 VoiceEvent { phase: "failed", code: "open-failed".into(), app: name, mode: m, ..Default::default() }
             };
             send(app, e);
+        }
+        Decision::Window { app: which, at, display } => {
+            // Where the window goes, checked on this PC (window_tool.rs): an
+            // app Glim knows, never a password manager's, an admin app's or
+            // Glim's own window. Learned only once Glim read it back in
+            // place. The log has the place and a code, never the app.
+            let action = Action::Window { app: which.clone(), at: at.clone(), display };
+            let name = learn::step_view(&action).name;
+            let result = match validate(app, &action) {
+                Some(Step::Window { exe, at, display }) => app.arrange_window(exe, at, display).await,
+                _ => Err("window-missing"),
+            };
+            crate::log::line(format!("voice: window {at} {}", match result { Ok(()) => "ok", Err(code) => code }));
+            match result {
+                Ok(()) => {
+                    learn_from(action, Check::Shown);
+                    send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
+                }
+                Err(code) => send(app, VoiceEvent { phase: "failed", code: code.into(), app: name, mode: m, ..Default::default() }),
+            }
         }
         Decision::Draft(spoken) => {
             crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
@@ -746,6 +772,17 @@ enum Step {
     Open(&'static str),
     OpenOwn(super::own_apps::OwnApp),
     Resume(Option<String>),
+    /// The window of `exe` (a built-in app's, or an own app's file).
+    Window { exe: String, at: crate::window_tool::Where, display: crate::window_tool::Display },
+}
+
+/// The program file whose window `app` (open_app's value, or an own app's
+/// name) has: None when Glim can't know it.
+fn window_exe_of<F: Effects>(app: &F, which: &str) -> Option<String> {
+    if super::OPENABLE.contains(&which) {
+        return super::window_exe(which);
+    }
+    super::own_apps::find(&app.own_apps(), which).and_then(|a| learn::own_exe(&a.path))
 }
 
 fn validate<F: Effects>(app: &F, a: &Action) -> Option<Step> {
@@ -764,6 +801,11 @@ fn validate<F: Effects>(app: &F, a: &Action) -> Option<Step> {
                 None => Some(Step::Resume(None)),
             }
         }
+        Action::Window { app: which, at, display } => Some(Step::Window {
+            exe: window_exe_of(app, which)?,
+            at: crate::window_tool::Where::parse(at)?,
+            display: crate::window_tool::Display::parse(display.as_deref().unwrap_or(""))?,
+        }),
     }
 }
 
@@ -783,6 +825,7 @@ async fn run_step<F: Effects>(app: &F, step: &Step, learned: bool) -> bool {
             app.resume_show(serde_json::json!({ "repo": repo, "learned": learned }));
             true
         }
+        Step::Window { exe, at, display } => app.arrange_window(exe.clone(), *at, *display).await.is_ok(),
     }
 }
 
@@ -986,6 +1029,7 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
         Ok(Cleanup::EditDraft(_)) => "edit_draft".to_string(),
         Ok(Cleanup::SaveRoutine { .. }) => "save_routine".to_string(),
         Ok(Cleanup::Remember { .. }) => "remember".to_string(),
+        Ok(Cleanup::Window { .. }) => "window".to_string(),
         Err(f) => f.code(),
     };
     match &usage {

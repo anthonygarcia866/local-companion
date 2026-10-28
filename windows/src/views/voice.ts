@@ -75,6 +75,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "failed":
       if (v.code.startsWith("memory-")) return { title: t("Not saved"), body: "", note: memoryProblemText(v.code) };
       if (v.code.startsWith("routine-")) return { title: t("Routine not saved"), body: "", note: failedText(v.code, v.app) };
+      if (v.code.startsWith("window-")) return { title: t("Window not moved"), body: "", note: failedText(v.code, v.app) };
       return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
     case "remembered": {
       const kept = v.code === "fact"
@@ -87,6 +88,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "tip":
       return { title: t("Tip"), body: "", note: tipText() };
     case "learned":
+      if (v.code === "window") return { title: t("Moved {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
     case "learned-new":
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned: say “{words}” any time. Claude won't be asked.", { words: v.text }) };
@@ -170,6 +172,10 @@ export function failedText(code: string, app = ""): string {
     case "whisper": return t("Speech-to-text didn't work this time. Try again.");
     case "sensitive": return failureText("sensitive", null);
     case "open-failed": return t("Couldn't open {app}. Is it installed?", { app });
+    case "window-missing": return t("{app} isn't open, so there's no window to move.", { app });
+    case "window-refused": return t("Glim doesn't move that window (a password manager, an app running as administrator, or Glim itself).");
+    case "window-no-other-display": return t("There's only one screen.");
+    case "window-failed": return t("Couldn't move {app}'s window.", { app });
   }
   if (code.startsWith("routine-")) return routineProblemText(code);
   return t("Speech-to-text didn't work this time. Try again.");

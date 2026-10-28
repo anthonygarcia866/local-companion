@@ -40,6 +40,7 @@ mod relaunch;
 mod bubble_window;
 mod writing;
 mod voice;
+mod window_tool;
 mod calendar;
 #[cfg(windows)]
 mod outlook;

@@ -7179,6 +7179,149 @@
    "pt-BR": "O atalho aprendido para {words} foi removido.",
    "ru": "Выученное действие для {words} удалено.",
    "id": "Pintasan yang dipelajari untuk {words} dihapus."
+  },
+  "Put {app} on the left": {
+   "zh-Hans": "把 {app} 放到左边",
+   "hi": "{app} को बाईं ओर रखें",
+   "es": "Poner {app} a la izquierda",
+   "ar": "ضع {app} على اليسار",
+   "fr": "Mettre {app} à gauche",
+   "bn": "{app} বাঁ দিকে রাখুন",
+   "pt-BR": "Colocar o {app} à esquerda",
+   "ru": "{app} слева",
+   "id": "Taruh {app} di kiri"
+  },
+  "Put {app} on the right": {
+   "zh-Hans": "把 {app} 放到右边",
+   "hi": "{app} को दाईं ओर रखें",
+   "es": "Poner {app} a la derecha",
+   "ar": "ضع {app} على اليمين",
+   "fr": "Mettre {app} à droite",
+   "bn": "{app} ডান দিকে রাখুন",
+   "pt-BR": "Colocar o {app} à direita",
+   "ru": "{app} справа",
+   "id": "Taruh {app} di kanan"
+  },
+  "Maximize {app}": {
+   "zh-Hans": "最大化 {app}",
+   "hi": "{app} को बड़ा करें",
+   "es": "Maximizar {app}",
+   "ar": "تكبير {app}",
+   "fr": "Agrandir {app}",
+   "bn": "{app} বড় করুন",
+   "pt-BR": "Maximizar o {app}",
+   "ru": "Развернуть {app}",
+   "id": "Maksimalkan {app}"
+  },
+  "Minimize {app}": {
+   "zh-Hans": "最小化 {app}",
+   "hi": "{app} को छोटा करें",
+   "es": "Minimizar {app}",
+   "ar": "تصغير {app}",
+   "fr": "Réduire {app}",
+   "bn": "{app} ছোট করুন",
+   "pt-BR": "Minimizar o {app}",
+   "ru": "Свернуть {app}",
+   "id": "Minimalkan {app}"
+  },
+  "Center {app}": {
+   "zh-Hans": "居中 {app}",
+   "hi": "{app} को बीच में रखें",
+   "es": "Centrar {app}",
+   "ar": "توسيط {app}",
+   "fr": "Centrer {app}",
+   "bn": "{app} মাঝখানে রাখুন",
+   "pt-BR": "Centralizar o {app}",
+   "ru": "{app} по центру",
+   "id": "Tengahkan {app}"
+  },
+  "Restore {app}": {
+   "zh-Hans": "还原 {app}",
+   "hi": "{app} को पहले जैसा करें",
+   "es": "Restaurar {app}",
+   "ar": "استعادة {app}",
+   "fr": "Restaurer {app}",
+   "bn": "{app} আগের আকারে আনুন",
+   "pt-BR": "Restaurar o {app}",
+   "ru": "Восстановить {app}",
+   "id": "Pulihkan {app}"
+  },
+  "{step}, on the other screen": {
+   "zh-Hans": "{step}，在另一个屏幕上",
+   "hi": "{step}, दूसरी स्क्रीन पर",
+   "es": "{step}, en la otra pantalla",
+   "ar": "{step}، على الشاشة الأخرى",
+   "fr": "{step}, sur l'autre écran",
+   "bn": "{step}, অন্য স্ক্রিনে",
+   "pt-BR": "{step}, na outra tela",
+   "ru": "{step}, на другом экране",
+   "id": "{step}, di layar lain"
+  },
+  "Moved {app}": {
+   "zh-Hans": "已移动 {app}",
+   "hi": "{app} को हिलाया",
+   "es": "{app} movido",
+   "ar": "تم نقل {app}",
+   "fr": "{app} déplacé",
+   "bn": "{app} সরানো হয়েছে",
+   "pt-BR": "{app} movido",
+   "ru": "{app} перемещено",
+   "id": "{app} dipindahkan"
+  },
+  "Window not moved": {
+   "zh-Hans": "窗口未移动",
+   "hi": "विंडो नहीं हिली",
+   "es": "La ventana no se movió",
+   "ar": "لم تُنقل النافذة",
+   "fr": "Fenêtre non déplacée",
+   "bn": "উইন্ডো সরানো হয়নি",
+   "pt-BR": "A janela não foi movida",
+   "ru": "Окно не перемещено",
+   "id": "Jendela tidak dipindahkan"
+  },
+  "{app} isn't open, so there's no window to move.": {
+   "zh-Hans": "{app} 没有打开，所以没有可移动的窗口。",
+   "hi": "{app} खुला नहीं है, इसलिए हिलाने के लिए कोई विंडो नहीं है।",
+   "es": "{app} no está abierto, así que no hay ventana que mover.",
+   "ar": "{app} غير مفتوح، فلا توجد نافذة لنقلها.",
+   "fr": "{app} n'est pas ouvert : aucune fenêtre à déplacer.",
+   "bn": "{app} খোলা নেই, তাই সরানোর মতো কোনো উইন্ডো নেই।",
+   "pt-BR": "O {app} não está aberto, então não há janela para mover.",
+   "ru": "{app} не открыто, перемещать нечего.",
+   "id": "{app} tidak terbuka, jadi tidak ada jendela untuk dipindahkan."
+  },
+  "Glim doesn't move that window (a password manager, an app running as administrator, or Glim itself).": {
+   "zh-Hans": "Glim 不会移动这个窗口（密码管理器、以管理员身份运行的应用或 Glim 本身）。",
+   "hi": "Glim वह विंडो नहीं हिलाता (पासवर्ड मैनेजर, एडमिनिस्ट्रेटर के रूप में चल रहा ऐप, या खुद Glim)।",
+   "es": "Glim no mueve esa ventana (un gestor de contraseñas, una app que se ejecuta como administrador o el propio Glim).",
+   "ar": "لا ينقل Glim تلك النافذة (مدير كلمات مرور، أو تطبيق يعمل كمسؤول، أو Glim نفسه).",
+   "fr": "Glim ne déplace pas cette fenêtre (un gestionnaire de mots de passe, une app lancée en administrateur, ou Glim lui-même).",
+   "bn": "Glim ওই উইন্ডো সরায় না (পাসওয়ার্ড ম্যানেজার, অ্যাডমিনিস্ট্রেটর হিসেবে চলা অ্যাপ, বা Glim নিজে)।",
+   "pt-BR": "O Glim não move essa janela (um gerenciador de senhas, um app executado como administrador ou o próprio Glim).",
+   "ru": "Glim не перемещает это окно (менеджер паролей, приложение от имени администратора или сам Glim).",
+   "id": "Glim tidak memindahkan jendela itu (pengelola kata sandi, aplikasi yang berjalan sebagai administrator, atau Glim sendiri)."
+  },
+  "There's only one screen.": {
+   "zh-Hans": "只有一个屏幕。",
+   "hi": "केवल एक ही स्क्रीन है।",
+   "es": "Solo hay una pantalla.",
+   "ar": "توجد شاشة واحدة فقط.",
+   "fr": "Il n'y a qu'un seul écran.",
+   "bn": "মাত্র একটি স্ক্রিন আছে।",
+   "pt-BR": "Só há uma tela.",
+   "ru": "Экран только один.",
+   "id": "Hanya ada satu layar."
+  },
+  "Couldn't move {app}'s window.": {
+   "zh-Hans": "无法移动 {app} 的窗口。",
+   "hi": "{app} की विंडो नहीं हिल सकी।",
+   "es": "No se pudo mover la ventana de {app}.",
+   "ar": "تعذّر نقل نافذة {app}.",
+   "fr": "Impossible de déplacer la fenêtre de {app}.",
+   "bn": "{app}-এর উইন্ডো সরানো গেল না।",
+   "pt-BR": "Não foi possível mover a janela do {app}.",
+   "ru": "Не удалось переместить окно {app}.",
+   "id": "Tidak bisa memindahkan jendela {app}."
   }
  }
 }
