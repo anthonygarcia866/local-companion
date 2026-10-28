@@ -46,6 +46,9 @@ windows = { version = "0.61", features = [
   "Win32_UI_Accessibility",
   "Win32_System_Variant",
   "Win32_Foundation",
+  # The `window` action (window_tool.rs): monitors' work areas, the frame.
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
   "Win32_Security",
   "Win32_Security_Authorization",
   # The Anthropic API key (ai/key.rs): Credential Manager, this user and PC only.

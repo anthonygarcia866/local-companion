@@ -808,6 +808,138 @@ fn top_windows() -> Vec<(isize, u32, String)> {
     list
 }
 
+// ── The `window` action (window_tool.rs) ─────────────────────────────────────
+
+/// Every monitor's work area (the screen less the taskbar), in physical pixels.
+fn work_areas() -> Vec<crate::window_tool::Rect> {
+    use ::windows::Win32::Foundation::RECT;
+    use ::windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+    unsafe extern "system" fn each(mon: HMONITOR, _dc: HDC, _r: *mut RECT, lparam: LPARAM) -> BOOL {
+        let list = unsafe { &mut *(lparam.0 as *mut Vec<crate::window_tool::Rect>) };
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if unsafe { GetMonitorInfoW(mon, &mut info) }.as_bool() {
+            let w = info.rcWork;
+            list.push(crate::window_tool::Rect { x: w.left, y: w.top, w: w.right - w.left, h: w.bottom - w.top });
+        }
+        true.into()
+    }
+    let mut list = Vec::new();
+    unsafe {
+        let _ = EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut list as *mut _ as isize));
+    }
+    list
+}
+
+/// The window's rectangle, and how far it reaches past the drawn frame.
+fn window_rect(hwnd: HWND) -> Option<(crate::window_tool::Rect, crate::window_tool::Margins)> {
+    use ::windows::Win32::Foundation::RECT;
+    use ::windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+    use ::windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut r) }.ok()?;
+    let mut f = RECT::default();
+    let framed = unsafe { DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut f as *mut _ as *mut _, std::mem::size_of::<RECT>() as u32) }.is_ok();
+    let m = if framed {
+        crate::window_tool::Margins { left: (f.left - r.left).max(0), top: (f.top - r.top).max(0), right: (r.right - f.right).max(0), bottom: (r.bottom - f.bottom).max(0) }
+    } else {
+        crate::window_tool::Margins::default()
+    };
+    Some((crate::window_tool::Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top }, m))
+}
+
+fn window_state(hwnd: HWND, works: &[crate::window_tool::Rect]) -> Option<crate::window_tool::State> {
+    use ::windows::Win32::UI::WindowsAndMessaging::IsZoomed;
+    let (rect, _) = window_rect(hwnd)?;
+    Some(crate::window_tool::State {
+        rect,
+        maximized: unsafe { IsZoomed(hwnd) }.as_bool(),
+        minimized: unsafe { IsIconic(hwnd) }.as_bool(),
+        monitor: crate::window_tool::monitor_of(works, &rect),
+    })
+}
+
+/// "Put Outlook on the left": the app's own top-level window (the one in
+/// front if it is the app's, else its topmost), moved on its monitor or the
+/// other one, then read back. Ok only when it ended up where it was asked to
+/// (the check before the call is learned). Never a password manager's or
+/// Glim's own window. Codes for the card: window-missing (no window of that
+/// app), window-refused, window-no-other-display, window-failed.
+pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::window_tool::Display) -> Result<(), &'static str> {
+    use crate::window_tool::{self as wt, Where};
+    use ::windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE};
+    if let Some(code) = wt::refused(exe) {
+        return Err(code);
+    }
+    let me = std::process::id();
+    let table = process_table();
+    let ours = |pid: u32| table.get(&pid).is_some_and(|p| p.exe.eq_ignore_ascii_case(exe)) && pid != me;
+    let windows: Vec<isize> = top_windows().into_iter().filter(|(_, pid, _)| ours(*pid)).map(|(h, _, _)| h).collect();
+    let front = unsafe { GetForegroundWindow() }.0 as isize;
+    let Some(raw) = windows.iter().copied().find(|h| *h == front).or_else(|| windows.first().copied()) else {
+        return Err("window-missing");
+    };
+    let hwnd = HWND(raw as *mut _);
+    let works = work_areas();
+    let (rect, _) = window_rect(hwnd).ok_or("window-failed")?;
+    let Some(mon) = wt::pick(&works, &rect, display) else {
+        return Err(if works.len() < 2 { "window-no-other-display" } else { "window-failed" });
+    };
+    let work = works[mon];
+    let restore = |h: HWND| unsafe {
+        if IsIconic(h).as_bool() || ::windows::Win32::UI::WindowsAndMessaging::IsZoomed(h).as_bool() {
+            let _ = ShowWindow(h, SW_RESTORE);
+        }
+    };
+    let set = |r: wt::Rect| unsafe { SetWindowPos(hwnd, None, r.x, r.y, r.w, r.h, SWP_NOZORDER | SWP_NOACTIVATE) }.is_ok();
+    let mut wanted = None;
+    match at {
+        Where::Left | Where::Right | Where::Center => {
+            restore(hwnd);
+            let (now, m) = window_rect(hwnd).ok_or("window-failed")?;
+            let t = wt::target(at, &work, &now, &m).ok_or("window-failed")?;
+            // Across monitors with different scales the app resizes itself on
+            // arrival (WM_DPICHANGED): set it again once it is there.
+            set(t);
+            if window_rect(hwnd).is_some_and(|(r, _)| r != t) {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                let (_, m2) = window_rect(hwnd).ok_or("window-failed")?;
+                let t2 = wt::target(at, &work, &now, &m2).ok_or("window-failed")?;
+                set(t2);
+                wanted = Some(t2);
+            } else {
+                wanted = Some(t);
+            }
+        }
+        Where::Maximize => {
+            if wt::monitor_of(&works, &rect) != mon {
+                restore(hwnd);
+                let (now, _) = window_rect(hwnd).ok_or("window-failed")?;
+                set(wt::onto(&work, &now));
+            }
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_MAXIMIZE);
+            }
+        }
+        Where::Minimize => unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+        },
+        Where::Restore => unsafe {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        },
+    }
+    // Read back (an app may take a moment, or refuse).
+    let until = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+    loop {
+        if window_state(hwnd, &works).is_some_and(|s| wt::placed(at, wanted, mon, &s)) {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= until {
+            return Err("window-failed");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
 /// The first of `pids` that owns a window.
 pub fn first_with_window(pids: &[u32]) -> Option<u32> {
     let windows = top_windows();

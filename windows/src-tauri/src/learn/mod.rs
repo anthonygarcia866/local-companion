@@ -245,6 +245,16 @@ pub enum Action {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         repo: Option<String>,
     },
+    /// The `window` action (window_tool.rs): an app (open_app's values) to
+    /// left / right / maximize / minimize / restore / center, on this screen
+    /// or the other one.
+    Window {
+        app: String,
+        #[serde(rename = "where")]
+        at: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display: Option<String>,
+    },
 }
 
 impl Action {
@@ -252,6 +262,7 @@ impl Action {
         match self {
             Action::OpenApp { .. } => "open_app",
             Action::ResumeWork { .. } => "resume_work",
+            Action::Window { .. } => "window",
         }
     }
 }
@@ -590,15 +601,28 @@ pub fn with<R>(f: impl FnOnce(&mut Learned) -> R) -> R {
 pub struct StepView {
     pub tool: &'static str,
     pub name: String,
+    /// `window`: where it goes ("left") and, for the other screen, "other".
+    #[serde(rename = "where", skip_serializing_if = "String::is_empty")]
+    pub at: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub display: String,
+}
+
+fn app_name(app: &str) -> String {
+    if crate::voice::OPENABLE.contains(&app) { crate::voice::app_label(app).to_string() } else { app.to_string() }
 }
 
 pub fn step_view(a: &Action) -> StepView {
+    let plain = |tool, name| StepView { tool, name, at: String::new(), display: String::new() };
     match a {
-        Action::OpenApp { app } => {
-            let label = crate::voice::app_label(app);
-            StepView { tool: "open_app", name: if crate::voice::OPENABLE.contains(&app.as_str()) { label.to_string() } else { app.clone() } }
-        }
-        Action::ResumeWork { repo } => StepView { tool: "resume_work", name: repo.clone().unwrap_or_default() },
+        Action::OpenApp { app } => plain("open_app", app_name(app)),
+        Action::ResumeWork { repo } => plain("resume_work", repo.clone().unwrap_or_default()),
+        Action::Window { app, at, display } => StepView {
+            tool: "window",
+            name: app_name(app),
+            at: at.clone(),
+            display: display.clone().filter(|d| d == "other").unwrap_or_default(),
+        },
     }
 }
 
