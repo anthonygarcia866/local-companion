@@ -68,7 +68,7 @@ test("after a correction the result card adds the tip; an app that opened gets a
   const run = read("src-tauri/src/voice/run.rs");
   // With #57: off through the local match (routine, learned shortcut), armed
   // only for Claude's answer; only the Ask key notes a correction.
-  assert.match(run, /let correcting = mode == Mode::Ask && correction_now\(transcript, &mut LAST_ASK\.lock\(\)\.unwrap\(\), Instant::now\(\)\);\n\s+TIP\.store\(false, Ordering::SeqCst\);[\s\S]*?run_routine\(app, mode, routine\)\.await;\n\s+return;[\s\S]*?if replay\([\s\S]*?return;[\s\S]*?TIP\.store\(correcting \|\| !local, Ordering::SeqCst\);\n\s+let cleanup = clean_up\(/);
+  assert.match(run, /let correcting = mode == Mode::Ask && correction_now\(transcript, &mut LAST_ASK\.lock\(\)\.unwrap\(\), Instant::now\(\)\);\n\s+TIP\.store\(false, Ordering::SeqCst\);[\s\S]*?run_routine\(app, mode, routine\)\.await;\n\s+return;[\s\S]*?if replay\([\s\S]*?return;[\s\S]*?TIP\.store\(correcting \|\| !local, Ordering::SeqCst\);\n\s+let cleanup = app\.clean_up\(/);
   assert.ok(run.includes("e.tip = tip_for(&e, &TIP);"));
   assert.ok(run.includes('takes_tip(e.phase) && !e.code.starts_with("routine-") && armed.swap(false, Ordering::SeqCst)'));
 });

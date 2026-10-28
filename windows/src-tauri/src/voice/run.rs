@@ -996,12 +996,12 @@ mod tests {
         // The order in act(): the tip is off through the local match and
         // armed only once a routine or a working replay would have returned.
         let src = include_str!("run.rs").replace("\r\n", "\n");
-        let act = &src[src.find("async fn act(").unwrap()..src.find("/// A spoken \"never mind\"").unwrap()];
+        let act = &src[src.find("async fn act<F: Effects>(").unwrap()..src.find("/// A spoken \"never mind\"").unwrap()];
         let off = act.find("TIP.store(false, Ordering::SeqCst);").unwrap();
         let routine = act.find("run_routine(app, mode, routine).await;").unwrap();
         let replay = act.find("if replay(app, mode, transcript, &key, slot, &action).await {").unwrap();
         let armed = act.find("TIP.store(correcting || !local, Ordering::SeqCst);").unwrap();
-        let claude = act.find("let cleanup = clean_up(").unwrap();
+        let claude = act.find("let cleanup = app.clean_up(").unwrap();
         assert!(off < routine && routine < replay && replay < armed && armed < claude);
     }
 
@@ -1036,8 +1036,8 @@ mod tests {
     fn try_again_arms_the_correction_tip() {
         let src = include_str!("run.rs").replace("\r\n", "\n");
         let src = &src[..src.find("#[cfg(test)]").unwrap()];
-        let try_again = &src[src.find("pub fn try_again(").unwrap()..src.find("fn propose_routine(").unwrap()];
-        assert!(try_again.contains("act(&app, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
+        let try_again = &src[src.find("pub fn try_again<F: Effects>(").unwrap()..src.find("fn propose_routine<F: Effects>(").unwrap()];
+        assert!(try_again.contains("act(&fx, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
         assert_eq!(src.matches(", false).await;").count(), 1);
         assert!(src.contains("TIP.store(correcting || !local, Ordering::SeqCst);"));
         // Learning from Try again's answer is #57's, unchanged.

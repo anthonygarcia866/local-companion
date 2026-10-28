@@ -618,6 +618,9 @@ pub fn prompt_from(words: &str) -> String {
 pub(crate) mod tests {
     use super::*;
 
+    /// Where act() starts in run.rs (generic over the Effects seam).
+    const ACT_FN: &str = "async fn act<F: Effects>(";
+
     #[test]
     fn resume_work_opens_the_card_with_or_without_a_field() {
         for field in [true, false] {
@@ -683,12 +686,16 @@ pub(crate) mod tests {
         assert!(!f.contains("Command::new") && !f.contains("cmd") && !f.contains("powershell"), "no shell");
         // run.rs looks the name up in the current Settings, never trusts a path from elsewhere.
         let run = include_str!("run.rs");
-        assert!(run.contains("let own = super::own_apps::find(&own_apps(app), &name);\n") || run.contains("let own = super::own_apps::find(&own_apps(app), &name);\r\n"));
-        assert!(run.contains("own.as_ref().is_some_and(|a| crate::platform::open_own_app(&a.path))"));
+        // (Through the Effects seam: the app's own_apps is Settings' list, its
+        // open_own_app is platform::open_own_app.)
+        assert!(run.contains("let own = super::own_apps::find(&app.own_apps(), &name);\n") || run.contains("let own = super::own_apps::find(&app.own_apps(), &name);\r\n"));
+        assert!(run.contains("own.as_ref().is_some_and(|a| app.open_own_app(&a.path))"));
+        assert!(run.contains("fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {\n        app_own_apps(self)") || run.contains("fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {\r\n        app_own_apps(self)"));
+        assert!(run.contains("fn open_own_app(&self, path: &str) -> bool {\n        crate::platform::open_own_app(path)") || run.contains("fn open_own_app(&self, path: &str) -> bool {\r\n        crate::platform::open_own_app(path)"));
         // A learned shortcut or a routine step too (Glim learns): looked up
         // again in today's Settings, then opened by that path.
-        assert!(run.contains("None => super::own_apps::find(&own_apps(app), which).map(Step::OpenOwn),"));
-        assert!(run.contains("crate::platform::open_own_app(&own.path) && came_forward("));
+        assert!(run.contains("None => super::own_apps::find(&app.own_apps(), which).map(Step::OpenOwn),"));
+        assert!(run.contains("app.open_own_app(&own.path) && came_forward("));
         assert!(run.contains("own_apps: &own,"), "Claude is offered the names");
     }
 
@@ -735,8 +742,10 @@ pub(crate) mod tests {
         assert_eq!(whisper_prompt(""), BUILT_IN_WORDS);
         let run = include_str!("run.rs");
         assert!(run.contains("prompt: super::whisper_prompt(&s.voice_words)"));
-        let process = &run[run.find("async fn process(").unwrap()..run.find("async fn act(").unwrap()];
-        assert!(process.find("super::unit_numbers(&transcript)").unwrap() < process.find("let words = transcript").unwrap(), "fixed before anything reads it");
+        let process = &run[run.find("async fn process(").unwrap()..run.find("pub(crate) async fn hear(").unwrap()];
+        assert!(process.find("hear(&pcm, cfg.size, &cfg.prompt)").unwrap() < process.find("let words = transcript").unwrap(), "fixed before anything reads it");
+        let hear = &run[run.find("pub(crate) async fn hear(").unwrap()..run.find(ACT_FN).unwrap()];
+        assert!(hear.contains("Ok(super::unit_numbers(&transcript))"), "whisper's words, units written");
     }
 
     /// Fix d: "open Claude" heard as "open Claw" got a question; one near app opens.
@@ -758,7 +767,7 @@ pub(crate) mod tests {
         }
         // Only when Claude answered with a question, never without Claude (§4.1).
         let run = include_str!("run.rs");
-        let act = &run[run.find("async fn act(").unwrap()..];
+        let act = &run[run.find(ACT_FN).unwrap()..];
         assert!(act.contains("Ok(Cleanup::Clarify(q)) if mode != Mode::Dictate => match super::open_sound_alike(transcript)"));
     }
 
@@ -775,14 +784,15 @@ pub(crate) mod tests {
         // Before Claude: act() returns on a dismissal (Ask and answers only;
         // the dictation key types the words), and the draft card's answer too.
         let run = include_str!("run.rs");
-        let act = &run[run.find("async fn act(").unwrap()..];
+        let act = &run[run.find(ACT_FN).unwrap()..];
         let check = act.find("if mode != Mode::Dictate && super::dismisses(transcript)").expect("checked in act");
-        assert!(check < act.find("clean_up(app, mode, transcript").unwrap(), "before anything goes to Claude");
-        let process = &run[run.find("async fn process(").unwrap()..run.find("async fn act(").unwrap()];
+        assert!(check < act.find("app.clean_up(mode, transcript").unwrap(), "before anything goes to Claude");
+        let process = &run[run.find("async fn process(").unwrap()..run.find(ACT_FN).unwrap()];
         assert!(process.find("super::dismisses(&transcript)").unwrap() < process.find("draft_worker::answer(app, transcript)").unwrap());
-        let dismiss = &run[run.find("fn dismiss(app: &AppHandle, mode: Mode)").unwrap()..];
+        let dismiss = &run[run.find("fn dismiss<F: Effects>(app: &F, mode: Mode)").unwrap()..];
         let dismiss = &dismiss[..dismiss.find("\n}\n").unwrap()];
-        for step in ["set_question(None);", "super::draft_worker::dismiss(app);", "phase: \"idle\""] {
+        assert!(run.contains("fn dismiss_draft(&self) {\n        super::draft_worker::dismiss(self);") || run.contains("fn dismiss_draft(&self) {\r\n        super::draft_worker::dismiss(self);"));
+        for step in ["set_question(None);", "app.dismiss_draft();", "phase: \"idle\""] {
             assert!(dismiss.contains(step), "{step}");
         }
     }
