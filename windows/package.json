@@ -13,9 +13,11 @@
     "predev": "cargo build --release -p glim-hook",
     "prebuild": "cargo build --release -p glim-hook",
     "pack": "tauri build && node scripts/pack.mjs",
-    "check:lantern": "node dev/lantern-check.mjs"
+    "check:lantern": "node dev/lantern-check.mjs",
+    "test:pages": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "^2",
     "typescript": "^5.6.0",
     "vite": "^6"

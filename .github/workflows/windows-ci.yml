@@ -169,3 +169,48 @@ jobs:
             "Below the baseline: lower ci/clippy-baseline.txt to $count."
           }
           exit 0
+
+  # Page tests (windows/e2e, playwright.config.mjs): Glim's real pages in
+  # headless Edge (the runner's own Edge: the Chromium WebView2 runs; no
+  # browser is downloaded) on localhost, with a stand-in for Tauri. Settings
+  # sections, calendar/memory/routine lists, the approval cards and the Allow
+  # key (#59), the voice cards. A console error fails a check. Screenshots of
+  # every check are kept as the "page-tests" artifact. Runs beside `test`.
+  pages:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Page tests
+        shell: pwsh
+        run: |
+          $started = Get-Date
+          npx playwright test
+          $code = $LASTEXITCODE
+          $seconds = [int]((Get-Date) - $started).TotalSeconds
+          $shots = @(Get-ChildItem e2e-results/shots -Filter *.png -ErrorAction SilentlyContinue).Count
+          "### Page tests: exit $code, $shots screenshots, ${seconds}s" >> $env:GITHUB_STEP_SUMMARY
+          exit $code
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: page-tests
+          path: windows/e2e-results
+          retention-days: 14
