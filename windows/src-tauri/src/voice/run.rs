@@ -28,6 +28,70 @@ use crate::learn::{self, Action, NotLearned};
 /// One utterance at a time: the key repeating while held is ignored.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
+// ── Faster answers: the pre-warm and its timings (owner, 2026-10-28) ─────────
+
+/// This press's pre-warm: 0 none yet, 1 the connection is open, 2 it failed.
+static WARM: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Key-up to done, in ms: the last 20 presses with the connection pre-warmed,
+/// and the last 20 without (GLIM_NO_PREWARM=1, or the pre-warm failed or
+/// hadn't finished). In memory only; the log has the numbers.
+#[derive(Default)]
+struct Timings {
+    warm: Vec<u32>,
+    cold: Vec<u32>,
+}
+
+static TIMINGS: std::sync::Mutex<Option<Timings>> = std::sync::Mutex::new(None);
+const TIMINGS_KEPT: usize = 20;
+
+fn median(v: &[u32]) -> Option<u32> {
+    let mut s = v.to_vec();
+    s.sort_unstable();
+    (!s.is_empty()).then(|| if s.len() % 2 == 1 { s[s.len() / 2] } else { (s[s.len() / 2 - 1] + s[s.len() / 2]) / 2 })
+}
+
+impl Timings {
+    /// Records one press; the log line (numbers only).
+    fn record(&mut self, ms: u32, warm: bool) -> String {
+        let list = if warm { &mut self.warm } else { &mut self.cold };
+        list.push(ms);
+        if list.len() > TIMINGS_KEPT {
+            list.remove(0);
+        }
+        let m = |v: &[u32]| median(v).map_or("-".to_string(), |x| format!("{x} ms"));
+        format!(
+            "voice: key-up to done {ms} ms ({}); median warm {} (n={}), cold {} (n={})",
+            if warm { "warm" } else { "cold" },
+            m(&self.warm),
+            self.warm.len(),
+            m(&self.cold),
+            self.cold.len()
+        )
+    }
+}
+
+/// When a voice key goes down: opens the connection to the Claude API in the
+/// background (net::prewarm: a bare HEAD, nothing the user said, no key), if
+/// a clean-up will be asked for. GLIM_NO_PREWARM=1 turns it off (to compare).
+fn start_prewarm() {
+    WARM.store(0, Ordering::SeqCst);
+    if std::env::var_os("GLIM_NO_PREWARM").is_some_and(|v| v == "1") {
+        return;
+    }
+    tauri::async_runtime::spawn(async {
+        if api_ready().is_err() {
+            return;
+        }
+        let base = crate::net::Url::parse(crate::ai::claude::API_BASE).expect("the API's base URL");
+        let ok = crate::net::prewarm(&base).await.is_ok();
+        WARM.store(if ok { 1 } else { 2 }, Ordering::SeqCst);
+        if !ok {
+            crate::log::line("voice: pre-warm failed");
+        }
+    });
+}
+
 /// Glim's question card, waiting for an answer (Decision B).
 struct Pending {
     asked: Asked,
@@ -289,6 +353,7 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
     let m = mode.as_str();
     // The capture thread notes whether an editable field has the focus now.
     request(Request::VoiceBegin);
+    start_prewarm();
     let app = app.clone();
     std::thread::spawn(move || {
         let started = Instant::now();
@@ -320,8 +385,13 @@ pub fn on_key_down(app: &AppHandle, key: Mode) {
             ACTIVE.store(false, Ordering::SeqCst);
             return;
         }
+        let released = Instant::now();
         tauri::async_runtime::spawn(async move {
             process(&app, pcm, held, cfg, mode, asked, draft).await;
+            let ms = released.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            let warm = WARM.load(Ordering::SeqCst) == 1;
+            let line = TIMINGS.lock().unwrap().get_or_insert_with(Timings::default).record(ms, warm);
+            crate::log::line(line);
             ACTIVE.store(false, Ordering::SeqCst);
         });
     });
@@ -1051,6 +1121,32 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Faster answers: the medians are of the last 20 of each kind, and the
+    /// log line has numbers only.
+    #[test]
+    fn key_up_timings_keep_warm_and_cold_medians() {
+        assert_eq!(median(&[]), None);
+        assert_eq!(median(&[5]), Some(5));
+        assert_eq!(median(&[9, 1, 5]), Some(5));
+        assert_eq!(median(&[1, 2, 3, 10]), Some(2));
+        let mut t = Timings::default();
+        assert_eq!(t.record(1200, false), "voice: key-up to done 1200 ms (cold); median warm - (n=0), cold 1200 ms (n=1)");
+        t.record(800, true);
+        assert_eq!(t.record(600, true), "voice: key-up to done 600 ms (warm); median warm 700 ms (n=2), cold 1200 ms (n=1)");
+        for i in 0..30 {
+            t.record(100 + i, true);
+        }
+        assert_eq!(t.warm.len(), TIMINGS_KEPT);
+        // The pre-warm starts at key-down, before anything is heard, and the
+        // timing is taken from key-up.
+        let src = include_str!("run.rs").replace("
+", "
+");
+        let down = &src[src.find("pub fn on_key_down").unwrap()..];
+        assert!(down.find("start_prewarm();").unwrap() < down.find("super::mic::record(").unwrap());
+        assert!(down.find("let released = Instant::now();").unwrap() > down.find("super::mic::record(").unwrap());
+    }
 
     /// #57 + #58: the correction tip rides only on Claude's answers. A
     /// learned replay's card and a routine's cards never carry it.
