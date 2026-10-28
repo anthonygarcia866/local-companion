@@ -1218,6 +1218,22 @@ fn shortcuts_suspend(app: AppHandle, shared: State<Shared>, suspended: bool) {
 /// anything not listed here cannot reach the network either.
 pub(crate) const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required --disable-background-networking --disable-component-update --disable-domain-reliability --no-pings --no-proxy-server \"--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE *.localhost\"";
 
+/// What every webview is created with: BROWSER_ARGS. Only in the stage 3 CI
+/// build (cargo feature `e2e`), and only with GLIM_E2E_CDP_PORT set, plus a
+/// DevTools port on localhost so the test can read the island's page. Without
+/// the feature there is no code here that adds a port.
+pub(crate) fn browser_args() -> String {
+    #[cfg(feature = "e2e")]
+    if let Some(port) = std::env::var("GLIM_E2E_CDP_PORT").ok().and_then(|p| p.trim().parse::<u16>().ok()) {
+        return format!("{BROWSER_ARGS} --remote-debugging-port={port}");
+    }
+    BROWSER_ARGS.to_string()
+}
+
+/// In the e2e build's exe only: `npm run pack` refuses an exe that contains it.
+#[cfg(feature = "e2e")]
+pub(crate) const E2E_MARKER: &str = "GLIM-E2E-BUILD-NOT-FOR-INSTALL";
+
 /// In a dev build the pages are served by Vite, so the second window needs the
 /// absolute dev URL; a bundled build resolves it inside the app bundle.
 fn settings_page_url(app: &AppHandle) -> WebviewUrl {
@@ -1237,7 +1253,7 @@ fn settings_page_url(app: &AppHandle) -> WebviewUrl {
 pub(crate) fn create_settings_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, "settings", url)
-        .additional_browser_args(BROWSER_ARGS)
+        .additional_browser_args(&browser_args())
         .title(i18n::t("Settings — Glim"))
         .inner_size(780.0, 680.0)
         .min_inner_size(460.0, 480.0)
@@ -1285,7 +1301,7 @@ fn create_capture_panel(app: &AppHandle) {
     #[cfg(not(dev))]
     let url = WebviewUrl::App("capture.html".into());
     match WebviewWindowBuilder::new(app, capture::uia::PANEL, url)
-        .additional_browser_args(BROWSER_ARGS)
+        .additional_browser_args(&browser_args())
         .title("Capture debug — Glim (dev)")
         .inner_size(460.0, 560.0)
         .position(40.0, 120.0)
@@ -1720,13 +1736,61 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context())
         .expect("error while running Glim");
+}
+
+/// tauri.conf.json's windows (the island) carry BROWSER_ARGS; in the e2e
+/// build they get browser_args() too, so every webview asks for the same
+/// arguments (WebView2 allows one set per app).
+fn context() -> tauri::Context<tauri::Wry> {
+    #[allow(unused_mut)]
+    let mut ctx = tauri::generate_context!();
+    #[cfg(feature = "e2e")]
+    {
+        log::line(E2E_MARKER);
+        let args = browser_args();
+        for w in ctx.config_mut().app.windows.iter_mut() {
+            w.additional_browser_args = Some(args.clone());
+        }
+    }
+    ctx
 }
 
 #[cfg(test)]
 mod tests {
     use super::{diff_file, BROWSER_ARGS};
+
+    /// Stage 3's DevTools port (owner, 2026-10-29): only the `e2e` build can
+    /// add one. The flag appears once in Glim's code, inside browser_args()'s
+    /// `#[cfg(feature = "e2e")]` block; nothing else in src/ names it.
+    #[test]
+    fn a_debugging_port_exists_only_in_the_e2e_build() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(String, String)>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    out.push((p.display().to_string(), std::fs::read_to_string(&p).unwrap().replace("\r\n", "\n")));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+        let flag = ["--remote-debugging", "-port"].concat();
+        let hits: Vec<&String> = files.iter().filter(|(_, s)| s.split("#[cfg(test)]").next().unwrap().contains(&flag)).map(|(p, _)| p).collect();
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert!(hits[0].ends_with("lib.rs"));
+        let lib = &files.iter().find(|(p, _)| p.ends_with("lib.rs")).unwrap().1;
+        let f = &lib[lib.find("pub(crate) fn browser_args()").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        let gate = f.find("#[cfg(feature = \"e2e\")]").expect("gated");
+        assert!(f.find(&flag).unwrap() > gate);
+        assert!(!BROWSER_ARGS.contains(&flag));
+        #[cfg(not(feature = "e2e"))]
+        assert_eq!(super::browser_args(), BROWSER_ARGS, "no port without the feature, whatever the environment");
+    }
 
     /// The island never takes focus by being shown: it is declared unfocused,
     /// made WS_EX_NOACTIVATE before it is first shown, and only the chat view

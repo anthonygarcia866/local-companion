@@ -41,6 +41,19 @@ const PACKAGES = {
   ],
 };
 
+// An exe built with the `e2e` cargo feature (stage 3's CI build: it can open
+// a DevTools port) is never packed: nothing built with it reaches release/.
+const E2E_MARKER = "GLIM-E2E-BUILD-NOT-FOR-INSTALL";
+for (const exe of ["glim.exe", "glim"]) {
+  let bytes;
+  try { bytes = readFileSync(join(root, "target", "release", exe)); } catch { continue; }
+  if (bytes.includes(Buffer.from(E2E_MARKER))) {
+    console.error(`target/release/${exe} was built with the e2e feature (it can open a debugging port): not packing it. Rebuild without --features e2e.`);
+    process.exit(1);
+  }
+  console.log(`checked: target/release/${exe} is not an e2e build`);
+}
+
 const packages = PACKAGES[process.platform];
 if (!packages) {
   console.error(`Nothing to pack on ${process.platform}.`);

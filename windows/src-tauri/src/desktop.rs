@@ -310,7 +310,7 @@ fn page_url(app: &AppHandle) -> WebviewUrl {
 
 fn create_window(app: &AppHandle, _mode: DesktopMode) -> Option<WebviewWindow> {
     let mut builder = WebviewWindowBuilder::new(app, LABEL, page_url(app))
-        .additional_browser_args(crate::BROWSER_ARGS)
+        .additional_browser_args(&crate::browser_args())
         .title("Glim")
         .inner_size(SIZE, SIZE)
         // GTK won't size a non-resizable window below its natural size (see
