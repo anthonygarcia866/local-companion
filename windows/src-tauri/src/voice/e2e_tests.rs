@@ -87,7 +87,8 @@ impl Fake {
         };
         let (rules, _) = crate::memory::Memory::counts(&remembered);
         let app = if mode == Mode::Dictate { "OUTLOOK.EXE (email)" } else { "unknown (unknown)" };
-        let cx = dictate::Context { mode, app, today: "Wednesday, October 28, 2026", repos: &[], own_apps: &[], asked, remembered: &remembered };
+        let own: Vec<String> = self.own_apps().into_iter().map(|a| a.name).collect();
+        let cx = dictate::Context { mode, app, today: "Wednesday, October 28, 2026", repos: &[], own_apps: &own, asked, remembered: &remembered };
         let model = claude::DEFAULT_MODEL;
         let body = dictate::request_body(model, transcript, &cx);
         self.with(|r| r.last_rules = rules);
@@ -107,7 +108,7 @@ impl Fake {
             }
             _ => {
                 let answer = canned.expect("a canned answer for this request");
-                dictate::parse_answer(&serde_json::to_vec(&answer).unwrap(), model, mode, &[])
+                dictate::parse_answer(&serde_json::to_vec(&answer).unwrap(), model, mode, &own)
             }
         };
         let live = self.key.is_some() && spent < COST_CAP_NANOS;
@@ -166,11 +167,20 @@ impl Effects for Fake {
         true
     }
     fn open_own_app(&self, path: &str) -> bool {
-        self.act(format!("open own {path}"));
+        // An own app's window comes to the front, as Windows would show it.
+        let exe = crate::learn::own_exe(path).unwrap_or_default();
+        self.act(format!("open {}", exe.trim_end_matches(".exe").to_lowercase()));
+        self.with(|r| r.front = Some(exe));
         true
     }
+    fn arrange_window(&self, exe: String, at: crate::window_tool::Where, display: crate::window_tool::Display) -> impl std::future::Future<Output = Result<(), &'static str>> + Send {
+        let other = if display == crate::window_tool::Display::Other { " other" } else { "" };
+        self.act(format!("window {} {}{other}", exe.to_lowercase().trim_end_matches(".exe"), at.as_str()));
+        async { Ok(()) }
+    }
     fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {
-        Vec::new()
+        // Chrome, as the user would add it (Settings → Writing → Apps).
+        vec![super::own_apps::OwnApp { name: "Chrome".into(), path: r"C:\Program Files\Google\Chrome\Application\chrome.exe".into() }]
     }
     fn known_repos(&self) -> Vec<String> {
         Vec::new()
@@ -271,6 +281,16 @@ impl Run {
     }
 }
 
+/// "Work mode" (owner, 2026-10-28): Outlook on the left, Chrome on the right.
+static WORK_MODE: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    json!([
+        { "tool": "open_app", "app": "outlook" }, { "tool": "window", "app": "outlook", "where": "left" },
+        { "tool": "open_app", "app": "Chrome" }, { "tool": "window", "app": "Chrome", "where": "right" }
+    ])
+});
+const WORK_MODE_CARD: [(&str, &str, &str); 4] = [("open_app", "Outlook", ""), ("window", "Outlook", "left"), ("open_app", "Chrome", ""), ("window", "Chrome", "right")];
+const WORK_MODE_RAN: [&str; 4] = ["open outlook", "window outlook left", "open chrome", "window chrome right"];
+
 /// Learned shortcuts, routines and memory are process-wide: one test at a
 /// time uses them, each from empty.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -331,6 +351,26 @@ fn rules_beat_shortcuts_and_a_card_number_is_never_remembered() {
         type_in(&fx, "open Outlook", None).await;
         assert_eq!((answered(), fx.last_event().phase), (3, "learned"), "a rule's verb doesn't block other apps");
 
+        // The window action, typed: Outlook left, Chrome maximized, then
+        // the "work mode" routine (Save on its card) runs all four steps.
+        let n = fx.with(|r| r.actions.len());
+        type_in(&fx, "put Outlook on the left", Some(tool("window", json!({ "app": "outlook", "where": "left" })))).await;
+        type_in(&fx, "maximize Chrome", Some(tool("window", json!({ "app": "Chrome", "where": "maximize" })))).await;
+        assert_eq!(fx.actions_since(n), ["window outlook left", "window chrome maximize"]);
+        type_in(&fx, "when I say work mode, open Outlook and put it on the left, then open Chrome and put it on the right", Some(tool("save_routine", json!({ "name": "work mode", "steps": WORK_MODE.clone() })))).await;
+        let card = fx.last_event();
+        assert_eq!(card.steps.iter().map(|s| (s.tool, s.name.as_str(), s.at.as_str())).collect::<Vec<_>>(), WORK_MODE_CARD, "{card:?}");
+        assert!(run::save_proposed(&fx));
+        let (n, asked) = (fx.with(|r| r.actions.len()), answered());
+        type_in(&fx, "work mode", None).await;
+        assert_eq!(fx.actions_since(n), WORK_MODE_RAN);
+        assert_eq!(answered(), asked, "a routine runs on this PC");
+        // A window call that isn't one: an app not offered, a place not known.
+        let n = fx.with(|r| r.actions.len());
+        type_in(&fx, "put Notepad on the left", Some(tool("window", json!({ "app": "notepad", "where": "left" })))).await;
+        type_in(&fx, "put Outlook on top", Some(tool("window", json!({ "app": "outlook", "where": "top" })))).await;
+        assert_eq!(fx.actions_since(n), Vec::<String>::new(), "refused before anything moved");
+
         // A valid test card number (Luhn-checked) said with "remember".
         let card = "remember my card number 4111 1111 1111 1111";
         assert!(crate::capture::sensitive::contains_sensitive_number(card));
@@ -389,14 +429,15 @@ fn voice_without_a_mic() {
         assert_eq!(answered(), 1, "no Claude call for a learned shortcut");
         assert_eq!(fx.last_event().phase, "learned");
 
-        // 3. A routine: its card lists both steps; Save keeps it.
-        let steps = json!([{ "tool": "open_app", "app": "outlook" }, { "tool": "open_app", "app": "claude" }]);
+        // 3. A routine: its card lists every step; Save keeps it. Windows
+        // go where they were asked (the window action).
+        let steps = WORK_MODE.clone();
         let t = r.say("routine-work-mode", Mode::Ask, Some(tool("save_routine", json!({ "name": "work mode", "steps": steps })))).await;
-        heard(&t, &["work", "mode", "outlook", "claude"]);
+        heard(&t, &["work", "mode", "outlook", "chrome", "left", "right"]);
         let card = fx.last_event();
         assert_eq!(card.phase, "routine-ask", "{card:?}");
         assert_eq!(card.text, "work mode");
-        assert_eq!(card.steps.iter().map(|s| (s.tool, s.name.as_str())).collect::<Vec<_>>(), [("open_app", "Outlook"), ("open_app", "Claude")]);
+        assert_eq!(card.steps.iter().map(|s| (s.tool, s.name.as_str(), s.at.as_str())).collect::<Vec<_>>(), WORK_MODE_CARD);
         assert!(run::save_proposed(&fx), "Save on the card");
         assert_eq!(fx.last_event().phase, "routine-saved");
 
@@ -405,7 +446,7 @@ fn voice_without_a_mic() {
         let n = fx.with(|r| r.actions.len());
         let t = r.say("work-mode", Mode::Ask, None).await;
         heard(&t, &["work", "mode"]);
-        assert_eq!(fx.actions_since(n), ["open outlook", "open claude"]);
+        assert_eq!(fx.actions_since(n), WORK_MODE_RAN);
         assert_eq!(answered(), before, "a routine runs on this PC");
         let e = fx.last_event();
         assert_eq!((e.phase, e.code.as_str()), ("routine", "ok"));
@@ -449,6 +490,16 @@ fn voice_without_a_mic() {
         assert_eq!(answered(), before + 1, "a rule beats the learned shortcut: Claude asked");
         assert_eq!(fx.with(|r| r.last_rules), 1, "with the rule");
 
+        // The window action: Outlook to the left half, Chrome maximized.
+        let n = fx.with(|r| r.actions.len());
+        let t = r.say("outlook-left", Mode::Ask, Some(tool("window", json!({ "app": "outlook", "where": "left" })))).await;
+        heard(&t, &["outlook", "left"]);
+        assert_eq!(fx.actions_since(n), ["window outlook left"]);
+        let n = fx.with(|r| r.actions.len());
+        let t = r.say("maximize-chrome", Mode::Ask, Some(tool("window", json!({ "app": "Chrome", "where": "maximize" })))).await;
+        heard(&t, &["maximize", "chrome"]);
+        assert_eq!(fx.actions_since(n), ["window chrome maximize"]);
+
         // 8. #62: "open the office" (Claude: Outlook) is learned with words of
         // its own; a rule about those words removes it, and the card says so.
         let n = fx.with(|r| r.actions.len());
@@ -482,7 +533,7 @@ fn voice_without_a_mic() {
         super::whisper::stop();
         let (answered, blocked, live, cost) = fx.with(|r| (r.answered, r.blocked, r.live, r.cost_nanos));
         let line = format!(
-            "voice e2e: 10 utterances, {answered} Claude answers ({live} live, {} canned), {blocked} stopped before sending, cost ${:.6}",
+            "voice e2e: 12 utterances, {answered} Claude answers ({live} live, {} canned), {blocked} stopped before sending, cost ${:.6}",
             answered - live,
             cost as f64 / 1e9
         );

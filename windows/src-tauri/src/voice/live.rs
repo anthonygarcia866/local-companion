@@ -107,6 +107,7 @@ fn whisper_on_this_pc() {
             super::Decision::EditDraft { .. } => "edit card",
             super::Decision::SaveRoutine { .. } => "routine card",
             super::Decision::Remember { .. } => "remember card",
+            super::Decision::Window { .. } => "window",
         };
         println!("{id}: {:.1}s audio, {secs:.2}s{} → {decision}: {text}", pcm.len() as f64 / 16_000.0, if n == 0 { " (start + model load)" } else { "" });
         if id.starts_with('c') {
@@ -154,6 +155,7 @@ fn ask_routing() {
         Ok(super::Cleanup::Draft(_)) => "draft_email".to_string(),
         Ok(super::Cleanup::EditDraft(_)) => "edit_draft".to_string(),
         Ok(super::Cleanup::Dictate(_)) => "dictate".to_string(),
+        Ok(super::Cleanup::Window { .. }) => "window".to_string(),
         Err(f) => format!("failed ({})", f.code()),
     };
     let mut nanos = 0;

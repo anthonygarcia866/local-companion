@@ -91,6 +91,19 @@ test("a routine's card lists every step; Save goes to Rust, Cancel tells Rust no
   State.mode = "hidden";
 });
 
+test("window steps and window cards, in words", () => {
+  assert.equal(stepText({ tool: "window", name: "Outlook", where: "left" }), "Put Outlook on the left");
+  assert.equal(stepText({ tool: "window", name: "Chrome", where: "right" }), "Put Chrome on the right");
+  assert.equal(stepText({ tool: "window", name: "Chrome", where: "maximize", display: "other" }), "Maximize Chrome, on the other screen");
+  assert.equal(stepText({ tool: "window", name: "Codex", where: "restore" }), "Restore Codex");
+  assert.equal(voiceText(at({ phase: "learned", code: "window", app: "Outlook" })).title, "Moved Outlook");
+  const missing = voiceText(at({ phase: "failed", code: "window-missing", app: "Outlook" }));
+  assert.deepEqual(missing, { title: "Window not moved", body: "", note: "Outlook isn't open, so there's no window to move." });
+  assert.match(voiceText(at({ phase: "failed", code: "window-refused", app: "1Password" })).note, /password manager, an app running as administrator, or Glim itself/);
+  assert.equal(failedText("window-no-other-display"), "There's only one screen.");
+  assert.equal(failedText("window-failed", "Chrome"), "Couldn't move Chrome's window.");
+});
+
 test("a shortcut just learned says what to say, and goes like other result cards", () => {
   const v = at({ phase: "learned-new", app: "Outlook", text: "Open Outlook" });
   assert.deepEqual(voiceText(v), { title: "Opened Outlook", body: "", note: "Learned: say “Open Outlook” any time. Claude won't be asked." });

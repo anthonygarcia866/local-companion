@@ -847,7 +847,7 @@ fn window_rect(hwnd: HWND) -> Option<(crate::window_tool::Rect, crate::window_to
     Some((crate::window_tool::Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top }, m))
 }
 
-fn window_state(hwnd: HWND, works: &[crate::window_tool::Rect]) -> Option<crate::window_tool::State> {
+fn arranged_state(hwnd: HWND, works: &[crate::window_tool::Rect]) -> Option<crate::window_tool::State> {
     use ::windows::Win32::UI::WindowsAndMessaging::IsZoomed;
     let (rect, _) = window_rect(hwnd)?;
     Some(crate::window_tool::State {
@@ -856,6 +856,27 @@ fn window_state(hwnd: HWND, works: &[crate::window_tool::Rect]) -> Option<crate:
         minimized: unsafe { IsIconic(hwnd) }.as_bool(),
         monitor: crate::window_tool::monitor_of(works, &rect),
     })
+}
+
+/// Whether a process runs elevated (its token's TokenElevation); None when
+/// Glim can't tell (it can't open the process or its token).
+fn process_elevated(pid: u32) -> Option<bool> {
+    use ::windows::Win32::Security::{TokenElevation, TOKEN_ELEVATION};
+    use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut token = HANDLE::default();
+        let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok();
+        let _ = CloseHandle(process);
+        if !opened {
+            return None;
+        }
+        let mut e = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        let got = GetTokenInformation(token, TokenElevation, Some(&mut e as *mut _ as *mut _), std::mem::size_of::<TOKEN_ELEVATION>() as u32, &mut len).is_ok();
+        let _ = CloseHandle(token);
+        got.then_some(e.TokenIsElevated != 0)
+    }
 }
 
 /// "Put Outlook on the left": the app's own top-level window (the one in
@@ -879,6 +900,14 @@ pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::
         return Err("window-missing");
     };
     let hwnd = HWND(raw as *mut _);
+    // Never an elevated (admin) app's window, nor one whose process Glim
+    // can't look into: Windows would refuse most of it anyway (UIPI), and
+    // Glim doesn't try.
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if pid == 0 || pid == me || process_elevated(pid) != Some(false) {
+        return Err("window-refused");
+    }
     let works = work_areas();
     let (rect, _) = window_rect(hwnd).ok_or("window-failed")?;
     let Some(mon) = wt::pick(&works, &rect, display) else {
@@ -930,7 +959,7 @@ pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::
     // Read back (an app may take a moment, or refuse).
     let until = std::time::Instant::now() + std::time::Duration::from_millis(1500);
     loop {
-        if window_state(hwnd, &works).is_some_and(|s| wt::placed(at, wanted, mon, &s)) {
+        if arranged_state(hwnd, &works).is_some_and(|s| wt::placed(at, wanted, mon, &s)) {
             return Ok(());
         }
         if std::time::Instant::now() >= until {

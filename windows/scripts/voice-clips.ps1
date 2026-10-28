@@ -10,12 +10,15 @@ $ErrorActionPreference = 'Stop'
 
 $clips = [ordered]@{
     'open-outlook'      = 'Open Outlook.'
-    'routine-work-mode' = 'When I say work mode, open Outlook and open Claude.'
+    'routine-work-mode' = 'When I say work mode, open Outlook and put it on the left, then open Chrome and put it on the right.'
     'work-mode'         = 'Work mode.'
     'remember-claude'   = 'Remember: open Claude means the desktop app.'
     # A test card number (Visa's documented test number), digit by digit.
     'remember-card'     = 'Remember my card number, 4 1 1 1, 1 1 1 1, 1 1 1 1, 1 1 1 1.'
     'open-claude'       = 'Open Claude.'
+    # The window action.
+    'outlook-left'      = 'Put Outlook on the left.'
+    'maximize-chrome'   = 'Maximize Google Chrome.'
     'open-the-office'   = 'Open the office.'
     'remember-office'   = 'Remember: when I say the office, I mean Outlook.'
     # Made-up names (the run's "Words Glim should know") and a unit.

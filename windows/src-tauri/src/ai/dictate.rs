@@ -432,7 +432,7 @@ mod tests {
         assert!(usage.is_some());
         let body = sent_body(&got);
         assert_eq!(body["tool_choice"], json!({ "type": "any" }));
-        assert_eq!(names(&body), ["open_app", "resume_work", "draft_email", "edit_draft", "save_routine", "remember", "clarify"]);
+        assert_eq!(names(&body), ["open_app", "window", "resume_work", "draft_email", "edit_draft", "save_routine", "remember", "clarify"]);
         assert!(!names(&body).iter().any(|n| n == "send_email"), "sending is never a tool");
         assert_eq!(body["system"], SYSTEM_ASK);
         let content = body["messages"][0]["content"].as_str().unwrap();
@@ -562,7 +562,7 @@ mod tests {
         let tools = tools_for(Mode::Ask, &own);
         let t = tools.as_array().unwrap().iter().find(|t| t["name"] == "save_routine").unwrap();
         assert_eq!(t["input_schema"]["properties"]["steps"]["items"]["properties"]["app"]["enum"], json!(["claude_code", "claude", "codex", "outlook", "Spotify"]));
-        assert_eq!(t["input_schema"]["properties"]["steps"]["items"]["properties"]["tool"]["enum"], json!(["open_app", "resume_work"]));
+        assert_eq!(t["input_schema"]["properties"]["steps"]["items"]["properties"]["tool"]["enum"], json!(["open_app", "window", "resume_work"]));
         assert!(SYSTEM_ASK.contains("call save_routine"));
     }
 
@@ -608,7 +608,7 @@ mod tests {
         assert!(flat.contains("'When I say remember, open Outlook' is save_routine named 'remember'"));
         let tools = tools_for(Mode::Ask, &[]);
         let names: Vec<&str> = tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["open_app", "resume_work", "draft_email", "edit_draft", "save_routine", "remember", "clarify"]);
+        assert_eq!(names, ["open_app", "window", "resume_work", "draft_email", "edit_draft", "save_routine", "remember", "clarify"]);
         // "remember when I say the office I mean Outlook": a rule.
         let r = parse_answer(&answer("remember", json!({ "kind": "rule", "text": "when I say the office I mean Outlook" })), "m", Mode::Ask, &[]).0;
         assert_eq!(r, Ok(Cleanup::Remember { kind: Kind::Rule, text: "when I say the office I mean Outlook".into() }));
@@ -624,6 +624,33 @@ mod tests {
 
     fn names_of(tools: &Value) -> Vec<String> {
         tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
+    }
+
+    /// The window action (owner, 2026-10-28): an offered app and a known
+    /// place, else no call; "other" kept, "this" dropped. Also as a step.
+    #[test]
+    fn window_calls_are_validated() {
+        let own = vec!["Chrome".to_string()];
+        let p = |input: Value| parse_answer(&answer("window", input), "m", Mode::Ask, &own).0;
+        assert_eq!(p(json!({ "app": "outlook", "where": "left" })), Ok(Cleanup::Window { app: "outlook".into(), at: "left".into(), display: None }));
+        assert_eq!(p(json!({ "app": "Chrome", "where": "Maximize", "display": "other" })), Ok(Cleanup::Window { app: "Chrome".into(), at: "maximize".into(), display: Some("other".into()) }));
+        assert_eq!(p(json!({ "app": "Chrome", "where": "center", "display": "this" })), Ok(Cleanup::Window { app: "Chrome".into(), at: "center".into(), display: None }));
+        for bad in [
+            json!({ "app": "notepad", "where": "left" }),
+            json!({ "app": r"C:\Windows\notepad.exe", "where": "left" }),
+            json!({ "app": "outlook", "where": "top" }),
+            json!({ "app": "outlook" }),
+            json!({ "app": "outlook", "where": "left", "display": "third" }),
+            json!({ "where": "left" }),
+        ] {
+            assert_eq!(p(bad.clone()), Err(CleanupFailed::Outage("bad-answer".into())), "{bad}");
+        }
+        let tools = tools_for(Mode::Ask, &own);
+        let w = tools.as_array().unwrap().iter().find(|t| t["name"] == "window").unwrap();
+        assert_eq!(w["input_schema"]["properties"]["app"]["enum"], json!(["claude_code", "claude", "codex", "outlook", "Chrome"]));
+        assert_eq!(w["input_schema"]["properties"]["where"]["enum"], json!(["left", "right", "maximize", "minimize", "restore", "center"]));
+        assert_eq!(step_of(&json!({ "tool": "window", "app": "outlook", "where": "right" }), &own), Some(crate::learn::Action::Window { app: "outlook".into(), at: "right".into(), display: None }));
+        assert_eq!(step_of(&json!({ "tool": "window", "app": "Slack", "where": "right" }), &own), None);
     }
 
     /// The Ask system prompt's budget: every Ask request carries it, so it
