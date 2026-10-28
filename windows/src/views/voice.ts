@@ -59,6 +59,14 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     case "typed":
       return { title: t("Typed in {app}, not cleaned up", { app: v.app }), body: "", note: notCleanedText(v.code) };
     case "not-typed":
+      // Typed, but the field can't be read back: Glim never types it again.
+      if (v.code === "unconfirmed") {
+        return {
+          title: t("Typed, but not confirmed"),
+          body: v.text,
+          note: t("{app} can't be read back, so Glim can't tell the words landed. Nothing was typed twice: copy them from here if they're missing.", { app: v.app || t("That app") }),
+        };
+      }
       return {
         title: t("Not typed"),
         body: v.text,
@@ -204,7 +212,9 @@ export function buildVoice(host: AskHost): ViewHost {
       window.setTimeout(() => answer.focus(), 80);
     },
   }) as HTMLInputElement;
-  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, body, note, answer, row)));
+  // Recent dictations (this session only, from Rust's memory), each to copy.
+  const recent = h("div", { class: "voice-history", "data-role": "voice-history" });
+  const el = h("div", { class: "view" }, card(null, stack(98, 16, title, body, note, recent, answer, row)));
   let clockFor = -1;
 
   const sendTyped = async () => {
@@ -256,7 +266,22 @@ export function buildVoice(host: AskHost): ViewHost {
     title.classList.toggle("voice-question", asking);
     body.textContent = words.body;
     body.style.display = words.body ? "" : "none";
-    body.style.whiteSpace = v.steps.length ? "pre-line" : "";
+    // A routine's steps, and dictation's line breaks, keep their lines.
+    body.style.whiteSpace = v.steps.length || v.text.includes("\n") ? "pre-line" : "";
+    clear(recent);
+    const others = v.phase === "not-typed" ? v.history.filter((x) => x !== v.text) : [];
+    recent.style.display = others.length ? "" : "none";
+    if (others.length) {
+      recent.append(h("div", { class: "suggestion-more", text: t("Recent dictations") }));
+      for (const item of others) {
+        const line = h("div", { class: "voice-history-item" });
+        line.append(
+          h("span", { class: "one-line", text: item.replace(/\s+/g, " ") }),
+          h("button", { class: "link-btn", type: "button", "data-answer": "copy-recent", text: t("Copy"), onclick: () => void Bridge.voiceCopy(item) }),
+        );
+        recent.append(line);
+      }
+    }
     note.textContent = v.copied ? (outcomeNote(v.copied, v.app) ?? "") : words.note;
     if (v.tip && !v.copied) note.textContent = `${words.note} ${tipText()}`.trim();
     answer.style.display = v.phase === "question" ? "" : "none";

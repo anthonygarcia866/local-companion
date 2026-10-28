@@ -445,12 +445,16 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             None => (crate::writing::Outcome::Away, String::new()),
                         };
                         crate::log::line(format!("voice: typed {} ({}) {}", outcome.code(), if cleaned { "cleaned" } else { "not cleaned up" }, name));
+                        // The session's dictation history (memory only, voice::history).
+                        crate::voice::history::push(&text);
                         let applied = outcome == crate::writing::Outcome::Applied;
                         let e = if applied {
                             VoiceEvent { phase: "typed", cleaned, code: why, app: name, ..Default::default() }
                         } else {
-                            // Not typed: the card shows the text, to copy.
-                            VoiceEvent { phase: "not-typed", cleaned, text, code: outcome.code().into(), app: name, ..Default::default() }
+                            // Not typed, or typed but not confirmed (the field
+                            // can't be read back): never typed again. The card
+                            // shows it, and the recent ones, to copy.
+                            VoiceEvent { phase: "not-typed", cleaned, text, code: outcome.code().into(), app: name, history: crate::voice::history::list(), ..Default::default() }
                         };
                         let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
                         voice_field = None;
