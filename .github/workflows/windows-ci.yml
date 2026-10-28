@@ -127,6 +127,37 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace --locked
 
+      # Voice without a microphone (automated testing stage 4,
+      # src/voice/e2e_tests.rs): Windows' SAPI voices make the clips (none
+      # are kept in the repo), whisper.cpp b5454 + base.en (downloaded here,
+      # SHA-256 checked) transcribes them through Glim's own code, then the
+      # router runs with a fake executor that records actions and opens
+      # nothing. Claude is live only when the GLIM_VOICE_API_KEY secret is set
+      # (capped at about $0.01 a run); otherwise canned answers. The cost goes
+      # to the job summary.
+      - name: Voice clips (Windows SAPI)
+        shell: pwsh
+        run: ./scripts/voice-clips.ps1 -Out "$env:RUNNER_TEMP/voice-clips"
+
+      - name: Cache whisper
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/whisper
+          key: whisper-b5454-base-en-q5_1-v1
+
+      - name: Fetch whisper (SHA-256 checked)
+        shell: pwsh
+        run: ./scripts/fetch-whisper.ps1 -Dir "$env:RUNNER_TEMP/whisper"
+
+      - name: Voice end to end
+        shell: pwsh
+        env:
+          GLIM_VOICE_API_KEY: ${{ secrets.GLIM_VOICE_API_KEY }}
+        run: |
+          $env:GLIM_VOICE_CLIPS = "$env:RUNNER_TEMP/voice-clips"
+          $env:GLIM_WHISPER_DIR = "$env:RUNNER_TEMP/whisper"
+          cargo test --workspace --locked voice::e2e_tests -- --ignored --nocapture
+
       # Tests must never create or change the user's data folders: Rust tests
       # get a scratch folder each (platform::data_base), the island tests touch
       # no files. A fresh runner has neither folder, so any here came from a test.

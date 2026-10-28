@@ -14,6 +14,7 @@
 // leaving the machine), then the result. The log gets phases, durations,
 // counts and codes, never the transcript.
 
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -89,6 +90,85 @@ const PROPOSAL_FOR: Duration = Duration::from_secs(120);
 /// The check after opening an app (plan §1): its window in front within this.
 const CAME_FORWARD_WITHIN: Duration = Duration::from_secs(5);
 
+/// What the router does to the world: the island's events, opening apps,
+/// typing, the draft card, Claude. The app itself (`AppHandle`) is the real
+/// thing; the voice end-to-end test (voice/e2e_tests.rs, automated testing
+/// stage 4) passes a fake that records each action and opens nothing.
+pub trait Effects: Clone + Send + Sync + 'static {
+    /// An event on voice::EVENT for the island.
+    fn emit_voice(&self, e: &VoiceEvent);
+    /// A payload-less event to every window ("memory-changed", "learn-changed").
+    fn notify(&self, event: &str);
+    /// The resume card (its payload as the island reads it).
+    fn resume_show(&self, payload: serde_json::Value);
+    /// The capture thread types into the field.
+    fn type_text(&self, text: String, cleaned: bool, why: String);
+    fn foreground_exe(&self) -> Option<String>;
+    fn open_known_app(&self, which: &'static str) -> bool;
+    fn open_own_app(&self, path: &str) -> bool;
+    fn own_apps(&self) -> Vec<super::own_apps::OwnApp>;
+    fn known_repos(&self) -> Vec<String>;
+    fn learning_on(&self) -> bool;
+    /// "Never mind": the draft card closes too.
+    fn dismiss_draft(&self);
+    /// The "Draft email" card.
+    fn draft(&self, spoken: super::draft::Spoken);
+    /// "Change the email you just drafted".
+    fn edit_draft(&self, mode: Mode, change: &str) -> impl Future<Output = ()> + Send;
+    /// The Claude clean-up (1c's checks first, the spend recorded).
+    fn clean_up(&self, mode: Mode, transcript: &str, asked: Option<&Asked>) -> impl Future<Output = Result<Cleanup, CleanupFailed>> + Send;
+    /// Runs `fut` in the background (learning after an app came forward).
+    fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static);
+}
+
+impl Effects for AppHandle {
+    fn emit_voice(&self, e: &VoiceEvent) {
+        let _ = self.emit_to(crate::island::WINDOW_LABEL, EVENT, e);
+    }
+    fn notify(&self, event: &str) {
+        let _ = Emitter::emit(self, event, ());
+    }
+    fn resume_show(&self, payload: serde_json::Value) {
+        let _ = self.emit_to(crate::island::WINDOW_LABEL, "resume-show", payload);
+    }
+    fn type_text(&self, text: String, cleaned: bool, why: String) {
+        request(Request::VoiceType { text, cleaned, why });
+    }
+    fn foreground_exe(&self) -> Option<String> {
+        crate::platform::foreground_exe()
+    }
+    fn open_known_app(&self, which: &'static str) -> bool {
+        crate::platform::open_known_app(which)
+    }
+    fn open_own_app(&self, path: &str) -> bool {
+        crate::platform::open_own_app(path)
+    }
+    fn own_apps(&self) -> Vec<super::own_apps::OwnApp> {
+        app_own_apps(self)
+    }
+    fn known_repos(&self) -> Vec<String> {
+        known_repos()
+    }
+    fn learning_on(&self) -> bool {
+        app_learning_on(self)
+    }
+    fn dismiss_draft(&self) {
+        super::draft_worker::dismiss(self);
+    }
+    fn draft(&self, spoken: super::draft::Spoken) {
+        super::draft_worker::begin(self, spoken);
+    }
+    fn edit_draft(&self, mode: Mode, change: &str) -> impl Future<Output = ()> + Send {
+        edit_last_draft(self, mode, change)
+    }
+    fn clean_up(&self, mode: Mode, transcript: &str, asked: Option<&Asked>) -> impl Future<Output = Result<Cleanup, CleanupFailed>> + Send {
+        clean_up_app(self, mode, transcript, asked)
+    }
+    fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
+        tauri::async_runtime::spawn(fut);
+    }
+}
+
 /// Cancel / Close on the question card (or its timeout): nothing waits now.
 pub fn cancel_question() {
     if PENDING.lock().unwrap().take().is_some() {
@@ -109,10 +189,10 @@ fn quiet(asked: &Option<Asked>, mode: Mode) -> VoiceEvent {
     }
 }
 
-fn send(app: &AppHandle, mut e: VoiceEvent) {
+fn send<F: Effects>(app: &F, mut e: VoiceEvent) {
     // The correction tip (Glim learns §3) rides on the next result card.
     e.tip = tip_for(&e, &TIP);
-    let _ = app.emit_to(crate::island::WINDOW_LABEL, EVENT, &e);
+    app.emit_voice(&e);
 }
 
 /// Whether this event carries the armed tip (and disarms it): Claude's
@@ -262,7 +342,7 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
     let m = mode.as_str();
     send(app, VoiceEvent { phase: "transcribing", mode: m, ..Default::default() });
     let t0 = Instant::now();
-    let transcript = super::whisper::transcribe(&pcm, cfg.size, &cfg.prompt).await;
+    let transcript = hear(&pcm, cfg.size, &cfg.prompt).await;
     drop(pcm); // the audio is gone once transcribed
     let transcript = match transcript {
         Ok(t) => t,
@@ -273,8 +353,6 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
             return;
         }
     };
-    // "unit seven D" → "unit 7D" (fix d), before anything reads it.
-    let transcript = super::unit_numbers(&transcript);
     let words = transcript.split_whitespace().count();
     crate::log::line(format!("voice: held {:.1}s, transcribed ({}) {:.1}s, {words} words, {m}", held.as_secs_f64(), cfg.size, t0.elapsed().as_secs_f64()));
     if words == 0 {
@@ -301,11 +379,18 @@ async fn process(app: &AppHandle, pcm: Vec<i16>, held: Duration, cfg: Config, mo
     act(app, &transcript, mode, asked, true).await;
 }
 
+/// The words in 16 kHz mono `pcm`: whisper, then "unit seven D" → "unit 7D"
+/// (fix d), before anything reads them. Err: whisper's code.
+pub(crate) async fn hear(pcm: &[i16], size: &'static str, prompt: &str) -> Result<String, &'static str> {
+    let transcript = super::whisper::transcribe(pcm, size, prompt).await?;
+    Ok(super::unit_numbers(&transcript))
+}
+
 /// After the words are known (spoken or typed into the card): a routine or
 /// a learned shortcut (Ask key only, matched on this PC first), else the
 /// clean-up, voice::decide, and what follows. `local` false: Try again on a
 /// learned shortcut's card, straight to Claude.
-async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>, local: bool) {
+pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked: Option<Asked>, local: bool) {
     let m = mode.as_str();
     // "Never mind" (fix c): the card closes, nothing goes to Claude, nothing
     // is asked back. Dictation still types those words.
@@ -322,8 +407,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     // Glim learns (plan §1-§2): the Ask key only, never an answer to a
     // question, never with a card number or a "this"/"that" in it.
     let gist = (mode == Mode::Ask && asked.is_none() && !crate::capture::sensitive::contains_sensitive_number(transcript))
-        .then(|| learn::gist(transcript, &learn::app_words(&super::own_apps::names(&own_apps(app)))));
-    let learning = learning_on(app);
+        .then(|| learn::gist(transcript, &learn::app_words(&super::own_apps::names(&app.own_apps()))));
+    let learning = app.learning_on();
     if let Some(g) = gist.as_ref().filter(|_| !learn::deictic(transcript)) {
         if let Some(routine) = learn::with(|l| l.routines.find(g).cloned()) {
             run_routine(app, mode, routine).await;
@@ -342,7 +427,7 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     // its answer says how to make it stick. (What #57 learns from that answer
     // is unchanged: only `correcting` stops learning.)
     TIP.store(correcting || !local, Ordering::SeqCst);
-    let cleanup = clean_up(app, mode, transcript, asked.as_ref()).await;
+    let cleanup = app.clean_up(mode, transcript, asked.as_ref()).await;
     // "Open claw": Claude asked which app; a word that sounds like exactly
     // one app opens it (fix d). Only after Claude answered (§4.1).
     let mut corrected = false;
@@ -369,7 +454,7 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     };
     let learn_from = |action: Action, check: Check| {
         if let Some(g) = gist.clone() {
-            tauri::async_runtime::spawn(learn_after(g, transcript.to_string(), why_not, action, check));
+            app.spawn(learn_after(app.clone(), g, transcript.to_string(), why_not, action, check));
         }
     };
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
@@ -391,7 +476,7 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
     });
     match decision {
         Decision::Type { text, cleaned } => {
-            request(Request::VoiceType { text, cleaned, why });
+            app.type_text(text, cleaned, why);
         }
         Decision::Heard { transcript } => {
             let code = super::heard_code(mode, &why, field);
@@ -404,12 +489,12 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         }
         Decision::Resume { repo } => {
             // Only a repo Glim reads goes to the island; the log never names it.
-            let known = known_repos();
+            let known = app.known_repos();
             let asked_for = repo.is_some();
             let repo = repo.and_then(|r| super::match_repo(&r, &known));
             crate::log::line(format!("voice: resume_work ({})", if repo.is_some() { "a repo first" } else { "all repos" }));
             send(app, VoiceEvent { phase: "idle", mode: m, ..Default::default() });
-            let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo }));
+            app.resume_show(serde_json::json!({ "repo": repo }));
             // It worked when the card had repos to show (and the one named).
             if !known.is_empty() && (repo.is_some() || !asked_for) {
                 learn_from(Action::ResumeWork { repo }, Check::Shown);
@@ -417,8 +502,8 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         }
         Decision::Open { app: which } => {
             // Low risk, no confirmation (plan §5): the app opening says it worked.
-            let before = crate::platform::foreground_exe();
-            let opened = crate::platform::open_known_app(which);
+            let before = app.foreground_exe();
+            let opened = app.open_known_app(which);
             if opened {
                 learn_from(Action::OpenApp { app: which.to_string() }, Check::Forward { exe: super::app_exe(which), before });
             }
@@ -434,9 +519,9 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
             // The path from Settings as they are now (the app may have been
             // removed since), checked again in open_own_app. The log never
             // names the app or its path.
-            let before = crate::platform::foreground_exe();
-            let own = super::own_apps::find(&own_apps(app), &name);
-            let opened = own.as_ref().is_some_and(|a| crate::platform::open_own_app(&a.path));
+            let before = app.foreground_exe();
+            let own = super::own_apps::find(&app.own_apps(), &name);
+            let opened = own.as_ref().is_some_and(|a| app.open_own_app(&a.path));
             crate::log::line(format!("voice: open_app own app {}", if opened { "ok" } else { "failed" }));
             if let Some(a) = own.filter(|_| opened) {
                 learn_from(Action::OpenApp { app: a.name }, Check::Forward { exe: learn::own_exe(&a.path), before });
@@ -451,11 +536,11 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
         Decision::Draft(spoken) => {
             crate::log::line(format!("voice: draft_email ({} names)", spoken.to.len() + spoken.cc.len() + spoken.bcc.len()));
             send(app, VoiceEvent { phase: "idle", ..Default::default() });
-            super::draft_worker::begin(app, spoken);
+            app.draft(spoken);
         }
         Decision::EditDraft { change } => {
             crate::log::line("voice: edit_draft");
-            edit_last_draft(app, mode, &change).await;
+            app.edit_draft(mode, &change).await;
         }
         Decision::SaveRoutine { name, steps } => propose_routine(app, mode, name, steps),
         Decision::Remember { kind: which, text } => {
@@ -479,7 +564,7 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
                     }
                     let removed = gone.iter().map(|g| format!("“{g}”")).collect::<Vec<_>>().join(", ");
                     send(app, VoiceEvent { phase: "remembered", text: saved, code: kind.into(), app: removed, mode: m, ..Default::default() });
-                    let _ = app.emit("memory-changed", ());
+                    app.notify("memory-changed");
                 }
                 Err(code) => {
                     crate::log::line(format!("memory: refused ({code})"));
@@ -502,10 +587,10 @@ async fn act(app: &AppHandle, transcript: &str, mode: Mode, asked: Option<Asked>
 /// A spoken "never mind": the waiting question ends, the voice card and the
 /// draft card close (Cancel), and the voice keys go back to dictating and
 /// asking.
-fn dismiss(app: &AppHandle, mode: Mode) {
+fn dismiss<F: Effects>(app: &F, mode: Mode) {
     crate::log::line("voice: dismissed (never mind)");
     set_question(None);
-    super::draft_worker::dismiss(app);
+    app.dismiss_draft();
     send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
 }
 
@@ -516,7 +601,7 @@ fn known_repos() -> Vec<String> {
 }
 
 /// The user's own apps from Settings → Writing → Apps Glim can open.
-fn own_apps(app: &AppHandle) -> Vec<super::own_apps::OwnApp> {
+fn app_own_apps(app: &AppHandle) -> Vec<super::own_apps::OwnApp> {
     app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().voice_apps.clone()).unwrap_or_default()
 }
 
@@ -573,7 +658,7 @@ async fn edit_last_draft(app: &AppHandle, mode: Mode, change: &str) {
 // ── Glim learns (docs/glim-learns-plan.md §1, §2) ─────────────────────────────
 
 /// Settings → Ask Glim → "Learn shortcuts from what I ask" (on by default).
-fn learning_on(app: &AppHandle) -> bool {
+fn app_learning_on(app: &AppHandle) -> bool {
     app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().learn_shortcuts).unwrap_or(true)
 }
 
@@ -587,10 +672,10 @@ enum Check {
     Shown,
 }
 
-async fn came_forward(exe: Option<String>, before: Option<String>) -> bool {
+async fn came_forward<F: Effects>(app: &F, exe: Option<String>, before: Option<String>) -> bool {
     let until = Instant::now() + CAME_FORWARD_WITHIN;
     loop {
-        if crate::platform::foreground_exe().is_some_and(|front| learn::forward_ok(&front, exe.as_deref(), before.as_deref())) {
+        if app.foreground_exe().is_some_and(|front| learn::forward_ok(&front, exe.as_deref(), before.as_deref())) {
             return true;
         }
         if Instant::now() >= until {
@@ -602,7 +687,7 @@ async fn came_forward(exe: Option<String>, before: Option<String>) -> bool {
 
 /// After Claude's open_app or resume_work worked: kept as a shortcut when its
 /// words may be learned and Glim saw it work. The log has the tool and a code.
-async fn learn_after(g: learn::Gist, transcript: String, why_not: Option<NotLearned>, action: Action, check: Check) {
+async fn learn_after<F: Effects>(app: F, g: learn::Gist, transcript: String, why_not: Option<NotLearned>, action: Action, check: Check) {
     let tool = action.tool();
     let verdict = match why_not {
         Some(no) => Err(no),
@@ -615,7 +700,7 @@ async fn learn_after(g: learn::Gist, transcript: String, why_not: Option<NotLear
         return;
     }
     let worked = match check {
-        Check::Forward { exe, before } => came_forward(exe, before).await,
+        Check::Forward { exe, before } => came_forward(&app, exe, before).await,
         Check::Shown => true,
     };
     if !worked {
@@ -638,14 +723,14 @@ enum Step {
     Resume(Option<String>),
 }
 
-fn validate(app: &AppHandle, a: &Action) -> Option<Step> {
+fn validate<F: Effects>(app: &F, a: &Action) -> Option<Step> {
     match a {
         Action::OpenApp { app: which } => match super::OPENABLE.iter().find(|v| **v == which.as_str()) {
             Some(v) => Some(Step::Open(v)),
-            None => super::own_apps::find(&own_apps(app), which).map(Step::OpenOwn),
+            None => super::own_apps::find(&app.own_apps(), which).map(Step::OpenOwn),
         },
         Action::ResumeWork { repo } => {
-            let known = known_repos();
+            let known = app.known_repos();
             if known.is_empty() {
                 return None;
             }
@@ -659,18 +744,18 @@ fn validate(app: &AppHandle, a: &Action) -> Option<Step> {
 
 /// Runs a checked call, then checks it worked. `learned`: the resume card
 /// says it came from a learned shortcut (with Try again).
-async fn run_step(app: &AppHandle, step: &Step, learned: bool) -> bool {
+async fn run_step<F: Effects>(app: &F, step: &Step, learned: bool) -> bool {
     match step {
         Step::Open(which) => {
-            let before = crate::platform::foreground_exe();
-            crate::platform::open_known_app(which) && came_forward(super::app_exe(which), before).await
+            let before = app.foreground_exe();
+            app.open_known_app(which) && came_forward(app, super::app_exe(which), before).await
         }
         Step::OpenOwn(own) => {
-            let before = crate::platform::foreground_exe();
-            crate::platform::open_own_app(&own.path) && came_forward(learn::own_exe(&own.path), before).await
+            let before = app.foreground_exe();
+            app.open_own_app(&own.path) && came_forward(app, learn::own_exe(&own.path), before).await
         }
         Step::Resume(repo) => {
-            let _ = app.emit_to(crate::island::WINDOW_LABEL, "resume-show", serde_json::json!({ "repo": repo, "learned": learned }));
+            app.resume_show(serde_json::json!({ "repo": repo, "learned": learned }));
             true
         }
     }
@@ -679,7 +764,7 @@ async fn run_step(app: &AppHandle, step: &Step, learned: bool) -> bool {
 /// A learned shortcut, through today's checks. True when it worked (its card
 /// says "Learned"); false: nothing shown, the ask goes on to Claude. Two
 /// failures in a row delete it.
-async fn replay(app: &AppHandle, mode: Mode, transcript: &str, key: &str, slot: bool, action: &Action) -> bool {
+async fn replay<F: Effects>(app: &F, mode: Mode, transcript: &str, key: &str, slot: bool, action: &Action) -> bool {
     let tool = action.tool();
     let step = validate(app, action);
     let ok = match &step {
@@ -717,7 +802,7 @@ async fn replay(app: &AppHandle, mode: Mode, transcript: &str, key: &str, slot: 
 
 /// Try again on a learned shortcut's card: the shortcut is deleted and the
 /// ask goes to Claude. False when there's nothing to try again.
-pub fn try_again(app: &AppHandle) -> bool {
+pub fn try_again<F: Effects>(app: &F) -> bool {
     let Some(r) = REPLAYED.lock().unwrap().take() else { return false };
     if r.at.elapsed() > TRY_AGAIN_FOR || ACTIVE.swap(true, Ordering::SeqCst) {
         return false;
@@ -728,10 +813,10 @@ pub fn try_again(app: &AppHandle) -> bool {
         }
     });
     crate::log::line("learn: try again, shortcut deleted");
-    let _ = app.emit("learn-changed", ());
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        act(&app, &r.transcript, Mode::Ask, None, false).await;
+    app.notify("learn-changed");
+    let fx = app.clone();
+    app.spawn(async move {
+        act(&fx, &r.transcript, Mode::Ask, None, false).await;
         ACTIVE.store(false, Ordering::SeqCst);
     });
     true
@@ -739,8 +824,8 @@ pub fn try_again(app: &AppHandle) -> bool {
 
 /// "When I say X, …": checked, then the card listing every step (Save /
 /// Cancel). Nothing is stored before Save.
-fn propose_routine(app: &AppHandle, mode: Mode, name: String, steps: Vec<Action>) {
-    let own = super::own_apps::names(&own_apps(app));
+fn propose_routine<F: Effects>(app: &F, mode: Mode, name: String, steps: Vec<Action>) {
+    let own = super::own_apps::names(&app.own_apps());
     let n = steps.len();
     if let Some(code) = learn::with(|l| l.routines.problem(&name, &steps, &own)) {
         crate::log::line(format!("learn: routine refused ({code})"));
@@ -755,12 +840,12 @@ fn propose_routine(app: &AppHandle, mode: Mode, name: String, steps: Vec<Action>
 
 /// Save on the routine's card. False when nothing waits (cancelled, too old)
 /// or it can't be saved now (the card says why).
-pub fn save_proposed(app: &AppHandle) -> bool {
+pub fn save_proposed<F: Effects>(app: &F) -> bool {
     let Some(p) = PROPOSED.lock().unwrap().take() else { return false };
     if p.at.elapsed() > PROPOSAL_FOR {
         return false;
     }
-    let own = super::own_apps::names(&own_apps(app));
+    let own = super::own_apps::names(&app.own_apps());
     let n = p.steps.len();
     let name = p.name.clone();
     let saved = learn::with(|l| {
@@ -774,7 +859,7 @@ pub fn save_proposed(app: &AppHandle) -> bool {
         Ok(()) => {
             crate::log::line(format!("learn: routine saved ({n} steps)"));
             send(app, VoiceEvent { phase: "routine-saved", text: name, mode: "ask", ..Default::default() });
-            let _ = app.emit("learn-changed", ());
+            app.notify("learn-changed");
             true
         }
         Err(code) => {
@@ -787,7 +872,7 @@ pub fn save_proposed(app: &AppHandle) -> bool {
 
 /// Saying a routine's name: its steps in order, each checked as a shortcut
 /// is. The first one that doesn't work stops it, and the card names it.
-async fn run_routine(app: &AppHandle, mode: Mode, r: learn::Routine) {
+async fn run_routine<F: Effects>(app: &F, mode: Mode, r: learn::Routine) {
     let total = r.steps.len();
     for (i, a) in r.steps.iter().enumerate() {
         let ok = match validate(app, a) {
@@ -832,7 +917,7 @@ fn api_ready() -> Result<(crate::ai::rewrite::Config, crate::ai::key::ApiKey), C
 }
 
 /// The Claude clean-up, with 1c's checks first (api_ready), its spend recorded.
-async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
+async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
     use crate::ai::{claude, dictate, spend};
     let (config, api_key) = api_ready()?;
     send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
@@ -861,7 +946,7 @@ async fn clean_up(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&
     let (result, usage) = match crate::net::Url::parse(claude::API_BASE) {
         Ok(base) => {
             let repos = known_repos();
-            let own = super::own_apps::names(&own_apps(app));
+            let own = super::own_apps::names(&app.own_apps());
             let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked, remembered: &remembered };
             dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
         }
@@ -911,12 +996,12 @@ mod tests {
         // The order in act(): the tip is off through the local match and
         // armed only once a routine or a working replay would have returned.
         let src = include_str!("run.rs").replace("\r\n", "\n");
-        let act = &src[src.find("async fn act(").unwrap()..src.find("/// A spoken \"never mind\"").unwrap()];
+        let act = &src[src.find("async fn act<F: Effects>(").unwrap()..src.find("/// A spoken \"never mind\"").unwrap()];
         let off = act.find("TIP.store(false, Ordering::SeqCst);").unwrap();
         let routine = act.find("run_routine(app, mode, routine).await;").unwrap();
         let replay = act.find("if replay(app, mode, transcript, &key, slot, &action).await {").unwrap();
         let armed = act.find("TIP.store(correcting || !local, Ordering::SeqCst);").unwrap();
-        let claude = act.find("let cleanup = clean_up(").unwrap();
+        let claude = act.find("let cleanup = app.clean_up(").unwrap();
         assert!(off < routine && routine < replay && replay < armed && armed < claude);
     }
 
@@ -951,8 +1036,8 @@ mod tests {
     fn try_again_arms_the_correction_tip() {
         let src = include_str!("run.rs").replace("\r\n", "\n");
         let src = &src[..src.find("#[cfg(test)]").unwrap()];
-        let try_again = &src[src.find("pub fn try_again(").unwrap()..src.find("fn propose_routine(").unwrap()];
-        assert!(try_again.contains("act(&app, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
+        let try_again = &src[src.find("pub fn try_again<F: Effects>(").unwrap()..src.find("fn propose_routine<F: Effects>(").unwrap()];
+        assert!(try_again.contains("act(&fx, &r.transcript, Mode::Ask, None, false).await;"), "Try again is the only act() with local = false");
         assert_eq!(src.matches(", false).await;").count(), 1);
         assert!(src.contains("TIP.store(correcting || !local, Ordering::SeqCst);"));
         // Learning from Try again's answer is #57's, unchanged.

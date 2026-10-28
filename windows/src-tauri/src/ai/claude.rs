@@ -230,15 +230,21 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
     }
 }
 
+/// The last look before anything leaves: the whole body, as it will be
+/// sent, has a card, SSN or IBAN number in it. Nothing is sent then.
+pub(crate) fn blocked(body: &Value) -> bool {
+    let bytes = serde_json::to_vec(body).unwrap_or_default();
+    crate::capture::sensitive::contains_sensitive_number(&String::from_utf8_lossy(&bytes))
+}
+
 /// Sends one request body to /v1/messages and returns a 2xx answer's body.
 /// The whole body is scanned for card, SSN and IBAN numbers first: a hit
 /// sends nothing. Shared by the rewrite and "Check with AI" (check.rs).
 pub(super) async fn send(base: &Url, key: &ApiKey, body: &Value) -> Result<Vec<u8>, Failure> {
-    let body = serde_json::to_vec(body).unwrap_or_default();
-    // The last look before anything leaves: the whole body, as it will be sent.
-    if crate::capture::sensitive::contains_sensitive_number(&String::from_utf8_lossy(&body)) {
+    if blocked(body) {
         return Err(Failure::Sensitive);
     }
+    let body = serde_json::to_vec(body).unwrap_or_default();
     let Ok(url) = Url::parse(&net::join(base, "/v1/messages")) else {
         return Err(Failure::Network);
     };

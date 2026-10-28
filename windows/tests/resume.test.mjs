@@ -89,9 +89,13 @@ test("the card's triggers (decided 2026-10-15): the tray item, voice resume_work
   const run = read("src-tauri/src/voice/run.rs");
   // Claude's resume_work, and a learned shortcut's or a routine's resume
   // step (Glim learns §1-§2), its repo checked the same way (validate).
-  assert.equal([...run.matchAll(/"resume-show"/g)].length, 2);
-  assert.match(run, /Decision::Resume \{ repo \} => \{[\s\S]*?super::match_repo\(&r, &known\)[\s\S]*?"resume-show"/);
-  assert.match(run, /Action::ResumeWork \{ repo \} => \{[\s\S]*?super::match_repo\(r, &known\)[\s\S]*?Step::Resume\(repo\) => \{\n\s+let _ = app\.emit_to\(crate::island::WINDOW_LABEL, "resume-show"/);
+  // Both go through the Effects seam (automated testing stage 4), whose app
+  // side is the one "resume-show" emit.
+  assert.equal([...run.matchAll(/"resume-show"/g)].length, 1);
+  assert.match(run, /fn resume_show\(&self, payload: serde_json::Value\) \{\n\s+let _ = self\.emit_to\(crate::island::WINDOW_LABEL, "resume-show", payload\);/);
+  assert.equal([...run.matchAll(/app\.resume_show\(/g)].length, 2);
+  assert.match(run, /Decision::Resume \{ repo \} => \{[\s\S]*?super::match_repo\(&r, &known\)[\s\S]*?app\.resume_show\(/);
+  assert.match(run, /Action::ResumeWork \{ repo \} => \{[\s\S]*?super::match_repo\(r, &known\)[\s\S]*?Step::Resume\(repo\) => \{\n\s+app\.resume_show\(/);
 });
 
 test("voice's repo goes first; the rest keep their order; an unknown name changes nothing", async () => {
