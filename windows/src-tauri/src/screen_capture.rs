@@ -49,6 +49,11 @@ fn override_var() -> Option<String> {
     std::env::var(OVERRIDE_VAR).ok()
 }
 
+/// Whether Glim's windows should be kept out of capture right now.
+pub fn wanted_now(app: &AppHandle) -> bool {
+    wanted(setting(app), override_var().as_deref())
+}
+
 /// Every Glim window as the setting says: at launch, once its windows
 /// exist, and after each settings save.
 pub fn apply(app: &AppHandle) {

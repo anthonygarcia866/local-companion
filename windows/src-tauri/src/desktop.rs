@@ -682,6 +682,8 @@ fn spawn_poll(app: AppHandle, d: Arc<Desktop>) {
 
 #[tauri::command]
 pub fn desktop_mochi_info(app: AppHandle, desktop: State<Arc<Desktop>>) -> DesktopInfo {
+    // The character's page is up (glim.exe --selftest).
+    crate::selftest::page_loaded(LABEL);
     let on_desktop = app
         .try_state::<crate::Shared>()
         .map(|s| s.settings.lock().unwrap().desktop_mochi.on_desktop)

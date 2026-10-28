@@ -596,6 +596,29 @@ fn set_hwnd_capture_excluded(hwnd: HWND, excluded: bool) -> bool {
     }
 }
 
+/// What Win32 itself says about `win` (not Tauri's flags), for
+/// `glim.exe --selftest`: visible, and its display affinity.
+pub fn window_state(win: &WebviewWindow) -> Option<(bool, u32)> {
+    let hwnd = hwnd_of(win)?;
+    unsafe {
+        let mut affinity = 0u32;
+        GetWindowDisplayAffinity(hwnd, &mut affinity).ok()?;
+        Some((IsWindowVisible(hwnd).as_bool(), affinity))
+    }
+}
+
+/// The affinity a window kept out of capture has.
+pub const CAPTURE_EXCLUDED: u32 = WDA_EXCLUDEFROMCAPTURE.0;
+
+/// Another glim.exe is running (same executable name, another process).
+pub fn other_glim_running() -> bool {
+    let me = std::process::id();
+    let Some(name) = std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase())) else {
+        return false;
+    };
+    process_table().iter().any(|(pid, p)| *pid != me && p.exe.to_lowercase() == name)
+}
+
 /// Hides `win` with Win32 itself, for a window Glim never showed.
 pub fn hide_window(win: &WebviewWindow) {
     if let Some(hwnd) = hwnd_of(win) {

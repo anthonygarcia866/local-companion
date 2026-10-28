@@ -21,6 +21,7 @@ mod platform;
 mod recap;
 mod resume;
 mod screen_capture;
+mod selftest;
 mod learn;
 mod memory;
 mod session_window;
@@ -77,7 +78,11 @@ pub struct BootInfo {
 }
 
 #[tauri::command]
-fn boot(app: AppHandle, shared: State<Shared>) -> BootInfo {
+fn boot(app: AppHandle, win: tauri::WebviewWindow, shared: State<Shared>) -> BootInfo {
+    // The island's page is up (glim.exe --selftest).
+    if win.label() == island::WINDOW_LABEL {
+        selftest::page_loaded(win.label());
+    }
     let mut settings = shared.settings.lock().unwrap().clone();
     // The real state of ~/.claude/settings.json wins over whatever we stored.
     let hooks_status = hooks::status();
@@ -1334,6 +1339,9 @@ fn settings_page_alive() {
 #[tauri::command]
 fn settings_page(ok: bool) {
     webview_health::settings_page(ok);
+    if ok {
+        selftest::page_loaded("settings");
+    }
 }
 
 /// `glim.exe --mascot-state <idle|listen|think|suggest|record|paused|delegate|done|error|auto>`,
@@ -1410,7 +1418,17 @@ fn dev_session() -> bool {
 pub fn run() {
     // A Glim started by relaunch.rs waits for the old one to exit, or the
     // single-instance plugin below would hand it straight back to it.
-    let relaunched = relaunch::wait_for_previous(&std::env::args().collect::<Vec<_>>());
+    let args: Vec<String> = std::env::args().collect();
+    let relaunched = relaunch::wait_for_previous(&args);
+    // glim.exe --selftest (selftest.rs): a running Glim would be handed this
+    // launch, so it is refused instead.
+    let selftest = selftest::requested(&args);
+    if selftest {
+        selftest::begin();
+        if platform::other_glim_running() {
+            selftest::refuse_running();
+        }
+    }
     // Before anything reads or creates the data folders (settings, log, relay).
     let migrated = platform::migrate_data_dirs();
     for note in &migrated {
@@ -1430,6 +1448,10 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // A self-test is its own Glim, never the running one's business.
+            if argv.iter().any(|a| a == selftest::FLAG) {
+                return;
+            }
             // `glim --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
             // `glim.exe --resume-card` (GLIM_DEV=1): shows the resume card, as the
@@ -1614,7 +1636,9 @@ pub fn run() {
             memory::with(|_| ((), false));
             // Launch at startup follows the setting at every launch, not only
             // when it changes (the entry may be missing, or point at an old copy).
-            autostart::sync(loaded.autostart, false);
+            if !selftest {
+                autostart::sync(loaded.autostart, false);
+            }
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
@@ -1677,14 +1701,23 @@ pub fn run() {
             }
 
             log::line(format!("--- Glim {} started ---", env!("CARGO_PKG_VERSION")));
-            hooks::ensure_hook_exe(&handle);
+            if !selftest {
+                hooks::ensure_hook_exe(&handle);
+            }
             // Every Claude config folder in sync? Logged only; Settings fixes it.
             hooks::log_sync_state();
-            pipe::start(handle.clone());
+            if !selftest {
+                pipe::start(handle.clone());
+            }
             shortcuts::apply(&handle, &loaded.shortcuts);
             // The calendar glance: reads only while its setting is on, and
             // only an Outlook that is already running.
-            calendar::worker::start(&handle);
+            if !selftest {
+                calendar::worker::start(&handle);
+            }
+            if selftest {
+                selftest::start(handle.clone());
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -289,6 +289,16 @@ pub fn load() -> Settings {
     load_from(&settings_path())
 }
 
+/// For `glim.exe --selftest`: whether settings.json is there and parses, read
+/// fresh and without load's fallbacks. Ok(false) = no file (the defaults).
+pub fn file_check() -> Result<bool, ()> {
+    match std::fs::read(settings_path()) {
+        Ok(bytes) => parse(&bytes).map(|_| true).ok_or(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(()),
+    }
+}
+
 pub fn save(settings: &Settings) -> std::io::Result<()> {
     let dir = config_dir();
     crate::platform::ensure_private_dir(&dir)?;
