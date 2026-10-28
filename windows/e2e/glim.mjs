@@ -24,8 +24,10 @@ export async function openPage(page, label, path, setup, args) {
   page.on("console", (m) => {
     if (m.type() !== "error" && m.type() !== "warning") return;
     if (IGNORED.some((r) => r.test(m.location().url ?? ""))) return;
-    // Warnings are logged, not failed (errors fail the check).
-    if (m.type() === "warning") console.log(`  console warning: ${m.text().split("\n")[0]}`);
+    // Warnings are logged, not failed (errors fail the check); except
+    // aria-hidden over focus, fixed 2026-10-28 (island.ts syncViews).
+    if (m.type() === "warning" && /aria-hidden/.test(m.text())) problems.push(`warning: ${m.text().split("\n")[0]}`);
+    else if (m.type() === "warning") console.log(`  console warning: ${m.text().split("\n")[0]}`);
     else problems.push(`${m.type()}: ${m.text()}`);
   });
   page.on("pageerror", (e) => problems.push(`page error: ${e.message}`));

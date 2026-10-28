@@ -1360,7 +1360,10 @@ export class Island {
       const on = name === State.view;
       view.el.classList.toggle("on", on);
       // A view that isn't on is only transparent: keep screen readers (and
-      // UI Automation) to the one that shows.
+      // UI Automation) to the one that shows. A button clicked in it (Allow)
+      // lets go of focus first: aria-hidden over focus is refused by Edge.
+      const focused = document.activeElement;
+      if (!on && focused instanceof HTMLElement && view.el.contains(focused)) focused.blur();
       view.el.setAttribute("aria-hidden", on ? "false" : "true");
       if (on) view.sync();
     }
