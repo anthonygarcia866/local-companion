@@ -734,6 +734,18 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 10. **A rule replaces a learned shortcut (M2):** with learning on, say "open the office" twice (Claude opens Outlook, then the 2nd is the **Learned** card). Then "Remember: when I say the office I mean Codex". **See:** "I'll remember that" with "Removed the learned shortcut for “open office”." Settings → Ask Glim no longer lists it; glim.log `learn: a rule removed 1 shortcuts`. Say "open the office": Claude is asked (no Learned card) and Codex opens. A routine named in a rule ("Remember: work mode means Codex first") stays in Settings → Ask Glim.
 
 
+## 37. Moving windows by voice (branch `window-tool`)
+
+*Where: a build with the window tool, the Claude key set, Outlook, and Chrome added as an own app (Settings → Writing → Apps Glim can open). Two screens for step 4, if you have them.*
+
+1. **Left / right:** open Outlook, hold Ask Glim (Ctrl+Alt+Shift+A) and say "put Outlook on the left". **See:** Outlook fills the left half of its screen, edge to edge (no gap at the left or bottom). glim.log: `voice: window left ok`. Say "put it on the right" style requests with Chrome: "put Chrome on the right".
+2. **Maximize / minimize / restore / center:** "maximize Chrome", "minimize Chrome", "restore Chrome", "center Outlook". **See:** each happens to that app's window only.
+3. **Not open:** close Outlook and say "put Outlook on the left". **See:** a card "Window not moved / Outlook isn't open, so there's no window to move." Nothing else moves.
+4. **The other screen:** "move Outlook to my other screen and maximize it". **See:** it is maximized on the other screen. With one screen: "There's only one screen."
+5. **Never moved:** with a password manager open (1Password, Bitwarden…), ask to put it on the left; with an app started "as administrator", the same. **See:** "Glim doesn't move that window (…)" and it stays put. Asking about Glim itself: the same.
+6. **Work mode:** say "When I say work mode, open Outlook and put it on the left, then open Chrome and put it on the right", check the card lists the 4 steps, Save. Close both apps, say "work mode". **See:** both open and end up side by side, no Claude call (no data-leaving lantern).
+7. **Learned:** say "put Outlook on the left" twice (move it away in between). The second time: a "Moved Outlook / Learned shortcut" card, no data-leaving lantern.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
