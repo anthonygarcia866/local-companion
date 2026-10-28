@@ -444,6 +444,7 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     }
     if !win.is_visible().unwrap_or(true) {
         let _ = win.show();
+        crate::screen_capture::after_show(app, &win);
     }
     let (rx, ry, lw, lh) = window_rect(dock, shape, ms.width as f64 / scale, ms.height as f64 / scale);
     let pw = (lw * scale).round().max(1.0) as u32;

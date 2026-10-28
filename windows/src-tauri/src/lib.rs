@@ -1307,6 +1307,8 @@ pub fn show_settings_window(app: &AppHandle, from: &str) {
     webview_health::before_settings_shown(&win);
     let _ = win.unminimize();
     let _ = win.show();
+    // Only now: never on the hidden window (see screen_capture::after_show).
+    screen_capture::after_show(app, &win);
     let _ = win.set_focus();
     // Settings → Calendar asks Outlook for its calendars again (its list
     // may have been empty when the page was built at launch).
@@ -1628,7 +1630,8 @@ pub fn run() {
             }
             // Same rule for the character's desktop window.
             desktop::setup(&handle);
-            // Every window built so far, before the island is first shown.
+            // Every window built so far, before the island is first shown;
+            // the hidden ones (Settings) get it when shown.
             screen_capture::apply(&handle);
             // Every window built so far keeps its page through a WebView2
             // process failure; Settings is reloaded after a wake.
@@ -1649,6 +1652,7 @@ pub fn run() {
                 webview_drop::install(&handle);
                 island::apply_geometry(&handle, &loaded.screen, false);
                 let _ = win.show();
+                screen_capture::after_show(&handle, &win);
             }
             gate.collapsed.store(false, Ordering::Relaxed);
             // Nothing drawn yet, so nothing takes the mouse until the page

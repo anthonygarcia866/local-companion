@@ -59,6 +59,13 @@ pub fn apply(app: &AppHandle) {
     note(reason(setting, var.as_deref()), windows.len(), want && refused > 0);
 }
 
+/// Right after Glim shows a window. A hidden window is never touched
+/// (platform::set_capture_excluded: on hidden Settings it left a white copy
+/// on screen, 2026-10-27), so the window gets the setting here.
+pub fn after_show(app: &AppHandle, win: &WebviewWindow) {
+    apply_to(app, win);
+}
+
 /// A window built after launch (the mini lantern, the desktop lantern).
 pub fn apply_to(app: &AppHandle, win: &WebviewWindow) {
     let want = wanted(setting(app), override_var().as_deref());
@@ -102,6 +109,33 @@ mod tests {
         assert_eq!(reason(true, Some("1")), "off (GLIM_CAPTURABLE)");
         assert_eq!(reason(false, None), "off (setting)");
         assert_eq!(reason(false, Some("1")), "off (setting)");
+    }
+
+    /// 2026-10-27: SetWindowDisplayAffinity on the hidden Settings window left a
+    /// white, click-through copy of it on screen at every launch (#56's launch
+    /// apply). Hidden windows are skipped, and each show applies it after.
+    #[test]
+    fn a_hidden_window_is_never_touched_and_each_show_applies_it_after() {
+        let platform = include_str!("platform/windows.rs").replace("\r\n", "\n");
+        let set = &platform[platform.find("fn set_hwnd_capture_excluded").unwrap()..];
+        let set = &set[..set.find("\n}\n").unwrap()];
+        let hidden = set.find("if !IsWindowVisible(hwnd).as_bool() {").expect("hidden windows skipped");
+        assert!(hidden < set.find("SetWindowDisplayAffinity(hwnd").unwrap());
+        assert!(set.find("GetWindowDisplayAffinity").unwrap() < set.find("SetWindowDisplayAffinity(hwnd").unwrap(), "no call when nothing changes");
+        // Every place Glim shows a window applies it right after the show.
+        for (file, code, show) in [
+            ("lib.rs settings", include_str!("lib.rs"), "    let _ = win.show();\n"),
+            ("lib.rs island", include_str!("lib.rs"), "                let _ = win.show();\n"),
+            ("island.rs", include_str!("island.rs"), "        let _ = win.show();\n"),
+            ("desktop.rs", include_str!("desktop.rs"), "            let _ = win.show();\n"),
+            ("webview_health.rs", include_str!("webview_health.rs"), "        let _ = win.show();\n"),
+        ] {
+            let code = code.replace("\r\n", "\n");
+            let at = code.find(show).unwrap_or_else(|| panic!("{file}: show"));
+            let next = &code[at + show.len()..];
+            let next = next.lines().find(|l| !l.trim().starts_with("//")).unwrap();
+            assert!(next.contains("screen_capture::after_show("), "{file}: {next}");
+        }
     }
 
     #[test]

@@ -386,6 +386,10 @@ pub fn set_capture_excluded(_win: &WebviewWindow, _excluded: bool) -> bool {
     false
 }
 
+pub fn hide_window(win: &WebviewWindow) {
+    let _ = win.hide();
+}
+
 pub fn make_non_activating(win: &WebviewWindow) {
     let Ok(gw) = win.gtk_window() else { return };
     // The pointer watch reports the pointer leaving on every kind of window:
