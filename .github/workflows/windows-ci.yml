@@ -201,6 +201,71 @@ jobs:
           }
           exit 0
 
+  # The real app (automated testing stage 3, windows/e2e/app/run.mjs): the
+  # release glim.exe on this runner, with scratch data folders. --selftest,
+  # then the Allow key end to end (requests through the real glim-hook, the
+  # real Ctrl+Alt+Shift+Y through SendInput, the page read over CDP),
+  # capture exclusion on/off in a desktop capture, and no hidden window ever
+  # shown. It presses real keys and captures the screen: runner only.
+  app:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Cache cargo (release)
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            windows/target
+          key: windows-app-cargo-${{ hashFiles('windows/Cargo.lock') }}
+          restore-keys: windows-app-cargo-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the relay
+        run: cargo build --release -p glim-hook
+
+      - name: Build the app (release, no installer)
+        shell: pwsh
+        run: |
+          $started = Get-Date
+          npx tauri build --no-bundle
+          $code = $LASTEXITCODE
+          "### Release build: exit $code, $([int]((Get-Date) - $started).TotalSeconds)s" >> $env:GITHUB_STEP_SUMMARY
+          exit $code
+
+      - name: The real app
+        shell: pwsh
+        run: |
+          $started = Get-Date
+          node e2e/app/run.mjs
+          $code = $LASTEXITCODE
+          "### The real app: exit $code, $([int]((Get-Date) - $started).TotalSeconds)s" >> $env:GITHUB_STEP_SUMMARY
+          exit $code
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-e2e
+          path: windows/e2e-results/app
+          retention-days: 14
+
   # Page tests (windows/e2e, playwright.config.mjs): Glim's real pages in
   # headless Edge (the runner's own Edge: the Chromium WebView2 runs; no
   # browser is downloaded) on localhost, with a stand-in for Tauri. Settings
