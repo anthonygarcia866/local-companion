@@ -189,6 +189,18 @@ pub const PASSWORD_MANAGERS: [&str; 12] = [
     "keeperpasswordmanager.exe", "nordpass.exe", "roboform.exe", "enpass.exe", "proton pass.exe",
 ];
 
+/// Password managers' names as their windows are titled: a browser
+/// extension's popout (1Password or Bitwarden in Chrome or Edge) belongs to
+/// chrome.exe / msedge.exe, so it is told apart by its title instead.
+const PASSWORD_MANAGER_TITLES: [&str; 11] =
+    ["1password", "bitwarden", "lastpass", "dashlane", "keeper", "nordpass", "roboform", "enpass", "proton pass", "keepass", "password manager"];
+
+/// A window Glim skips by its title (any case): a password manager's.
+pub fn title_refused(title: &str) -> bool {
+    let t = title.to_lowercase();
+    PASSWORD_MANAGER_TITLES.iter().any(|p| t.contains(p))
+}
+
 /// Why Glim won't touch a window of `exe` (None: it may). Glim's own windows
 /// are refused by process id in platform::arrange_window as well.
 pub fn refused(exe: &str) -> Option<&'static str> {
@@ -296,6 +308,12 @@ mod tests {
         assert_eq!(refused("Bitwarden.exe"), Some("window-refused"));
         assert_eq!(refused(r"C:\Users\me\AppData\Local\Glim\glim.exe"), Some("window-refused"));
         assert_eq!(refused("OUTLOOK.EXE"), None);
+        // A browser extension's popout is chrome.exe's: refused by title.
+        assert!(title_refused("Bitwarden"));
+        assert!(title_refused("1Password – Google Chrome"));
+        assert!(title_refused("KeePassXC - Passwords.kdbx"));
+        assert!(!title_refused("Inbox - me@example.com - Outlook"));
+        assert!(!title_refused("New Tab - Google Chrome"));
         assert_eq!(refused("chrome.exe"), None);
     }
 }

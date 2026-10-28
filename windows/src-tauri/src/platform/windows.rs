@@ -894,7 +894,9 @@ pub fn arrange_window(exe: &str, at: crate::window_tool::Where, display: crate::
     let me = std::process::id();
     let table = process_table();
     let ours = |pid: u32| table.get(&pid).is_some_and(|p| p.exe.eq_ignore_ascii_case(exe)) && pid != me;
-    let windows: Vec<isize> = top_windows().into_iter().filter(|(_, pid, _)| ours(*pid)).map(|(h, _, _)| h).collect();
+    // A password manager's window inside another app (a browser extension's
+    // popout) is skipped by its title, the one in front included.
+    let windows: Vec<isize> = top_windows().into_iter().filter(|(_, pid, title)| ours(*pid) && !wt::title_refused(title)).map(|(h, _, _)| h).collect();
     let front = unsafe { GetForegroundWindow() }.0 as isize;
     let Some(raw) = windows.iter().copied().find(|h| *h == front).or_else(|| windows.first().copied()) else {
         return Err("window-missing");
