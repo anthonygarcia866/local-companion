@@ -143,11 +143,9 @@ impl Memory {
         list.len() != before
     }
 
-    /// What one Ask request carries (plan §3, decision 2): every fact, and
-    /// the rules sharing a word with `transcript`, most shared first (then
-    /// the newest), at most 15, all within 4,000 characters. "" when there's
-    /// nothing to send.
-    pub fn for_request(&self, transcript: &str) -> String {
+    /// The rules sharing a word with `transcript` (small words like "the",
+    /// "say", "mean" don't count), most shared first, then the newest.
+    pub fn relevant_rules(&self, transcript: &str) -> Vec<&String> {
         const SMALL: [&str; 24] = [
             "a", "an", "the", "to", "my", "me", "i", "for", "of", "on", "in", "at", "and", "or", "is", "it", "be", "when", "say",
             "mean", "you", "glim", "please", "with",
@@ -166,6 +164,15 @@ impl Memory {
             .filter(|(n, _, _)| *n > 0)
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        scored.into_iter().map(|(_, _, r)| r).collect()
+    }
+
+    /// What one Ask request carries (plan §3, decision 2): every fact, and
+    /// the rules sharing a word with `transcript`, most shared first (then
+    /// the newest), at most 15, all within 4,000 characters. "" when there's
+    /// nothing to send.
+    pub fn for_request(&self, transcript: &str) -> String {
+        let scored = self.relevant_rules(transcript);
         let mut out = String::new();
         let mut budget = MAX_CHARS_SENT;
         let mut take = |line: &str, out: &mut String| {
@@ -182,7 +189,7 @@ impl Memory {
             take(f, &mut facts);
         }
         let mut rules = String::new();
-        for (_, _, r) in scored.into_iter().take(MAX_RULES_SENT) {
+        for r in scored.into_iter().take(MAX_RULES_SENT) {
             take(r, &mut rules);
         }
         if !rules.is_empty() {
@@ -362,6 +369,19 @@ mod tests {
         // Words like "the", "say", "mean" don't make a rule relevant.
         assert!(!m.for_request("say the thing I mean").contains("rules"));
         assert_eq!(Memory::default().for_request("open the office"), "");
+    }
+
+    /// The same matcher decides whether a learned shortcut may replay (a
+    /// relevant rule sends the ask to Claude instead, voice::run::act).
+    #[test]
+    fn relevant_rules_are_the_ones_a_request_carries() {
+        let mut m = Memory::default();
+        m.add(Kind::Rule, "open Claude means the desktop app").unwrap();
+        m.add(Kind::Rule, "When I say the office I mean Outlook").unwrap();
+        assert_eq!(m.relevant_rules("Open Claude."), [&"open Claude means the desktop app".to_string()]);
+        assert_eq!(m.relevant_rules("open the office").len(), 2, "\"open\" is shared too");
+        assert!(m.relevant_rules("where was I").is_empty());
+        assert!(m.relevant_rules("say the thing I mean").is_empty(), "small words only");
     }
 
     #[test]

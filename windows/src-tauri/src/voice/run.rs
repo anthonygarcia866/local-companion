@@ -409,13 +409,26 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
     let gist = (mode == Mode::Ask && asked.is_none() && !crate::capture::sensitive::contains_sensitive_number(transcript))
         .then(|| learn::gist(transcript, &learn::app_words(&super::own_apps::names(&app.own_apps()))));
     let learning = app.learning_on();
+    // A remembered rule beats a learned shortcut (exact, gist or "open
+    // {app}"): one sharing a word with the request (its verb aside: a rule
+    // saying "open" isn't about every app) sends it to Claude, with the rule,
+    // instead of replaying, and nothing is learned from it (it would never
+    // replay while the rule is kept). The log has counts only.
+    let ruled = gist.as_ref().is_some_and(|g| {
+        let said = learn::rule_words(g);
+        !said.is_empty() && crate::memory::with(|m| (!m.relevant_rules(&said).is_empty(), false))
+    });
     if let Some(g) = gist.as_ref().filter(|_| !learn::deictic(transcript)) {
         if let Some(routine) = learn::with(|l| l.routines.find(g).cloned()) {
             run_routine(app, mode, routine).await;
             return;
         }
         let found = learn::with(|l| l.shortcuts.find(g).map(|(i, a)| (l.shortcuts.items[i].key.clone(), l.shortcuts.items[i].slot, a)));
-        if let Some((key, slot, action)) = found.filter(|_| local && learning) {
+        let found = found.filter(|_| local && learning);
+        if found.is_some() && ruled {
+            crate::log::line("learn: skipped (rule), 1 shortcut");
+        }
+        if let Some((key, slot, action)) = found.filter(|_| !ruled) {
             if replay(app, mode, transcript, &key, slot, &action).await {
                 return;
             }
@@ -449,6 +462,8 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
         Some(NotLearned::Unconfirmed)
     } else if correcting {
         Some(NotLearned::Correction)
+    } else if ruled {
+        Some(NotLearned::Rule)
     } else {
         None
     };

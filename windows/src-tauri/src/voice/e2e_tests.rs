@@ -362,13 +362,15 @@ fn voice_without_a_mic() {
         }
 
         // 7. "open Claude": the desktop app ("claude", not "claude_code"). The
-        // "open {app}" shortcut from step 1 replays it on this PC.
+        // rule from step 5 shares its words, so it beats the "open {app}"
+        // shortcut from step 1: Claude is asked, with the rule.
         let n = fx.with(|r| r.actions.len());
         let before = answered();
         let t = r.say("open-claude", Mode::Ask, Some(tool("open_app", json!({ "app": "claude" })))).await;
         heard(&t, &["open", "claude"]);
         assert_eq!(fx.actions_since(n), ["open claude"]);
-        println!("    {}", if answered() == before { "replayed the learned \"open {app}\": Claude not asked" } else { "asked Claude" });
+        assert_eq!(answered(), before + 1, "a rule beats the learned shortcut: Claude asked");
+        assert_eq!(fx.with(|r| r.last_rules), 1, "with the rule");
 
         // 8. #62: "open the office" (Claude: Outlook) is learned with words of
         // its own; a rule about those words removes it, and the card says so.

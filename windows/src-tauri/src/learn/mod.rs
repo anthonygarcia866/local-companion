@@ -160,6 +160,9 @@ pub enum NotLearned {
     /// The ask corrected the one before ("no, I meant …"): its words only
     /// make sense right after that one (review of the #57/#58 merge).
     Correction,
+    /// A remembered rule sent the ask to Claude: a shortcut for it would
+    /// never replay while the rule is kept (a rule beats a shortcut).
+    Rule,
 }
 
 impl NotLearned {
@@ -171,6 +174,7 @@ impl NotLearned {
             NotLearned::CommandWord => "command-word",
             NotLearned::Unconfirmed => "unconfirmed",
             NotLearned::Correction => "correction",
+            NotLearned::Rule => "rule",
         }
     }
 }
@@ -212,6 +216,13 @@ pub fn own_exe(path: &str) -> Option<String> {
 /// The verbs `fold` makes: a rule about "the office" is about "open the
 /// office".
 const VERBS: [&str; 2] = ["open", "resume"];
+
+/// What a remembered rule is checked against before a shortcut replays: the
+/// gist's words without the verb, so "open Claude" meets a rule about
+/// Claude, and a rule that says "open" isn't about every app.
+pub fn rule_words(g: &Gist) -> String {
+    g.plain.split(' ').filter(|w| !VERBS.contains(w) && *w != SLOT).collect::<Vec<_>>().join(" ")
+}
 
 /// A shortcut's key as the card says it: the verb first, the app slot as
 /// "…" ("office open" -> "open office").
@@ -641,6 +652,14 @@ mod tests {
 
     fn open(app: &str) -> Action {
         Action::OpenApp { app: app.into() }
+    }
+
+    #[test]
+    fn a_rule_is_checked_against_the_gist_without_its_verb() {
+        assert_eq!(rule_words(&gist("Open Claude.", &apps())), "claude");
+        assert_eq!(rule_words(&gist("launch the office", &apps())), "office");
+        assert_eq!(rule_words(&gist("let's continue my-repo", &apps())), "my-repo");
+        assert_eq!(rule_words(&gist("open", &apps())), "");
     }
 
     #[test]
