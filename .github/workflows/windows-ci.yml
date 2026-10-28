@@ -240,14 +240,28 @@ jobs:
       - name: Build the relay
         run: cargo build --release -p glim-hook
 
-      - name: Build the app (release, no installer)
+      # --features e2e: GLIM_E2E_CDP_PORT may add a DevTools port to the
+      # webviews (lib.rs browser_args). Only this job builds it; `npm run pack`
+      # refuses such an exe, checked in the next step.
+      - name: Build the app (release, e2e feature, no installer)
         shell: pwsh
         run: |
           $started = Get-Date
-          npx tauri build --no-bundle
+          npx tauri build --no-bundle --features e2e
           $code = $LASTEXITCODE
-          "### Release build: exit $code, $([int]((Get-Date) - $started).TotalSeconds)s" >> $env:GITHUB_STEP_SUMMARY
+          "### Release build (e2e): exit $code, $([int]((Get-Date) - $started).TotalSeconds)s" >> $env:GITHUB_STEP_SUMMARY
           exit $code
+
+      - name: The e2e exe is marked, and pack refuses it
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes("target/release/glim.exe")
+          $text = [Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $text.Contains("GLIM-E2E-BUILD-NOT-FOR-INSTALL")) { throw "the e2e build has no marker: pack.mjs could not tell it apart" }
+          node scripts/pack.mjs
+          if ($LASTEXITCODE -eq 0) { throw "pack.mjs packed an e2e build" }
+          "marker present; pack.mjs refused it (exit $LASTEXITCODE)"
+          exit 0
 
       - name: The real app
         shell: pwsh

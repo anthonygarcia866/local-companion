@@ -298,7 +298,7 @@ fn create(app: &AppHandle) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let built = WebviewWindowBuilder::new(&handle, LABEL, page_url(&handle))
-            .additional_browser_args(crate::BROWSER_ARGS)
+            .additional_browser_args(&crate::browser_args())
             .title("Glim")
             .inner_size(bubble::SIZE, bubble::SIZE)
             .resizable(false)
@@ -468,7 +468,7 @@ mod tests {
     fn the_window_never_takes_focus() {
         let src = include_str!("bubble_window.rs");
         let code = &src[..src.find("#[cfg(test)]").unwrap()];
-        for needed in [".focusable(false)", ".focused(false)", ".always_on_top(true)", ".skip_taskbar(true)", "crate::BROWSER_ARGS", "make_non_activating(&win)"] {
+        for needed in [".focusable(false)", ".focused(false)", ".always_on_top(true)", ".skip_taskbar(true)", "crate::browser_args()", "make_non_activating(&win)"] {
             assert!(code.contains(needed), "{needed}");
         }
         for banned in ["set_focus", ".show()", ".hide()", "set_focusable(true)"] {

@@ -9,8 +9,9 @@
 //      scratch folder, with a settings.json that turns autostart and the
 //      calendar off. No real Claude config, no real Glim data.
 //   2. `glim.exe --selftest` (stage 1) must pass.
-//   3. Glim starts with WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port
-//      so the island's page can be read over CDP (Playwright connectOverCDP).
+//   3. Glim (built with --features e2e) starts with GLIM_E2E_CDP_PORT, which
+//      adds a DevTools port to its webviews (lib.rs browser_args; only that
+//      build can), so the island's page is read over CDP (connectOverCDP).
 //   4. The Allow key end to end: permission requests go in through the real
 //      relay (target/release/glim-hook.exe PermissionRequest, as Claude Code
 //      runs it) and the real Ctrl+Alt+Shift+Y goes in through SendInput.
@@ -65,7 +66,8 @@ function writeSettings(hideFromCapture) {
   mkdirSync(dirname(settingsFile), { recursive: true });
   writeFileSync(settingsFile, JSON.stringify({ autostart: false, calendarOn: false, hideFromCapture }, null, 1));
 }
-const env = { ...process.env, ...folders, HOME: folders.USERPROFILE, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` };
+const env = { ...process.env, ...folders, HOME: folders.USERPROFILE, GLIM_E2E_CDP_PORT: String(PORT) };
+delete env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
 delete env.GLIM_DEV;
 delete env.GLIM_CAPTURABLE;
 
@@ -106,12 +108,17 @@ function taskkill(name) {
 async function startGlim() {
   const p = spawn(exe, [], { env, stdio: "ignore", detached: false });
   const until = Date.now() + 40_000;
-  while (Date.now() < until) {
+  let up = false;
+  while (!up && Date.now() < until) {
     try {
-      const r = await fetch(`http://127.0.0.1:${PORT}/json/version`);
-      if (r.ok) break;
+      up = (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok;
     } catch { /* not up yet */ }
-    await sleep(300);
+    if (!up) await sleep(300);
+  }
+  if (!up) {
+    const log = join(folders.LOCALAPPDATA, "Glim", "glim.log");
+    const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-15).join("\n") : "(no log)";
+    throw new Error(`no DevTools port ${PORT} within 40 s (glim.exe ${p.exitCode === null ? "running" : `exited ${p.exitCode}`}). Log tail:\n${tail}`);
   }
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
   let island = null;

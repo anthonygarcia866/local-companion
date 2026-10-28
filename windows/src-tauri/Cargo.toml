@@ -10,6 +10,13 @@ license.workspace = true
 name = "glim_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Automated testing stage 3 ONLY (CI's `app` job, windows/e2e/app): lets
+# GLIM_E2E_CDP_PORT add a DevTools port to Glim's webviews so the test can
+# read the island's page. Never in a build that is installed: `npm run pack`
+# refuses an exe built with it (scripts/pack.mjs looks for E2E_MARKER).
+e2e = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
