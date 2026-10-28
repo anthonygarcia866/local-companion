@@ -386,6 +386,18 @@ pub fn set_capture_excluded(_win: &WebviewWindow, _excluded: bool) -> bool {
     false
 }
 
+/// Visible, and no capture affinity (Linux has none), for `glim --selftest`.
+pub fn window_state(win: &WebviewWindow) -> Option<(bool, u32)> {
+    win.is_visible().ok().map(|v| (v, 0))
+}
+
+pub const CAPTURE_EXCLUDED: u32 = 0;
+
+/// The single-instance plugin forwards a second launch: nothing to check.
+pub fn other_glim_running() -> bool {
+    false
+}
+
 pub fn hide_window(win: &WebviewWindow) {
     let _ = win.hide();
 }
