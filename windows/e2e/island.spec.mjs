@@ -269,6 +269,26 @@ test("voice: the Learned card says Claude wasn't asked, with Try again", async (
   noConsoleErrors(problems);
 });
 
+test("voice: dictation not confirmed shows it with this session's recent ones, each to copy", async ({ page }) => {
+  const problems = await openIsland(page);
+  await page.evaluate(() => { window.__glim.replies.voice_copy = true; });
+  await voice(page, { phase: "not-typed", mode: "dictate", code: "unconfirmed", app: "Notepad", text: "Hi Sam,\nsee you at noon.", history: ["Hi Sam,\nsee you at noon.", "Order the slides", "Call the plumber"] });
+  const c = voiceCard(page, "Typed, but not confirmed");
+  await expect(c).toHaveCount(1);
+  await expect(c).toContainText("Notepad can't be read back");
+  await expect(c.locator('[data-role="voice-history"]')).toContainText("Recent dictations");
+  const items = c.locator(".voice-history-item");
+  await expect(items).toHaveCount(2, { message: "the one on the card isn't listed twice" });
+  await expectOnScreen(c.locator(".title"));
+  await expectOnScreen(c.locator(".rewrite-text"));
+  for (let i = 0; i < 2; i++) await expectOnScreen(items.nth(i));
+  await shot(page, "voice-dictation-unconfirmed");
+  await items.nth(1).getByRole("button", { name: "Copy" }).click();
+  await expect.poll(async () => (await sent(page, "voice_copy")).map((x) => x.text)).toContain("Call the plumber");
+  console.log("voice dictation unconfirmed: card + 2 recent, Copy -> voice_copy");
+  noConsoleErrors(problems);
+});
+
 test("voice: a shortcut just learned says “Learned: say … any time”", async ({ page }) => {
   const problems = await openIsland(page);
   await voice(page, { phase: "learned-new", app: "Outlook", text: "Open Outlook", mode: "ask" });
