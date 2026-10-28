@@ -269,6 +269,19 @@ test("voice: the Learned card says Claude wasn't asked, with Try again", async (
   noConsoleErrors(problems);
 });
 
+test("voice: a shortcut just learned says “Learned: say … any time”", async ({ page }) => {
+  const problems = await openIsland(page);
+  await voice(page, { phase: "learned-new", app: "Outlook", text: "Open Outlook", mode: "ask" });
+  const c = voiceCard(page, "Opened Outlook");
+  await expect(c).toHaveCount(1);
+  await expect(c).toContainText("Learned: say “Open Outlook” any time. Claude won't be asked.");
+  await expect(c.getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expectOnScreen(c.locator(".title"));
+  await shot(page, "voice-learned-new");
+  console.log("voice learned-new: the note names the words to say");
+  noConsoleErrors(problems);
+});
+
 test("voice: a remembered rule that replaced a learned shortcut says so (#62)", async ({ page }) => {
   const problems = await openIsland(page);
   await voice(page, { phase: "remembered", code: "rule", text: "when I say mail I mean Outlook", app: "“open outlook”" });

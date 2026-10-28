@@ -12,7 +12,8 @@
 // card stays up, "Listening for your answer…".
 //
 // Glim learns (docs/glim-learns-plan.md §1-§2): "learned" (a learned shortcut
-// ran, Claude wasn't asked: Try again), "routine-ask" (Save / Cancel on a
+// ran, Claude wasn't asked: Try again), "learned-new" (Claude's open_app
+// worked and was just kept: "Learned: say “…” any time"), "routine-ask" (Save / Cancel on a
 // routine's steps), "routine-saved", "routine" (a routine ran, or stopped at
 // a step: code "ok" or "failed:k/n").
 // Glim learns §3: "remembered" (what Glim kept, or a "failed" memory-… code
@@ -32,7 +33,7 @@ export interface StepView {
 
 export interface VoiceEvent {
   phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle"
-    | "learned" | "routine-ask" | "routine-saved" | "routine" | "remembered" | "tip";
+    | "learned" | "learned-new" | "routine-ask" | "routine-saved" | "routine" | "remembered" | "tip";
   /** 0..1, while listening. */
   level: number;
   /** "typed" / "not-typed": false = the raw transcript, not cleaned up. */
@@ -170,7 +171,7 @@ export function rawBadge(v: VoiceState | null): boolean {
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {
   if (v.phase === "question" || v.phase === "routine-ask") return 60_000;
-  return v.phase === "typed" || v.phase === "learned" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
+  return v.phase === "typed" || v.phase === "learned" || v.phase === "learned-new" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
 }
 
 /** A routine's step or a shortcut's call, in words. */

@@ -91,6 +91,12 @@ test("a routine's card lists every step; Save goes to Rust, Cancel tells Rust no
   State.mode = "hidden";
 });
 
+test("a shortcut just learned says what to say, and goes like other result cards", () => {
+  const v = at({ phase: "learned-new", app: "Outlook", text: "Open Outlook" });
+  assert.deepEqual(voiceText(v), { title: "Opened Outlook", body: "", note: "Learned: say “Open Outlook” any time. Claude won't be asked." });
+  assert.equal(cardTimeoutMs(v), 8_000);
+});
+
 test("saved, ran, stopped at a step, refused: each in words", () => {
   assert.deepEqual(voiceText(at({ phase: "routine-saved", text: "work mode" })), { title: "Saved “work mode”", body: "", note: "Say “work mode” with Ask Glim to run it." });
   assert.equal(voiceText(at({ phase: "routine", code: "ok", text: "work mode", steps: STEPS.slice(0, 2) })).title, "Ran “work mode”");

@@ -314,19 +314,23 @@ impl Shortcuts {
 
     /// Keeps `action` under this ask's gist, replacing what was there. An
     /// open_app of the one app the ask names is kept with the app as a slot.
-    pub fn learn(&mut self, g: &Gist, action: Action, now: u64) {
+    /// True when it is new (not just the same words kept again).
+    pub fn learn(&mut self, g: &Gist, action: Action, now: u64) -> bool {
         let slotted = match (&action, &g.slotted) {
             (Action::OpenApp { app }, Some((key, named))) if app == named => Some(key.clone()),
             _ => None,
         };
         let slot = slotted.is_some();
         let key = slotted.unwrap_or_else(|| g.plain.clone());
+        let before = self.items.len();
         self.items.retain(|s| !(s.key == key && s.slot == slot));
+        let new = self.items.len() == before;
         self.items.push(Shortcut { key, action, slot, last_used: now, fails: 0 });
         while self.items.len() > MAX_SHORTCUTS {
             let oldest = self.items.iter().enumerate().min_by_key(|(_, s)| s.last_used).map(|(i, _)| i).unwrap_or(0);
             self.items.remove(oldest);
         }
+        new
     }
 
     /// Settings → Forget, or Try again on its card.

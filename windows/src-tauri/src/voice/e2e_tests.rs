@@ -304,6 +304,9 @@ fn voice_without_a_mic() {
         assert_eq!(answered(), 1);
         println!("    learned: {:?}", shortcut_keys());
         assert_eq!(shortcut_keys(), ["open {app}"]);
+        let e = fx.last_event();
+        assert_eq!((e.phase, e.app.as_str()), ("learned-new", "Outlook"), "the \"Learned: say … any time\" card: {e:?}");
+        assert_eq!(e.text.to_lowercase(), "open outlook", "the words to say: {e:?}");
 
         // 2. Again: the learned shortcut replays, Claude isn't asked.
         let n = fx.with(|r| r.actions.len());
