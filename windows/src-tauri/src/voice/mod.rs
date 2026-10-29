@@ -23,6 +23,7 @@ pub mod run;
 pub mod whisper;
 pub mod draft;
 pub mod own_apps;
+pub mod history;
 #[cfg(windows)]
 pub mod draft_worker;
 #[cfg(all(test, windows))]
@@ -293,9 +294,58 @@ fn decide_dictation(transcript: &str, cleanup: Result<Cleanup, CleanupFailed>, f
         }
         // §4.1: no clean-up types the raw transcript; one that starts like a
         // command is still held back (the command words' only use now).
-        _ if field_at_press && !starts_like_command(transcript) => Decision::Type { text: transcript.trim().to_string(), cleaned: false },
+        // Without Claude, only "new line" / "new paragraph" are done here.
+        _ if field_at_press && !starts_like_command(transcript) => Decision::Type { text: spoken_breaks(transcript.trim()), cleaned: false },
         _ => Decision::Heard { transcript: transcript.to_string() },
     }
+}
+
+/// Dictation without Claude (owner, 2026-10-28): "new line" and "new
+/// paragraph" become a line break and a blank line; nothing else is
+/// rewritten. Whisper's comma or period after the words goes with them, and
+/// the next word starts with a capital after a break.
+pub fn spoken_breaks(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let bare = |w: &str| w.trim_matches(|c: char| c.is_ascii_punctuation()).to_lowercase();
+    let mut out = String::new();
+    let mut i = 0;
+    let mut capital = false;
+    while i < words.len() {
+        let pair = words.get(i + 1).map(|n| (bare(words[i]), bare(n)));
+        let brk = match pair.as_ref().map(|(a, b)| (a.as_str(), b.as_str())) {
+            Some(("new", "line")) => Some("\n"),
+            Some(("new", "paragraph")) => Some("\n\n"),
+            _ if bare(words[i]) == "newline" => Some("\n"),
+            _ => None,
+        };
+        if let Some(b) = brk {
+            let skip = if bare(words[i]) == "newline" { 1 } else { 2 };
+            // The user's own comma before it stays ("Hi Sam, new line").
+            while out.ends_with(' ') {
+                out.pop();
+            }
+            out.push_str(b);
+            capital = true;
+            i += skip;
+            continue;
+        }
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push(' ');
+        }
+        let w = words[i];
+        if capital {
+            let mut c = w.chars();
+            if let Some(first) = c.next() {
+                out.extend(first.to_uppercase());
+                out.push_str(c.as_str());
+            }
+            capital = false;
+        } else {
+            out.push_str(w);
+        }
+        i += 1;
+    }
+    out.trim_end().to_string()
 }
 
 /// The Ask Glim key, or an answer to a question card: never typed.
@@ -382,6 +432,10 @@ pub struct VoiceEvent {
     /// Glim learns §3: the user just corrected Glim; the card adds "Tip:
     /// say 'Remember: …'" ("tip": a card of its own).
     pub tip: bool,
+    /// "not-typed": the session's recent dictations (voice::history, newest
+    /// first), each to copy. Memory only.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<String>,
 }
 
 /// 16-bit mono PCM as a WAV file, in memory.
@@ -634,6 +688,26 @@ pub fn prompt_from(words: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// Dictation without Claude (2026-10-28): only "new line" and "new
+    /// paragraph" are done here; whisper's comma or period around them goes.
+    #[test]
+    fn without_claude_only_new_line_and_new_paragraph_are_done() {
+        assert_eq!(spoken_breaks("Hi Sam, new line, see you at noon."), "Hi Sam,
+See you at noon.");
+        assert_eq!(spoken_breaks("First part. New paragraph. Second part."), "First part.
+
+Second part.");
+        assert_eq!(spoken_breaks("one newline two"), "one
+Two");
+        assert_eq!(spoken_breaks("ends here new line"), "ends here");
+        // Nothing else is rewritten: "scratch that" needs Claude.
+        assert_eq!(spoken_breaks("four, actually five, scratch that"), "four, actually five, scratch that");
+        assert_eq!(spoken_breaks("a new lineup of shows"), "a new lineup of shows");
+        // And it is what dictation types with no clean-up.
+        assert_eq!(decide(Mode::Dictate, "Hi Sam, new line, see you", Err(CleanupFailed::NoKey), true), Decision::Type { text: "Hi Sam,
+See you".into(), cleaned: false });
+    }
 
     /// Where act() starts in run.rs (generic over the Effects seam).
     const ACT_FN: &str = "async fn act<F: Effects>(";

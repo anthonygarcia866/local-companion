@@ -7322,6 +7322,50 @@
    "pt-BR": "Não foi possível mover a janela do {app}.",
    "ru": "Не удалось переместить окно {app}.",
    "id": "Tidak bisa memindahkan jendela {app}."
+  },
+  "Typed, but not confirmed": {
+   "zh-Hans": "已输入，但未确认",
+   "hi": "टाइप किया, पर पुष्टि नहीं हुई",
+   "es": "Escrito, pero sin confirmar",
+   "ar": "تمت الكتابة، لكن دون تأكيد",
+   "fr": "Saisi, mais non confirmé",
+   "bn": "টাইপ হয়েছে, কিন্তু নিশ্চিত নয়",
+   "pt-BR": "Digitado, mas não confirmado",
+   "ru": "Набрано, но не подтверждено",
+   "id": "Diketik, tapi belum dipastikan"
+  },
+  "{app} can't be read back, so Glim can't tell the words landed. Nothing was typed twice: copy them from here if they're missing.": {
+   "zh-Hans": "无法读回 {app} 的内容，所以 Glim 无法确认文字已输入。没有重复输入：如果缺少，请从这里复制。",
+   "hi": "{app} को वापस पढ़ा नहीं जा सकता, इसलिए Glim नहीं बता सकता कि शब्द पहुँचे या नहीं। कुछ भी दो बार टाइप नहीं हुआ: अगर शब्द नहीं हैं तो यहाँ से कॉपी करें।",
+   "es": "No se puede leer {app}, así que Glim no sabe si las palabras llegaron. No se escribió dos veces: cópialas desde aquí si faltan.",
+   "ar": "لا يمكن قراءة {app}، لذا لا يعرف Glim إن وصلت الكلمات. لم يُكتب شيء مرتين: انسخها من هنا إن كانت ناقصة.",
+   "fr": "{app} ne peut pas être relu : Glim ne sait pas si les mots sont arrivés. Rien n'a été saisi deux fois : copiez-les ici s'ils manquent.",
+   "bn": "{app} আবার পড়া যায় না, তাই Glim বুঝতে পারে না শব্দগুলো পৌঁছেছে কি না। কিছুই দুবার টাইপ হয়নি: না থাকলে এখান থেকে কপি করুন।",
+   "pt-BR": "Não dá para ler o {app}, então o Glim não sabe se as palavras chegaram. Nada foi digitado duas vezes: copie daqui se estiverem faltando.",
+   "ru": "{app} нельзя прочитать, поэтому Glim не знает, дошли ли слова. Ничего не набрано дважды: скопируйте их отсюда, если их нет.",
+   "id": "{app} tidak bisa dibaca ulang, jadi Glim tidak tahu apakah kata-katanya masuk. Tidak ada yang diketik dua kali: salin dari sini jika hilang."
+  },
+  "That app": {
+   "zh-Hans": "该应用",
+   "hi": "वह ऐप",
+   "es": "Esa app",
+   "ar": "ذلك التطبيق",
+   "fr": "Cette app",
+   "bn": "সেই অ্যাপ",
+   "pt-BR": "Esse app",
+   "ru": "Это приложение",
+   "id": "Aplikasi itu"
+  },
+  "Recent dictations": {
+   "zh-Hans": "最近的听写",
+   "hi": "हाल की डिक्टेशन",
+   "es": "Dictados recientes",
+   "ar": "الإملاءات الأخيرة",
+   "fr": "Dictées récentes",
+   "bn": "সাম্প্রতিক ডিক্টেশন",
+   "pt-BR": "Ditados recentes",
+   "ru": "Недавние диктовки",
+   "id": "Dikte terbaru"
   }
  }
 }

@@ -204,6 +204,7 @@ impl Field for UiaField<'_> {
                 let (vk, scan, flags) = match k {
                     Key::Unicode(unit, up) => (VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE | if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) }),
                     Key::Backspace(up) => (VK_BACK, 0, if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) }),
+                    Key::Vk(code, up) => (VIRTUAL_KEY(code), 0, if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) }),
                 };
                 INPUT {
                     r#type: INPUT_KEYBOARD,
@@ -227,7 +228,12 @@ pub enum Key {
     /// A UTF-16 unit, typed as Unicode (no layout, no Caps Lock); true = up.
     Unicode(u16, bool),
     Backspace(bool),
+    /// A virtual key (Shift, Enter), for a line break; true = up.
+    Vk(u16, bool),
 }
+
+const VK_SHIFT_CODE: u16 = 0x10;
+const VK_RETURN_CODE: u16 = 0x0D;
 
 /// The events that type `text` over a selection: each UTF-16 unit down and up
 /// (an emoji is two units), or one Backspace for a removal.
@@ -235,7 +241,17 @@ pub fn key_events(text: &str) -> Vec<Key> {
     if text.is_empty() {
         return vec![Key::Backspace(false), Key::Backspace(true)];
     }
-    text.encode_utf16().flat_map(|u| [Key::Unicode(u, false), Key::Unicode(u, true)]).collect()
+    // A line break is Shift+Enter: a new line in Word, Notepad and chat
+    // boxes alike, where a plain Enter would send the message. "\r" goes.
+    let mut out = Vec::new();
+    for u in text.encode_utf16() {
+        match u {
+            0x0D => {}
+            0x0A => out.extend([Key::Vk(VK_SHIFT_CODE, false), Key::Vk(VK_RETURN_CODE, false), Key::Vk(VK_RETURN_CODE, true), Key::Vk(VK_SHIFT_CODE, true)]),
+            u => out.extend([Key::Unicode(u, false), Key::Unicode(u, true)]),
+        }
+    }
+    out
 }
 
 /// A modifier key or a mouse button is down right now.
@@ -318,6 +334,12 @@ mod tests {
     fn a_fix_is_typed_as_unicode_units_down_and_up_and_a_removal_is_one_backspace() {
         assert_eq!(key_events("ok"), [Key::Unicode(111, false), Key::Unicode(111, true), Key::Unicode(107, false), Key::Unicode(107, true)]);
         assert_eq!(key_events(""), [Key::Backspace(false), Key::Backspace(true)]);
+        // Dictation's line break: Shift+Enter (a plain Enter sends a chat
+        // message); a "\r" is dropped.
+        assert_eq!(
+            key_events("a\r\nb"),
+            [Key::Unicode(97, false), Key::Unicode(97, true), Key::Vk(0x10, false), Key::Vk(0x0D, false), Key::Vk(0x0D, true), Key::Vk(0x10, true), Key::Unicode(98, false), Key::Unicode(98, true)]
+        );
         // An emoji is two UTF-16 units: four events.
         assert_eq!(key_events("\u{1F600}").len(), 4);
         // Never Enter or Tab: those are refused before this (writing::offerable).

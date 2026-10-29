@@ -233,13 +233,23 @@ pub fn insert<F: Field>(f: &mut F, text: &str) -> Outcome {
     }
     for _ in 0..SETTLE_TRIES {
         match f.document().and_then(|d| f.text(&d)) {
-            // An app that can't read its text back: typed, not verified.
-            None => return Outcome::Applied,
-            Some(after) if after.contains(text) && Some(&after) != before.as_ref() => return Outcome::Applied,
+            // An app that can't read its text back: typed, not confirmed
+            // (the card offers the words to copy; never typed again).
+            None => return Outcome::Unconfirmed,
+            Some(after) if landed(&after, before.as_deref(), text) => return Outcome::Applied,
             Some(_) => f.pause(),
         }
     }
     Outcome::Unsupported
+}
+
+/// The dictated words are in the field now, and the field changed. A line
+/// break reads back as "\r", "\r\n", "\n" or Word's vertical tab: every run
+/// of whitespace counts as one space on both sides.
+pub fn landed(after: &str, before: Option<&str>, text: &str) -> bool {
+    let flat = |s: &str| s.split(|c: char| c.is_whitespace() || c == '\u{b}').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    let (after, text) = (flat(after), flat(text));
+    !text.is_empty() && after.contains(&text) && before.map(flat).as_deref() != Some(after.as_str())
 }
 
 /// "Apply all": the jobs in order (Session::jobs_all: from the end of the
@@ -659,6 +669,26 @@ Anthony");
         let mut f = Fake::new(DOC, "payment ");
         f.lands = Some(String::new());
         assert_eq!(insert(&mut f, "hello"), Outcome::Unsupported);
+    }
+
+    /// Dictation's read-back (2026-10-28): line breaks read back however the
+    /// app stores them; a field that didn't change, or doesn't hold the words,
+    /// isn't confirmed; one that can't be read back is Unconfirmed (the card
+    /// offers the words), never Applied, and never typed again.
+    #[test]
+    fn dictation_is_confirmed_only_when_the_words_are_in_the_field() {
+        let text = "Hi Sam,\nsee you at noon.";
+        assert!(landed("Hi Sam,\rsee you at noon.", Some(""), text), "Word/RichEdit store \\r");
+        assert!(landed("Hi Sam,\r\nsee you at noon.", Some(""), text));
+        assert!(landed("x Hi Sam,\u{b}see you at noon.", Some("x "), text), "Word's soft break");
+        assert!(!landed("Hi Sam, see you at noon.", Some("Hi Sam, see you at noon."), text), "the field didn't change");
+        assert!(!landed("Hi Sam,", Some(""), text), "not all of it");
+        assert!(!landed("anything", Some(""), "  "));
+        let src = include_str!("apply.rs").replace("\r\n", "\n");
+        let f = &src[src.find("pub fn insert<").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.contains("None => return Outcome::Unconfirmed"));
+        assert_eq!(f.matches("type_over(").count(), 1, "typed once, never again");
     }
 }
 

@@ -23,6 +23,10 @@ $clips = [ordered]@{
     'remember-office'   = 'Remember: when I say the office, I mean Outlook.'
     # Made-up names (the run's "Words Glim should know") and a unit.
     'dictation'         = 'Please tell Zorvath Quillane that unit four B is ready for the walkthrough.'
+    # Dictation's spoken edits: a correction, "scratch that", a new paragraph.
+    'dictation-edits'   = 'Let us meet at four, actually five. Scratch that. Let us meet on Friday. New paragraph. Bring the slides.'
+    # Without Claude: only "new line" is done on this PC.
+    'dictation-no-key'  = 'Hi Sam, new line, see you at noon.'
 }
 
 Add-Type -AssemblyName System.Speech

@@ -749,6 +749,12 @@ export class Island {
     if (State.mode === "expanded" && State.view === "voice" && (State.voice?.phase === "question" || answering(State.voice))) {
       h = VOICE_QUESTION_H;
     }
+    // A dictation that wasn't typed (or not confirmed) with line breaks or
+    // recent ones to copy: room for all of it.
+    const v = State.voice;
+    if (State.mode === "expanded" && State.view === "voice" && v?.phase === "not-typed" && (v.text.includes("\n") || v.history.some((x) => x !== v.text))) {
+      h = VOICE_QUESTION_H;
+    }
     // A cut-off command expanded by the Allow key: room for all of it.
     if (State.mode === "expanded" && State.view === "approval" && expandedFor(State.pendingApproval?.requestId)) {
       h = APPROVAL_EXPANDED_H;
