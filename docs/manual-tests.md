@@ -762,6 +762,16 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 5. **Never answers:** dictate "what's the weather tomorrow". **See:** those words are typed, nothing answers.
 6. **Without Claude:** remove the key (or Pause network), dictate "Hi Sam, new line, see you at noon." **See:** typed with a line break, "new line" not typed.
 7. **Not confirmed:** dictate into an app Glim can't read back (some terminals, a game chat). **See:** "Typed, but not confirmed" with Copy, and nothing typed twice. After a few dictations, the card lists them under "Recent dictations", each with Copy. Quit and restart Glim: the list is empty.
+## 40. "Tell me when …" (branch `watch`)
+
+*Where: a build with it, the Claude key set; Settings → Phone on with your Pushover keys for steps 4-5.*
+
+1. **Claude Code:** start a long Claude Code task, then hold Ask Glim and say "tell me when Claude Code finishes". **See:** "Watching / I'll tell you when Claude Code finishes." When the turn ends: "Claude Code finished". glim.log: `watch: started (claude_code)`, `watch: fired (claude_code)`.
+2. **Codex:** start a Codex task, say "let me know when Codex is done". **See:** "Codex finished" within ~5 s of it ending.
+3. **A window:** open Chrome on a page that will change; say "tell me when 'build passed' shows in Chrome" (Chrome added as your own app). **See:** the card about 10 s after the words appear (two checks). "Tell me when 'Uploading' is gone from Chrome" fires once it disappears.
+4. **Phone:** step away (no input for 2 minutes) while a watch is on. **See:** a Pushover message "Claude Code: what you asked Glim to watch for happened" (no phrase, no app name). Inside quiet hours: no message.
+5. **Stop:** start a watch, say "stop watching". **See:** "Stopped watching", no data-leaving lantern. A 4th watch at once: "Glim is already watching 3 things".
+6. **Never read:** ask to watch your password manager's window. **See:** refused, nothing read.
 
 ## After testing
 

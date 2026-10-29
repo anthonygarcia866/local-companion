@@ -215,3 +215,16 @@ test("Rust: the commands are registered, the learn files stay local, the dictati
   assert.ok(!/net::|reqwest|TcpStream/.test(learn));
   assert.ok(learn.includes('crate::platform::local_dir().join("learn")'));
 });
+
+test("'tell me when …': the cards say what Glim waits for, what happened, and why not", async () => {
+  const { watchText } = await import("../src/views/voice.ts");
+  assert.equal(voiceText(at({ phase: "watching", code: "claude_code" })).note, "I'll tell you when Claude Code finishes.");
+  assert.equal(voiceText(at({ phase: "watched", code: "codex" })).title, "Codex finished");
+  assert.equal(watchText("window", "Chrome", "build passed", false), "I'll tell you when “build passed” shows in Chrome.");
+  assert.equal(watchText("window-gone", "Outlook", "Uploading", true), "“Uploading” is gone from Outlook");
+  assert.equal(voiceText(at({ phase: "watch-expired" })).note, "Nothing happened in 3 hours, so Glim stopped watching.");
+  assert.equal(voiceText(at({ phase: "watch-stopped", code: "0" })).note, "Glim wasn't watching anything.");
+  assert.deepEqual(voiceText(at({ phase: "failed", code: "watch-too-many" })), { title: "Not watching", body: "", note: "Glim is already watching 3 things. Say “stop watching” first." });
+  assert.equal(cardTimeoutMs(at({ phase: "watching", code: "codex" })), 8_000);
+  assert.equal(cardTimeoutMs(at({ phase: "watched", code: "codex" })), 30_000, "what happened stays longer");
+});

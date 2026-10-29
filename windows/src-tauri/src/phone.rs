@@ -52,6 +52,8 @@ pub enum Kind {
     UsageLimit,
     SpendLimit,
     Test,
+    /// "Tell me when …" (watch.rs) fired.
+    Watch,
 }
 
 impl Kind {
@@ -63,6 +65,7 @@ impl Kind {
             Kind::UsageLimit => "usage limit",
             Kind::SpendLimit => "spend limit",
             Kind::Test => "test",
+            Kind::Watch => "watch",
         }
     }
 }
@@ -72,6 +75,13 @@ impl Kind {
 pub fn agent_label(pill_id: &str) -> String {
     if pill_id == "integration_claude" {
         return "Claude Code".into();
+    }
+    // A watch's target, from a fixed list: never the app or the phrase.
+    match pill_id {
+        "watch_claude_code" => return "Claude Code".into(),
+        "watch_codex" => return "Codex".into(),
+        "watch_window" => return "A window you asked about".into(),
+        _ => {}
     }
     pill_id
         .strip_prefix("agent_")
@@ -101,6 +111,7 @@ pub fn message(kind: Kind, agent: &str, project: Option<&str>) -> String {
         Kind::UsageLimit => format!("{who} hit a usage limit"),
         Kind::SpendLimit => format!("{who} hit a spend limit"),
         Kind::Test => "Test notification from Glim".into(),
+        Kind::Watch => format!("{who}: what you asked Glim to watch for happened"),
     }
 }
 
@@ -113,6 +124,8 @@ pub fn wanted(settings: &Settings, kind: Kind) -> bool {
             Kind::Finished => p.finished,
             Kind::UsageLimit | Kind::SpendLimit => p.limit,
             Kind::Test => true,
+            // Asked for by voice, each time: the master switch is enough.
+            Kind::Watch => true,
         }
 }
 
@@ -142,6 +155,29 @@ pub fn idle_ms() -> Option<u64> {
 #[cfg(not(windows))]
 pub fn idle_ms() -> Option<u64> {
     None
+}
+
+/// The island's away / quiet-hours rules (core/phone.ts `away`,
+/// `inQuietHours`), for pings Rust sends itself (watch.rs): away when the
+/// check is off, Windows can't say, or no input for idle_after_min minutes;
+/// never inside quiet hours (which may cross midnight; from = to: never).
+pub fn away_and_awake(p: &crate::settings::PhoneSettings, idle_ms: Option<u64>, now: crate::platform::LocalTime) -> bool {
+    let after_min = u64::from(p.idle_after_min.clamp(1, 60));
+    let away = !p.idle_only || idle_ms.is_none_or(|ms| ms >= after_min * 60_000);
+    let minutes = |hhmm: &str| -> Option<u32> {
+        let (h, m) = hhmm.trim().split_once(':')?;
+        let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+        (h < 24 && m < 60).then_some(h * 60 + m)
+    };
+    let quiet = p.quiet_hours
+        && match (minutes(&p.quiet_from), minutes(&p.quiet_to)) {
+            (Some(f), Some(t)) if f != t => {
+                let n = now.hour * 60 + now.minute;
+                if f < t { n >= f && n < t } else { n >= f || n < t }
+            }
+            _ => false,
+        };
+    away && !quiet
 }
 
 // ── Rate limit ────────────────────────────────────────────────────────────────
@@ -294,6 +330,35 @@ pub async fn notify(settings: &Settings, kind: Kind, pill_id: &str, project: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A watch's ping: fixed words, the target's kind from a fixed list
+    /// (never the app or phrase), and the island's away / quiet rules.
+    #[test]
+    fn a_watch_ping_is_fixed_text_and_follows_the_away_and_quiet_rules() {
+        assert_eq!(message(Kind::Watch, &agent_label("watch_claude_code"), None), "Claude Code: what you asked Glim to watch for happened");
+        assert_eq!(message(Kind::Watch, &agent_label("watch_window"), None), "A window you asked about: what you asked Glim to watch for happened");
+        let mut s = Settings::default();
+        assert!(!wanted(&s, Kind::Watch), "off with the master switch");
+        s.phone.enabled = true;
+        assert!(wanted(&s, Kind::Watch));
+        let at = |hour, minute| crate::platform::LocalTime { year: 2026, month: 10, day: 28, hour, minute, second: 0 };
+        let mut p = s.phone.clone();
+        p.idle_only = true;
+        p.idle_after_min = 2;
+        p.quiet_hours = false;
+        assert!(!away_and_awake(&p, Some(30_000), at(12, 0)), "at the PC");
+        assert!(away_and_awake(&p, Some(120_000), at(12, 0)), "away 2 min");
+        assert!(away_and_awake(&p, None, at(12, 0)), "Windows can't say: away");
+        p.idle_only = false;
+        assert!(away_and_awake(&p, Some(0), at(12, 0)), "the check is off");
+        p.quiet_hours = true;
+        p.quiet_from = "22:00".into();
+        p.quiet_to = "07:00".into();
+        assert!(!away_and_awake(&p, None, at(23, 30)) && !away_and_awake(&p, None, at(6, 59)), "quiet across midnight");
+        assert!(away_and_awake(&p, None, at(7, 0)) && away_and_awake(&p, None, at(21, 59)));
+        p.quiet_to = "22:00".into();
+        assert!(away_and_awake(&p, None, at(23, 0)), "from = to: never quiet");
+    }
     use crate::ai::key::MemoryVault;
     use crate::net::tests::{serve_capture, serve_once};
 

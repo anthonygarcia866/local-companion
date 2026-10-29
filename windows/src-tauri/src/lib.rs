@@ -41,6 +41,7 @@ mod bubble_window;
 mod writing;
 mod voice;
 mod window_tool;
+mod watch;
 mod calendar;
 #[cfg(windows)]
 mod outlook;

@@ -49,6 +49,14 @@ windows = { version = "0.61", features = [
   # The `window` action (window_tool.rs): monitors' work areas, the frame.
   "Win32_Graphics_Gdi",
   "Win32_Graphics_Dwm",
+  # The "tell me when" watch on a window (watch.rs): PrintWindow, then
+  # Windows' own OCR on this PC (Windows.Media.Ocr; no network).
+  "Win32_Storage_Xps",
+  "Foundation",
+  "Graphics_Imaging",
+  "Media_Ocr",
+  "Security_Cryptography",
+  "Storage_Streams",
   "Win32_Security",
   "Win32_Security_Authorization",
   # The Anthropic API key (ai/key.rs): Credential Manager, this user and PC only.
