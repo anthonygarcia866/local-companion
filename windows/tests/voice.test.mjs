@@ -206,7 +206,8 @@ test("the island never logs or stores what was heard; the handler sends nothing 
     const src = read(file);
     for (const banned of ["console.", "localStorage", "sessionStorage", "addEventListener"]) assert.ok(!src.includes(banned), `${file}: ${banned}`);
   }
-  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCancel()", "Bridge.voiceAnswer(text)", "Bridge.voiceRoutineSave()", "Bridge.voiceTryAgain()", "Bridge.voiceCopy(v.text)", "Bridge.openMicSettings()"]);
+  // Copy on a recent dictation (voice::history, 2026-10-28) is the same copy call.
+  assert.deepEqual(read("src/views/voice.ts").match(/Bridge\.\w+\([^)]*\)/g), ["Bridge.voiceCancel()", "Bridge.voiceAnswer(text)", "Bridge.voiceRoutineSave()", "Bridge.voiceTryAgain()", "Bridge.voiceCopy(v.text)", "Bridge.voiceCopy(item)", "Bridge.openMicSettings()"]);
   const main = read("src/main.ts");
   const handler = main.slice(main.indexOf('"voice"'));
   const body = handler.slice(0, handler.indexOf("\n  });") + 5);
@@ -533,4 +534,16 @@ test("closing a question card tells Rust; other cards don't", () => {
   const typed = run.slice(run.indexOf("pub fn answer_typed("), run.indexOf("async fn process("));
   assert.ok(!/log::line\([^;]*\{text\}/.test(typed), "the typed answer is never logged");
   assert.match(run, /pub const QUESTION_TTL: Duration = Duration::from_secs\(120\);/);
+});
+
+test("dictation typed but not confirmed: never typed again, offered to copy with this session's recent ones", () => {
+  const v = at({ phase: "not-typed", code: "unconfirmed", app: "Notepad", text: "Hi Sam,\nsee you", history: ["Hi Sam,\nsee you", "Earlier note", 7, "Older"] });
+  assert.deepEqual(v.history, ["Hi Sam,\nsee you", "Earlier note", "Older"], "strings only");
+  const w = voiceText(v);
+  assert.equal(w.title, "Typed, but not confirmed");
+  assert.equal(w.body, "Hi Sam,\nsee you");
+  assert.match(w.note, /Notepad can't be read back.*Nothing was typed twice/);
+  // At most 10, as Rust keeps them.
+  assert.equal(at({ phase: "not-typed", history: Array.from({ length: 15 }, (_, i) => `n${i}`) }).history.length, 10);
+  assert.deepEqual(at({ phase: "typed" }).history, []);
 });

@@ -56,6 +56,9 @@ export interface VoiceEvent {
   steps?: StepView[];
   /** The user just corrected Glim: the card adds the "Remember" tip. */
   tip?: boolean;
+  /** "not-typed": this session's recent dictations, newest first (Rust
+   *  voice::history; memory only, never saved). */
+  history?: string[];
 }
 
 export type VoiceMode = "dictate" | "ask" | "answer";
@@ -79,6 +82,8 @@ export interface VoiceState {
   steps: StepView[];
   /** The correction tip goes on this card (Glim learns §3). */
   tip: boolean;
+  /** Recent dictations to copy (not-typed cards); [] otherwise. */
+  history: string[];
 }
 
 /** The phases while the key is held or the utterance is on its way. */
@@ -119,6 +124,7 @@ export function nextVoice(cur: VoiceState | null, e: VoiceEvent): VoiceState | n
     question: runningPhase && mode === "answer" ? asked : "",
     steps: Array.isArray(e.steps) ? e.steps : [],
     tip: e.tip === true,
+    history: Array.isArray(e.history) ? e.history.filter((x) => typeof x === "string").slice(0, 10) : [],
   };
 }
 

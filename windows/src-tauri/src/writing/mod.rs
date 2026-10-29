@@ -192,6 +192,9 @@ pub enum Outcome {
     Unclear,
     /// The clipboard was busy.
     ClipboardBusy,
+    /// Dictation: typed, but the field can't be read back, so Glim can't
+    /// confirm the words landed (the card offers them to copy; never retyped).
+    Unconfirmed,
 }
 
 impl Outcome {
@@ -209,6 +212,7 @@ impl Outcome {
             Outcome::NotClean => "not-clean",
             Outcome::Unclear => "unclear",
             Outcome::ClipboardBusy => "clipboard-busy",
+            Outcome::Unconfirmed => "unconfirmed",
         }
     }
 }

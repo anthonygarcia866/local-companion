@@ -196,6 +196,11 @@ pub fn check_str(raw: &str) -> Result<Url, String> {
 /// The returned builder can take headers and a body, but not a new URL.
 pub fn request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBuilder, String> {
     check(url)?;
+    // The Claude API's requests share one client, so the connection a voice
+    // key's pre-warm opened (prewarm) is the one the request goes out on.
+    if let Some(shared) = shared_client(url)? {
+        return Ok(shared.request(method, url.clone()).timeout(timeout));
+    }
     let origin = url.clone();
     let client = client(
         timeout,
@@ -206,6 +211,69 @@ pub fn request(method: Method, url: &Url, timeout: Duration) -> Result<RequestBu
         }),
     )?;
     Ok(client.request(method, url.clone()))
+}
+
+// ── Pre-warm (owner, 2026-10-28: faster answers) ──────────────────────────────
+
+/// One client per shared origin: api.anthropic.com in the app (tests add
+/// their own local server's origin). Its pool keeps the connection a
+/// pre-warm opened for the request that follows (reqwest's idle timeout).
+static SHARED: std::sync::Mutex<Option<std::collections::HashMap<String, reqwest::Client>>> = std::sync::Mutex::new(None);
+
+/// Origins a test shares like the Claude API's (its own local server only:
+/// a pooled connection can't outlive the test's runtime into another test).
+#[cfg(test)]
+static TEST_SHARED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn shared_origin(url: &Url) -> bool {
+    let anthropic = url.host_str().is_some_and(|h| h.eq_ignore_ascii_case(ANTHROPIC_HOST));
+    #[cfg(test)]
+    if TEST_SHARED.lock().unwrap().contains(&url.origin().ascii_serialization()) {
+        return true;
+    }
+    anthropic
+}
+
+fn shared_client(url: &Url) -> Result<Option<reqwest::Client>, String> {
+    if !shared_origin(url) {
+        return Ok(None);
+    }
+    let key = url.origin().ascii_serialization();
+    let mut map = SHARED.lock().unwrap();
+    let map = map.get_or_insert_with(Default::default);
+    if let Some(c) = map.get(&key) {
+        return Ok(Some(c.clone()));
+    }
+    let origin = url.clone();
+    // The request's own timeout is set per request; this one only bounds a
+    // client nobody gave one to.
+    let c = client(
+        Duration::from_secs(60),
+        reqwest::redirect::Policy::custom(move |attempt| match hop_allowed(&origin, attempt.url()) {
+            Ok(()) if attempt.previous().len() < 5 => attempt.follow(),
+            Ok(()) => attempt.stop(),
+            Err(e) => attempt.error(e),
+        }),
+    )?;
+    map.insert(key, c.clone());
+    Ok(Some(c))
+}
+
+/// While a voice key is held: the connection to the Claude API is opened
+/// (DNS, TCP, TLS) so the clean-up request that follows doesn't wait for it.
+/// What goes out is a bare `HEAD /` on that host: no body, no API key, none
+/// of Glim's headers, nothing the user said (the transcript doesn't exist
+/// yet). Only a shared origin (the allowlisted Claude API): anything else is
+/// refused. The answer is dropped unread.
+pub async fn prewarm(base: &Url) -> Result<(), String> {
+    check(base)?;
+    let mut root = base.clone();
+    root.set_path("/");
+    root.set_query(None);
+    let Some(c) = shared_client(&root)? else {
+        return Err(refusal(&host_for_log(&root)));
+    };
+    c.head(root).timeout(Duration::from_secs(5)).send().await.map(drop).map_err(|e| if e.is_timeout() { "timeout".into() } else { "network".into() })
 }
 
 /// Phone notifications' own door (phone.rs only): a request to Pushover's
@@ -409,6 +477,107 @@ pub(crate) mod tests {
 
     fn block_on<T>(f: impl std::future::Future<Output = T>) -> T {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    }
+
+    /// A keep-alive HTTP/1.1 server on 127.0.0.1: every request as it came
+    /// (head + body, raw), and how many connections were opened. Answers
+    /// each with "ok". Shared like the Claude API's origin (TEST_SHARED).
+    fn keep_alive_server() -> (Url, std::sync::Arc<std::sync::Mutex<(usize, Vec<String>)>>) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = Url::parse(&format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port())).unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new((0usize, Vec::<String>::new())));
+        let s = seen.clone();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                s.lock().unwrap().0 += 1;
+                let s = s.clone();
+                std::thread::spawn(move || {
+                    let mut out = conn.try_clone().unwrap();
+                    let mut r = BufReader::new(conn);
+                    loop {
+                        let mut head = String::new();
+                        loop {
+                            let mut line = String::new();
+                            if r.read_line(&mut line).unwrap_or(0) == 0 {
+                                return;
+                            }
+                            head.push_str(&line);
+                            if line == "\r\n" {
+                                break;
+                            }
+                        }
+                        let len = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                        let mut body = vec![0; len];
+                        let _ = r.read_exact(&mut body);
+                        s.lock().unwrap().1.push(format!("{head}{}", String::from_utf8_lossy(&body)));
+                        // A HEAD's answer has no body (as any server's).
+                        let answer: &[u8] = if head.starts_with("HEAD ") { b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n" } else { b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok" };
+                        let _ = out.write_all(answer);
+                    }
+                });
+            }
+        });
+        TEST_SHARED.lock().unwrap().push(url.origin().ascii_serialization());
+        (url, seen)
+    }
+
+    /// Faster answers: the pre-warm is a bare HEAD / (no body, no key, none
+    /// of Glim's headers), and the request after it goes out on the same
+    /// connection, the transcript only in that request.
+    #[test]
+    fn a_prewarm_sends_nothing_and_the_request_reuses_its_connection() {
+        let (base, seen) = keep_alive_server();
+        let messages = base.join("v1/messages").unwrap();
+        block_on(async {
+            prewarm(&base).await.unwrap();
+            let r = request(Method::POST, &messages, Duration::from_secs(5)).unwrap().header("x-api-key", "k").body("the transcript").send().await.unwrap();
+            assert_eq!(read_capped(r, 100).await.unwrap(), b"ok");
+        });
+        let (connections, reqs) = seen.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 2, "{reqs:?}");
+        let warm = reqs[0].to_ascii_lowercase();
+        assert!(warm.starts_with("head / http/1.1\r\n"), "{warm}");
+        for absent in ["x-api-key", "content-length", "content-type", "anthropic", "transcript", "user-agent"] {
+            assert!(!warm.contains(absent), "{absent} in the pre-warm: {warm}");
+        }
+        assert!(warm.ends_with("\r\n\r\n"), "no body");
+        assert!(reqs[1].starts_with("POST /v1/messages") && reqs[1].ends_with("the transcript"));
+        assert_eq!(connections, 1, "the request reused the pre-warmed connection");
+    }
+
+    /// A key released before the pre-warm finished: both go out, nothing
+    /// waits on the other, and the transcript is only in the request.
+    #[test]
+    fn a_key_released_fast_still_gets_its_answer() {
+        let (base, seen) = keep_alive_server();
+        let messages = base.join("v1/messages").unwrap();
+        block_on(async {
+            // The pre-warm starts in the background (as on key-down) and the
+            // request goes out at once, without waiting for it.
+            let b = base.clone();
+            let warm = tokio::spawn(async move { prewarm(&b).await });
+            let a = read_capped(request(Method::POST, &messages, Duration::from_secs(5)).unwrap().body("fast").send().await.unwrap(), 100).await;
+            assert_eq!(a.unwrap(), b"ok");
+            assert!(warm.await.unwrap().is_ok());
+        });
+        let reqs = seen.lock().unwrap().1.clone();
+        assert_eq!(reqs.iter().filter(|r| r.contains("fast")).count(), 1);
+        assert!(reqs.iter().filter(|r| r.starts_with("HEAD")).all(|r| !r.contains("fast")));
+    }
+
+    /// Only a shared origin (the Claude API) is ever pre-warmed: a local
+    /// server nobody shared, another host, or plain http to the API: refused,
+    /// nothing opened.
+    #[test]
+    fn only_the_claude_api_is_prewarmed() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let local = Url::parse(&format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port())).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        for url in [local.as_str(), "https://example.com/", "http://api.anthropic.com/", "https://api.anthropic.com:8443/"] {
+            assert!(block_on(prewarm(&Url::parse(url).unwrap())).is_err(), "{url}");
+        }
+        assert!(listener.accept().is_err(), "nothing connected to the unshared server");
     }
 
     #[test]

@@ -746,6 +746,22 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 6. **Work mode:** say "When I say work mode, open Outlook and put it on the left, then open Chrome and put it on the right", check the card lists the 4 steps, Save. Close both apps, say "work mode". **See:** both open and end up side by side, no Claude call (no data-leaving lantern).
 7. **Learned:** say "put Outlook on the left" twice (move it away in between). The second time: a "Moved Outlook / Learned shortcut" card, no data-leaving lantern.
 
+## 38. Faster answers: the pre-warm (branch `prewarm`)
+
+1. Hold Ask Glim, say "open Outlook", release; do it 5 times (close Outlook in between). glim.log: each press ends with `voice: key-up to done … ms (warm)` and the medians.
+2. Quit Glim, start it with `GLIM_NO_PREWARM=1` set, repeat step 1: the lines say `(cold)`. Compare "median warm" with "median cold" (warm should be lower; how much depends on the network).
+3. A quick tap of the key (shorter than 0.4 s): nothing happens, no error in glim.log.
+## 39. Dictation polish (branch `dictation-polish`)
+
+*Where: a build with it, the Claude key set; Notepad, Word and a chat box (Teams or Slack).*
+
+1. **Scratch that:** in Notepad, hold the dictation key (Ctrl+Alt+Shift+V) and say "Let's meet at four, actually five. Scratch that. Let's meet on Friday." **See:** only "Let's meet on Friday." is typed.
+2. **A list:** "Groceries: eggs, milk, bread, as a list." **See:** one item per line.
+3. **Formatting:** "Hi Sam new paragraph see you at noon question mark". **See:** a blank line after "Hi Sam", and "?" at the end.
+4. **Chat box:** in Teams or Slack, dictate "first line new line second line". **See:** two lines in the box and the message is NOT sent.
+5. **Never answers:** dictate "what's the weather tomorrow". **See:** those words are typed, nothing answers.
+6. **Without Claude:** remove the key (or Pause network), dictate "Hi Sam, new line, see you at noon." **See:** typed with a line break, "new line" not typed.
+7. **Not confirmed:** dictate into an app Glim can't read back (some terminals, a game chat). **See:** "Typed, but not confirmed" with Copy, and nothing typed twice. After a few dictations, the card lists them under "Recent dictations", each with Copy. Quit and restart Glim: the list is empty.
 ## 40. "Tell me when …" (branch `watch`)
 
 *Where: a build with it, the Claude key set; Settings → Phone on with your Pushover keys for steps 4-5.*

@@ -2964,3 +2964,8 @@ button.rewrite-tone.default {
   font: 400 10.5px var(--font);
   color: var(--dim-2);
 }
+
+/* Dictation history on a not-typed card (voice::history, memory only). */
+.voice-history { margin-top: 4px; max-height: 96px; overflow-y: auto; }
+.voice-history-item { display: flex; align-items: center; gap: 8px; font: 400 11px var(--font); color: var(--dim-2); }
+.voice-history-item .one-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

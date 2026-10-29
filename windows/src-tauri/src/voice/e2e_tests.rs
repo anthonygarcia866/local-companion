@@ -100,6 +100,12 @@ impl Fake {
         }
         let spent = self.with(|r| r.cost_nanos);
         let canned = self.with(|r| r.canned.take());
+        // A run without a key, as Glim has it with none saved.
+        if canned.as_ref().and_then(Value::as_str) == Some("no-key") {
+            self.with(|r| r.answered += 1);
+            println!("    claude: no key");
+            return Err(CleanupFailed::NoKey);
+        }
         let (result, usage) = match &self.key {
             Some(k) if spent < COST_CAP_NANOS => {
                 let base = crate::net::Url::parse(claude::API_BASE).unwrap();
@@ -557,10 +563,26 @@ fn voice_without_a_mic() {
         assert_eq!(typed.len(), 1, "{typed:?}");
         assert!(typed[0].starts_with("type ") && typed[0].to_lowercase().contains("unit 4b"), "{typed:?}");
 
+        // 10. Spoken edits (2026-10-28): whisper hears them, Claude applies
+        // them (canned: the answer the prompt asks for), and the line breaks
+        // reach the field (typed as Shift+Enter, capture/fix.rs).
+        let n = fx.with(|r| r.actions.len());
+        let t = r.say("dictation-edits", Mode::Dictate, Some(tool("dictate", json!({ "text": "Let's meet on Friday.\n\nBring the slides." })))).await;
+        heard(&t, &["actually", "scratch", "paragraph", "friday", "slides"]);
+        assert_eq!(fx.actions_since(n), ["type Let's meet on Friday.\n\nBring the slides."]);
+
+        // 11. No key: the raw words, with only "new line" done on this PC.
+        let n = fx.with(|r| r.actions.len());
+        let t = r.say("dictation-no-key", Mode::Dictate, Some(json!("no-key"))).await;
+        heard(&t, &["sam", "new", "line", "noon"]);
+        let typed = fx.actions_since(n);
+        assert_eq!(typed.len(), 1, "{typed:?}");
+        assert!(typed[0].starts_with("type (raw) ") && typed[0].contains("\n") && !typed[0].to_lowercase().contains("new line"), "{typed:?}");
+
         super::whisper::stop();
         let (answered, blocked, live, cost) = fx.with(|r| (r.answered, r.blocked, r.live, r.cost_nanos));
         let line = format!(
-            "voice e2e: 12 utterances, {answered} Claude answers ({live} live, {} canned), {blocked} stopped before sending, cost ${:.6}",
+            "voice e2e: 14 utterances, {answered} Claude answers ({live} live, {} canned), {blocked} stopped before sending, cost ${:.6}",
             answered - live,
             cost as f64 / 1e9
         );
