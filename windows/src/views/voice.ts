@@ -76,6 +76,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       if (v.code.startsWith("memory-")) return { title: t("Not saved"), body: "", note: memoryProblemText(v.code) };
       if (v.code.startsWith("routine-")) return { title: t("Routine not saved"), body: "", note: failedText(v.code, v.app) };
       if (v.code.startsWith("window-")) return { title: t("Window not moved"), body: "", note: failedText(v.code, v.app) };
+      if (v.code.startsWith("watch-")) return { title: t("Not watching"), body: "", note: failedText(v.code, v.app) };
       return { title: v.code === "open-failed" ? t("Not opened") : t("Nothing was typed"), body: "", note: failedText(v.code, v.app) };
     case "remembered": {
       const kept = v.code === "fact"
@@ -92,6 +93,16 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned shortcut: Claude wasn't asked.") };
     case "learned-new":
       return { title: t("Opened {app}", { app: v.app }), body: "", note: t("Learned: say “{words}” any time. Claude won't be asked.", { words: v.text }) };
+    // "Tell me when …" (Rust watch.rs): code is the target, "-gone" when it
+    // waits for the words to disappear.
+    case "watching":
+      return { title: t("Watching"), body: "", note: watchText(v.code, v.app, v.text, false) };
+    case "watched":
+      return { title: watchText(v.code, v.app, v.text, true), body: "", note: t("You asked Glim to tell you.") };
+    case "watch-expired":
+      return { title: t("Stopped watching"), body: "", note: t("Nothing happened in 3 hours, so Glim stopped watching.") };
+    case "watch-stopped":
+      return { title: t("Stopped watching"), body: "", note: v.code === "0" ? t("Glim wasn't watching anything.") : "" };
     case "routine-ask":
       return { title: t("Save the routine “{name}”?", { name: v.text }), body: stepsText(v), note: t("Nothing runs until you save it. Then say “{name}” with Ask Glim.", { name: v.text }) };
     case "routine-saved":
@@ -104,6 +115,16 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
     }
   }
   return { title: "", body: "", note: "" };
+}
+
+/** A watch, in words: what Glim waits for (`done` false) or what happened. */
+export function watchText(code: string, app: string, phrase: string, done: boolean): string {
+  switch (code) {
+    case "claude_code": return done ? t("Claude Code finished") : t("I'll tell you when Claude Code finishes.");
+    case "codex": return done ? t("Codex finished") : t("I'll tell you when Codex finishes.");
+    case "window-gone": return done ? t("“{phrase}” is gone from {app}", { phrase, app }) : t("I'll tell you when “{phrase}” is gone from {app}.", { phrase, app });
+  }
+  return done ? t("“{phrase}” showed in {app}", { phrase, app }) : t("I'll tell you when “{phrase}” shows in {app}.", { phrase, app });
 }
 
 /** After a correction (Glim learns §3): how to make it stick. */
@@ -176,6 +197,8 @@ export function failedText(code: string, app = ""): string {
     case "window-refused": return t("Glim doesn't move that window (a password manager, an app running as administrator, or Glim itself).");
     case "window-no-other-display": return t("There's only one screen.");
     case "window-failed": return t("Couldn't move {app}'s window.", { app });
+    case "watch-too-many": return t("Glim is already watching 3 things. Say “stop watching” first.");
+    case "watch-no-phrase": return t("Say the words to look for, a few at most.");
   }
   if (code.startsWith("routine-")) return routineProblemText(code);
   return t("Speech-to-text didn't work this time. Try again.");

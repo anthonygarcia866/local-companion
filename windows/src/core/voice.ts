@@ -37,7 +37,8 @@ export interface StepView {
 
 export interface VoiceEvent {
   phase: "listening" | "transcribing" | "cleaning" | "typed" | "not-typed" | "heard" | "question" | "failed" | "idle"
-    | "learned" | "learned-new" | "routine-ask" | "routine-saved" | "routine" | "remembered" | "tip";
+    | "learned" | "learned-new" | "routine-ask" | "routine-saved" | "routine" | "remembered" | "tip"
+    | "watching" | "watched" | "watch-expired" | "watch-stopped";
   /** 0..1, while listening. */
   level: number;
   /** "typed" / "not-typed": false = the raw transcript, not cleaned up. */
@@ -175,7 +176,7 @@ export function rawBadge(v: VoiceState | null): boolean {
  *  typed stays longer: it's there to copy. */
 export function cardTimeoutMs(v: VoiceState): number {
   if (v.phase === "question" || v.phase === "routine-ask") return 60_000;
-  return v.phase === "typed" || v.phase === "learned" || v.phase === "learned-new" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
+  return v.phase === "typed" || v.phase === "learned" || v.phase === "learned-new" || v.phase === "watching" || v.phase === "watch-stopped" || v.phase === "routine-saved" || v.phase === "remembered" || v.phase === "tip" ? 8_000 : 30_000;
 }
 
 /** The window action (Rust window_tool.rs), in words. */
