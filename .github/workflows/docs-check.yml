@@ -1,0 +1,29 @@
+name: Docs check
+
+# Markdown hygiene, on every change to a .md file (Windows CI skips docs-only
+# changes): no stray carriage return and no literal "\r\n" in tracked
+# Markdown (ci/check-md.mjs).
+
+on:
+  pull_request:
+    paths:
+      - '**.md'
+      - 'ci/check-md.mjs'
+      - '.github/workflows/docs-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - 'ci/check-md.mjs'
+      - '.github/workflows/docs-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: No stray carriage returns in Markdown
+        run: node ci/check-md.mjs
