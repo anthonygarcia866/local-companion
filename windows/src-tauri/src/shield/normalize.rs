@@ -71,7 +71,9 @@ fn phone_form(digits: &str) -> Option<String> {
 }
 
 /// Runs of digits said as words, between which only spaces, commas,
-/// periods or dashes stand: 7, 10 or 11 of them are a phone number.
+/// periods or dashes stand: a whole run of 7, 10 or 11 is a phone number.
+/// Never a slice of a longer run (a card said digit by digit stays as it is,
+/// for the never-send filter to see).
 fn spoken_phones(text: &str) -> String {
     let words = word_spans(text);
     let lw: Vec<String> = words.iter().map(|&(s, e)| text[s..e].to_lowercase()).collect();
@@ -96,13 +98,10 @@ fn spoken_phones(text: &str) -> String {
             digits.push(char::from_digit(d, 10).unwrap_or('0'));
             j += 1;
         }
-        match phone_form(&digits) {
-            Some(form) => {
-                edits.push((words[i].0, words[j - 1].1, form));
-                i = j;
-            }
-            None => i += 1,
+        if let Some(form) = phone_form(&digits) {
+            edits.push((words[i].0, words[j - 1].1, form));
         }
+        i = j;
     }
     splice(text, &edits)
 }
@@ -267,6 +266,9 @@ mod tests {
             ("dial five five five oh one two three", "dial 555-0123"),
             ("call +44 20 7946 0958", "call +44 20 7946 0958"),
             ("one two three go", "one two three go"),
+            // A longer run is never cut down to a phone number.
+            ("four one one one one one one one one one one one one one one one", "four one one one one one one one one one one one one one one one"),
+            ("4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1", "4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"),
         ] {
             assert_eq!(dictation(said), want, "{said}");
         }

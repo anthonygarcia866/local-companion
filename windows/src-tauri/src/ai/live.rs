@@ -83,7 +83,7 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
     texts.extend(rules.iter().copied());
     let (masked_texts, masked) = match crate::shield::mask_texts(&texts) {
         Ok(m) => m,
-        Err(m) => return Reply { result: Err(Failure::Shield(m)), usage: None },
+        Err(m) => return Reply { result: Err(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }), usage: None },
     };
     let body = request_body(&masked_texts[0], &masked_texts[1], chat, &masked_texts[2..]);
     let mut reply = match claude::send(base, key, &body).await {

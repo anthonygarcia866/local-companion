@@ -145,6 +145,9 @@ pub enum Mismatch {
     Altered,
     /// Several texts couldn't be masked as one (mask_many): not sent.
     Collision,
+    /// The never-send filter refuses the text as written, before anything
+    /// is masked (a placeholder must never hide a card or an SSN from it).
+    Sensitive,
 }
 
 impl Mismatch {
@@ -154,6 +157,7 @@ impl Mismatch {
             Mismatch::Duplicated => "shield-duplicated",
             Mismatch::Altered => "shield-altered",
             Mismatch::Collision => "shield-collision",
+            Mismatch::Sensitive => "sensitive",
         }
     }
 }
@@ -212,6 +216,11 @@ impl NameSet {
 /// back as often as they were written, and no placeholder Glim makes is
 /// spelled like one of them.
 pub fn mask_with(text: &str, names: &NameSet) -> Result<Masked, Mismatch> {
+    // The filter sees the text as the user wrote it, before any value
+    // becomes a placeholder.
+    if never_send::reason(text).is_some() {
+        return Err(Mismatch::Sensitive);
+    }
     let foreign: Vec<String> = placeholder_like(text).into_iter().map(|(s, e)| text[s..e].to_string()).collect();
     let spans = detect::find(text, names);
     let mut out = String::with_capacity(text.len());
@@ -485,6 +494,9 @@ pub fn name_count() -> usize {
 
 /// `text`, masked with the app's names; as it is when the shield is off.
 pub fn mask(text: &str) -> Result<Masked, Mismatch> {
+    if never_send::reason(text).is_some() {
+        return Err(Mismatch::Sensitive);
+    }
     if !enabled() {
         return Ok(Masked::plain(text));
     }
@@ -495,6 +507,9 @@ pub fn mask(text: &str) -> Result<Masked, Mismatch> {
 
 /// Several texts of one request, masked with the app's names (`mask_many`).
 pub fn mask_texts(texts: &[&str]) -> Result<(Vec<String>, Masked), Mismatch> {
+    if texts.iter().any(|t| never_send::reason(t).is_some()) {
+        return Err(Mismatch::Sensitive);
+    }
     if !enabled() {
         let joined = texts.join("\n");
         return Ok((texts.iter().map(|t| t.to_string()).collect(), Masked::plain(&joined)));

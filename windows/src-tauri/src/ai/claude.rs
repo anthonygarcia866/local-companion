@@ -235,7 +235,7 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
     }
     let masked = match crate::shield::mask(paragraph) {
         Ok(m) => m,
-        Err(m) => return Reply::failed(Failure::Shield(m)),
+        Err(m) => return Reply::failed(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }),
     };
     match send(base, key, &request_body(model_id, tone, &masked.text)).await {
         Ok(body) => unshield(parse_answer(&body, model_id), &masked),

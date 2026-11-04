@@ -172,7 +172,7 @@ pub async fn check(base: &Url, key: &ApiKey, paragraph: &str) -> CheckReply {
     }
     let masked = match crate::shield::mask(paragraph) {
         Ok(m) => m,
-        Err(m) => return CheckReply::failed(Failure::Shield(m)),
+        Err(m) => return CheckReply::failed(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }),
     };
     match claude::send(base, key, &request_body(&masked.text)).await {
         Ok(body) => parse_masked(&body, paragraph, &masked),

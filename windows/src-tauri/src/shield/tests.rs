@@ -155,6 +155,15 @@ fn the_map_never_shows_in_debug() {
 }
 
 #[test]
+fn the_never_send_filter_sees_the_text_before_any_placeholder() {
+    // A card said digit by digit, or one next to a phone: refused as written.
+    assert_eq!(mask_with("pay with 4111 1111 1111 1111 or call 555-123-4567", &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(mask_with("DOB: 03/04/1980, call 555-123-4567", &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(mask_many(&["fine", "SSN 123456789"], &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(Mismatch::Sensitive.code(), "sensitive");
+}
+
+#[test]
 fn nothing_to_swap_leaves_the_text_alone() {
     let text = "Thanks for the update, see you tomorrow.";
     let m = mask_with(text, &names()).unwrap();

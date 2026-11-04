@@ -447,6 +447,11 @@ pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, c
     let (request, question) = cx.asked.map_or(("", ""), |a| (a.request.as_str(), a.question.as_str()));
     // Dictation: phones and units in their typed form first, so the
     // placeholder stands for "unit 4B", not "unit four B" (shield/normalize.rs).
+    // The never-send filter sees the transcript as said, before the typed
+    // form or any placeholder exists (mask_texts checks the typed form too).
+    if crate::shield::never_send::reason(transcript).is_some() {
+        return (Err(CleanupFailed::Outage("sensitive".into())), None);
+    }
     let typed_form = if cx.mode == Mode::Dictate { crate::shield::normalize::dictation(transcript) } else { transcript.to_string() };
     let (texts, masked) = match crate::shield::mask_texts(&[&typed_form, request, question, cx.remembered]) {
         Ok(m) => m,
@@ -996,5 +1001,12 @@ mod tests {
         let base = Url::parse("http://127.0.0.1:1").unwrap();
         let (r, _) = block_on(clean_up(&base, &key(), "m", "my card is 4111 1111 1111 1111", &cx(Mode::Dictate)));
         assert_eq!(r, Err(CleanupFailed::Outage("sensitive".into())));
+        // Said digit by digit (security review, 2026-11-03): no slice of it
+        // may be turned into a phone number and masked past the filter.
+        let said = "my card is 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1";
+        let (r, _) = block_on(clean_up(&base, &key(), "m", said, &cx(Mode::Dictate)));
+        assert_eq!(r, Err(CleanupFailed::Outage("sensitive".into())));
+        let words = "my card is four one one one one one one one one one one one one one one one";
+        assert!(!crate::shield::normalize::dictation(words).contains('-'), "no phone cut out of a longer run");
     }
 }
