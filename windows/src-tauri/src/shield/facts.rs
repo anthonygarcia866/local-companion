@@ -123,6 +123,7 @@ fn digit_facts(text: &str, out: &mut Facts) {
             i += 1;
             continue;
         }
+        let start = i;
         let mut int = String::new();
         let mut n = digits_at(i);
         int.push_str(&text[i..i + n]);
@@ -138,7 +139,19 @@ fn digit_facts(text: &str, out: &mut Facts) {
             frac.push_str(&text[i + 1..i + 1 + n]);
             i += 1 + n;
         }
-        out.number(canonical(&int, &frac));
+        // "3.30" is a time as often as a number (whisper writes times so):
+        // an hour and two-digit minutes, with no currency sign before it,
+        // reads as 3 and 30, like "3:30".
+        let money = text[..start].trim_end().ends_with(['$', '€', '£']);
+        let as_time = !money && frac.len() == 2 && int.len() <= 2 && int.parse::<u32>().is_ok_and(|h| h <= 23) && frac.parse::<u32>().is_ok_and(|m| m <= 59);
+        if as_time {
+            out.number(canonical(&int, ""));
+            if frac != "00" {
+                out.number(canonical(&frac, ""));
+            }
+        } else {
+            out.number(canonical(&int, &frac));
+        }
         // A time's minutes: "10:30" -> 10 and 30, "10:00" -> 10.
         if frac.is_empty() && i + 2 < b.len() && b[i] == b':' && digits_at(i + 1) == 2 {
             let minutes = &text[i + 1..i + 3];
@@ -356,6 +369,9 @@ mod tests {
             ("Tuesday at 3pm", "Tuesday at 3 p.m."),
             ("See you on Tuesday.", "See you Tuesday!"),
             ("unit four B", "unit 4B"),
+            // Whisper writes a time as "3.30" (Stage 4 on CI, 2026-11-04).
+            ("on Thursday at 3.30", "on Thursday at 3:30"),
+            ("$2.50 each", "$2.50 each"),
             // A spelling fix is not a changed date.
             ("we will deposit it tomorow", "we will deposit it tomorrow"),
             ("see you wenesday", "see you Wednesday"),
