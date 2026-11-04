@@ -1274,7 +1274,7 @@ export class Island {
     if (forced && isReservedLanternState(forced)) this.lantern.showReserved(forced, "dev-preview");
     // Text is on its way to the Claude API (1c): the reserved state for data
     // leaving the machine (docs/vision.md §3).
-    else if (voiceSending(State.voice) || sendingToApi(State.rewrite) || aiSending(State.aiCheck)) this.lantern.showReserved(DELEGATE_STATE, "api-request");
+    else if (voiceSending(State.voice) || sendingToApi(State.rewrite) || aiSending(State.aiCheck) || State.liveSending) this.lantern.showReserved(DELEGATE_STATE, "api-request");
     else if (voice && !forced) {
       // The flame breathes with the microphone (glim-mascot.html's --mic-level).
       el.style.setProperty("--mic-level", (State.voice?.level ?? 0).toFixed(2));
@@ -1282,7 +1282,7 @@ export class Island {
     } else {
       const writing = State.writing.length;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
-      const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0);
+      const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0) + (State.consentAsk ? 1 : 0);
       // The calendar glance: the next event is minutes away (a resting lantern glows).
       const cal = State.calendar?.glance.available ? nextEvent(State.calendar.glance.events, Date.now()) : null;
       const glow = glowing(cal?.event ?? null, Date.now(), State.settings.calendarLeadMin ?? DEFAULT_LEAD_MIN);

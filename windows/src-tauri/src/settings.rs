@@ -181,6 +181,18 @@ pub struct Settings {
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
+    /// Ask first (owner, 2026-11-04; consent.rs): the answer for each cloud
+    /// feature that sends by itself. Empty until asked.
+    pub cloud_consent: CloudConsent,
+}
+
+/// "on", "off", or "" (never asked: the first send asks instead).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CloudConsent {
+    pub live: String,
+    pub polish: String,
+    pub auto_check: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -305,6 +317,7 @@ impl Default for Settings {
             dictation_level: "polished".into(),
             dictation_levels: BTreeMap::new(),
             phone: PhoneSettings::default(),
+            cloud_consent: CloudConsent::default(),
         }
     }
 }
@@ -624,7 +637,8 @@ mod tests {
   "livePauseMs": 2500,
   "dictationLevel": "clean",
   "dictationLevels": { "ms-teams.exe": "verbatim" },
-  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
+  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
+  "cloudConsent": { "live": "on", "polish": "off", "autoCheck": "" }
 }"##;
 
     fn custom() -> Value {
@@ -1133,6 +1147,7 @@ mod tests {
                 "dictationLevel",
                 "dictationLevels",
                 "phone",
+                "cloudConsent",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);

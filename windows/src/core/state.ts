@@ -16,6 +16,7 @@ import { pillColor } from "./pill-colors";
 import type { AgentLimit } from "./limit";
 import { DEFAULT_PHONE, type PhoneSettings } from "./phone";
 import type { WritingAsk } from "./ask";
+import type { CloudFeature } from "./consent";
 import { needsCard, type VoiceState } from "./voice";
 import type { DraftState } from "./draft";
 import { DEFAULT_LEAD_MIN, wantsCard, type CalendarState } from "./calendar";
@@ -221,6 +222,8 @@ export interface Settings {
   ownNames?: string[];
   /** Rust's: My names was seeded (never twice). */
   ownNamesSeeded?: boolean;
+  /** Ask first (core/consent.ts): each cloud feature's answer, "on", "off" or "" (never asked). */
+  cloudConsent?: { live?: string; polish?: string; autoCheck?: string };
   /** Settings → Writing → Live revisions: on unless false. */
   liveRevisions?: boolean;
   /** Per-app switches, "on" / "off" by exe; an app not listed is on. */
@@ -286,6 +289,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shieldNames: [],
   ownNames: [],
   ownNamesSeeded: false,
+  cloudConsent: { live: "", polish: "", autoCheck: "" },
   liveRevisions: true,
   liveRevisionApps: {},
   livePauseMs: 1500,
@@ -433,6 +437,10 @@ class AppState {
   resumeLearned = false;
   /** The Google Docs tip (core/docs-tip.ts) is up, or waiting behind an approval. */
   writingDocsTip = false;
+  /** The ask-first card (views/consent.ts): which cloud feature, or null. */
+  consentAsk: CloudFeature | null = null;
+  /** A live revision is on its way to Claude (the lantern's data-leaving look). */
+  liveSending = false;
   /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
   voice: VoiceState | null = null;
   /** The "Draft email" card (core/draft.ts); null for none. */
@@ -740,6 +748,7 @@ class AppState {
    */
   lanternView(): IslandViewName | null {
     if (this.pendingApproval) return this.pendingApproval.questions ? "question" : "approval";
+    if (this.consentAsk) return "consentAsk";
     if (this.writingAsk) return "writingAsk";
     if (this.writingDocsTip) return "writingDocsTip";
     if (this.draft) return "draft";

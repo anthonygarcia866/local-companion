@@ -9,6 +9,7 @@ import { TONES } from "../core/rewrite";
 import { toneLabel } from "../views/rewrite";
 import { h, clear } from "../views/dom";
 import { t, N_ } from "../i18n/i18n";
+import { consentOn, setConsent } from "../core/consent";
 
 /** What the section needs from the Settings page. */
 export interface WritingHost {
@@ -412,9 +413,13 @@ export function dictationGroup(host: WritingHost, known: KnownApp[] = []): HTMLE
   });
   const level = h("select", { id: "dictation-level", "data-role": "dictation-level" }) as HTMLSelectElement;
   for (const [id, label] of DICTATION_LEVELS) level.append(h("option", { value: id, text: t(label) }));
-  level.value = dictationLevel(host.settings().dictationLevel);
+  // Polished asks first (core/consent.ts): until it's on, dictation is
+  // Clean, and the picker says so. Picking Polished here is the answer.
+  const chosen = dictationLevel(host.settings().dictationLevel);
+  level.value = chosen === "polished" && !consentOn(host.settings(), "polish") ? "clean" : chosen;
   level.addEventListener("change", () => {
     host.settings().dictationLevel = dictationLevel(level.value);
+    if (level.value === "polished") setConsent(host.settings(), "polish", true);
     void host.save();
   });
   const perApp = h("div", { class: "pill-group", "data-role": "dictation-apps" });
@@ -457,13 +462,15 @@ export function livePause(ms: number | undefined): number {
  */
 export function liveGroup(host: WritingHost, known: KnownApp[]): HTMLElement {
   const label = t("Live revisions");
-  const on = host.settings().liveRevisions !== false;
+  // Ask first (core/consent.ts): on only once the user said so, here or on
+  // the card.
+  const on = consentOn(host.settings(), "live");
   const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "data-role": "live-revisions", "aria-label": label }) as HTMLButtonElement;
   sw.addEventListener("click", () => {
     const next = !sw.classList.contains("on");
     sw.classList.toggle("on", next);
     sw.setAttribute("aria-pressed", String(next));
-    host.settings().liveRevisions = next;
+    setConsent(host.settings(), "live", next);
     void host.save();
   });
   const pause = h("input", { type: "range", min: "1000", max: "3000", step: "500", "data-role": "live-pause", "aria-label": t("Pause before a suggestion") }) as HTMLInputElement;
@@ -513,13 +520,13 @@ export function liveGroup(host: WritingHost, known: KnownApp[]): HTMLElement {
  * (docs/phase1-plan.md §15.1). Off by default: off, only the button sends.
  */
 export function aiAutoRow(host: WritingHost): HTMLElement {
-  const on = host.settings().aiAutoCheck === true;
+  const on = consentOn(host.settings(), "autoCheck");
   const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "data-role": "ai-auto-check", "aria-label": t("Check with AI automatically when I pause typing") }) as HTMLButtonElement;
   sw.addEventListener("click", () => {
     const next = !sw.classList.contains("on");
     sw.classList.toggle("on", next);
     sw.setAttribute("aria-pressed", String(next));
-    host.settings().aiAutoCheck = next;
+    setConsent(host.settings(), "autoCheck", next);
     void host.save();
   });
   return h("div", { class: "settings-group", id: "settings-writing-ai-check" },
