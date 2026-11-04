@@ -564,7 +564,10 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
             app.spawn(learn_after(app.clone(), g, transcript.to_string(), why_not, action, check));
         }
     };
-    let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_default();
+    // A clean-up that worked has no "why", unless polishing fell back to Clean.
+    let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_else(|| {
+        if mode == Mode::Dictate { std::mem::take(&mut *super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner())) } else { String::new() }
+    });
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
     // An app opening shows no card: the tip gets one of its own.
@@ -1098,7 +1101,18 @@ fn api_ready() -> Result<(crate::ai::rewrite::Config, crate::ai::key::ApiKey), C
 
 /// The Claude clean-up, with 1c's checks first (api_ready), its spend recorded.
 async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
-    use crate::ai::{claude, dictate, spend};
+    use crate::ai::{claude, dictate, polish, spend};
+    super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    // The dictation level (Settings → Writing → Dictation, and per app):
+    // Verbatim sends nothing at all.
+    let settings = app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default();
+    let exe = crate::writing::tones::current_app().unwrap_or_default();
+    let level = if mode == Mode::Dictate { polish::level_for(&exe, &settings.dictation_level, &settings.dictation_levels) } else { polish::Level::Clean };
+    let field_context = super::take_field_context();
+    if level == polish::Level::Verbatim {
+        crate::log::line("voice: verbatim (no AI)");
+        return Err(CleanupFailed::Outage("verbatim".into()));
+    }
     let (config, api_key) = api_ready()?;
     send(app, VoiceEvent { phase: "cleaning", mode: mode.as_str(), ..Default::default() });
     let started = Instant::now();
@@ -1128,7 +1142,38 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
             let repos = known_repos();
             let own = super::own_apps::names(&app.own_apps());
             let cx = dictate::Context { mode, app: &app_exe, today: &today, repos: &repos, own_apps: &own, asked, remembered: &remembered };
-            dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
+            if level == polish::Level::Polished {
+                // Polished: the field's context, the word list and the rules
+                // that share a word with what was said (rules only, shielded).
+                let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(transcript).into_iter().take(polish::MAX_RULES).cloned().collect(), false));
+                let p = polish::Polish {
+                    app: &app_exe,
+                    kind: crate::writing::tones::current_kind(),
+                    today: &today,
+                    before: &field_context.0,
+                    replying_to: &field_context.1,
+                    words: &settings.voice_words,
+                    rules: &rules,
+                };
+                let polish_started = Instant::now();
+                match polish::polish(&base, &api_key, config.model, transcript, &p).await {
+                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" => {
+                        // It left out a detail, or brought in words the user
+                        // didn't say: Clean instead, and the card says so.
+                        if let Some(u) = &u {
+                            crate::log::line(format!("voice: polished not used ({code}), clean instead; polish {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, polish_started.elapsed().as_secs_f64()));
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
+                                crate::log::line(format!("voice: could not record the spend: {err}"));
+                            }
+                        }
+                        *super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner()) = code;
+                        dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
+                    }
+                    other => other,
+                }
+            } else {
+                dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
+            }
         }
         Err(_) => (Err(CleanupFailed::Outage("network".into())), None),
     };
@@ -1147,7 +1192,7 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
     };
     match &usage {
         Some(u) => {
-            crate::log::line(format!("voice: cleanup {outcome} {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, started.elapsed().as_secs_f64()));
+            crate::log::line(format!("voice: cleanup {outcome} ({}) {} in={} out={} ${:.6} {:.1}s", level.id(), u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, started.elapsed().as_secs_f64()));
             // The budget line covers the Ask lane only (plan §6).
             if mode != Mode::Dictate {
                 crate::ai::budget::note_ask(started.elapsed().as_millis() as u64, u.cost_nanos);

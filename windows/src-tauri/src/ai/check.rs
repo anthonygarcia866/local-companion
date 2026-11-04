@@ -181,6 +181,7 @@ pub async fn check(base: &Url, key: &ApiKey, paragraph: &str) -> CheckReply {
 }
 
 /// A 2xx answer: the tool call's issues, placed in `paragraph` (sent as it is).
+#[cfg(test)]
 pub fn parse_answer(body: &[u8], paragraph: &str) -> CheckReply {
     parse_masked(body, paragraph, &crate::shield::Masked::plain(paragraph))
 }

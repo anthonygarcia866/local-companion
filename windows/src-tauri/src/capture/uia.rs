@@ -548,6 +548,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     Request::VoiceBegin => {
                         voice_field = if last_typable { current.as_ref().map(|(e, _)| (e.clone(), foreground_pid())) } else { None };
                         crate::voice::FIELD_AT_PRESS.store(voice_field.is_some(), std::sync::atomic::Ordering::SeqCst);
+                        // Polished dictation's context: the text before the
+                        // cursor and the message replied to (memory only).
+                        crate::voice::set_field_context(voice_field.as_ref().and_then(|_| writer.dictation_context()));
                     }
                     Request::VoiceType { text, cleaned, why } => {
                         use crate::voice::{VoiceEvent, EVENT};
