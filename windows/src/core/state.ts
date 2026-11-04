@@ -211,6 +211,11 @@ export interface Settings {
   hideFromCapture?: boolean;
   /** Settings → Ask Glim: learn shortcuts from what is asked (docs/glim-learns-plan.md §1). On unless false. */
   learnShortcuts?: boolean;
+  /** Settings → Privacy: the privacy shield (names, emails, phones, addresses
+   *  and unit numbers become placeholders before anything goes to Claude). On unless false. */
+  privacyShield?: boolean;
+  /** Settings → Privacy: names the shield always hides, one per entry. */
+  shieldNames?: string[];
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
   phone?: PhoneSettings;
 }
@@ -262,6 +267,8 @@ export const DEFAULT_SETTINGS: Settings = {
   calendarIds: [],
   hideFromCapture: true,
   learnShortcuts: true,
+  privacyShield: true,
+  shieldNames: [],
   phone: { ...DEFAULT_PHONE },
 };
 

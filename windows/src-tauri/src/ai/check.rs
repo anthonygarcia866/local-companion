@@ -9,9 +9,13 @@
 // exactly once is dropped, so every suggestion shown points at real text.
 // Nothing is applied here; the island shows them, the user clicks.
 //
-// Privacy: as the rewrite (claude.rs `send`): only through net::request, the
-// whole request body scanned for card, SSN and IBAN numbers before anything
-// leaves, nothing logged here (the caller logs `log_line`, numbers only).
+// Privacy: as the rewrite (claude.rs `send`): the paragraph goes through the
+// privacy shield (shield/), only through net::request, the whole request
+// body checked by the never-send filter before anything leaves, nothing
+// logged here (the caller logs `log_line`, numbers only). Each issue gets the
+// real values back (shield::Check::Partial: a quote may leave a placeholder
+// out, but one changed or made up drops the whole answer) before it is
+// placed in the real paragraph.
 
 use std::time::Duration;
 
@@ -40,7 +44,7 @@ missing or extra words, tense, and meaning that is clearly wrong. Do not report 
 and do not rewrite whole sentences. For each error give: quote, the exact words from the paragraph that are \
 wrong, copied character for character and as short as possible (a few words); replacement, what those words \
 should be; message, one short sentence saying why. Keep every name, number, date and amount as written. \
-If there is nothing to fix, report an empty list.";
+If there is nothing to fix, report an empty list. Bracketed placeholders like [PERSON1] or [PHONE1] stand for private details: copy each one exactly, never change, add or drop one.";
 
 /// The request body for `paragraph`.
 pub fn request_body(paragraph: &str) -> Value {
@@ -166,14 +170,24 @@ pub async fn check(base: &Url, key: &ApiKey, paragraph: &str) -> CheckReply {
     if paragraph.chars().count() > claude::MAX_PARAGRAPH_CHARS {
         return CheckReply::failed(Failure::TooLong);
     }
-    match claude::send(base, key, &request_body(paragraph)).await {
-        Ok(body) => parse_answer(&body, paragraph),
+    let masked = match crate::shield::mask(paragraph) {
+        Ok(m) => m,
+        Err(m) => return CheckReply::failed(Failure::Shield(m)),
+    };
+    match claude::send(base, key, &request_body(&masked.text)).await {
+        Ok(body) => parse_masked(&body, paragraph, &masked),
         Err(f) => CheckReply::failed(f),
     }
 }
 
-/// A 2xx answer: the tool call's issues, placed in `paragraph`.
+/// A 2xx answer: the tool call's issues, placed in `paragraph` (sent as it is).
 pub fn parse_answer(body: &[u8], paragraph: &str) -> CheckReply {
+    parse_masked(body, paragraph, &crate::shield::Masked::plain(paragraph))
+}
+
+/// A 2xx answer to `masked`: each issue with the real values back, placed in
+/// the real `paragraph`.
+pub fn parse_masked(body: &[u8], paragraph: &str, masked: &crate::shield::Masked) -> CheckReply {
     let Ok(v) = serde_json::from_slice::<Value>(body) else {
         return CheckReply::failed(Failure::BadAnswer);
     };
@@ -191,13 +205,31 @@ pub fn parse_answer(body: &[u8], paragraph: &str) -> CheckReply {
         (_, None) => Err(Failure::BadAnswer),
         (_, Some(items)) => Ok(items),
     };
-    match result {
+    match result.and_then(|items| unshield(items, masked).map_err(Failure::Shield)) {
         Err(f) => CheckReply { result: Err(f), usage, dropped: 0 },
         Ok(items) => {
-            let (issues, dropped) = place(paragraph, items);
+            let (issues, dropped) = place(paragraph, &items);
             CheckReply { result: Ok(issues), usage, dropped }
         }
     }
+}
+
+/// The items with the real values back in their quote, replacement and
+/// message; any placeholder changed or made up drops them all.
+fn unshield(items: &[Value], masked: &crate::shield::Masked) -> Result<Vec<Value>, crate::shield::Mismatch> {
+    items
+        .iter()
+        .map(|item| {
+            let mut item = item.clone();
+            for k in ["quote", "replacement", "message"] {
+                if let Some(text) = item.get(k).and_then(Value::as_str) {
+                    let back = crate::shield::unmask(text, masked, crate::shield::Check::Partial)?;
+                    item[k] = Value::String(back);
+                }
+            }
+            Ok(item)
+        })
+        .collect()
 }
 
 /// Places each item's quote in the paragraph. Dropped: a quote that is
@@ -284,6 +316,23 @@ mod tests {
         let reply = block_on(check(&base, &key(), paragraph));
         let request = got.recv_timeout(Duration::from_secs(5)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
         (reply, request)
+    }
+
+    #[test]
+    fn the_shield_masks_the_paragraph_and_places_issues_with_real_values() {
+        let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let paragraph = "Call 555-123-4567, Unit 7D are ready.";
+        let issues = json!([{ "quote": "Unit [UNIT1] are", "replacement": "Unit [UNIT1] is", "message": "One unit." }]);
+        let (reply, request) = against("200 OK", answer(issues, "tool_use"), paragraph);
+        assert!(request.contains("Call [PHONE1], Unit [UNIT1] are ready.") && !request.contains("555-123-4567") && !request.contains("7D"), "{request}");
+        let got = reply.result.unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].replacement, "Unit 7D is");
+        assert_eq!((got[0].start, got[0].end), (19, 30));
+        // A made-up placeholder drops the answer.
+        let issues = json!([{ "quote": "[UNIT2] are", "replacement": "[UNIT2] is", "message": "One unit." }]);
+        let (reply, _) = against("200 OK", answer(issues, "tool_use"), paragraph);
+        assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Altered)));
     }
 
     #[test]

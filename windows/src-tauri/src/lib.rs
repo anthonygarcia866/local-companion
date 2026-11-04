@@ -26,6 +26,7 @@ mod learn;
 mod memory;
 mod session_window;
 mod settings;
+mod shield;
 mod shortcuts;
 mod placement;
 mod pause;
@@ -132,6 +133,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     let settings = shared.settings.lock().unwrap().clone();
     shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
+    shield::apply_settings(&settings);
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     phone::apply_settings(&settings);
     screen_capture::apply(&app);
@@ -747,6 +749,7 @@ fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Se
     };
     writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
     phone::apply_settings(&updated);
+    shield::apply_settings(&updated);
     let _ = app.emit("settings-changed", updated);
 }
 
@@ -1459,6 +1462,7 @@ pub fn run() {
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
+    shield::apply_settings(&loaded);
     writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     phone::apply_settings(&loaded);
     let gate = Arc::new(PollGate::new());
@@ -1732,6 +1736,12 @@ pub fn run() {
             // only an Outlook that is already running.
             if !selftest {
                 calendar::worker::start(&handle);
+            }
+            // The privacy shield's names from Outlook's address book: only an
+            // Outlook that is already running, names in memory only.
+            #[cfg(windows)]
+            if !selftest {
+                shield::address_book::spawn();
             }
             if selftest {
                 selftest::start(handle.clone());
