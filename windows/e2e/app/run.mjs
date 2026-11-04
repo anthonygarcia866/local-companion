@@ -323,6 +323,16 @@ async function liveRevisions(g, win) {
     // Two bursts, so Glim sees the paragraph edited in place.
     const first = await win.ask({ cmd: "type", text: TYPED.slice(0, 24) });
     if (!first.sent) return result("live revisions", "SKIPPED", "SendInput sent 0 events: the runner has no input desktop");
+    // The first key after Notepad comes to the front can be eaten (CI,
+    // 2026-11-04: classic Notepad's Edit read back "e recieved…"): select
+    // all and type the burst again, up to twice.
+    for (let tries = 0; tries < 2; tries++) {
+      await sleep(400);
+      if ((await readField(win)) === TYPED.slice(0, 24)) break;
+      console.log(`  notepad: first burst read back short, typing it again (${tries + 1})`);
+      await win.ask({ cmd: "keys", chord: "ctrl+a" });
+      await win.ask({ cmd: "type", text: TYPED.slice(0, 24) });
+    }
     await sleep(900);
     await win.ask({ cmd: "type", text: TYPED.slice(24) });
     const typedAt = Date.now();
