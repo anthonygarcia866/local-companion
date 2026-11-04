@@ -217,3 +217,17 @@ fn the_switch_and_the_sources() {
     apply_settings(&crate::settings::Settings::default());
     set_address_book(Vec::new());
 }
+
+#[test]
+fn every_system_prompt_tells_claude_to_keep_the_placeholders() {
+    use crate::ai::{check, claude, dictate};
+    for (name, system) in [
+        ("rewrite", claude::SYSTEM),
+        ("check", check::SYSTEM),
+        ("dictate", dictate::SYSTEM_DICTATE),
+        ("ask", dictate::SYSTEM_ASK),
+        ("edit", dictate::SYSTEM_EDIT),
+    ] {
+        assert!(system.ends_with(PROMPT_NOTE), "{name}");
+    }
+}

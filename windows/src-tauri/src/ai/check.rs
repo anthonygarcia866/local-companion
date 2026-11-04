@@ -44,7 +44,7 @@ missing or extra words, tense, and meaning that is clearly wrong. Do not report 
 and do not rewrite whole sentences. For each error give: quote, the exact words from the paragraph that are \
 wrong, copied character for character and as short as possible (a few words); replacement, what those words \
 should be; message, one short sentence saying why. Keep every name, number, date and amount as written. \
-If there is nothing to fix, report an empty list.";
+If there is nothing to fix, report an empty list. Bracketed placeholders like [PERSON1] or [PHONE1] stand for private details: copy each one exactly, never change, add or drop one.";
 
 /// The request body for `paragraph`.
 pub fn request_body(paragraph: &str) -> Value {

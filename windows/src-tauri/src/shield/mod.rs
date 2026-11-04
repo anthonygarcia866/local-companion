@@ -33,6 +33,10 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 
+/// The sentence every system prompt carries (ai/claude.rs, check.rs,
+/// dictate.rs; a test checks each).
+pub const PROMPT_NOTE: &str = "Bracketed placeholders like [PERSON1] or [PHONE1] stand for private details: copy each one exactly, never change, add or drop one.";
+
 /// What a placeholder stands for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
