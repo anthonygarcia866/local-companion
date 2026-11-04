@@ -7,6 +7,7 @@
 #   {"cmd":"keys","chord":"ctrl+alt+shift+y"}   SendInput, down then up
 #   {"cmd":"type","text":"words"}       SendInput, as Unicode characters
 #   {"cmd":"text"}                      the focused field's text (UI Automation)
+#   {"cmd":"focus","name":"notepad"}    that process's main window to the front
 #   {"cmd":"shot","x":0,"y":0,"w":10,"h":10,"out":"a.png"}  a desktop capture (BitBlt)
 #   {"cmd":"quit"}
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,8 @@ public static class GlimWin {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int n);
 
   [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
   // INPUT on x64: type, padding, then the union (MOUSEINPUT is the largest, 32 bytes).
@@ -88,6 +91,20 @@ public static class GlimWin {
 
   public static long Foreground() { return GetForegroundWindow().ToInt64(); }
 
+  /// The named process's main window to the front (an Alt tap first: Windows
+  /// lets a process that just had input set the foreground).
+  public static string Focus(string name) {
+    foreach (var p in System.Diagnostics.Process.GetProcessesByName(name)) {
+      var h = p.MainWindowHandle;
+      if (h == IntPtr.Zero) continue;
+      Keys("alt");
+      ShowWindow(h, 9);
+      bool ok = SetForegroundWindow(h);
+      return string.Format("{{\"ok\":{0},\"hwnd\":{1},\"foreground\":{2}}}", ok ? "true" : "false", h.ToInt64(), Foreground());
+    }
+    return "{\"ok\":false,\"hwnd\":0}";
+  }
+
   /// Types `text` as Unicode characters (KEYEVENTF_UNICODE): how many events Windows took.
   public static uint Type(string text) {
     var list = new List<INPUT>();
@@ -110,6 +127,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       'keys' { $out = '{"sent":' + [GlimWin]::Keys([string]$c.chord) + ',"foreground":' + [GlimWin]::Foreground() + '}' }
       'shot' { $out = [GlimWin]::Shot([int]$c.x, [int]$c.y, [int]$c.w, [int]$c.h, [string]$c.out) }
       'type' { $out = '{"sent":' + [GlimWin]::Type([string]$c.text) + '}' }
+      'focus' { $out = [GlimWin]::Focus([string]$c.name) }
       'text' {
         Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
         $el = [System.Windows.Automation.AutomationElement]::FocusedElement

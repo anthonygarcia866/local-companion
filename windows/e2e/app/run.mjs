@@ -317,6 +317,9 @@ async function liveRevisions(g, win) {
   const notepad = spawn("notepad.exe", [], { stdio: "ignore", detached: false });
   try {
     await sleep(2_500);
+    const focus = await win.ask({ cmd: "focus", name: "notepad" });
+    console.log(`  notepad focus: ${JSON.stringify(focus)}`);
+    await sleep(700);
     // Two bursts, so Glim sees the paragraph edited in place.
     const first = await win.ask({ cmd: "type", text: TYPED.slice(0, 24) });
     if (!first.sent) return result("live revisions", "SKIPPED", "SendInput sent 0 events: the runner has no input desktop");
@@ -324,7 +327,10 @@ async function liveRevisions(g, win) {
     await win.ask({ cmd: "type", text: TYPED.slice(24) });
     const typedAt = Date.now();
     const before = await readField(win);
-    if (!before.includes(TYPED)) return result("live revisions: typing", "SKIPPED", `Notepad didn't get the keys (field: ${JSON.stringify(before.slice(0, 80))})`);
+    if (!before.includes(TYPED)) {
+      const seen = await win.ask({ cmd: "text" });
+      return result("live revisions: typing", "SKIPPED", `Notepad didn't get the keys (focus ${JSON.stringify(focus)}; focused field ${JSON.stringify(seen.cls)}: ${JSON.stringify(before.slice(0, 80))})`);
+    }
     result("live revisions: typing", "PASS", "typed into Notepad");
     // The preview: its page shows the diff.
     const page = await livePage(g, 10_000);
