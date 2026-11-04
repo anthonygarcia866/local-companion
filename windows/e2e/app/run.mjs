@@ -71,7 +71,7 @@ for (const f of Object.values(folders)) mkdirSync(f, { recursive: true });
 const settingsFile = join(folders.APPDATA, "Glim", "settings.json");
 function writeSettings(hideFromCapture) {
   mkdirSync(dirname(settingsFile), { recursive: true });
-  writeFileSync(settingsFile, JSON.stringify({ autostart: false, calendarOn: false, hideFromCapture }, null, 1));
+  writeFileSync(settingsFile, JSON.stringify({ autostart: false, calendarOn: false, hideFromCapture, cloudConsent: { live: "on" } }, null, 1));
 }
 // The stand-in for the Claude API (live revisions only): fixes two typos in
 // the paragraph it gets, answers like the Messages API, counts requests.
