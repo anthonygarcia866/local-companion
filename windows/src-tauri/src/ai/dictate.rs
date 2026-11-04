@@ -445,7 +445,10 @@ pub async fn revise(base: &Url, key: &ApiKey, model: &str, current: &DraftText, 
 /// The clean-up for `transcript`, within DEADLINE, through the shield.
 pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, cx: &Context<'_>) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
     let (request, question) = cx.asked.map_or(("", ""), |a| (a.request.as_str(), a.question.as_str()));
-    let (texts, masked) = match crate::shield::mask_texts(&[transcript, request, question, cx.remembered]) {
+    // Dictation: phones and units in their typed form first, so the
+    // placeholder stands for "unit 4B", not "unit four B" (shield/normalize.rs).
+    let typed_form = if cx.mode == Mode::Dictate { crate::shield::normalize::dictation(transcript) } else { transcript.to_string() };
+    let (texts, masked) = match crate::shield::mask_texts(&[&typed_form, request, question, cx.remembered]) {
         Ok(m) => m,
         Err(m) => return (Err(CleanupFailed::Outage(m.code().into())), None),
     };
@@ -921,11 +924,12 @@ mod tests {
     #[test]
     fn the_shield_masks_dictation_and_ask_requests_and_restores_the_answer() {
         let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let said = "call me at 555 123 4567 about unit 7D";
+        let said = "call me at 555 123 4567 about unit 7 D";
         // Dictation: masked out, real values back in the typed text.
         let (url, got) = serve_capture("200 OK", "", answer("dictate", json!({ "text": "Call me at [PHONE1] about unit [UNIT1]." })));
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", said, &cx(Mode::Dictate)));
-        assert_eq!(r, Ok(Cleanup::Dictate("Call me at 555 123 4567 about unit 7D.".into())));
+        // The values come back typed as they should be: grouped, joined.
+        assert_eq!(r, Ok(Cleanup::Dictate("Call me at 555-123-4567 about unit 7D.".into())));
         let content = sent_body(&got)["messages"][0]["content"].as_str().unwrap().to_string();
         assert!(content.ends_with("<transcript>\ncall me at [PHONE1] about unit [UNIT1]\n</transcript>"), "{content}");
         // A dropped placeholder: no clean-up (the raw words are typed instead).
@@ -934,6 +938,13 @@ mod tests {
         assert_eq!(r, Err(CleanupFailed::Outage("shield-missing".into())));
         // After "scratch that", the corrected-away value may go.
         let fixed = "call me at 555 123 4567 scratch that email me about unit 7D";
+        // Said as words, the same: Claude sees placeholders, the field gets digits.
+        let words = "call me at five five five one two three four five six seven about unit four B";
+        let (url, got) = serve_capture("200 OK", "", answer("dictate", json!({ "text": "Call me at [PHONE1] about unit [UNIT1]." })));
+        let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", words, &cx(Mode::Dictate)));
+        assert_eq!(r, Ok(Cleanup::Dictate("Call me at 555-123-4567 about unit 4B.".into())));
+        let content = sent_body(&got)["messages"][0]["content"].as_str().unwrap().to_string();
+        assert!(content.contains("call me at [PHONE1] about unit [UNIT1]") && !content.contains("five") && !content.contains("4B"), "{content}");
         let (url, _got) = serve_capture("200 OK", "", answer("dictate", json!({ "text": "Email me about unit [UNIT1]." })));
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", fixed, &cx(Mode::Dictate)));
         assert_eq!(r, Ok(Cleanup::Dictate("Email me about unit 7D.".into())));
@@ -947,6 +958,37 @@ mod tests {
         let (url, _got) = serve_capture("200 OK", "", answer("clarify", json!({ "question": "Which unit, [UNIT2]?" })));
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", asked, &cx(Mode::Ask)));
         assert_eq!(r, Err(CleanupFailed::Outage("shield-altered".into())));
+    }
+
+    /// The shield's check 2 (owner, 2026-11-03): a recipient from the
+    /// address book is a placeholder on the way out, and comes back as the
+    /// name before Outlook's address book resolves it.
+    #[test]
+    fn a_shielded_recipient_is_unmasked_before_the_address_book_resolves_it() {
+        use crate::voice::draft::{self, Contact, FakeOutlook, Found, Outlook};
+        let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::shield::set_address_book(vec!["Lopez, Maria (Leasing)".into(), "Nguyen, Sam".into()]);
+        let said = "draft an email to Maria Lopez saying the lease for unit 4B is ready";
+        let reply = answer("draft_email", json!({ "to": ["[PERSON1]"], "subject": "Lease ready", "body": "The lease for unit [UNIT1] is ready." }));
+        let (url, got) = serve_capture("200 OK", "", reply);
+        let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", said, &cx(Mode::Ask)));
+        crate::shield::set_address_book(Vec::new());
+        let content = sent_body(&got)["messages"][0]["content"].as_str().unwrap().to_string();
+        assert!(content.contains("draft an email to [PERSON1] saying the lease for unit [UNIT1] is ready"), "{content}");
+        assert!(!content.contains("Maria") && !content.contains("Lopez"), "{content}");
+        let Ok(Cleanup::Draft(spoken)) = r else { panic!("{r:?}") };
+        assert_eq!(spoken.to, ["Maria Lopez"], "the real name, before resolution");
+        assert_eq!(spoken.body, "The lease for unit 4B is ready.");
+        // Resolved against the (fake) address book, as the card does.
+        let outlook = FakeOutlook {
+            book: vec![Contact { name: "Maria Lopez".into(), address: "maria.lopez@example.com".into() }, Contact { name: "Sam Nguyen".into(), address: "sam@example.com".into() }],
+            ..Default::default()
+        };
+        let card = draft::pending(1, &spoken, "me@example.com", &Default::default(), |q| outlook.search(q).unwrap());
+        assert_eq!(card.recipients.len(), 1);
+        assert_eq!(card.recipients[0].found, Found::One { contact: Contact { name: "Maria Lopez".into(), address: "maria.lopez@example.com".into() } });
+        let made = card.draft().expect("every recipient has an address");
+        assert_eq!(made.to, ["maria.lopez@example.com"]);
     }
 
     #[test]

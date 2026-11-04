@@ -53,6 +53,8 @@ struct Rec {
     live: u32,
     /// Rules sent with the last request.
     last_rules: usize,
+    /// Dictation: the message content that went out (masked by the shield).
+    last_sent: String,
     cost_nanos: u64,
     /// Learning running in the background (awaited by `settle`).
     spawned: Vec<tokio::task::JoinHandle<()>>,
@@ -114,7 +116,24 @@ impl Fake {
             }
             _ => {
                 let answer = canned.expect("a canned answer for this request");
-                dictate::parse_answer(&serde_json::to_vec(&answer).unwrap(), model, mode, &own)
+                if mode == Mode::Dictate {
+                    // As in the app: the shield masks the transcript, a local
+                    // stand-in for the API answers with the canned call, and
+                    // the real values come back (shield/normalize.rs first).
+                    let (url, got) = crate::net::tests::serve_capture("200 OK", "Content-Type: application/json\r\n", serde_json::to_vec(&answer).unwrap());
+                    let vault = key::MemoryVault::default();
+                    key::save(&vault, "sk-ant-api03-STANDIN-0000").unwrap();
+                    let stand_in = key::load(&vault).unwrap().unwrap();
+                    let out = dictate::clean_up(&crate::net::Url::parse(&url).unwrap(), &stand_in, model, transcript, &cx).await;
+                    let req = got.recv_timeout(std::time::Duration::from_secs(5)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
+                    let sent = req.find("\r\n\r\n").and_then(|at| serde_json::from_str::<Value>(&req[at + 4..]).ok());
+                    let content = sent.as_ref().and_then(|v| v.pointer("/messages/0/content")).and_then(Value::as_str).unwrap_or("").to_string();
+                    println!("    shield: sent {}", content.rsplit("<transcript>").next().unwrap_or("").trim_end_matches("</transcript>").trim());
+                    self.with(|r| r.last_sent = content);
+                    out
+                } else {
+                    dictate::parse_answer(&serde_json::to_vec(&answer).unwrap(), model, mode, &own)
+                }
             }
         };
         let live = self.key.is_some() && spent < COST_CAP_NANOS;
@@ -553,8 +572,10 @@ fn voice_without_a_mic() {
         // 9. Dictation: made-up names (Settings words) and "unit four B" -> "unit 4B".
         super::FIELD_AT_PRESS.store(true, std::sync::atomic::Ordering::SeqCst);
         let n = fx.with(|r| r.actions.len());
-        let t = r.say("dictation", Mode::Dictate, Some(tool("dictate", json!({ "text": "Please tell Zorvath Quillane that unit 4B is ready for the walkthrough." })))).await;
-        assert!(t.to_lowercase().contains("unit 4b"), "\"unit four B\" written as a unit: {t:?}");
+        // The shield is on: Claude sees "unit [UNIT1]" and answers with it.
+        let t = r.say("dictation", Mode::Dictate, Some(tool("dictate", json!({ "text": "Please tell Zorvath Quillane that unit [UNIT1] is ready for the walkthrough." })))).await;
+        let sent = fx.with(|r| r.last_sent.clone());
+        assert!(sent.contains("[UNIT1]") && !sent.to_lowercase().contains("4b") && !sent.to_lowercase().contains("four b"), "the unit is masked on the way out: {sent:?}");
         // The made-up names come from the run's word list (whisper's prompt).
         let names: Vec<&str> = ["Zorvath", "Quillane"].into_iter().filter(|n| t.contains(n)).collect();
         println!("    names as written: {} of 2 ({names:?})", names.len());
@@ -562,6 +583,18 @@ fn voice_without_a_mic() {
         let typed = fx.actions_since(n);
         assert_eq!(typed.len(), 1, "{typed:?}");
         assert!(typed[0].starts_with("type ") && typed[0].to_lowercase().contains("unit 4b"), "{typed:?}");
+
+        // 9b. Shield vs dictation formatting (owner, 2026-11-03): a phone
+        // said digit by digit and a unit said as words come back typed as
+        // 555-123-4567 and 204, whatever form whisper wrote them in.
+        let n = fx.with(|r| r.actions.len());
+        let t = r.say("dictation-phone", Mode::Dictate, Some(tool("dictate", json!({ "text": "Call me at [PHONE1] about unit [UNIT1]." })))).await;
+        let sent = fx.with(|r| r.last_sent.clone());
+        println!("    whisper: {t:?}");
+        assert!(sent.contains("[PHONE1]") && sent.contains("[UNIT1]") && !sent.contains("555"), "masked on the way out: {sent:?}");
+        let typed = fx.actions_since(n);
+        println!("    typed: {typed:?}");
+        assert_eq!(typed, ["type Call me at 555-123-4567 about unit 204."], "formatted, not whisper's raw form");
 
         // 10. Spoken edits (2026-10-28): whisper hears them, Claude applies
         // them (canned: the answer the prompt asks for), and the line breaks

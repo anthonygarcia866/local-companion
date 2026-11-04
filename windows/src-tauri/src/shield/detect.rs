@@ -130,6 +130,11 @@ fn emails(text: &str, words: &[(usize, usize)]) -> Vec<Span> {
     out
 }
 
+/// The phone numbers in `text` (byte spans), as the shield finds them.
+pub fn phones_in(text: &str) -> Vec<(usize, usize)> {
+    phones(text).into_iter().map(|s| (s.start, s.end)).collect()
+}
+
 // ── Phone numbers ─────────────────────────────────────────────────────────
 
 /// (555) 123-4567, 555-123-4567, 555.123.4567, 555 123 4567, 5551234567,

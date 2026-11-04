@@ -26,6 +26,7 @@
 
 pub mod detect;
 pub mod never_send;
+pub mod normalize;
 #[cfg(windows)]
 pub mod address_book;
 
