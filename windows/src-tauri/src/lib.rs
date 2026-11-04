@@ -122,6 +122,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         // The draft card's remembered picks are Rust's (voice::draft_worker,
         // draft_forget).
         settings.draft_recipients = current.draft_recipients.clone();
+        // Whether My names was seeded is Rust's (shield::address_book).
+        settings.own_names_seeded |= current.own_names_seeded;
         // The day the calendar's morning summary was last shown is Rust's.
         settings.calendar_summary_shown = current.calendar_summary_shown.clone();
         let calendar_changed = (current.calendar_on, current.calendar_hide_all_day, current.calendar_summary, &current.calendar_ids)
@@ -1765,7 +1767,17 @@ pub fn run() {
             // Outlook that is already running, names in memory only.
             #[cfg(windows)]
             if !selftest {
-                shield::address_book::spawn();
+                let seed_handle = handle.clone();
+                shield::address_book::spawn(move |name| {
+                    let shared = seed_handle.state::<Shared>();
+                    update_settings(&seed_handle, &shared, |s| {
+                        if !s.own_names_seeded && s.own_names.is_empty() {
+                            s.own_names.push(name);
+                        }
+                        s.own_names_seeded = true;
+                    });
+                    log::line("shield: My names seeded from the draft account's name");
+                });
             }
             if selftest {
                 selftest::start(handle.clone());

@@ -253,3 +253,62 @@ fn every_system_prompt_tells_claude_to_keep_the_placeholders() {
         assert!(system.ends_with(PROMPT_NOTE), "{name}");
     }
 }
+
+/// Surnames and first names on their own (owner, 2026-11-04).
+#[test]
+fn a_surname_or_first_name_alone_is_hidden() {
+    let book = NameSet::build(std::iter::empty(), ["John Smith", "Carter, Avery"]);
+    let k = |text: &str| find(text, &book).into_iter().map(|s| text[s.start..s.end].to_string()).collect::<Vec<_>>();
+    assert_eq!(k("John Smith called."), ["John Smith"]);
+    assert_eq!(k("Smith called."), ["Smith"]);
+    assert_eq!(k("Ask Mr. Smith."), ["Smith"]);
+    assert_eq!(k("SMITH, JOHN"), ["SMITH", "JOHN"]);
+    assert_eq!(k("Tell John."), ["John"]);
+    // Lower case: a common word unless the user's own list says it's a name.
+    assert!(k("the smith forged it").is_empty());
+    let listed = NameSet::build(["John Smith"], std::iter::empty());
+    let found: Vec<&str> = find("then smith said no", &listed).into_iter().map(|s| &"then smith said no"[s.start..s.end]).collect();
+    assert_eq!(found, ["smith"]);
+    // A surname that's also a common word: only after a title.
+    assert_eq!(k("Ms. Carter will call."), ["Carter"]);
+    assert!(k("Carter the boxes upstairs").is_empty());
+    assert_eq!(k("Avery Carter is here"), ["Avery Carter"]);
+}
+
+/// My names and businesses (owner, 2026-11-04): always hidden, any case,
+/// back byte for byte; even a name made only of common words.
+#[test]
+fn my_names_and_businesses_are_always_hidden_and_come_back_exactly() {
+    let mine = NameSet::build(["Sunny Homes Realty", "Jordan Q. Vale"], ["Maria Lopez"]);
+    let text = "SUNNY HOMES REALTY and sunny homes realty; jordan said Vale's okay. maria";
+    let m = mask_with(text, &mine).unwrap();
+    assert!(!m.text.to_lowercase().contains("sunny") && !m.text.to_lowercase().contains("jordan") && !m.text.contains("Vale"), "{}", m.text);
+    assert!(m.text.ends_with(". maria"), "an address-book name in lower case stays: {}", m.text);
+    // Each spelling keeps its own placeholder, and comes back as written.
+    let back = unmask(&m.text, &m, Check::Whole).unwrap();
+    assert_eq!(back.as_bytes(), text.as_bytes());
+}
+
+#[test]
+fn my_names_come_from_settings_and_are_seeded_once() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut s = crate::settings::Settings::default();
+    s.draft_from = "owner@example.com".into();
+    apply_settings(&s);
+    assert_eq!(seed_from().as_deref(), Some("owner@example.com"), "not seeded yet");
+    set_seed("Quinn Arbor");
+    assert_eq!(seed_from(), None);
+    assert_eq!(mask("quinn wrote this").unwrap().text, "[PERSON1] wrote this");
+    s.own_names = vec!["Quinn Arbor".into(), "Arbor Leasing".into()];
+    s.own_names_seeded = true;
+    apply_settings(&s);
+    assert_eq!(seed_from(), None, "seeded: never again");
+    assert_eq!(mask("ARBOR LEASING").unwrap().text, "[PERSON1]");
+    apply_settings(&crate::settings::Settings::default());
+    set_seed("");
+}
+
+#[test]
+fn a_facts_mismatch_has_its_own_code() {
+    assert_eq!(Mismatch::Facts.code(), "facts-changed");
+}

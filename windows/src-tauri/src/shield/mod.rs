@@ -25,7 +25,9 @@
 // benefit amount is not sent at all (claude::send).
 
 pub mod detect;
+pub mod facts;
 pub mod never_send;
+pub mod signature;
 pub mod normalize;
 #[cfg(windows)]
 pub mod address_book;
@@ -148,6 +150,9 @@ pub enum Mismatch {
     /// The never-send filter refuses the text as written, before anything
     /// is masked (a placeholder must never hide a card or an SSN from it).
     Sensitive,
+    /// The answer changed, dropped or added a number, amount, time or date
+    /// (facts.rs): discarded.
+    Facts,
 }
 
 impl Mismatch {
@@ -158,6 +163,7 @@ impl Mismatch {
             Mismatch::Altered => "shield-altered",
             Mismatch::Collision => "shield-collision",
             Mismatch::Sensitive => "sensitive",
+            Mismatch::Facts => "facts-changed",
         }
     }
 }
@@ -167,7 +173,15 @@ impl Mismatch {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NameSet {
     pub(crate) full: Vec<Vec<String>>,
+    /// One word of a name: hidden alone when written with a capital
+    /// ("Smith", "Mr. Smith", "SMITH").
     pub(crate) words: HashSet<String>,
+    /// Words of the user's own lists (Settings → Privacy: names to hide, my
+    /// names and businesses): hidden in any case ("smith").
+    pub(crate) any_case: HashSet<String>,
+    /// Words of a name that are also common words ("Carter", "Grant"):
+    /// hidden alone only after Mr., Ms., Mrs., Dr. or Mx.
+    pub(crate) titled: HashSet<String>,
 }
 
 impl NameSet {
@@ -175,8 +189,16 @@ impl NameSet {
     /// "Maria Lopez (Leasing)", "maria"). Addresses and bare stop words are
     /// left out.
     pub fn from_entries<'a>(entries: impl IntoIterator<Item = &'a str>) -> NameSet {
+        NameSet::build(std::iter::empty(), entries)
+    }
+
+    /// `listed`: the user's own lists, matched in any case and always whole,
+    /// even when every word is a common one ("Sunny Homes"); `other`: the
+    /// address book and remembered recipients, as `from_entries`.
+    pub fn build<'a, 'b>(listed: impl IntoIterator<Item = &'a str>, other: impl IntoIterator<Item = &'b str>) -> NameSet {
         let mut set = NameSet::default();
-        for entry in entries {
+        let listed: Vec<&str> = listed.into_iter().collect();
+        for (entry, is_listed) in listed.iter().map(|e| (*e, true)).chain(other.into_iter().map(|e| (e, false))) {
             let (words, reversed) = detect::name_words(entry);
             if words.is_empty() {
                 continue;
@@ -184,7 +206,16 @@ impl NameSet {
             for w in &words {
                 if !detect::is_stop_word(w) {
                     set.words.insert(w.clone());
+                    if is_listed {
+                        set.any_case.insert(w.clone());
+                    }
+                } else if detect::is_name_like(w) {
+                    set.titled.insert(w.clone());
                 }
+            }
+            // The user's own entry, whole, whatever its words.
+            if is_listed && !set.full.contains(&words) {
+                set.full.push(words.clone());
             }
             // A whole name, unless every word of it is a common one ("Leasing Office").
             if words.len() >= 2 && !words.iter().all(|w| detect::is_stop_word(w)) {
@@ -455,6 +486,10 @@ static ENABLED: AtomicBool = AtomicBool::new(true);
 #[derive(Default)]
 struct Sources {
     own: Vec<String>,
+    /// Settings → Privacy → My names and businesses.
+    mine: Vec<String>,
+    /// The Outlook account's name, read before it is saved to `mine`.
+    seed: Vec<String>,
     recipients: Vec<String>,
     book: Vec<String>,
     compiled: NameSet,
@@ -466,8 +501,9 @@ fn update(f: impl FnOnce(&mut Sources)) {
     let mut guard = SOURCES.write().unwrap_or_else(|e| e.into_inner());
     let s = guard.get_or_insert_with(Sources::default);
     f(s);
-    let all = s.own.iter().chain(&s.recipients).chain(&s.book).map(String::as_str);
-    s.compiled = NameSet::from_entries(all);
+    let listed = s.own.iter().chain(&s.mine).chain(&s.seed).map(String::as_str);
+    let other = s.recipients.iter().chain(&s.book).map(String::as_str);
+    s.compiled = NameSet::build(listed, other);
 }
 
 /// From the settings (at launch and on every save): the switch, the user's
@@ -475,11 +511,31 @@ fn update(f: impl FnOnce(&mut Sources)) {
 pub fn apply_settings(s: &crate::settings::Settings) {
     ENABLED.store(s.privacy_shield, Ordering::Relaxed);
     let own = s.shield_names.clone();
+    let mine = s.own_names.clone();
     let recipients: Vec<String> = s.draft_recipients.keys().cloned().collect();
     update(|src| {
         src.own = own;
+        src.mine = mine;
         src.recipients = recipients;
     });
+    // Seed "My names and businesses" once, from the draft account's name.
+    let wanted = (!s.own_names_seeded && s.own_names.is_empty() && s.draft_from.contains('@')).then(|| s.draft_from.trim().to_string());
+    *SEED_FROM.write().unwrap_or_else(|e| e.into_inner()) = wanted;
+}
+
+/// The "Your address" account whose display name should seed My names, while
+/// it hasn't been seeded (address_book.rs reads it from Outlook).
+static SEED_FROM: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn seed_from() -> Option<String> {
+    SEED_FROM.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The account's name, hidden at once (lib.rs then saves it to the list).
+pub fn set_seed(name: &str) {
+    let name = name.trim().to_string();
+    *SEED_FROM.write().unwrap_or_else(|e| e.into_inner()) = None;
+    update(|src| src.seed = vec![name]);
 }
 
 /// The names read from Outlook's address book (address_book.rs).

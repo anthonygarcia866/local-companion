@@ -160,6 +160,12 @@ pub struct Settings {
     /// Settings → Privacy → names the shield always hides, one per entry
     /// (besides Outlook's address book and remembered recipients).
     pub shield_names: Vec<String>,
+    /// Settings → Privacy → My names and businesses (owner, 2026-11-04):
+    /// always hidden, in any case, and put back exactly. Only in this
+    /// settings.json; seeded once from the draft account's display name.
+    pub own_names: Vec<String>,
+    /// The seed above was tried (Rust's; never seeded twice).
+    pub own_names_seeded: bool,
     /// Settings → Writing → Live revisions (owner, 2026-11-03): on by
     /// default, everywhere the checker reads.
     pub live_revisions: bool,
@@ -291,6 +297,8 @@ impl Default for Settings {
             learn_shortcuts: true,
             privacy_shield: true,
             shield_names: Vec::new(),
+            own_names: Vec::new(),
+            own_names_seeded: false,
             live_revisions: true,
             live_revision_apps: BTreeMap::new(),
             live_pause_ms: 1500,

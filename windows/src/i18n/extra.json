@@ -7828,6 +7828,39 @@
    "pt-BR": "Ditados recentes",
    "ru": "Недавние диктовки",
    "id": "Dikte terbaru"
+  },
+  "My names and businesses": {
+   "zh-Hans": "我的名字和公司",
+   "hi": "मेरे नाम और व्यवसाय",
+   "es": "Mis nombres y negocios",
+   "ar": "أسمائي وأعمالي",
+   "fr": "Mes noms et entreprises",
+   "bn": "আমার নাম ও ব্যবসা",
+   "pt-BR": "Meus nomes e empresas",
+   "ru": "Мои имена и компании",
+   "id": "Nama dan usaha saya"
+  },
+  "One per line: your own names and your businesses' names. Always hidden, in any case, and put back exactly as you wrote them. Add your business names here. Signature blocks (from a \"--\" line, or a sign-off like \"Best,\" at the end) are never sent or rewritten.": {
+   "zh-Hans": "每行一个：你自己的名字和你公司的名字。无论大小写都会隐藏，并按你写的样子原样放回。请在这里添加你的公司名称。签名块（从“--”行开始，或结尾的“Best,”等结束语）从不发送也不改写。",
+   "hi": "हर पंक्ति में एक: आपके अपने नाम और आपके व्यवसायों के नाम। किसी भी केस में हमेशा छिपाए जाते हैं और ठीक वैसे ही वापस रखे जाते हैं जैसे आपने लिखे। अपने व्यवसाय के नाम यहाँ जोड़ें। हस्ताक्षर ब्लॉक (\"--\" पंक्ति से, या अंत में \"Best,\" जैसे समापन से) कभी भेजे या दोबारा लिखे नहीं जाते।",
+   "es": "Uno por línea: tus propios nombres y los de tus negocios. Siempre se ocultan, en mayúsculas o minúsculas, y se devuelven tal como los escribiste. Añade aquí los nombres de tus negocios. Las firmas (desde una línea \"--\", o una despedida como \"Best,\" al final) nunca se envían ni se reescriben.",
+   "ar": "واحد في كل سطر: أسماؤك وأسماء أعمالك. تُخفى دائمًا بأي حالة أحرف وتُعاد كما كتبتها تمامًا. أضف أسماء أعمالك هنا. كتل التوقيع (من سطر \"--\" أو عبارة ختام مثل \"Best,\" في النهاية) لا تُرسل ولا يُعاد كتابتها أبدًا.",
+   "fr": "Un par ligne : vos propres noms et ceux de vos entreprises. Toujours masqués, quelle que soit la casse, et remis exactement comme vous les avez écrits. Ajoutez ici les noms de vos entreprises. Les signatures (à partir d'une ligne « -- », ou d'une formule comme « Best, » à la fin) ne sont jamais envoyées ni réécrites.",
+   "bn": "প্রতি লাইনে একটি: আপনার নিজের নাম ও আপনার ব্যবসার নাম। যেকোনো কেসে সবসময় লুকানো হয় এবং আপনি যেমন লিখেছেন ঠিক তেমন ফেরত বসানো হয়। আপনার ব্যবসার নাম এখানে যোগ করুন। স্বাক্ষর ব্লক (\"--\" লাইন থেকে, বা শেষে \"Best,\" এর মতো বিদায়বাক্য থেকে) কখনো পাঠানো বা নতুন করে লেখা হয় না।",
+   "pt-BR": "Um por linha: seus próprios nomes e os nomes das suas empresas. Sempre ocultos, em qualquer caixa, e devolvidos exatamente como você escreveu. Adicione aqui os nomes das suas empresas. Assinaturas (a partir de uma linha \"--\", ou de uma despedida como \"Best,\" no final) nunca são enviadas nem reescritas.",
+   "ru": "По одному в строке: ваши имена и названия ваших компаний. Всегда скрываются в любом регистре и возвращаются точно так, как вы их написали. Добавьте сюда названия своих компаний. Подписи (от строки «--» или от прощания вроде «Best,» в конце) никогда не отправляются и не переписываются.",
+   "id": "Satu per baris: nama Anda sendiri dan nama usaha Anda. Selalu disembunyikan, huruf besar atau kecil, dan dikembalikan persis seperti yang Anda tulis. Tambahkan nama usaha Anda di sini. Blok tanda tangan (dari baris \"--\", atau salam penutup seperti \"Best,\" di akhir) tidak pernah dikirim atau ditulis ulang."
+  },
+  "Not shown: Claude's answer changed a number, amount, time or date. Try again.": {
+   "zh-Hans": "未显示：Claude 的回答改动了数字、金额、时间或日期。请重试。",
+   "hi": "नहीं दिखाया गया: Claude के जवाब ने कोई संख्या, राशि, समय या तारीख बदल दी। फिर से कोशिश करें।",
+   "es": "No se muestra: la respuesta de Claude cambió un número, un importe, una hora o una fecha. Inténtalo de nuevo.",
+   "ar": "لم يُعرض: غيّرت إجابة Claude رقمًا أو مبلغًا أو وقتًا أو تاريخًا. حاول مرة أخرى.",
+   "fr": "Non affiché : la réponse de Claude a changé un nombre, un montant, une heure ou une date. Réessayez.",
+   "bn": "দেখানো হয়নি: Claude-এর উত্তর একটি সংখ্যা, পরিমাণ, সময় বা তারিখ বদলে দিয়েছে। আবার চেষ্টা করুন।",
+   "pt-BR": "Não exibido: a resposta do Claude mudou um número, valor, horário ou data. Tente de novo.",
+   "ru": "Не показано: ответ Claude изменил число, сумму, время или дату. Попробуйте ещё раз.",
+   "id": "Tidak ditampilkan: jawaban Claude mengubah angka, jumlah, waktu, atau tanggal. Coba lagi."
   }
  }
 }

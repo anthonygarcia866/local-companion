@@ -170,12 +170,18 @@ pub async fn check(base: &Url, key: &ApiKey, paragraph: &str) -> CheckReply {
     if paragraph.chars().count() > claude::MAX_PARAGRAPH_CHARS {
         return CheckReply::failed(Failure::TooLong);
     }
-    let masked = match crate::shield::mask(paragraph) {
+    // A signature block is never sent: only the body is checked (issues
+    // placed in it keep their offsets in the whole paragraph).
+    let (body, _) = crate::shield::signature::split(paragraph);
+    if body.trim().is_empty() {
+        return CheckReply::failed(Failure::Empty);
+    }
+    let masked = match crate::shield::mask(body) {
         Ok(m) => m,
         Err(m) => return CheckReply::failed(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }),
     };
     match claude::send(base, key, &request_body(&masked.text)).await {
-        Ok(body) => parse_masked(&body, paragraph, &masked),
+        Ok(answer) => parse_masked(&answer, body, &masked),
         Err(f) => CheckReply::failed(f),
     }
 }
@@ -250,6 +256,8 @@ pub fn place(paragraph: &str, items: &[Value]) -> (Vec<Issue>, usize) {
                 && !replacement.contains(['\n', '\r'])
                 && !message.is_empty()
                 && !crate::capture::sensitive::contains_sensitive_number(replacement)
+                // The numbers-and-dates rule: a fix never changes one (shield::facts).
+                && crate::shield::facts::same(quote, replacement)
         });
         let Some((start, end)) = placed else {
             dropped += 1;

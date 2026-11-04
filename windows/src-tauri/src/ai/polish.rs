@@ -256,8 +256,9 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
         return (Err(CleanupFailed::Outage("sensitive".into())), None);
     }
     let typed_form = crate::shield::normalize::dictation(transcript);
-    let before = context_piece(&tail(p.before, MAX_BEFORE));
-    let replying = context_piece(&head(p.replying_to, MAX_REPLYING));
+    // Signature blocks in the context are never sent (shield::signature).
+    let before = context_piece(&tail(crate::shield::signature::split(p.before).0, MAX_BEFORE));
+    let replying = context_piece(&head(crate::shield::signature::split(p.replying_to).0, MAX_REPLYING));
     let words = context_piece(p.words);
     let rules: Vec<String> = p.rules.iter().take(MAX_RULES).map(|r| context_piece(r)).filter(|r| !r.is_empty()).collect();
     let mut texts: Vec<&str> = vec![&typed_form, &before, &replying, &words];
@@ -285,6 +286,11 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
         Cleanup::Dictate(text) => {
             if dropped_detail(&masked_texts[0], &text, &masked_texts[3]) {
                 return Err(CleanupFailed::Outage("polish-detail".into()));
+            }
+            // The numbers-and-dates rule (shield::facts): the same set, or Clean.
+            if !crate::shield::facts::same(&masked_texts[0], &text) {
+                crate::log::line(crate::shield::facts::log_counts("polish", &masked_texts[0], &text));
+                return Err(CleanupFailed::Outage("polish-facts".into()));
             }
             // A placeholder from the context only (an address in the email
             // replied to) would put that value in the text: not used.
