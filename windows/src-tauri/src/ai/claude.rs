@@ -6,8 +6,12 @@
 // (tests point `base` at a fake server on 127.0.0.1). Model IDs and prices
 // were checked against Anthropic's docs on PRICES_CHECKED; never from memory.
 //
-// Privacy: the request body is scanned for card, SSN and IBAN numbers just
-// before it is sent, and a hit sends nothing. Neither the paragraph nor the
+// Privacy: the paragraph goes through the privacy shield first (shield/:
+// names, emails, phone numbers, addresses and unit numbers become
+// placeholders, and the answer must give every one back or it is dropped),
+// and the request body is checked by the never-send filter just before it is
+// sent (card, ID and bank numbers, SSNs, dates of birth, labelled income or
+// benefit amounts); a hit sends nothing. Neither the paragraph nor the
 // answer is logged or kept here: `log_line` gives only codes and numbers,
 // and `Reply`'s Debug shows no text.
 
@@ -144,8 +148,12 @@ pub enum Failure {
     /// No paragraph, or nothing in it.
     Empty,
     TooLong,
-    /// The request body looks like it holds a card, SSN or IBAN: not sent.
+    /// The request holds what the never-send filter refuses (a card, SSN,
+    /// IBAN, date of birth, labelled income): not sent.
     Sensitive,
+    /// The privacy shield: the text couldn't be masked, or the answer didn't
+    /// give its placeholders back exactly (dropped, never shown).
+    Shield(crate::shield::Mismatch),
     /// The answer stopped at max_tokens.
     Truncated,
     /// stop_reason "refusal".
@@ -166,6 +174,7 @@ impl Failure {
             Failure::Empty => "empty".into(),
             Failure::TooLong => "too-long".into(),
             Failure::Sensitive => "sensitive".into(),
+            Failure::Shield(m) => m.code().into(),
             Failure::Truncated => "truncated".into(),
             Failure::Refused => "refused".into(),
             Failure::BadAnswer => "bad-answer".into(),
@@ -224,17 +233,48 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
     if paragraph.chars().count() > MAX_PARAGRAPH_CHARS {
         return Reply::failed(Failure::TooLong);
     }
-    match send(base, key, &request_body(model_id, tone, paragraph)).await {
-        Ok(body) => parse_answer(&body, model_id),
+    let masked = match crate::shield::mask(paragraph) {
+        Ok(m) => m,
+        Err(m) => return Reply::failed(Failure::Shield(m)),
+    };
+    match send(base, key, &request_body(model_id, tone, &masked.text)).await {
+        Ok(body) => unshield(parse_answer(&body, model_id), &masked),
         Err(f) => Reply::failed(f),
     }
 }
 
+/// The rewrite with the real values back, or dropped (shield::Check::Whole:
+/// every placeholder back, none doubled or changed). The cost stays.
+fn unshield(mut reply: Reply, masked: &crate::shield::Masked) -> Reply {
+    if let Ok(text) = &reply.result {
+        reply.result = crate::shield::unmask(text, masked, crate::shield::Check::Whole).map_err(Failure::Shield);
+    }
+    reply
+}
+
 /// The last look before anything leaves: the whole body, as it will be
-/// sent, has a card, SSN or IBAN number in it. Nothing is sent then.
+/// sent, has a card, SSN or IBAN number in it, or a message holds anything
+/// else the never-send filter refuses (shield::never_send: an SSN after its
+/// label, a date of birth, a labelled income or benefit amount). Nothing is
+/// sent then.
 pub(crate) fn blocked(body: &Value) -> bool {
     let bytes = serde_json::to_vec(body).unwrap_or_default();
-    crate::capture::sensitive::contains_sensitive_number(&String::from_utf8_lossy(&bytes))
+    if crate::capture::sensitive::contains_sensitive_number(&String::from_utf8_lossy(&bytes)) {
+        return true;
+    }
+    let mut texts = Vec::new();
+    strings_in(body.get("messages").unwrap_or(&Value::Null), &mut texts);
+    texts.iter().any(|t| crate::shield::never_send::reason(t).is_some())
+}
+
+/// Every string inside `v`, decoded (a JSON escape like `\n` would split words).
+fn strings_in<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+    match v {
+        Value::String(s) => out.push(s),
+        Value::Array(a) => a.iter().for_each(|x| strings_in(x, out)),
+        Value::Object(o) => o.values().for_each(|x| strings_in(x, out)),
+        _ => {}
+    }
 }
 
 /// Sends one request body to /v1/messages and returns a 2xx answer's body.
@@ -500,6 +540,44 @@ mod tests {
     }
 
     #[test]
+    fn the_never_send_filter_refuses_ssns_birth_dates_and_income_too() {
+        let base = Url::parse("http://127.0.0.1:1").unwrap();
+        let go = |p: &str| block_on(rewrite(&base, &key(), DEFAULT_MODEL, Tone::Grammar, p)).result;
+        assert_eq!(go("Her SSN 123456789 is on the form."), Err(Failure::Sensitive));
+        assert_eq!(go("DOB: 03/04/1980, please update the file."), Err(Failure::Sensitive));
+        assert_eq!(go("His monthly income is $3,200 from wages."), Err(Failure::Sensitive));
+        assert_eq!(go("She gets $914 in SSI benefits."), Err(Failure::Sensitive));
+        // Rent and fees are fine (and find no server).
+        assert_eq!(go("Rent is $1,250 and the late fee is $50."), Err(Failure::Network));
+    }
+
+    #[test]
+    fn the_shield_masks_what_is_sent_and_restores_the_answer() {
+        let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let paragraph = "Plese call me at 555-123-4567 or write to dana@example.com about Unit 7D.";
+        let sent = "Plese call me at [PHONE1] or write to [EMAIL1] about Unit [UNIT1].";
+        let fixed = "Please call me at [PHONE1] or write to [EMAIL1] about Unit [UNIT1].";
+        let (url, got) = serve_capture("200 OK", "", answer(fixed, "end_turn"));
+        let reply = block_on(rewrite(&Url::parse(&url).unwrap(), &key(), DEFAULT_MODEL, Tone::Grammar, paragraph));
+        let request = String::from_utf8_lossy(&got.recv_timeout(Duration::from_secs(5)).unwrap()).into_owned();
+        assert!(request.contains(sent), "{request}");
+        for real in ["555-123-4567", "dana@example.com", "7D"] {
+            assert!(!request.contains(real), "{real} was sent");
+        }
+        assert_eq!(reply.result.as_deref(), Ok("Please call me at 555-123-4567 or write to dana@example.com about Unit 7D."));
+        // An answer that lost a placeholder is dropped, still billed.
+        let (url, _got) = serve_capture("200 OK", "", answer("Please call me about Unit [UNIT1].", "end_turn"));
+        let reply = block_on(rewrite(&Url::parse(&url).unwrap(), &key(), DEFAULT_MODEL, Tone::Grammar, paragraph));
+        assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Missing)));
+        assert_eq!(reply.result.clone().unwrap_err().code(), "shield-missing");
+        assert!(reply.usage.is_some());
+        // One that changed a placeholder too.
+        let (url, _got) = serve_capture("200 OK", "", answer("Please call [PHONE 1] or [EMAIL1] about Unit [UNIT1].", "end_turn"));
+        let reply = block_on(rewrite(&Url::parse(&url).unwrap(), &key(), DEFAULT_MODEL, Tone::Grammar, paragraph));
+        assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Altered)));
+    }
+
+    #[test]
     fn the_real_api_address_passes_the_checkpoint_and_others_dont() {
         let base = Url::parse(API_BASE).unwrap();
         let url = Url::parse(&net::join(&base, "/v1/messages")).unwrap();
@@ -513,7 +591,7 @@ mod tests {
     /// The AI code never logs or prints: the caller logs `log_line` only.
     #[test]
     fn the_ai_code_logs_nothing_itself() {
-        for (name, text) in [("claude.rs", include_str!("claude.rs")), ("key.rs", include_str!("key.rs")), ("check.rs", include_str!("check.rs"))] {
+        for (name, text) in [("claude.rs", include_str!("claude.rs")), ("key.rs", include_str!("key.rs")), ("check.rs", include_str!("check.rs")), ("shield", include_str!("../shield/mod.rs")), ("detect.rs", include_str!("../shield/detect.rs")), ("never_send.rs", include_str!("../shield/never_send.rs"))] {
             let code = &text[..text.find("#[cfg(test)]\nmod tests").or_else(|| text.find("#[cfg(test)]\r\nmod tests")).unwrap_or(text.len())];
             for banned in ["log::line", "println!", "eprintln!", "dbg!", "std::fs::write", "File::create"] {
                 assert!(!code.contains(banned), "{name} uses {banned}");

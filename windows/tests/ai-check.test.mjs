@@ -35,7 +35,7 @@ test("a failed automatic check says nothing; a failed click says why", () => {
   const click = ev({ phase: "failed", code: "no-key" });
   assert.equal(nextAiCheck(click), click);
   assert.equal(aiCheckNote(click), "Add your Anthropic API key in Settings → AI first.");
-  assert.equal(aiCheckNote(ev({ phase: "failed", code: "sensitive" })), "Not sent: this has a card, ID or bank number in it, or it's a payment field. Glim never reads or sends those.");
+  assert.equal(aiCheckNote(ev({ phase: "failed", code: "sensitive" })), "Not sent: this has a card, ID or bank number, an SSN, a date of birth or an income amount in it, or it's a payment field. Glim never reads or sends those.");
   assert.equal(aiCheckNote(ev({ phase: "failed", code: "cap" })), "This month's spending cap is reached, so nothing more is sent this month.");
   assert.equal(aiCheckNote(ev({ phase: "failed", code: "no-paragraph" })), "Click in the paragraph you want checked first.");
   assert.equal(aiCheckNote(ev({ phase: "failed", code: "changed" })), "The paragraph changed while Claude was checking. Check again.");

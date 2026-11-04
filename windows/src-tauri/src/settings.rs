@@ -153,6 +153,13 @@ pub struct Settings {
     /// (docs/glim-learns-plan.md §1, decided 2026-10-24): on by default.
     /// Off: nothing is learned or replayed; routines still run.
     pub learn_shortcuts: bool,
+    /// Settings → Privacy → "Privacy shield" (owner, 2026-11-03): on by
+    /// default. Emails, phone numbers, addresses, unit numbers and names are
+    /// swapped for placeholders before any text goes to Claude (shield/).
+    pub privacy_shield: bool,
+    /// Settings → Privacy → names the shield always hides, one per entry
+    /// (besides Outlook's address book and remembered recipients).
+    pub shield_names: Vec<String>,
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
@@ -270,6 +277,8 @@ impl Default for Settings {
             approval_sound: false,
             hide_from_capture: true,
             learn_shortcuts: true,
+            privacy_shield: true,
+            shield_names: Vec::new(),
             phone: PhoneSettings::default(),
         }
     }
@@ -581,6 +590,8 @@ mod tests {
   "approvalSound": true,
   "hideFromCapture": false,
   "learnShortcuts": false,
+  "privacyShield": false,
+  "shieldNames": ["Zephyrine Quill", "Vonk"],
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
@@ -719,6 +730,15 @@ mod tests {
         assert!(parse(br#"{"screen":"active"}"#).unwrap().hide_from_capture, "a file from before the switch");
         assert!(!parse(br#"{"hideFromCapture":false}"#).unwrap().hide_from_capture);
         assert!(parse(&custom_with("hideFromCapture", None)).unwrap().hide_from_capture);
+    }
+
+    #[test]
+    fn the_privacy_shield_is_on_unless_turned_off() {
+        assert!(Settings::default().privacy_shield);
+        assert!(Settings::default().shield_names.is_empty());
+        assert!(parse(br#"{"screen":"active"}"#).unwrap().privacy_shield, "a file from before the switch");
+        assert!(!parse(br#"{"privacyShield":false}"#).unwrap().privacy_shield);
+        assert!(parse(&custom_with("privacyShield", None)).unwrap().privacy_shield);
     }
 
     #[test]
@@ -1053,6 +1073,8 @@ mod tests {
                 "approvalSound",
                 "hideFromCapture",
                 "learnShortcuts",
+                "privacyShield",
+                "shieldNames",
                 "phone",
             ]
         );

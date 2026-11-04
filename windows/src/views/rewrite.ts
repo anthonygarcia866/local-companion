@@ -28,6 +28,8 @@ export function toneLabel(tone: string): string {
 
 /** Why there is no rewrite, in words, for a code from Rust (ai/rewrite.rs). */
 export function failureText(code: string, retryAfter: number | null): string {
+  // The privacy shield dropped the answer (shield-missing, -duplicated, -altered, -collision).
+  if (code.startsWith("shield-")) return t("Not shown: Claude's answer didn't keep the hidden names and numbers exactly. Try again.");
   switch (code) {
     case "paused": return t("Glim is paused.");
     case "local-brain": return t("Rewriting with the local model isn't built yet. Choose Claude API in Settings → AI.");
@@ -37,7 +39,7 @@ export function failureText(code: string, retryAfter: number | null): string {
     case "no-paragraph":
     case "empty": return t("Click in the paragraph you want rewritten first.");
     case "too-long": return t("That paragraph is too long to rewrite (over 2,000 characters).");
-    case "sensitive": return t("Not sent: this has a card, ID or bank number in it, or it's a payment field. Glim never reads or sends those.");
+    case "sensitive": return t("Not sent: this has a card, ID or bank number, an SSN, a date of birth or an income amount in it, or it's a payment field. Glim never reads or sends those.");
     case "truncated": return t("The rewrite was cut off. Try Shorter.");
     case "refused": return t("Claude declined to rewrite this.");
     case "bad-answer": return t("Claude's answer wasn't a paragraph. Try again.");

@@ -96,3 +96,26 @@ test("Glim hides from screen capture unless the switch is turned off", () => {
   assert.ok(rs.includes("hide_from_capture: true,"));
   assert.ok(read("src-tauri/src/lib.rs").includes("screen_capture::apply(&app);"));
 });
+
+test("the privacy shield is on by default and its names list is stored one per line", async () => {
+  const { shieldNamesFrom } = await import("../src/settings/privacy.ts");
+  const settings = { ...DEFAULT_SETTINGS, pauseApps: [], pauseSites: [] };
+  delete settings.privacyShield; // a settings.json from before the shield
+  let saves = 0;
+  const el = privacySection({ settings: () => settings, save: async () => { saves++; } }, BUILTIN);
+  const sw = el.find("button").find((b) => b.getAttribute("data-role") === "privacy-shield");
+  assert.ok(sw.classList.contains("on"), "on when the file has no value");
+  sw.fire("click");
+  assert.equal(settings.privacyShield, false);
+  sw.fire("click");
+  assert.equal(settings.privacyShield, true);
+  const names = el.find("textarea").find((n) => n.getAttribute("data-role") === "shield-names");
+  names.value = "  Zephyrine   Quill \n\nvonk\nVONK\nOttoline";
+  names.fire("change");
+  assert.deepEqual(settings.shieldNames, ["Zephyrine Quill", "vonk", "Ottoline"]);
+  assert.equal(saves, 3);
+  assert.deepEqual(shieldNamesFrom("a\r\nb\r\n"), ["a", "b"]);
+  // Rust holds the same default and applies it on every save.
+  assert.ok(read("src-tauri/src/settings.rs").includes("privacy_shield: true,"));
+  assert.ok(read("src-tauri/src/lib.rs").includes("shield::apply_settings(&settings);"));
+});

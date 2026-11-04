@@ -4,7 +4,10 @@
 // are typed (core/pause.ts) and removed. Rust rebuilds its pause list as soon
 // as settings.json is saved. Also the switch that keeps Glim's windows out of
 // screen capture (docs/glim-learns-plan.md §5, on by default; Rust applies
-// it on save, screen_capture.rs).
+// it on save, screen_capture.rs). And the privacy shield (owner, 2026-11-03;
+// src-tauri/src/shield/): its switch, on by default, and the names it always
+// hides, one per line (Rust adds Outlook's address book and remembered
+// recipients).
 
 import type { PauseBuiltins } from "../core/bridge";
 import type { Settings } from "../core/state";
@@ -29,6 +32,16 @@ export function refusalText(reason: PauseRefusal): string {
     case "bad-segment": return t("Use */word to pause any page with that word in its path.");
     case "bad-site": return t("A site is example.com, example.com/path or */word, without ? # @ or a port.");
   }
+}
+
+/** The names list as stored: one per line, trimmed, no blanks or repeats (any case). */
+export function shieldNamesFrom(text: string): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const name = line.trim().replace(/\s+/g, " ");
+    if (name && !out.some((n) => n.toLowerCase() === name.toLowerCase())) out.push(name);
+  }
+  return out;
 }
 
 export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLElement {
@@ -95,10 +108,31 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
     void host.save();
   });
 
+  const shieldLabel = t("Privacy shield");
+  const shielded = host.settings().privacyShield !== false;
+  const shield = h("button", { class: shielded ? "switch on" : "switch", type: "button", "aria-pressed": String(shielded), "data-role": "privacy-shield", "aria-label": shieldLabel }) as HTMLButtonElement;
+  shield.addEventListener("click", () => {
+    const next = !shield.classList.contains("on");
+    shield.classList.toggle("on", next);
+    shield.setAttribute("aria-pressed", String(next));
+    host.settings().privacyShield = next;
+    void host.save();
+  });
+  const namesLabel = t("Names to always hide");
+  const names = h("textarea", { rows: "4", spellcheck: "false", autocomplete: "off", "data-role": "shield-names", "aria-label": namesLabel }) as HTMLTextAreaElement;
+  names.value = (host.settings().shieldNames ?? []).join("\n");
+  names.addEventListener("change", () => {
+    host.settings().shieldNames = shieldNamesFrom(names.value);
+    void host.save();
+  });
+
   return h(
     "section",
     {},
     h("h2", {}, h("span", { text: t("Privacy") })),
+    h("div", { class: "row" }, h("label", { text: shieldLabel }), shield),
+    h("div", { class: "hint", text: t("Before anything goes to Claude, names, emails, phone numbers, addresses and unit numbers are swapped for placeholders on this PC and put back in the answer.") }),
+    h("div", { class: "pill-group" }, h("h3", { text: namesLabel }), names, h("div", { class: "hint", text: t("One per line. Names in Outlook's address book (while Outlook is open) and people you've drafted emails to are hidden too.") })),
     h("div", { class: "hint", text: t("Glim never reads fields in these apps or on these sites: nothing is checked, kept or rewritten there.") }),
     body,
     h("div", { class: "row" }, h("label", { text: hideLabel }), hide),
