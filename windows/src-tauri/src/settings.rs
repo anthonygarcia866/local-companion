@@ -637,7 +637,8 @@ mod tests {
   "livePauseMs": 2500,
   "dictationLevel": "clean",
   "dictationLevels": { "ms-teams.exe": "verbatim" },
-  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
+  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
+  "cloudConsent": { "live": "on", "polish": "off", "autoCheck": "" }
 }"##;
 
     fn custom() -> Value {
@@ -1146,6 +1147,7 @@ mod tests {
                 "dictationLevel",
                 "dictationLevels",
                 "phone",
+                "cloudConsent",
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
