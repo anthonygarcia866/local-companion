@@ -23,6 +23,12 @@
 //      none of Glim's amber; with it off (Glim restarted), it has.
 //   6. All along: no window of Glim's that wasn't meant to show ever becomes
 //      visible (a watcher samples every window of the process every 150 ms).
+//   7. Live revisions (owner, 2026-11-03): real typing in Notepad, the
+//      preview appears above the paragraph, the accept key replaces it, Ctrl+Z
+//      restores it. A stand-in for the Claude API runs here on 127.0.0.1 (the
+//      e2e build's GLIM_E2E_API_BASE / GLIM_E2E_API_KEY, claude::api_base):
+//      nothing leaves the runner. The pause -> preview time and the log's
+//      `live:` lines are reported.
 //
 // Screenshots go to e2e-results/app/ (a CI artifact). The summary line goes to
 // the job summary. A part the runner can't do (no input desktop: SendInput
@@ -33,6 +39,7 @@ import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, appendFileS
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
+import { createServer } from "node:http";
 import { chromium } from "@playwright/test";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -66,7 +73,29 @@ function writeSettings(hideFromCapture) {
   mkdirSync(dirname(settingsFile), { recursive: true });
   writeFileSync(settingsFile, JSON.stringify({ autostart: false, calendarOn: false, hideFromCapture }, null, 1));
 }
-const env = { ...process.env, ...folders, HOME: folders.USERPROFILE, GLIM_E2E_CDP_PORT: String(PORT) };
+// The stand-in for the Claude API (live revisions only): fixes two typos in
+// the paragraph it gets, answers like the Messages API, counts requests.
+const STAND_IN = 9341;
+const standIn = { requests: 0 };
+const server = createServer((req, res) => {
+  let body = "";
+  req.on("data", (d) => { body += d; });
+  req.on("end", () => {
+    if (req.method !== "POST") { res.writeHead(200); res.end(); return; }
+    standIn.requests++;
+    let text = "";
+    try {
+      const content = JSON.parse(body).messages[0].content;
+      text = content.slice(content.lastIndexOf("<text>\n") + 7, content.lastIndexOf("\n</text>"));
+    } catch { /* an odd body: answer empty */ }
+    const fixed = text.replace("recieved", "received").replace("tomorow", "tomorrow");
+    const answer = { id: "msg_stand_in", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [{ type: "text", text: fixed }], stop_reason: "end_turn", usage: { input_tokens: 180, output_tokens: 30 } };
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(answer));
+  });
+});
+await new Promise((r) => server.listen(STAND_IN, "127.0.0.1", r));
+const env = { ...process.env, ...folders, HOME: folders.USERPROFILE, GLIM_E2E_CDP_PORT: String(PORT), GLIM_E2E_API_BASE: `http://127.0.0.1:${STAND_IN}`, GLIM_E2E_API_KEY: "sk-ant-api03-STANDIN-0000" };
 delete env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;
 delete env.GLIM_DEV;
 delete env.GLIM_CAPTURABLE;
@@ -263,6 +292,82 @@ async function captureIsland(name, g, win, pid) {
   }
 }
 
+// ── Live revisions ───────────────────────────────────────────────────────────
+
+const TYPED = "We recieved the payment and will deposit it tomorow.";
+const FIXED = "We received the payment and will deposit it tomorrow.";
+
+async function readField(win) {
+  const r = await win.ask({ cmd: "text" });
+  return typeof r.text === "string" ? r.text.replace(/\r/g, "") : "";
+}
+
+/** The live preview's page over CDP, once Glim has made its window. */
+async function livePage(g, ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const pg = g.browser.contexts().flatMap((c) => c.pages()).find((p) => new URL(p.url()).pathname.endsWith("/live.html"));
+    if (pg) return pg;
+    await sleep(200);
+  }
+  return null;
+}
+
+async function liveRevisions(g, win) {
+  const notepad = spawn("notepad.exe", [], { stdio: "ignore", detached: false });
+  try {
+    await sleep(2_500);
+    // Two bursts, so Glim sees the paragraph edited in place.
+    const first = await win.ask({ cmd: "type", text: TYPED.slice(0, 24) });
+    if (!first.sent) return result("live revisions", "SKIPPED", "SendInput sent 0 events: the runner has no input desktop");
+    await sleep(900);
+    await win.ask({ cmd: "type", text: TYPED.slice(24) });
+    const typedAt = Date.now();
+    const before = await readField(win);
+    if (!before.includes(TYPED)) return result("live revisions: typing", "SKIPPED", `Notepad didn't get the keys (field: ${JSON.stringify(before.slice(0, 80))})`);
+    result("live revisions: typing", "PASS", "typed into Notepad");
+    // The preview: its page shows the diff.
+    const page = await livePage(g, 10_000);
+    const diff = page?.locator("[data-role=live-diff]");
+    let shownAt = 0;
+    try {
+      await diff.waitFor({ state: "visible", timeout: 10_000 });
+      shownAt = Date.now();
+    } catch { /* below */ }
+    if (!shownAt) {
+      const log = join(folders.LOCALAPPDATA, "Glim", "glim.log");
+      const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter((l) => /live|writing|capture/.test(l)).slice(-12).join("\n") : "(no log)";
+      return result("live revisions: preview", "FAIL", `no preview within 10 s (${standIn.requests} request(s) to the stand-in). Log:\n${tail}`);
+    }
+    const shownText = await diff.textContent();
+    await page.screenshot({ path: join(out, "live-preview.png") }).catch(() => {});
+    const windows = await win.ask({ cmd: "windows", pid: g.p.pid });
+    const preview = Array.isArray(windows) ? windows.find((w) => w.visible && w.x > -30000 && w.w >= 300 && w.w <= 900 && w.h < 400 && w.h > 40) : null;
+    result("live revisions: preview", /received/.test(shownText ?? "") ? "PASS" : "FAIL", `pause -> preview ${shownAt - typedAt} ms (incl. the 1.5 s pause); ${standIn.requests} request(s); window ${preview ? `${preview.w}x${preview.h} at ${preview.x},${preview.y}` : "not found on screen"}`);
+    // The accept key replaces only that paragraph; Ctrl+Z restores it.
+    await win.ask({ cmd: "keys", chord: "ctrl+alt+shift+enter" });
+    await sleep(2_000);
+    const after = await readField(win);
+    result("live revisions: accept key", after.includes(FIXED) ? "PASS" : "FAIL", `field now ${JSON.stringify(after.slice(0, 80))}`);
+    await win.ask({ cmd: "keys", chord: "ctrl+z" });
+    await sleep(1_000);
+    const undone = await readField(win);
+    result("live revisions: Ctrl+Z restores", undone.includes(TYPED) ? "PASS" : "FAIL", `field now ${JSON.stringify(undone.slice(0, 80))}`);
+    // The log: codes, timings and cost only.
+    const log = join(folders.LOCALAPPDATA, "Glim", "glim.log");
+    const lines = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter((l) => / live: /.test(l)) : [];
+    for (const l of lines) console.log(`  log: ${l}`);
+    const leaked = lines.some((l) => /recieved|received|payment/.test(l));
+    result("live revisions: log has no text", leaked ? "FAIL" : "PASS", `${lines.length} live line(s)`);
+  } catch (e) {
+    result("live revisions", "FAIL", e.message);
+  } finally {
+    notepad.kill();
+    await taskkill("notepad.exe");
+    await sleep(800);
+  }
+}
+
 // ── Run ──────────────────────────────────────────────────────────────────────
 
 const win = helper();
@@ -305,6 +410,10 @@ try {
       { wait: 300, last: true },
     ]);
   }
+
+  // 7. Live revisions, with the input desktop the Allow key needed.
+  if (probe.sent) await liveRevisions(g, win);
+  else result("live revisions", "SKIPPED", "SendInput sent 0 events: the runner has no input desktop");
 
   // 5. Capture exclusion, on.
   const on = await captureIsland("on", g, win, pid);

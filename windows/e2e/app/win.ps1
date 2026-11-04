@@ -5,6 +5,8 @@
 # One process, one JSON command per stdin line, one JSON answer per stdout line:
 #   {"cmd":"windows","pid":123}         every top-level window of that process
 #   {"cmd":"keys","chord":"ctrl+alt+shift+y"}   SendInput, down then up
+#   {"cmd":"type","text":"words"}       SendInput, as Unicode characters
+#   {"cmd":"text"}                      the focused field's text (UI Automation)
 #   {"cmd":"shot","x":0,"y":0,"w":10,"h":10,"out":"a.png"}  a desktop capture (BitBlt)
 #   {"cmd":"quit"}
 $ErrorActionPreference = 'Stop'
@@ -55,6 +57,7 @@ public static class GlimWin {
   static ushort Vk(string k) {
     switch (k) {
       case "ctrl": return 0x11; case "alt": return 0x12; case "shift": return 0x10;
+      case "enter": return 0x0D; case "backspace": return 0x08;
       default: return (ushort)char.ToUpperInvariant(k[0]);
     }
   }
@@ -84,6 +87,16 @@ public static class GlimWin {
   }
 
   public static long Foreground() { return GetForegroundWindow().ToInt64(); }
+
+  /// Types `text` as Unicode characters (KEYEVENTF_UNICODE): how many events Windows took.
+  public static uint Type(string text) {
+    var list = new List<INPUT>();
+    foreach (char ch in text) {
+      list.Add(new INPUT { type = 1, ki = new KEYBDINPUT { wScan = ch, dwFlags = 4 } });
+      list.Add(new INPUT { type = 1, ki = new KEYBDINPUT { wScan = ch, dwFlags = 4 | 2 } });
+    }
+    return SendInput((uint)list.Count, list.ToArray(), Marshal.SizeOf(typeof(INPUT)));
+  }
 }
 "@
 [void][GlimWin]::SetProcessDPIAware()
@@ -96,6 +109,17 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       'windows' { $out = [GlimWin]::Windows([uint32]$c.pid) }
       'keys' { $out = '{"sent":' + [GlimWin]::Keys([string]$c.chord) + ',"foreground":' + [GlimWin]::Foreground() + '}' }
       'shot' { $out = [GlimWin]::Shot([int]$c.x, [int]$c.y, [int]$c.w, [int]$c.h, [string]$c.out) }
+      'type' { $out = '{"sent":' + [GlimWin]::Type([string]$c.text) + '}' }
+      'text' {
+        Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        $value = $null
+        $vp = $null
+        if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) { $value = $vp.Current.Value }
+        $tp = $null
+        if ($null -eq $value -and $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp)) { $value = $tp.DocumentRange.GetText(-1) }
+        $out = '{"text":' + ([string]$value | ConvertTo-Json -Compress) + ',"cls":' + ([string]$el.Current.ClassName | ConvertTo-Json -Compress) + '}'
+      }
       'quit' { exit 0 }
       default { $out = '{"error":"unknown command"}' }
     }

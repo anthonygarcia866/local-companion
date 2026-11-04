@@ -24,6 +24,20 @@ use crate::net::{self, Method, Url};
 
 /// The API, in the app. Tests use a fake server on 127.0.0.1 instead.
 pub const API_BASE: &str = "https://api.anthropic.com";
+
+/// Where live revisions go: API_BASE. Only in the stage 3 CI build (cargo
+/// feature `e2e`, an exe `npm run pack` refuses) may GLIM_E2E_API_BASE point
+/// them at a stand-in on 127.0.0.1 (still through net::request and its
+/// checks). Without the feature, nothing here reads the environment.
+pub fn api_base() -> String {
+    #[cfg(feature = "e2e")]
+    if let Ok(base) = std::env::var("GLIM_E2E_API_BASE") {
+        if base.starts_with("http://127.0.0.1:") {
+            return base;
+        }
+    }
+    API_BASE.to_string()
+}
 pub const API_VERSION: &str = "2023-06-01";
 /// The whole request, connection included.
 pub const TIMEOUT: Duration = Duration::from_secs(20);
@@ -575,6 +589,21 @@ mod tests {
         let (url, _got) = serve_capture("200 OK", "", answer("Please call [PHONE 1] or [EMAIL1] about Unit [UNIT1].", "end_turn"));
         let reply = block_on(rewrite(&Url::parse(&url).unwrap(), &key(), DEFAULT_MODEL, Tone::Grammar, paragraph));
         assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Altered)));
+    }
+
+    #[test]
+    fn only_the_e2e_build_can_point_live_revisions_elsewhere() {
+        #[cfg(not(feature = "e2e"))]
+        {
+            std::env::set_var("GLIM_E2E_API_BASE", "http://127.0.0.1:9");
+            assert_eq!(api_base(), API_BASE, "the environment is never read without the feature");
+            std::env::remove_var("GLIM_E2E_API_BASE");
+        }
+        let code = include_str!("claude.rs");
+        let f = &code[code.find("pub fn api_base()").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.find("#[cfg(feature = \"e2e\")]").unwrap() < f.find("GLIM_E2E_API_BASE\")").unwrap(), "gated");
+        assert!(f.contains("starts_with(\"http://127.0.0.1:\")"), "a stand-in on this PC only");
     }
 
     #[test]

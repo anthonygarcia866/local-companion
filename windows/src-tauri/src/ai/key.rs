@@ -106,6 +106,28 @@ pub fn load(vault: &dyn Vault) -> Result<Option<ApiKey>, String> {
 }
 
 /// The vault the app uses.
+/// The key live revisions use: the saved one. Only in the stage 3 CI build
+/// (cargo feature `e2e`), and only when none is saved, GLIM_E2E_API_KEY
+/// stands in (the run's stand-in server on 127.0.0.1 is the only place it
+/// can go: claude::api_base).
+pub fn load_for_live() -> Result<Option<ApiKey>, String> {
+    let saved = load(&vault());
+    #[cfg(feature = "e2e")]
+    if matches!(saved, Ok(None)) {
+        if let Ok(k) = std::env::var("GLIM_E2E_API_KEY") {
+            if !k.trim().is_empty() && claude_base_is_stand_in() {
+                return Ok(Some(ApiKey(k.trim().to_string())));
+            }
+        }
+    }
+    saved
+}
+
+#[cfg(feature = "e2e")]
+fn claude_base_is_stand_in() -> bool {
+    super::claude::api_base() != super::claude::API_BASE
+}
+
 pub fn vault() -> impl Vault {
     CredentialManager { target: TARGET }
 }
