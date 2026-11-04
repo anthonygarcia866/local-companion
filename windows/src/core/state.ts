@@ -216,6 +216,12 @@ export interface Settings {
   privacyShield?: boolean;
   /** Settings → Privacy: names the shield always hides, one per entry. */
   shieldNames?: string[];
+  /** Settings → Writing → Live revisions: on unless false. */
+  liveRevisions?: boolean;
+  /** Per-app switches, "on" / "off" by exe; an app not listed is on. */
+  liveRevisionApps?: Record<string, string>;
+  /** The pause before a suggestion, in ms (1000-3000, 1500 by default). */
+  livePauseMs?: number;
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
   phone?: PhoneSettings;
 }
@@ -269,6 +275,9 @@ export const DEFAULT_SETTINGS: Settings = {
   learnShortcuts: true,
   privacyShield: true,
   shieldNames: [],
+  liveRevisions: true,
+  liveRevisionApps: {},
+  livePauseMs: 1500,
   phone: { ...DEFAULT_PHONE },
 };
 

@@ -236,6 +236,7 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
       h("div", { class: "hint", "data-role": "strictness-ai-note", text: t("Agreement and meaning errors (like “Alex and I was”) can slip through at every level: they need the AI. For now, use Rewrite.") }),
     ),
     tones,
+    liveGroup(host, known),
     bubbleRow(host),
     aiAutoRow(host),
     dictationGroup(host),
@@ -395,6 +396,70 @@ export function dictationGroup(host: WritingHost): HTMLElement {
     h("div", { class: "row" }, h("label", { text: t("Words Glim should know"), for: "voice-words" }), words),
     h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. They stay on this PC.") }),
     h("div", { class: "hint", "data-role": "voice-built-in", text: t("Glim always knows these too: {words}.", { words: BUILT_IN_WORDS }) }),
+  );
+}
+
+/** The pause before a live revision, in ms, as Rust clamps it (writing/live.rs). */
+export function livePause(ms: number | undefined): number {
+  const v = typeof ms === "number" && Number.isFinite(ms) ? ms : 1500;
+  return Math.min(3000, Math.max(1000, Math.round(v / 100) * 100));
+}
+
+/**
+ * Settings → Writing → Live revisions (owner, 2026-11-03): on everywhere by
+ * default, a switch per app the checker reads (all on), and the pause before
+ * a suggestion (1-3 s, 1.5 s by default).
+ */
+export function liveGroup(host: WritingHost, known: KnownApp[]): HTMLElement {
+  const label = t("Live revisions");
+  const on = host.settings().liveRevisions !== false;
+  const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "data-role": "live-revisions", "aria-label": label }) as HTMLButtonElement;
+  sw.addEventListener("click", () => {
+    const next = !sw.classList.contains("on");
+    sw.classList.toggle("on", next);
+    sw.setAttribute("aria-pressed", String(next));
+    host.settings().liveRevisions = next;
+    void host.save();
+  });
+  const pause = h("input", { type: "range", min: "1000", max: "3000", step: "500", "data-role": "live-pause", "aria-label": t("Pause before a suggestion") }) as HTMLInputElement;
+  const seconds = h("span", { class: "state", "data-role": "live-pause-value" });
+  const showPause = () => {
+    const ms = livePause(host.settings().livePauseMs);
+    pause.value = String(ms);
+    seconds.textContent = t("{seconds} s", { seconds: (ms / 1000).toFixed(1) });
+  };
+  pause.addEventListener("input", () => {
+    host.settings().livePauseMs = livePause(Number(pause.value));
+    showPause();
+  });
+  pause.addEventListener("change", () => {
+    host.settings().livePauseMs = livePause(Number(pause.value));
+    showPause();
+    void host.save();
+  });
+  showPause();
+  const apps = h("div", { class: "pill-group", "data-role": "live-apps" });
+  function drawApps() {
+    clear(apps);
+    apps.append(h("h3", { text: t("Live revisions in each app") }));
+    for (const k of known.filter((k) => k.defaultOn)) {
+      const map = host.settings().liveRevisionApps ?? {};
+      const appIsOn = appOn(map, k.exe, true);
+      const one = h("button", { class: appIsOn ? "switch on" : "switch", type: "button", "aria-pressed": String(appIsOn), "data-live-exe": k.exe }) as HTMLButtonElement;
+      one.addEventListener("click", () => {
+        host.settings().liveRevisionApps = switchApp(host.settings().liveRevisionApps ?? {}, k.exe, !appIsOn, { defaultOn: true });
+        void host.save();
+        drawApps();
+      });
+      apps.append(h("div", { class: "pill-row" }, h("span", { class: "name", text: k.name }), h("span", { class: "state", text: k.exe }), one));
+    }
+  }
+  drawApps();
+  return h("div", { class: "settings-group", id: "settings-writing-live" },
+    h("div", { class: "row" }, h("label", { text: label }), sw),
+    h("div", { class: "hint", text: t("When you pause typing, the paragraph goes to Claude (through the privacy shield) for a light edit: grammar, spelling, punctuation and tighter wording in your own voice. Never in password fields, paused apps or banking and payment sites.") }),
+    h("div", { class: "row" }, h("label", { text: t("Pause before a suggestion") }), pause, seconds),
+    apps,
   );
 }
 
