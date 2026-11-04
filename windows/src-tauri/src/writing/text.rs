@@ -25,6 +25,21 @@ pub fn paragraph_before(field: &str, start: usize) -> String {
     above.split(is_break).map(str::trim).rfind(|p| !p.is_empty()).unwrap_or("").to_string()
 }
 
+/// The message being replied to, when the field holds one below the user's
+/// own text (a "From: … Sent:" header, "On … wrote:", "-----Original
+/// Message-----" or ">" lines): that part, else "". A signature is not one.
+pub fn quoted_reply(field: &str) -> String {
+    let chars: Vec<char> = field.chars().collect();
+    let lines = lines_of(&chars);
+    for (i, &(start, end)) in lines.iter().enumerate() {
+        let line: String = chars[start..end].iter().collect();
+        if starts_quote(&line, &lines[i + 1..], &chars) {
+            return chars[start..].iter().collect::<String>().trim().to_string();
+        }
+    }
+    String::new()
+}
+
 /// The paragraph the caret is in, inside the user's own text. None when the
 /// caret is in the signature or the quoted part, or the paragraph is blank.
 /// Without a caret (ValuePattern fields), the end of the user's own text.

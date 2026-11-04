@@ -167,6 +167,11 @@ pub struct Settings {
     pub live_revision_apps: BTreeMap<String, String>,
     /// How long a pause in typing sends the paragraph, in ms (1000-3000).
     pub live_pause_ms: u32,
+    /// Settings → Writing → Dictation → level (owner, 2026-11-03):
+    /// "polished" (default), "clean" or "verbatim" (ai/polish.rs).
+    pub dictation_level: String,
+    /// Per-app levels by exe, where they differ.
+    pub dictation_levels: BTreeMap<String, String>,
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
@@ -289,6 +294,8 @@ impl Default for Settings {
             live_revisions: true,
             live_revision_apps: BTreeMap::new(),
             live_pause_ms: 1500,
+            dictation_level: "polished".into(),
+            dictation_levels: BTreeMap::new(),
             phone: PhoneSettings::default(),
         }
     }
@@ -605,6 +612,8 @@ mod tests {
   "liveRevisions": false,
   "liveRevisionApps": { "slack.exe": "off" },
   "livePauseMs": 2500,
+  "dictationLevel": "clean",
+  "dictationLevels": { "ms-teams.exe": "verbatim" },
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
@@ -1100,6 +1109,8 @@ mod tests {
                 "liveRevisions",
                 "liveRevisionApps",
                 "livePauseMs",
+                "dictationLevel",
+                "dictationLevels",
                 "phone",
             ]
         );

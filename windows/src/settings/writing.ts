@@ -8,7 +8,7 @@ import type { Settings } from "../core/state";
 import { TONES } from "../core/rewrite";
 import { toneLabel } from "../views/rewrite";
 import { h, clear } from "../views/dom";
-import { t } from "../i18n/i18n";
+import { t, N_ } from "../i18n/i18n";
 
 /** What the section needs from the Settings page. */
 export interface WritingHost {
@@ -239,7 +239,7 @@ export function writingSection(host: WritingHost, known: KnownApp[], toneDefault
     liveGroup(host, known),
     bubbleRow(host),
     aiAutoRow(host),
-    dictationGroup(host),
+    dictationGroup(host, known),
     openAppsGroup(host),
     draftGroup(host),
   );
@@ -368,7 +368,29 @@ export function modelFile(size: string): string {
  *  voice::BUILT_IN_WORDS (fix d, 2026-10-17), shown so nobody types them again. */
 export const BUILT_IN_WORDS = "Claude, Claude Code, Codex, Glim";
 
-export function dictationGroup(host: WritingHost): HTMLElement {
+/** Dictation levels (src-tauri/src/ai/polish.rs), the default first. */
+export const DICTATION_LEVELS: [string, string][] = [["polished", N_("Polished")], ["clean", N_("Clean")], ["verbatim", N_("Verbatim")]];
+
+/** A stored level as Rust reads it: anything unknown is Polished. */
+export function dictationLevel(v: string | undefined): string {
+  return v === "clean" || v === "verbatim" ? v : "polished";
+}
+
+/** An app's own level ("" = the default), whatever the stored key's case. */
+export function appLevel(map: Record<string, string>, exe: string): string {
+  const key = Object.keys(map).find((k) => k.toLowerCase() === exe.toLowerCase());
+  return key === undefined ? "" : dictationLevel(map[key]);
+}
+
+/** `map` with `exe`'s level set; "" removes it (back to the default). */
+export function setAppLevel(map: Record<string, string>, exe: string, level: string): Record<string, string> {
+  const next = { ...map };
+  for (const k of Object.keys(next)) if (k.toLowerCase() === exe.toLowerCase()) delete next[k];
+  if (level) next[exe] = dictationLevel(level);
+  return next;
+}
+
+export function dictationGroup(host: WritingHost, known: KnownApp[] = []): HTMLElement {
   const model = h("select", { id: "voice-model", "data-role": "voice-model" }) as HTMLSelectElement;
   model.append(h("option", { value: "base", text: t("Base (faster)") }), h("option", { value: "small", text: t("Small (more accurate, slower)") }));
   model.value = host.settings().voiceModel === "small" ? "small" : "base";
@@ -388,13 +410,36 @@ export function dictationGroup(host: WritingHost): HTMLElement {
     host.settings().voiceWords = words.value.trim();
     void host.save();
   });
+  const level = h("select", { id: "dictation-level", "data-role": "dictation-level" }) as HTMLSelectElement;
+  for (const [id, label] of DICTATION_LEVELS) level.append(h("option", { value: id, text: t(label) }));
+  level.value = dictationLevel(host.settings().dictationLevel);
+  level.addEventListener("change", () => {
+    host.settings().dictationLevel = dictationLevel(level.value);
+    void host.save();
+  });
+  const perApp = h("div", { class: "pill-group", "data-role": "dictation-apps" });
+  perApp.append(h("h3", { text: t("Style in each app") }));
+  for (const k of known.filter((k) => k.defaultOn)) {
+    const pick = h("select", { "data-dictation-exe": k.exe, "aria-label": k.name }) as HTMLSelectElement;
+    pick.append(h("option", { value: "", text: t("Same as above") }));
+    for (const [id, label] of DICTATION_LEVELS) pick.append(h("option", { value: id, text: t(label) }));
+    pick.value = appLevel(host.settings().dictationLevels ?? {}, k.exe);
+    pick.addEventListener("change", () => {
+      host.settings().dictationLevels = setAppLevel(host.settings().dictationLevels ?? {}, k.exe, pick.value);
+      void host.save();
+    });
+    perApp.append(h("div", { class: "pill-row" }, h("span", { class: "name", text: k.name }), pick));
+  }
   return h("div", { class: "settings-group", id: "settings-writing-dictation" },
     h("h3", { text: t("Dictation") }),
+    h("div", { class: "row" }, h("label", { text: t("Dictation style"), for: "dictation-level" }), level),
+    h("div", { class: "hint", text: t("Polished turns what you say into well-written text in your voice, matched to the app, never adding facts. Clean only tidies it up. Verbatim types it as heard, with no AI.") }),
+    perApp,
     h("div", { class: "hint", text: t("Hold the dictation shortcut (Ctrl+Alt+Shift+V unless you changed it) and speak; let go and Glim types it where you're writing. The microphone is on only while you hold it, and the audio is never saved.") }),
     h("div", { class: "row" }, h("label", { text: t("Speech model"), for: "voice-model" }), model),
     files,
     h("div", { class: "row" }, h("label", { text: t("Words Glim should know"), for: "voice-words" }), words),
-    h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. They stay on this PC.") }),
+    h("div", { class: "hint", text: t("Names and terms, separated by commas, so they're spelled right. Polished dictation also gives them to Claude, through the privacy shield.") }),
     h("div", { class: "hint", "data-role": "voice-built-in", text: t("Glim always knows these too: {words}.", { words: BUILT_IN_WORDS }) }),
   );
 }

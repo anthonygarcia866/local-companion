@@ -322,7 +322,7 @@ test("Settings → Writing → Apps Glim can open: add and remove own apps, chec
   assert.match(role("own-app-why").textContent, /up to 20 apps/);
   // It sits on the Writing page, after Dictation.
   const writing = read("src/settings/writing.ts");
-  assert.ok(writing.indexOf("dictationGroup(host),\n    openAppsGroup(host),") > 0);
+  assert.ok(writing.indexOf("dictationGroup(host, known),\n    openAppsGroup(host),") > 0);
 });
 
 // Retest defect (2026-10-16): the question sat in a one-line title and was

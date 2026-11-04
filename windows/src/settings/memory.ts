@@ -64,7 +64,7 @@ export function memorySection(): HTMLElement {
     "section",
     {},
     h("h2", {}, h("span", { text: t("Memory") })),
-    h("div", { class: "hint", "data-role": "memory-privacy", text: t("What you asked Glim to remember. Every fact, and the rules that match what you ask, go to api.anthropic.com with your Ask Glim requests; never with dictation. Kept on this PC.") }),
+    h("div", { class: "hint", "data-role": "memory-privacy", text: t("What you asked Glim to remember. Every fact, and the rules that match what you ask, go to api.anthropic.com with your Ask Glim requests; the matching rules also go with live revisions and polished dictation. Kept on this PC.") }),
     h("div", { class: "hint", text: t("Glim never keeps health, money, ID numbers or tenant and customer details.") }),
     lists,
   );

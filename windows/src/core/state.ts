@@ -222,6 +222,10 @@ export interface Settings {
   liveRevisionApps?: Record<string, string>;
   /** The pause before a suggestion, in ms (1000-3000, 1500 by default). */
   livePauseMs?: number;
+  /** Settings → Writing → Dictation: "polished" (default), "clean" or "verbatim". */
+  dictationLevel?: string;
+  /** Per-app levels by exe, where they differ. */
+  dictationLevels?: Record<string, string>;
   /** Settings → Phone (docs/phone-plan.md): pushes to the owner's phone, off by default. */
   phone?: PhoneSettings;
 }
@@ -278,6 +282,8 @@ export const DEFAULT_SETTINGS: Settings = {
   liveRevisions: true,
   liveRevisionApps: {},
   livePauseMs: 1500,
+  dictationLevel: "polished",
+  dictationLevels: {},
   phone: { ...DEFAULT_PHONE },
 };
 

@@ -80,7 +80,7 @@ test("Settings → Memory: the lists with Remove, Forget everything, and where t
   const role = (r) => [...el.walk()].filter((e) => e.getAttribute("data-role") === r);
   assert.match(el.textContent, /When I say the office I mean Outlook/);
   assert.match(el.textContent, /Prefers short replies/);
-  assert.match(role("memory-privacy")[0].textContent, /go to api\.anthropic\.com with your Ask Glim requests; never with dictation/);
+  assert.match(role("memory-privacy")[0].textContent, /go to api\.anthropic\.com with your Ask Glim requests; the matching rules also go with live revisions and polished dictation/);
   const removes = role("memory-remove");
   assert.equal(removes.length, 2);
   removes[1].fire("click");

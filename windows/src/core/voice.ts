@@ -102,6 +102,10 @@ export function answering(v: VoiceState | null): boolean {
 export function needsCard(v: VoiceState | null): boolean {
   if (!v) return false;
   if (running(v)) return answering(v);
+  // Verbatim was the user's choice: the raw words in the field say it.
+  if (v.phase === "typed" && !v.cleaned && v.code === "verbatim") return false;
+  // Polished left out a detail, so the clean version went in: the card says so.
+  if (v.phase === "typed" && v.cleaned && v.code === "polish-detail") return true;
   return v.phase !== "typed" || !v.cleaned;
 }
 
@@ -175,7 +179,7 @@ export function meterPercent(v: VoiceState | null): number | null {
 /** The lantern's "not cleaned up" badge (plan §4.1): the raw transcript was
  *  typed. Shown while that result is (its card, ~8 s); never in the text. */
 export function rawBadge(v: VoiceState | null): boolean {
-  return v?.phase === "typed" && !v.cleaned;
+  return v?.phase === "typed" && !v.cleaned && v.code !== "verbatim";
 }
 
 /** How long a result card stays with nobody touching it. A text that wasn't

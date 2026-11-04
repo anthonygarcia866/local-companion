@@ -359,6 +359,9 @@ struct Current {
     start: usize,
     /// The paragraph before it in the field (live revisions' context).
     before: String,
+    /// The message being replied to in the same field (polished dictation's
+    /// context), or "".
+    quoted: String,
     /// key_of the paragraph: which version of it this is.
     key: u64,
     mode: FixMode,
@@ -512,7 +515,8 @@ impl Session {
             return;
         };
         let before = crate::writing::text::paragraph_before(text, paragraph.start);
-        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, before, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
+        let quoted = crate::writing::text::quoted_reply(text);
+        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, before, quoted, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
         // The debouncer sees this version first, so a pause counts from its
         // last change (live revisions read it).
         self.live_note();
@@ -552,6 +556,15 @@ impl Session {
         } else {
             self.refresh(&mut emit);
         }
+    }
+
+    /// Polished dictation's context (ai/polish.rs): the text before the
+    /// cursor (the paragraph before and the caret's paragraph) and the
+    /// message being replied to. None when no field is being read.
+    pub fn dictation_context(&self) -> Option<(String, String)> {
+        let c = self.current.as_ref()?;
+        let before = [c.before.as_str(), c.text.as_str()].iter().filter(|s| !s.trim().is_empty()).copied().collect::<Vec<_>>().join("\n\n");
+        Some((before, c.quoted.clone()))
     }
 
     /// The writing settings changed (an app switched off, 1d): everything
