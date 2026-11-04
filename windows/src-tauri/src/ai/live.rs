@@ -185,9 +185,9 @@ mod tests {
         assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Missing)));
         let (url, _got) = serve_capture("200 OK", "", answer("Please call [PHONE1] about unit [UNIT1], or [EMAIL1]."));
         let reply = block_on(revise(&Url::parse(&url).unwrap(), &key(), p, before, false, &[]));
-        // Bringing the context's email into the paragraph is adding content:
-        // allowed by the shield, but the share-changed rule judges it later.
-        assert!(reply.result.is_ok());
+        // Bringing the context's email into the paragraph would type a value
+        // from the context: never (security review, 2026-11-03).
+        assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Altered)));
         let (url, _got) = serve_capture("200 OK", "", answer("Please call [PHONE2] about unit [UNIT1]."));
         let reply = block_on(revise(&Url::parse(&url).unwrap(), &key(), p, before, false, &[]));
         assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Altered)));

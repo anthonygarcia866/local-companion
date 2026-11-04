@@ -164,6 +164,15 @@ fn the_never_send_filter_sees_the_text_before_any_placeholder() {
 }
 
 #[test]
+fn an_edit_may_drop_the_contexts_values_but_never_bring_them_in() {
+    let (texts, m) = mask_many(&["call 555-123-4567 today", "or email dana@example.com"], &names()).unwrap();
+    assert_eq!(texts, ["call [PHONE1] today", "or email [EMAIL1]"]);
+    assert_eq!(unmask_keeping("Call [PHONE1] today.", &m, &texts[0]).unwrap(), "Call 555-123-4567 today.");
+    assert_eq!(unmask_keeping("Call today.", &m, &texts[0]), Err(Mismatch::Missing));
+    assert_eq!(unmask_keeping("Call [PHONE1] or email [EMAIL1].", &m, &texts[0]), Err(Mismatch::Altered));
+}
+
+#[test]
 fn nothing_to_swap_leaves_the_text_alone() {
     let text = "Thanks for the update, see you tomorrow.";
     let m = mask_with(text, &names()).unwrap();

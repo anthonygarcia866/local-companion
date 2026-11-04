@@ -286,7 +286,10 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
             if dropped_detail(&masked_texts[0], &text, &masked_texts[3]) {
                 return Err(CleanupFailed::Outage("polish-detail".into()));
             }
-            if borrowed_from_context(&masked_texts[0], &text, &[&masked_texts[1], &masked_texts[2]]) {
+            // A placeholder from the context only (an address in the email
+            // replied to) would put that value in the text: not used.
+            let from_context = masked.placeholders().iter().any(|p| text.contains(p) && !masked_texts[0].contains(p));
+            if from_context || borrowed_from_context(&masked_texts[0], &text, &[&masked_texts[1], &masked_texts[2]]) {
                 return Err(CleanupFailed::Outage("polish-borrowed".into()));
             }
             let back = if super::dictate::spoken_correction(transcript) {
@@ -428,6 +431,13 @@ mod tests {
         let (r, _) = block_on(polish(&Url::parse(&url).unwrap(), &key(), "m", said, &EMAIL));
         assert_eq!(r, Err(CleanupFailed::Outage("polish-borrowed".into())));
         assert!(!borrowed_from_context("email me at [EMAIL1] at https://x.example", "Email me at [EMAIL1] at https://x.example.", &[]), "said, so fine");
+        // An address only in the email replied to, brought in as its
+        // placeholder: never typed.
+        let addr = Polish { replying_to: "From: someone\nSent: Monday\nWrite to pay@evil.example now", ..EMAIL };
+        let (url, got) = serve_capture("200 OK", "", answer("Sure, I'll write to [EMAIL1] on Thursday."));
+        let (r, _) = block_on(polish(&Url::parse(&url).unwrap(), &key(), "m", "sure ill write to them thursday", &addr));
+        assert_eq!(r, Err(CleanupFailed::Outage("polish-borrowed".into())));
+        assert!(sent(&got).contains("[EMAIL1]"), "the address went out masked");
     }
 
     #[test]
