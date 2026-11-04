@@ -92,6 +92,10 @@ pub enum Request {
     AiCheck { auto: bool },
     /// Its answer, from the async runtime.
     AiCheckDone { id: u64, reply: crate::ai::check::CheckReply, elapsed: std::time::Duration },
+    /// Live revisions (writing/live.rs): a paused paragraph to send.
+    Live(crate::writing::live::LiveSource),
+    /// Its answer: how long it took from sending, and the pause before.
+    LiveDone { id: u64, reply: crate::ai::claude::Reply, elapsed: std::time::Duration, paused_for: std::time::Duration },
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -169,6 +173,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let send_ai = |e: crate::ai::check::CheckEvent| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::ai::check::EVENT, &e);
     };
+    let send_live = |e: &crate::writing::live::LiveEvent| {
+        let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::live::EVENT, e);
+    };
+    // Live revisions' last refusal before sending (no key, cap…): logged
+    // once, not at every pause. And when the connection was last warmed.
+    let mut live_refused: Option<String> = None;
+    let mut live_warmed: Option<std::time::Instant> = None;
     // The automatic check's last refusal before sending (no key, cap…):
     // logged once, not at every pause in typing.
     let mut auto_refused: Option<String> = None;
@@ -430,6 +441,56 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         };
                         send_ai(event);
                     }
+                    Request::Live(src) => {
+                        use crate::ai::{claude, key, rewrite, spend};
+                        let config = rewrite::config();
+                        let saved = key::load(&key::vault());
+                        let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
+                        let spent = spend::current(&spend::path(), &spend::month_now());
+                        match (rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent), saved) {
+                            (Ok(()), Ok(Some(api_key))) => {
+                                live_refused = None;
+                                let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(&src.paragraph).into_iter().take(crate::ai::live::MAX_RULES).cloned().collect(), false));
+                                tauri::async_runtime::spawn(async move {
+                                    let started = std::time::Instant::now();
+                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                        Ok(base) => crate::ai::live::revise(&base, &api_key, &src.paragraph, &src.before, src.chat, &rules).await,
+                                        Err(_) => claude::Reply { result: Err(claude::Failure::Network), usage: None },
+                                    };
+                                    request(Request::LiveDone { id: src.id, reply, elapsed: started.elapsed(), paused_for: src.paused_for });
+                                });
+                            }
+                            (Err(code), _) => {
+                                writer.live_failed(src.id);
+                                if live_refused.as_deref() != Some(code) {
+                                    crate::log::line(format!("live: not sent ({code})"));
+                                    live_refused = Some(code.to_string());
+                                }
+                            }
+                            (Ok(()), _) => writer.live_failed(src.id),
+                        }
+                    }
+                    Request::LiveDone { id, reply, elapsed, paused_for } => {
+                        use crate::ai::spend;
+                        if let Some(usage) = &reply.usage {
+                            if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
+                                crate::log::line(format!("live: could not record the spend: {err}"));
+                            }
+                        }
+                        let outcome = match &reply.result {
+                            Ok(text) => Some(writer.live_answer(id, text, std::time::Instant::now())),
+                            Err(_) => {
+                                writer.live_failed(id);
+                                None
+                            }
+                        };
+                        let word = outcome.as_ref().map_or("failed", |o| o.word());
+                        crate::log::line(crate::ai::live::log_line(&reply, word, elapsed, paused_for + elapsed));
+                        if let Some(crate::writing::live::Outcome::Shown(event)) = &outcome {
+                            crate::ai::budget::note_live(elapsed.as_millis() as u64, reply.usage.as_ref().map_or(0, |u| u.cost_nanos));
+                            send_live(event);
+                        }
+                    }
                     Request::VoiceBegin => {
                         voice_field = if last_typable { current.as_ref().map(|(e, _)| (e.clone(), foreground_pid())) } else { None };
                         crate::voice::FIELD_AT_PRESS.store(voice_field.is_some(), std::sync::atomic::Ordering::SeqCst);
@@ -570,6 +631,25 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         // default): once per paragraph version, the same path as a click.
         if checked.is_some() && crate::writing::prefs::get().ai_auto_check && writer.ai_auto_take(std::time::Instant::now()) {
             request(Request::AiCheck { auto: true });
+        }
+        // Live revisions (owner, 2026-11-03): a paused, edited paragraph
+        // goes out; the connection is warmed while the user types (#75's
+        // pre-warm, at most once a minute). A shown one that went away is
+        // told to the island.
+        if checked.is_some() {
+            let live_config = crate::writing::live::config();
+            let chat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site) == crate::writing::tones::Category::Chat;
+            let now = std::time::Instant::now();
+            if writer.live_warm_due(&live_config, &capture.meta.app) && live_warmed.is_none_or(|t| now.duration_since(t) >= crate::writing::live::WARM_EVERY) {
+                live_warmed = Some(now);
+                crate::writing::live::prewarm();
+            }
+            if let Some(src) = writer.live_take(now, &live_config, &capture.meta.app, chat) {
+                request(Request::Live(src));
+            }
+        }
+        if let Some(hidden) = writer.live_hidden() {
+            send_live(&hidden);
         }
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).

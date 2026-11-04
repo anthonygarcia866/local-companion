@@ -20,8 +20,12 @@ pub const MAX_MEDIAN_MS: u64 = 2_000;
 /// The median cost an Ask request may have: $0.001.
 pub const MAX_MEDIAN_NANOS: u64 = 1_000_000;
 
-#[derive(Default)]
 pub struct Budget {
+    /// What the line calls these requests ("ask", "live").
+    label: &'static str,
+    /// The limits a median may reach.
+    max_ms: u64,
+    max_nanos: u64,
     /// (milliseconds, nano-dollars), oldest first.
     recent: VecDeque<(u64, u64)>,
     /// Requests noted since launch, to say every 50th.
@@ -43,10 +47,11 @@ impl Budget {
     pub fn line(&self) -> Option<String> {
         let ms = median(self.recent.iter().map(|r| r.0).collect())?;
         let nanos = median(self.recent.iter().map(|r| r.1).collect())?;
-        let over = ms > MAX_MEDIAN_MS || nanos > MAX_MEDIAN_NANOS;
+        let over = ms > self.max_ms || nanos > self.max_nanos;
         Some(format!(
-            "budget: last {} ask median {:.1}s ${:.6}/request{}",
+            "budget: last {} {} median {:.1}s ${:.6}/request{}",
             self.recent.len(),
+            self.label,
             ms as f64 / 1000.0,
             nanos as f64 / 1e9,
             if over { " OVER" } else { "" }
@@ -65,7 +70,39 @@ pub fn median(mut values: Vec<u64>) -> Option<u64> {
     Some(if values.len() % 2 == 1 { values[mid] } else { (values[mid - 1] + values[mid]) / 2 })
 }
 
-static BUDGET: Mutex<Budget> = Mutex::new(Budget { recent: VecDeque::new(), count: 0 });
+impl Budget {
+    /// The Ask lane's, with the plan's limits.
+    pub const fn ask() -> Budget {
+        Budget { label: "ask", max_ms: MAX_MEDIAN_MS, max_nanos: MAX_MEDIAN_NANOS, recent: VecDeque::new(), count: 0 }
+    }
+
+    /// Live revisions': sent to shown within 1.5 s, a tenth of a cent.
+    pub const fn live() -> Budget {
+        Budget { label: "live", max_ms: LIVE_MAX_MEDIAN_MS, max_nanos: MAX_MEDIAN_NANOS, recent: VecDeque::new(), count: 0 }
+    }
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Budget::ask()
+    }
+}
+
+/// Live revisions: the median from a pause's request going out to its
+/// revision shown (owner's target, 2026-11-03).
+pub const LIVE_MAX_MEDIAN_MS: u64 = 1_500;
+
+static BUDGET: Mutex<Budget> = Mutex::new(Budget::ask());
+static LIVE: Mutex<Budget> = Mutex::new(Budget::live());
+
+/// One live revision shown: sent-to-answer time and cost. Every 50th, and
+/// on quit, the medians' line ("budget: last 50 live median …").
+pub fn note_live(ms: u64, nanos: u64) {
+    let line = LIVE.lock().unwrap_or_else(|e| e.into_inner()).note(ms, nanos);
+    if let Some(line) = line {
+        crate::log::line(line);
+    }
+}
 
 /// One Ask-lane request to Claude that came back with its usage.
 pub fn note_ask(ms: u64, nanos: u64) {
@@ -79,6 +116,10 @@ pub fn note_ask(ms: u64, nanos: u64) {
 pub fn on_quit() {
     let line = BUDGET.lock().unwrap().line();
     if let Some(line) = line {
+        crate::log::line(line);
+    }
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner()).line();
+    if let Some(line) = live {
         crate::log::line(line);
     }
 }
@@ -121,6 +162,16 @@ mod tests {
             assert_eq!(line.is_some(), i % 50 == 0, "request {i}");
         }
         assert_eq!(b.line().unwrap(), "budget: last 50 ask median 1.0s $0.000400/request");
+    }
+
+    #[test]
+    fn live_revisions_have_their_own_line_and_a_1_5_s_target() {
+        let mut b = Budget::live();
+        b.note(1_400, 30_000);
+        assert_eq!(b.line().unwrap(), "budget: last 1 live median 1.4s $0.000030/request");
+        b.note(1_700, 30_000);
+        b.note(1_800, 30_000);
+        assert!(b.line().unwrap().ends_with(" OVER"), "median 1.7 s is over 1.5 s");
     }
 
     #[test]

@@ -410,6 +410,28 @@ pub fn unmask(answer: &str, m: &Masked, check: Check) -> Result<String, Mismatch
     unmask_many(&[answer], m, check).map(|mut v| v.remove(0))
 }
 
+/// `Check::Partial`, and also: every placeholder in `kept` (the masked text
+/// that was edited, when the request carried context too) comes back, none
+/// more often than it is there. A placeholder only in the context may be
+/// left out.
+pub fn unmask_keeping(answer: &str, m: &Masked, kept: &str) -> Result<String, Mismatch> {
+    let back = unmask(answer, m, Check::Partial)?;
+    for e in &m.entries {
+        let need = kept.matches(e.placeholder.as_str()).count();
+        if need == 0 {
+            continue;
+        }
+        let got = answer.matches(e.placeholder.as_str()).count();
+        if got == 0 {
+            return Err(Mismatch::Missing);
+        }
+        if got > need {
+            return Err(Mismatch::Duplicated);
+        }
+    }
+    Ok(back)
+}
+
 // ── The app's state: on/off and the names (lib.rs sets them) ───────────────
 
 /// Settings → Privacy → "Privacy shield": on unless turned off.

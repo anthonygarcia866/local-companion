@@ -17,6 +17,14 @@ impl std::fmt::Debug for Paragraph {
     }
 }
 
+/// The paragraph just before the one starting at `start` (in characters):
+/// the last non-blank paragraph above it, or "" when there is none.
+pub fn paragraph_before(field: &str, start: usize) -> String {
+    let chars: Vec<char> = field.chars().collect();
+    let above: String = chars[..start.min(chars.len())].iter().collect();
+    above.split(is_break).map(str::trim).rfind(|p| !p.is_empty()).unwrap_or("").to_string()
+}
+
 /// The paragraph the caret is in, inside the user's own text. None when the
 /// caret is in the signature or the quoted part, or the paragraph is blank.
 /// Without a caret (ValuePattern fields), the end of the user's own text.

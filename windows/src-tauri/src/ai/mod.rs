@@ -7,5 +7,6 @@ pub mod budget;
 pub mod check;
 pub mod claude;
 pub mod dictate;
+pub mod live;
 pub mod spend;
 pub mod rewrite;
