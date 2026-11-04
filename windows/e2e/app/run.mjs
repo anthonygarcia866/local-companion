@@ -361,7 +361,16 @@ async function liveRevisions(g, win) {
     if (!shownAt) {
       const log = join(folders.LOCALAPPDATA, "Glim", "glim.log");
       const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n") : "(no log)";
-      return result("live revisions: preview", "FAIL", `no preview within 20 s (${standIn.requests} request(s) to the stand-in). Log:\n${tail}`);
+      // Where it stopped between Rust's "shown" and the page: the pages over
+      // CDP, the diff element's state (no text), Glim's windows.
+      const urls = g.browser.contexts().flatMap((c) => c.pages()).map((p) => new URL(p.url()).pathname);
+      const state = page ? await page.evaluate(() => {
+        const d = document.querySelector("[data-role=live-diff]");
+        const root = document.body.firstElementChild;
+        return { diff: !!d, diffChildren: d?.childElementCount ?? -1, diffRect: d ? JSON.stringify(d.getBoundingClientRect()) : "", rootClass: root?.className ?? "", bodyClass: document.body.className, view: `${innerWidth}x${innerHeight}` };
+      }).catch((e) => ({ error: String(e) })) : "no live page";
+      const wins = await win.ask({ cmd: "windows", pid: g.p.pid });
+      return result("live revisions: preview", "FAIL", `no preview within 20 s (${standIn.requests} request(s) to the stand-in). Pages: ${JSON.stringify(urls)}; live page: ${JSON.stringify(state)}; windows: ${JSON.stringify(wins)}. Log:\n${tail}`);
     }
     const shownText = await diff.textContent();
     await page.screenshot({ path: join(out, "live-preview.png") }).catch(() => {});
