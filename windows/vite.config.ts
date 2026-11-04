@@ -26,6 +26,8 @@ export default defineConfig({
         character: resolve(__dirname, "character.html"),
         // The mini lantern beside the text field (1e, docs/phase1-plan.md §7a).
         bubble: resolve(__dirname, "bubble.html"),
+        // The live revision's preview above the paragraph (writing/live.rs).
+        live: resolve(__dirname, "live.html"),
         // Dev-only text-capture debug panel (GLIM_DEV=1); see src/capture/.
         capture: resolve(__dirname, "capture.html"),
       },

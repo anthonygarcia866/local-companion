@@ -166,7 +166,7 @@ mod tests {
         let save = &lib[lib.find("fn save_settings").unwrap()..];
         assert!(save[..save.find("\n}\n").unwrap()].contains("screen_capture::apply(&app);"), "re-applied on save");
         // The windows built later apply it themselves.
-        for (file, code) in [("bubble_window.rs", include_str!("bubble_window.rs")), ("desktop.rs", include_str!("desktop.rs"))] {
+        for (file, code) in [("bubble_window.rs", include_str!("bubble_window.rs")), ("live_window.rs", include_str!("live_window.rs")), ("desktop.rs", include_str!("desktop.rs"))] {
             let code = code.split("#[cfg(test)]").next().unwrap();
             assert_eq!(code.matches("WebviewWindowBuilder::new(").count(), 1, "{file}");
             assert!(code.contains("crate::screen_capture::apply_to("), "{file}");

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "live",
+  "description": "The live revision's preview (writing/live.rs) may only listen for its own events; it acts only through Glim's own command to expand itself. No permission here can open a network connection, focus or show a window.",
+  "windows": ["live"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

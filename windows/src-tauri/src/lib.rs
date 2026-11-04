@@ -39,6 +39,8 @@ mod webview_health;
 mod relaunch;
 #[cfg(windows)]
 mod bubble_window;
+#[cfg(windows)]
+mod live_window;
 mod writing;
 mod voice;
 mod window_tool;
@@ -967,6 +969,19 @@ const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
 
 /// The mini lantern's popover opened or closed (1e, §7a.3): the window is
 /// laid out again at once.
+/// The live preview's "…" was clicked: its window is taller from the next
+/// reading on (live_window.rs).
+#[tauri::command]
+fn live_expand(open: bool) {
+    #[cfg(windows)]
+    {
+        live_window::set_expanded(open);
+        capture::uia::request(capture::uia::Request::Wake);
+    }
+    #[cfg(not(windows))]
+    let _ = open;
+}
+
 #[tauri::command]
 fn bubble_popover(open: bool) {
     #[cfg(windows)]
@@ -1617,6 +1632,7 @@ pub fn run() {
             resume_cards,
             resume_open,
             bubble_popover,
+            live_expand,
             bubble_rewrite,
             writing_rewrite_apply,
             writing_rewrite_copy,
@@ -1718,6 +1734,11 @@ pub fn run() {
             // So does the pause key (1d): it works with the island hidden.
             let pause_handle = handle.clone();
             shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
+            // The live revision's keys (2026-11-03): the capture thread types it.
+            #[cfg(windows)]
+            shortcuts::on_live_key(|accept| {
+                capture::uia::request(if accept { capture::uia::Request::LiveAccept } else { capture::uia::Request::LiveDismiss });
+            });
             // And push-to-talk (voice 1.5b): Rust polls the key for its release.
             #[cfg(windows)]
             {
