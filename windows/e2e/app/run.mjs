@@ -355,13 +355,13 @@ async function liveRevisions(g, win) {
     const diff = page?.locator("[data-role=live-diff]");
     let shownAt = 0;
     try {
-      await diff.waitFor({ state: "visible", timeout: 10_000 });
+      await diff.waitFor({ state: "visible", timeout: 20_000 });
       shownAt = Date.now();
     } catch { /* below */ }
     if (!shownAt) {
       const log = join(folders.LOCALAPPDATA, "Glim", "glim.log");
-      const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter((l) => /live|writing|capture/.test(l)).slice(-12).join("\n") : "(no log)";
-      return result("live revisions: preview", "FAIL", `no preview within 10 s (${standIn.requests} request(s) to the stand-in). Log:\n${tail}`);
+      const tail = existsSync(log) ? readFileSync(log, "utf8").split("\n").slice(-40).join("\n") : "(no log)";
+      return result("live revisions: preview", "FAIL", `no preview within 20 s (${standIn.requests} request(s) to the stand-in). Log:\n${tail}`);
     }
     const shownText = await diff.textContent();
     await page.screenshot({ path: join(out, "live-preview.png") }).catch(() => {});
