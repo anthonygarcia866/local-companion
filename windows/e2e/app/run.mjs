@@ -336,7 +336,12 @@ async function liveRevisions(g, win) {
     await sleep(900);
     await win.ask({ cmd: "type", text: TYPED.slice(24) });
     const typedAt = Date.now();
-    const before = await readField(win);
+    // SendInput returns before Notepad has drawn every key: wait for it.
+    let before = await readField(win);
+    for (const until = Date.now() + 4_000; !before.includes(TYPED) && Date.now() < until; ) {
+      await sleep(250);
+      before = await readField(win);
+    }
     if (!before.includes(TYPED)) {
       const seen = await win.ask({ cmd: "text" });
       const list = await win.ask({ cmd: "windows", pid: notepad.pid });
