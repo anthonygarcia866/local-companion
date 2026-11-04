@@ -199,6 +199,8 @@ export const Bridge = {
   writingAskAnswer: (exe: string, answer: string) => call<void>("writing_ask_answer", { exe, answer }),
   /** "Got it" on the Google Docs tip: it never shows again (1d retest). */
   writingDocsTipDismiss: () => call<void>("writing_docs_tip_dismiss"),
+  /** The ask-first card's answer (consent.rs): "Turn on" or "Not now". */
+  consentAnswer: (feature: string, on: boolean) => call<void>("consent_answer", { feature, on }),
   /** Push-to-talk's card: copies what was heard. False: the clipboard was busy. */
   voiceCopy: (text: string) => call<boolean>("voice_copy", { text }),
   /** An answer typed into Glim's question card (Decision B). False: the question closed. */

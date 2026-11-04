@@ -141,7 +141,8 @@ pub struct DiffOp {
 #[derive(Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveEvent {
-    /// "show" or "hide".
+    /// "show" or "hide"; "sending" and "sent" around the request (the
+    /// lantern's data-leaving look).
     pub phase: &'static str,
     pub id: u64,
     pub ops: Vec<DiffOp>,

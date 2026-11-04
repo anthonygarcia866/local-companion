@@ -126,7 +126,7 @@ test("Strictness: a line under each level says what it covers, the current one m
   assert.match(note.textContent, /Alex and I was.*need the AI/);
 });
 
-test("live revisions: on everywhere by default, a switch per app, a 1-3 s pause", async () => {
+test("live revisions: off until the user says so (ask first), a switch per app, a 1-3 s pause", async () => {
   const { liveGroup, livePause } = await import("../src/settings/writing.ts");
   const settings = { ...DEFAULT_SETTINGS, liveRevisionApps: {} };
   delete settings.liveRevisions; // a settings.json from before the switch
@@ -134,9 +134,12 @@ test("live revisions: on everywhere by default, a switch per app, a 1-3 s pause"
   const el = liveGroup({ settings: () => settings, save: async () => { saves++; } }, KNOWN);
   const button = (pred) => el.find("button").find(pred);
   const master = button((b) => b.getAttribute("data-role") === "live-revisions");
-  assert.ok(master.classList.contains("on"), "on when the file has no value");
+  assert.ok(!master.classList.contains("on"), "never asked: off");
   master.fire("click");
-  assert.equal(settings.liveRevisions, false);
+  assert.equal(settings.cloudConsent.live, "on", "the switch is the answer");
+  assert.equal(settings.liveRevisions, true);
+  master.fire("click");
+  assert.equal(settings.cloudConsent.live, "off");
   // Only the apps the checker reads by default; all on.
   const rows = el.find("button").filter((b) => b.getAttribute("data-live-exe"));
   assert.deepEqual(rows.map((b) => b.getAttribute("data-live-exe")), ["WINWORD.EXE", "slack.exe"]);
@@ -156,5 +159,5 @@ test("live revisions: on everywhere by default, a switch per app, a 1-3 s pause"
   range.value = "2500";
   range.fire("change");
   assert.equal(settings.livePauseMs, 2500);
-  assert.equal(saves, 4);
+  assert.equal(saves, 5);
 });

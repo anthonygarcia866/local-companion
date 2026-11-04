@@ -27,6 +27,7 @@ export type IslandViewName =
   | "writingAsk"
   | "resume"
   | "writingDocsTip"
+  | "consentAsk"
   | "voice"
   | "draft"
   | "calendar";
@@ -190,6 +191,9 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   resume: { height: 300, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // The Google Docs tip (views/docs-tip.ts): a title, one line, two buttons.
   writingDocsTip: { height: 150, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
+  // The ask-first card (views/consent.ts): a title, up to three lines of what
+  // is sent, the shield note, two buttons.
+  consentAsk: { height: 250, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },
   // Push-to-talk's result (views/voice.ts): a title, what was heard (up to
   // ~3 lines, scrolls past that), a note and a row of buttons.
   voice: { height: 190, botX: 52, botY: null, botDiameter: 44, agentMode: "none" },

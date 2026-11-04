@@ -27,6 +27,7 @@ mod memory;
 mod session_window;
 mod settings;
 mod shield;
+mod consent;
 mod shortcuts;
 mod placement;
 mod pause;
@@ -138,6 +139,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     shield::apply_settings(&settings);
+    consent::apply_settings(&settings);
     writing::live::set_config(writing::live::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     phone::apply_settings(&settings);
@@ -755,6 +757,7 @@ fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Se
     writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
     phone::apply_settings(&updated);
     shield::apply_settings(&updated);
+    consent::apply_settings(&updated);
     writing::live::set_config(writing::live::Config::from_settings(&updated));
     let _ = app.emit("settings-changed", updated);
 }
@@ -795,6 +798,15 @@ fn writing_ask_answer(app: AppHandle, shared: State<Shared>, exe: String, answer
         s.writing_apps.retain(|k, _| !k.eq_ignore_ascii_case(&exe));
         s.writing_apps.insert(exe, on.to_string());
     });
+}
+
+/// The ask-first card's answer (consent.rs): "Turn on" or "Not now".
+#[tauri::command]
+fn consent_answer(app: AppHandle, shared: State<Shared>, feature: String, on: bool) {
+    let Some(f) = consent::Feature::from_key(&feature) else { return };
+    update_settings(&app, &shared, |s| consent::record(s, f, on));
+    consent::answered();
+    log::line(format!("consent: {} {}", f.key(), if on { "turned on" } else { "not now" }));
 }
 
 /// "Got it" on the Google Docs tip (writing::docs_tip): it never shows again.
@@ -1482,6 +1494,7 @@ pub fn run() {
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
     shield::apply_settings(&loaded);
+    consent::apply_settings(&loaded);
     writing::live::set_config(writing::live::Config::from_settings(&loaded));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     phone::apply_settings(&loaded);
@@ -1610,6 +1623,7 @@ pub fn run() {
             writing_ask_shown,
             writing_ask_answer,
             writing_docs_tip_dismiss,
+            consent_answer,
             voice_copy,
             voice_answer,
             voice_cancel,
@@ -1758,6 +1772,8 @@ pub fn run() {
                 pipe::start(handle.clone());
             }
             shortcuts::apply(&handle, &loaded.shortcuts);
+            // Ask first (consent.rs): where its one-time cards are asked.
+            consent::init(handle.clone());
             // The calendar glance: reads only while its setting is on, and
             // only an Outlook that is already running.
             if !selftest {

@@ -181,6 +181,18 @@ pub struct Settings {
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
+    /// Ask first (owner, 2026-11-04; consent.rs): the answer for each cloud
+    /// feature that sends by itself. Empty until asked.
+    pub cloud_consent: CloudConsent,
+}
+
+/// "on", "off", or "" (never asked: the first send asks instead).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CloudConsent {
+    pub live: String,
+    pub polish: String,
+    pub auto_check: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -305,6 +317,7 @@ impl Default for Settings {
             dictation_level: "polished".into(),
             dictation_levels: BTreeMap::new(),
             phone: PhoneSettings::default(),
+            cloud_consent: CloudConsent::default(),
         }
     }
 }
