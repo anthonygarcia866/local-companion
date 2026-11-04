@@ -10,6 +10,7 @@
 // accept and dismiss keys are global shortcuts handled in Rust.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
@@ -24,6 +25,10 @@ pub const EVENT: &str = "live-preview";
 const PARKED: (i32, i32) = (-32000, -32000);
 
 static CREATING: AtomicBool = AtomicBool::new(false);
+/// The revision that came while the window was still being made (the first
+/// of a run): shown once its page says it listens (page_ready). Stage 3 on
+/// CI, 2026-11-04: without it, the first revision after launch was dropped.
+static PENDING: Mutex<Option<(LiveEvent, Option<Rect>)>> = Mutex::new(None);
 /// "…" was clicked: the preview is taller until the next revision.
 static EXPANDED: AtomicBool = AtomicBool::new(false);
 
@@ -52,8 +57,14 @@ pub fn apply(app: &AppHandle, event: &LiveEvent, at: Option<Rect>) {
         set_expanded(false);
     }
     let Some(win) = app.get_webview_window(LABEL) else {
-        if event.phase == "show" {
-            create(app);
+        let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+        match event.phase {
+            "show" => {
+                *pending = Some((event.clone(), at));
+                create(app);
+            }
+            "hide" => *pending = None,
+            _ => {}
         }
         return;
     };
@@ -64,6 +75,17 @@ pub fn apply(app: &AppHandle, event: &LiveEvent, at: Option<Rect>) {
         (_, Some(r)) => move_to(&win, r),
     }
     let _ = app.emit_to(LABEL, EVENT, event);
+}
+
+/// The page has loaded and listens (lib.rs live_page_ready): the revision
+/// that came before it, if it's still the one to show.
+pub fn page_ready(app: &AppHandle) {
+    let pending = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some((event, at)) = pending {
+        if app.get_webview_window(LABEL).is_some() {
+            apply(app, &event, at);
+        }
+    }
 }
 
 /// Follows the paragraph while the revision is shown.

@@ -55,6 +55,9 @@ struct Rec {
     last_rules: usize,
     /// Dictation: the message content that went out (masked by the shield).
     last_sent: String,
+    /// The next dictation is Polished (ai/polish.rs): the app kind, the text
+    /// before the cursor and the message replied to.
+    polish: Option<(String, String, String)>,
     cost_nanos: u64,
     /// Learning running in the background (awaited by `settle`).
     spawned: Vec<tokio::task::JoinHandle<()>>,
@@ -124,7 +127,14 @@ impl Fake {
                     let vault = key::MemoryVault::default();
                     key::save(&vault, "sk-ant-api03-STANDIN-0000").unwrap();
                     let stand_in = key::load(&vault).unwrap().unwrap();
-                    let out = dictate::clean_up(&crate::net::Url::parse(&url).unwrap(), &stand_in, model, transcript, &cx).await;
+                    let base = crate::net::Url::parse(&url).unwrap();
+                    let out = match self.with(|r| r.polish.take()) {
+                        Some((kind, before, replying)) => {
+                            let p = crate::ai::polish::Polish { app, kind: &kind, today: "Wednesday, October 28, 2026", before: &before, replying_to: &replying, words: VOICE_WORDS, rules: &[] };
+                            crate::ai::polish::polish(&base, &stand_in, model, transcript, &p).await
+                        }
+                        None => dictate::clean_up(&base, &stand_in, model, transcript, &cx).await,
+                    };
                     let req = got.recv_timeout(std::time::Duration::from_secs(5)).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
                     let sent = req.find("\r\n\r\n").and_then(|at| serde_json::from_str::<Value>(&req[at + 4..]).ok());
                     let content = sent.as_ref().and_then(|v| v.pointer("/messages/0/content")).and_then(Value::as_str).unwrap_or("").to_string();
@@ -443,7 +453,12 @@ fn shortcut_keys() -> Vec<String> {
 #[test]
 #[ignore = "needs GLIM_VOICE_CLIPS and GLIM_WHISPER_DIR (CI's voice step)"]
 fn voice_without_a_mic() {
-    let clips = PathBuf::from(std::env::var_os("GLIM_VOICE_CLIPS").expect("GLIM_VOICE_CLIPS"));
+    // Ask first (consent.rs): this run is the user having turned Polished on.
+    let _consent = crate::consent::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut answered = crate::settings::Settings::default();
+    answered.cloud_consent.polish = "on".into();
+    crate::consent::apply_settings(&answered);
+    let clips =PathBuf::from(std::env::var_os("GLIM_VOICE_CLIPS").expect("GLIM_VOICE_CLIPS"));
     let whisper_dir = PathBuf::from(std::env::var_os("GLIM_WHISPER_DIR").expect("GLIM_WHISPER_DIR"));
     copy_dir(&whisper_dir, &super::whisper::folder());
     assert!(super::whisper::files("base").is_some(), "whisper-server.exe and the base model");
@@ -595,6 +610,31 @@ fn voice_without_a_mic() {
         let typed = fx.actions_since(n);
         println!("    typed: {typed:?}");
         assert_eq!(typed, ["type Call me at 555-123-4567 about unit 204."], "formatted, not whisper's raw form");
+
+        // 9c. Polished dictation (owner, 2026-11-03): an email-style ramble
+        // and a chat message become well-written text; every detail said
+        // (the unit, the day, the time, the made-up name) is typed.
+        let n = fx.with(|r| r.actions.len());
+        fx.with(|r| r.polish = Some(("email".into(), "Hi Dana,".into(), "From: Dana\nSent: Monday\nWhen is the walkthrough?".into())));
+        let polished = "The walkthrough for unit [UNIT1] is on Thursday at 3:30, and Zorvath will bring the keys.\n\nThanks";
+        let t = r.say("polish-email", Mode::Dictate, Some(tool("dictate", json!({ "text": polished })))).await;
+        println!("    whisper: {t:?}");
+        let sent = fx.with(|r| r.last_sent.clone());
+        assert!(sent.contains("[UNIT1]") && sent.contains("<replying_to>") && sent.contains("<before>"), "masked, with its context: {sent:?}");
+        let typed = fx.actions_since(n);
+        println!("    typed: {typed:?}");
+        assert_eq!(typed.len(), 1, "{typed:?}");
+        for detail in ["4B", "Thursday", "3:30", "Zorvath"] {
+            assert!(typed[0].contains(detail), "{detail} kept: {typed:?}");
+        }
+        let n = fx.with(|r| r.actions.len());
+        fx.with(|r| r.polish = Some(("chat".into(), String::new(), String::new())));
+        let t = r.say("polish-chat", Mode::Dictate, Some(tool("dictate", json!({ "text": "Sounds good, I can do Friday at noon." })))).await;
+        println!("    whisper: {t:?}");
+        assert!(fx.with(|r| r.last_sent.contains("(a chat message)")));
+        let typed = fx.actions_since(n);
+        println!("    typed: {typed:?}");
+        assert_eq!(typed, ["type Sounds good, I can do Friday at noon."]);
 
         // 10. Spoken edits (2026-10-28): whisper hears them, Claude applies
         // them (canned: the answer the prompt asks for), and the line breaks

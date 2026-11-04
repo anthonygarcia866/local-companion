@@ -117,8 +117,9 @@ impl Field for UiaField<'_> {
                 return Err(Outcome::Blocked);
             }
         }
-        // Windows drops a normal app's keys into an elevated one (UIPI).
-        if elevated(self.pid) {
+        // Windows drops a normal app's keys into an elevated one (UIPI); an
+        // elevated Glim (an admin session, the CI runner) can type there.
+        if elevated(self.pid) && !self_elevated() {
             return Err(Outcome::Elevated);
         }
         Ok(())
@@ -263,14 +264,24 @@ fn keys_held() -> bool {
 
 /// Whether the process runs elevated (as administrator). A token Glim can't
 /// even read counts as elevated: Glim couldn't type into it either.
+/// Whether `pid` runs elevated; true when Glim can't tell (as if it did).
 fn elevated(pid: u32) -> bool {
+    token_elevated(pid).unwrap_or(true)
+}
+
+/// Whether Glim itself runs elevated; false when it can't tell.
+fn self_elevated() -> bool {
+    token_elevated(std::process::id()).unwrap_or(false)
+}
+
+fn token_elevated(pid: u32) -> Option<bool> {
     unsafe {
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return true };
+        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return None };
         let mut token = HANDLE::default();
         let opened = OpenProcessToken(process, TOKEN_QUERY, &mut token).is_ok();
         let _ = CloseHandle(process);
         if !opened {
-            return true;
+            return None;
         }
         let mut e = TOKEN_ELEVATION::default();
         let mut len = 0u32;
@@ -283,7 +294,7 @@ fn elevated(pid: u32) -> bool {
         )
         .is_ok();
         let _ = CloseHandle(token);
-        !ok || e.TokenIsElevated != 0
+        ok.then_some(e.TokenIsElevated != 0)
     }
 }
 

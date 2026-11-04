@@ -458,7 +458,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     Request::Live(src) => {
                         use crate::ai::{claude, key, rewrite, spend};
                         let config = rewrite::config();
-                        let saved = key::load(&key::vault());
+                        let saved = key::load_for_live();
                         let has_key = saved.as_ref().map(Option::is_some).map_err(Clone::clone);
                         let spent = spend::current(&spend::path(), &spend::month_now());
                         match (rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent), saved) {
@@ -468,7 +468,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                                 let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(&src.paragraph).into_iter().take(crate::ai::live::MAX_RULES).cloned().collect(), false));
                                 tauri::async_runtime::spawn(async move {
                                     let started = std::time::Instant::now();
-                                    let reply = match crate::net::Url::parse(claude::API_BASE) {
+                                    let reply = match crate::net::Url::parse(&claude::api_base()) {
                                         Ok(base) => crate::ai::live::revise(&base, &api_key, &src.paragraph, &src.before, src.chat, &rules).await,
                                         Err(_) => claude::Reply { result: Err(claude::Failure::Network), usage: None },
                                     };
