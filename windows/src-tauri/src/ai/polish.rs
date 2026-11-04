@@ -287,16 +287,15 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
             if dropped_detail(&masked_texts[0], &text, &masked_texts[3]) {
                 return Err(CleanupFailed::Outage("polish-detail".into()));
             }
-            // The numbers-and-dates rule (shield::facts): the same set, or Clean.
-            if !crate::shield::facts::same(&masked_texts[0], &text) {
-                crate::log::line(crate::shield::facts::log_counts("polish", &masked_texts[0], &text));
-                return Err(CleanupFailed::Outage("polish-facts".into()));
-            }
             // A placeholder from the context only (an address in the email
             // replied to) would put that value in the text: not used.
             let from_context = masked.placeholders().iter().any(|p| text.contains(p) && !masked_texts[0].contains(p));
             if from_context || borrowed_from_context(&masked_texts[0], &text, &[&masked_texts[1], &masked_texts[2]]) {
                 return Err(CleanupFailed::Outage("polish-borrowed".into()));
+            }
+            // The numbers-and-dates rule (shield::facts): the same set, or Clean.
+            if !crate::shield::facts::check("polish", &masked_texts[0], &text) {
+                return Err(CleanupFailed::Outage("polish-facts".into()));
             }
             let back = if super::dictate::spoken_correction(transcript) {
                 crate::shield::unmask(&text, &masked, crate::shield::Check::Partial)
