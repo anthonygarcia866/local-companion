@@ -168,6 +168,80 @@ fn changed_share_and_diff() {
     assert_eq!(old, TYPED, "the kept and removed pieces spell the old text");
 }
 
+fn shown(s: &mut Session, now: Instant) -> LiveSource {
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, "We received the payment and will deposit it tomorrow.", now), Outcome::Shown(_)));
+    src
+}
+
+#[test]
+fn accepting_needs_the_paragraph_exactly_as_sent() {
+    let (mut s, now) = typed(1600);
+    shown(&mut s, now);
+    let job = s.live_job().unwrap();
+    assert_eq!((job.paragraph.as_str(), job.start, job.end, job.field_start), (TYPED, 0, TYPED.chars().count(), 0));
+    assert_eq!(job.replacement, "We received the payment and will deposit it tomorrow.");
+    // One more character typed: the revision goes, and accepting is refused.
+    see(&mut s, true, Some(&format!("{TYPED}!")), now + ms(100));
+    assert_eq!(s.live_job().unwrap_err(), crate::writing::Outcome::Changed);
+    assert_eq!(s.live_copy().unwrap_err(), crate::writing::Outcome::Changed);
+}
+
+#[test]
+fn suggestions_only_apps_copy_instead() {
+    let mut s = Session::default();
+    let t0 = Instant::now();
+    let view = |s: &mut Session, text: &str, at: Instant, same: bool| {
+        let r = Observed { same, text: Some(text), caret: Some(text.chars().count()), rules: Rules::Chat, mode: FixMode::View, app: "Teams", paused: false, sensitive: false };
+        s.observe_in(&r, at, |_| {});
+    };
+    view(&mut s, FIRST, t0, false);
+    view(&mut s, TYPED, t0 + ms(100), true);
+    view(&mut s, TYPED, t0 + ms(1700), true);
+    let src = s.live_take(t0 + ms(1700), &cfg(), "ms-teams.exe", true).unwrap();
+    assert!(src.chat);
+    assert!(matches!(s.live_answer(src.id, "We received the payment and will deposit it tomorrow.", t0 + ms(1800)), Outcome::Shown(_)));
+    assert_eq!(s.live_job().unwrap_err(), crate::writing::Outcome::Blocked);
+    assert_eq!(s.live_copy().unwrap(), "We received the payment and will deposit it tomorrow.");
+}
+
+#[test]
+fn a_revision_hides_after_twenty_seconds() {
+    let (mut s, now) = typed(1600);
+    let src = shown(&mut s, now);
+    s.live_expire(now + SHOW_FOR - ms(1));
+    assert!(s.live_shown().is_some());
+    s.live_expire(now + SHOW_FOR);
+    assert!(s.live_shown().is_none());
+    let hidden = s.live_hidden().unwrap();
+    assert_eq!((hidden.id, hidden.why), (src.id, "timeout"));
+}
+
+#[test]
+fn the_preview_sits_just_above_the_paragraph_or_falls_back() {
+    use crate::writing::bubble::{Monitor, Rect};
+    let monitors = [Monitor { work: Rect::new(0, 0, 1920, 1040), scale: 1.0 }, Monitor { work: Rect::new(1920, 0, 3840, 1040), scale: 1.5 }];
+    let field = Some(Rect::new(100, 200, 900, 700));
+    let para = Some(Rect::new(110, 400, 880, 460));
+    let line = Some(Rect::new(110, 440, 600, 460));
+    // Above the paragraph, left with it, 6 px gap.
+    assert_eq!(preview_rect(para, line, field, &monitors, false), Some(Rect::new(110, 302, 550, 394)));
+    // No paragraph rectangle: above the caret's line.
+    assert_eq!(preview_rect(None, line, field, &monitors, false), Some(Rect::new(110, 342, 550, 434)));
+    // Expanded is taller, still ending above it.
+    assert_eq!(preview_rect(para, line, field, &monitors, true).unwrap().bottom, 394);
+    // No room above (the paragraph at the top of the screen): no place.
+    assert_eq!(preview_rect(Some(Rect::new(110, 40, 880, 80)), None, field, &monitors, false), None);
+    // No geometry at all: no place.
+    assert_eq!(preview_rect(None, None, field, &monitors, false), None);
+    // Kept inside the work area on the right, at the monitor's scale.
+    let right = preview_rect(Some(Rect::new(3700, 600, 3800, 640)), None, None, &monitors, false).unwrap();
+    assert_eq!((right.right, right.width(), right.height()), (3840, 660, 138));
+    // The fallback: centred under the island's top.
+    let island = Rect::new(760, 0, 1160, 60);
+    assert_eq!(island_rect(island, &monitors, false), Some(Rect::new(740, 44, 1180, 136)));
+}
+
 #[test]
 fn the_context_is_the_paragraph_before() {
     let field = "Hi Dana,\n\nThanks for the update.\n\nWe recieved the payment and will deposit it tomorow.";

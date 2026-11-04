@@ -296,6 +296,98 @@ impl Session {
     }
 }
 
+// ── The preview and the accept key (PR 3) ─────────────────────────────────
+
+/// A shown revision goes after this long unseen-to.
+pub const SHOW_FOR: Duration = Duration::from_secs(20);
+
+/// The preview's size in logical pixels: three lines of the diff and the
+/// key hint; taller once expanded ("…" clicked).
+pub const PREVIEW_W: f64 = 440.0;
+pub const PREVIEW_H: f64 = 92.0;
+pub const PREVIEW_H_OPEN: f64 = 260.0;
+/// Between the preview and the paragraph it sits above.
+pub const PREVIEW_GAP: f64 = 6.0;
+
+use super::bubble::{Monitor, Rect};
+
+/// Where the preview goes: just above the paragraph (its rectangle, else
+/// the caret's line), left-aligned with it, inside its monitor's work area.
+/// None when there is no geometry or no room above: the caller falls back
+/// to the island's top.
+pub fn preview_rect(paragraph: Option<Rect>, line: Option<Rect>, field: Option<Rect>, monitors: &[Monitor], expanded: bool) -> Option<Rect> {
+    let anchor = paragraph.filter(|r| r.height() > 0).or(line.filter(|r| r.height() > 0))?;
+    let left_edge = field.filter(|f| f.width() > 0).map_or(anchor.left, |f| f.left.max(anchor.left.min(f.right)));
+    let m = monitors.iter().find(|m| {
+        let w = m.work;
+        anchor.left >= w.left && anchor.left < w.right && anchor.top >= w.top && anchor.top < w.bottom
+    })?;
+    let px = |v: f64| (v * m.scale).round() as i32;
+    let (w, h, gap) = (px(PREVIEW_W), px(if expanded { PREVIEW_H_OPEN } else { PREVIEW_H }), px(PREVIEW_GAP));
+    let top = anchor.top - gap - h;
+    if top < m.work.top {
+        return None;
+    }
+    let left = left_edge.min(m.work.right - w).max(m.work.left);
+    Some(Rect::new(left, top, left + w, top + h))
+}
+
+/// The fallback: centred under the island's top edge (its window's
+/// rectangle), inside the work area of the monitor it is on.
+pub fn island_rect(island: Rect, monitors: &[Monitor], expanded: bool) -> Option<Rect> {
+    let m = monitors.iter().find(|m| {
+        let (x, y) = (island.left + island.width() / 2, island.top);
+        x >= m.work.left && x < m.work.right && y >= m.work.top - 1 && y < m.work.bottom
+    })?;
+    let px = |v: f64| (v * m.scale).round() as i32;
+    let (w, h) = (px(PREVIEW_W), px(if expanded { PREVIEW_H_OPEN } else { PREVIEW_H }));
+    let left = (island.left + island.width() / 2 - w / 2).min(m.work.right - w).max(m.work.left);
+    let top = (island.top + px(44.0)).max(m.work.top);
+    Some(Rect::new(left, top, left + w, top + h))
+}
+
+impl Session {
+    /// A shown revision past SHOW_FOR goes ("timeout").
+    pub fn live_expire(&mut self, now: Instant) {
+        if self.live.shown.as_ref().is_some_and(|s| now.duration_since(s.at) >= SHOW_FOR) {
+            self.live_hide("timeout");
+        }
+    }
+
+    /// The accept key: the shown revision as a job for writing::apply (which
+    /// finds the paragraph word for word in the field again before typing).
+    /// Changed when the field no longer holds the paragraph exactly as it
+    /// was sent (or nothing is shown); Blocked where Glim doesn't type
+    /// (suggestions-only apps: the caller copies instead).
+    pub fn live_job(&self) -> Result<super::Job, super::Outcome> {
+        use super::Outcome;
+        let s = self.live.shown.as_ref().ok_or(Outcome::Changed)?;
+        // The field as last read must still hold that version.
+        self.current.as_ref().filter(|c| c.key == s.key && c.text == s.paragraph).ok_or(Outcome::Changed)?;
+        match s.mode {
+            FixMode::Apply => {}
+            FixMode::Away => return Err(Outcome::Away),
+            FixMode::View | FixMode::Copy => return Err(Outcome::Blocked),
+        }
+        if !super::offerable(&s.revised) {
+            return Err(Outcome::Blocked);
+        }
+        Ok(super::Job { paragraph: s.paragraph.clone(), field_start: s.start, start: 0, end: s.paragraph.chars().count(), replacement: s.revised.clone(), app: s.app.clone() })
+    }
+
+    /// Suggestions-only apps: the revision to copy, if the field still holds
+    /// the paragraph as sent and the revision is safe to put on the clipboard.
+    pub fn live_copy(&self) -> Result<String, super::Outcome> {
+        use super::Outcome;
+        let s = self.live.shown.as_ref().ok_or(Outcome::Changed)?;
+        self.current.as_ref().filter(|c| c.key == s.key && c.text == s.paragraph).ok_or(Outcome::Changed)?;
+        if crate::capture::sensitive::contains_sensitive_number(&s.revised) {
+            return Err(Outcome::Blocked);
+        }
+        Ok(s.revised.clone())
+    }
+}
+
 /// How often the connection is warmed while the user types.
 pub const WARM_EVERY: Duration = Duration::from_secs(60);
 
