@@ -54,3 +54,7 @@ body.live-window {
 .live-note {
   color: #f5f6f8;
 }
+
+.live-preview.is-hidden {
+  display: none;
+}

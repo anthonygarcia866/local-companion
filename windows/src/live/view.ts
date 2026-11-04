@@ -62,23 +62,27 @@ export interface LiveHost {
 }
 
 export class LiveView {
-  readonly el = h("div", { class: "live-preview", "data-role": "live-preview", hidden: "" });
+  readonly el = h("div", { class: "live-preview is-hidden", "data-role": "live-preview" });
   private current: LivePreviewEvent | null = null;
   private open = false;
 
-  constructor(private host: LiveHost) {}
+  private host: LiveHost;
+
+  constructor(host: LiveHost) {
+    this.host = host;
+  }
 
   on(e: LivePreviewEvent): void {
     if (e.phase === "hide") {
       this.current = null;
-      this.el.setAttribute("hidden", "");
+      this.el.classList.add("is-hidden");
       clear(this.el);
       return;
     }
     if (e.phase === "note") {
       clear(this.el);
       this.el.append(h("div", { class: "live-note", role: "status", "data-role": "live-note", text: noteText(e.why, e.app) }));
-      this.el.removeAttribute("hidden");
+      this.el.classList.remove("is-hidden");
       return;
     }
     this.current = e;
@@ -105,6 +109,6 @@ export class LiveView {
       text.append(more);
     }
     this.el.append(text, h("div", { class: "live-hint", "data-role": "live-hint", text: t("{keys} to apply", { keys: this.host.acceptKeys() }) }));
-    this.el.removeAttribute("hidden");
+    this.el.classList.remove("is-hidden");
   }
 }
