@@ -136,6 +136,8 @@ export const Bridge = {
   writingFix: (checkId: number, index: number, choice: number) => call<void>("writing_fix", { checkId, index, choice }),
   /** The mini lantern's popover opened or closed (1e): Rust lays its window out. */
   bubblePopover: (open: boolean) => call<void>("bubble_popover", { open }),
+  /** The live preview's "…" was clicked: Rust makes its window taller (live_window.rs). */
+  liveExpand: (open: boolean) => call<void>("live_expand", { open }),
   /** Rewrite… in the mini lantern's popover: the same as Ctrl+Alt+Shift+R. */
   bubbleRewrite: () => call<void>("bubble_rewrite"),
   /** Apply all: every row of list `checkId`, each with its first replacement. */

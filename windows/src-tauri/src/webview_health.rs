@@ -685,7 +685,7 @@ mod tests {
         assert!(setup.contains("webview_health::start_wake_watch(&handle);"));
         assert!(setup.contains("webview_health::start_ui_watch(&handle);"));
         // The island comes from tauri.conf.json and exists before setup.
-        for (file, code) in [("bubble_window.rs", include_str!("bubble_window.rs")), ("desktop.rs", include_str!("desktop.rs"))] {
+        for (file, code) in [("bubble_window.rs", include_str!("bubble_window.rs")), ("live_window.rs", include_str!("live_window.rs")), ("desktop.rs", include_str!("desktop.rs"))] {
             let code = code.split("#[cfg(test)]").next().unwrap();
             assert_eq!(code.matches("WebviewWindowBuilder::new(").count(), 1, "{file}");
             assert!(code.contains("crate::webview_health::watch(&win);"), "{file}");

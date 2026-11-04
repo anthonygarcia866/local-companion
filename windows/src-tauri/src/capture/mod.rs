@@ -250,11 +250,14 @@ pub struct Reading {
     /// The caret's line (2026-10-18): its right edge is where the line's
     /// text ends. Geometry only.
     pub line_rect: Option<crate::writing::bubble::Rect>,
+    /// The caret's paragraph (live revisions' preview sits just above it).
+    /// Geometry only.
+    pub para_rect: Option<crate::writing::bubble::Rect>,
 }
 
 impl From<Capture> for Reading {
     fn from(capture: Capture) -> Self {
-        Reading { capture, text: None, ask: false, mail_site: false, docs_site: false, field_rect: None, caret_rect: None, line_rect: None }
+        Reading { capture, text: None, ask: false, mail_site: false, docs_site: false, field_rect: None, caret_rect: None, line_rect: None, para_rect: None }
     }
 }
 
@@ -280,7 +283,7 @@ pub fn finish(meta: CaptureMeta, window_title: String, text: Option<String>, car
     // Only the window around the caret goes to the panel; the full text stays
     // in the capture thread for the checker and is dropped after it.
     let excerpt = text.as_deref().map(|t| caret_window(t, caret));
-    Reading { capture: Capture { meta, window_title, excerpt, via: String::new() }, text, ask: false, mail_site: false, docs_site: false, field_rect: None, caret_rect: None, line_rect: None }
+    Reading { capture: Capture { meta, window_title, excerpt, via: String::new() }, text, ask: false, mail_site: false, docs_site: false, field_rect: None, caret_rect: None, line_rect: None, para_rect: None }
 }
 
 /// The most text read from one field: a safety limit (a whole document can

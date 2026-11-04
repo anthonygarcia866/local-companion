@@ -96,6 +96,11 @@ pub enum Request {
     Live(crate::writing::live::LiveSource),
     /// Its answer: how long it took from sending, and the pause before.
     LiveDone { id: u64, reply: crate::ai::claude::Reply, elapsed: std::time::Duration, paused_for: std::time::Duration },
+    /// The accept key (Ctrl+Alt+Shift+Enter): the shown revision replaces
+    /// its paragraph, re-checked word for word (writing::apply).
+    LiveAccept,
+    /// The dismiss key (Ctrl+Alt+Shift+Backspace).
+    LiveDismiss,
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -175,11 +180,20 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     };
     let send_live = |e: &crate::writing::live::LiveEvent| {
         let _ = app.emit_to(crate::island::WINDOW_LABEL, crate::writing::live::EVENT, e);
+        if e.phase == "hide" {
+            crate::live_window::apply(app, e, None);
+        }
     };
     // Live revisions' last refusal before sending (no key, cap…): logged
     // once, not at every pause. And when the connection was last warmed.
     let mut live_refused: Option<String> = None;
     let mut live_warmed: Option<std::time::Instant> = None;
+    // The last reading's paragraph, caret line and field rectangles: where
+    // the preview goes (live_window.rs).
+    let mut live_rects: (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) = (None, None, None);
+    let live_place = |r: &(Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>)| {
+        crate::live_window::place(app, r.0, r.1, r.2, &crate::bubble_window::monitors(app))
+    };
     // The automatic check's last refusal before sending (no key, cap…):
     // logged once, not at every pause in typing.
     let mut auto_refused: Option<String> = None;
@@ -489,6 +503,46 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         if let Some(crate::writing::live::Outcome::Shown(event)) = &outcome {
                             crate::ai::budget::note_live(elapsed.as_millis() as u64, reply.usage.as_ref().map_or(0, |u| u.cost_nanos));
                             send_live(event);
+                            crate::live_window::apply(app, event, live_place(&live_rects));
+                        }
+                    }
+                    Request::LiveDismiss => writer.live_hide("dismissed"),
+                    Request::LiveAccept => {
+                        use crate::writing::live::LiveEvent;
+                        let shown = writer.live_shown().map(|s| (s.id, s.app.clone()));
+                        if let Some((id, app_name)) = shown {
+                        let outcome = match writer.live_job() {
+                            Ok(_) if crate::writing::paused() => Outcome::Paused,
+                            Ok(job) => match &last_field {
+                                Some((element, pid)) => {
+                                    let mut field = super::fix::UiaField::new(&uia, element.clone(), *pid, &pause);
+                                    crate::writing::apply::run(&mut field, &job)
+                                }
+                                None => Outcome::Away,
+                            },
+                            // Suggestions-only apps (Teams, Slack …): copied instead.
+                            Err(Outcome::Blocked) => match writer.live_copy() {
+                                Ok(text) if super::fix::copy_to_clipboard(&text) => Outcome::Copied,
+                                Ok(_) => Outcome::ClipboardBusy,
+                                Err(o) => o,
+                            },
+                            Err(o) => o,
+                        };
+                        crate::log::line(format!("live: accept {} ({app_name})", outcome.code()));
+                        if outcome == Outcome::Applied {
+                            // The paragraph changed: checked again at once.
+                            writer.live_hide("applied");
+                            writer.after_fix();
+                            fix_field = None;
+                        } else {
+                            let why = match outcome {
+                                Outcome::Changed => "changed",
+                                Outcome::Copied => "copied",
+                                _ => "failed",
+                            };
+                            let note = LiveEvent { phase: "note", id, app: app_name, why, ..Default::default() };
+                            crate::live_window::apply(app, &note, live_place(&live_rects));
+                        }
                         }
                     }
                     Request::VoiceBegin => {
@@ -579,6 +633,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         let ask = reading.ask;
         let mail_site = reading.mail_site;
         let (reading_field, reading_caret, reading_line) = (reading.field_rect, reading.caret_rect, reading.line_rect);
+        live_rects = (reading.para_rect, reading.line_rect, reading.field_rect);
         // Google Docs (not supported yet, Decision D): nothing was read; one
         // metadata line per stay, and the one-time notice.
         let in_docs = reading.docs_site && crate::writing::apps::enabled(&reading.capture.meta.app);
@@ -647,6 +702,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             if let Some(src) = writer.live_take(now, &live_config, &capture.meta.app, chat) {
                 request(Request::Live(src));
             }
+        }
+        writer.live_expire(std::time::Instant::now());
+        if writer.live_shown().is_some() {
+            crate::live_window::follow(app, live_place(&live_rects));
         }
         if let Some(hidden) = writer.live_hidden() {
             send_live(&hidden);
@@ -773,7 +832,7 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
     reading.mail_site = mail_site;
     reading.docs_site = docs_site;
     if reading.text.is_some() {
-        (reading.field_rect, reading.caret_rect, reading.line_rect) = rects(element);
+        (reading.field_rect, reading.caret_rect, reading.line_rect, reading.para_rect) = rects(element);
     }
     reading
 }
@@ -783,11 +842,13 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
 /// selection's start. A collapsed range often has no rectangle, so then the
 /// next character's left edge stands in for it (1 px wide). The line: the
 /// caret's range grown to its line (2026-10-18), the rectangle on the caret's
-/// row. Geometry only: no text is read here.
+/// row. The paragraph (live revisions, 2026-11-03): the caret's range grown
+/// to its paragraph, all its rows' rectangles together. Geometry only: no
+/// text is read here.
 #[allow(clippy::type_complexity)]
 fn rects(
     element: &IUIAutomationElement,
-) -> (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) {
+) -> (Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>, Option<crate::writing::bubble::Rect>) {
     use crate::writing::bubble::Rect;
     let field = unsafe { element.CurrentBoundingRectangle() }.ok().map(|r| Rect::new(r.left, r.top, r.right, r.bottom));
     let range = unsafe {
@@ -815,13 +876,18 @@ fn rects(
         next.MoveEndpointByUnit(TextPatternRangeEndpoint_End, windows::Win32::UI::Accessibility::TextUnit_Character, 1).ok()?;
         first_rect(&next).map(|(x, y, _, h)| Rect::new(x, y, x + 1, y + h))
     });
-    let line = range.zip(caret).and_then(|(r, c)| unsafe {
+    let line = range.as_ref().zip(caret).and_then(|(r, c)| unsafe {
         let l = r.Clone().ok()?;
         l.ExpandToEnclosingUnit(windows::Win32::UI::Accessibility::TextUnit_Line).ok()?;
         let mid = c.top + c.height() / 2;
         all_rects(&l).into_iter().map(|(x, y, w, h)| Rect::new(x, y, x + w, y + h)).find(|r| r.top <= mid && mid < r.bottom)
     });
-    (field, caret, line)
+    let para = range.as_ref().and_then(|r| unsafe {
+        let p = r.Clone().ok()?;
+        p.ExpandToEnclosingUnit(windows::Win32::UI::Accessibility::TextUnit_Paragraph).ok()?;
+        all_rects(&p).into_iter().map(|(x, y, w, h)| Rect::new(x, y, x + w, y + h)).reduce(|a, b| Rect::new(a.left.min(b.left), a.top.min(b.top), a.right.max(b.right), a.bottom.max(b.bottom)))
+    });
+    (field, caret, line, para)
 }
 
 /// All of a range's bounding rectangles: (left, top, width, height), rounded
@@ -1149,7 +1215,7 @@ mod probe {
                 let tp2 = e.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id).is_ok();
                 let tp = e.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok();
                 let sel_len = tp.as_ref().and_then(|p| p.GetSelection().ok()).map(|s| s.Length().unwrap_or(-1));
-                let (field, caret, line) = rects(&e);
+                let (field, caret, line, _) = rects(&e);
                 // A caret at the end of the first paragraph: collapsed just
                 // before its mark, then that mark (the fallback's character).
                 if let Some(p) = &tp {

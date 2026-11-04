@@ -101,6 +101,12 @@ pub const ACTIONS: &[ActionDef] = &[
     // only dictates. Free system-wide when probed and unassigned in Word's key
     // table (2026-10-17). Handled in Rust like pushToTalk.
     action("askGlim", "Ctrl+Alt+Shift+A", true, true),
+    // Live revisions (owner, 2026-11-03): apply the revision shown above the
+    // paragraph, or dismiss it. Free system-wide (RegisterHotKey) and
+    // unassigned in Word's key table (FindKey 1805 / 1800), checked
+    // 2026-11-03. Handled in Rust (the capture thread types it).
+    action("liveAccept", "Ctrl+Alt+Shift+Enter", true, true),
+    action("liveDismiss", "Ctrl+Alt+Shift+Backspace", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -324,6 +330,14 @@ pub fn on_push_to_talk(f: impl Fn(bool) + Send + Sync + 'static) {
     let _ = PUSH_TO_TALK.set(Box::new(f));
 }
 
+/// What the live-revision keys run (set up in lib.rs): true to apply, false
+/// to dismiss.
+static LIVE_KEY: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_live_key(f: impl Fn(bool) + Send + Sync + 'static) {
+    let _ = LIVE_KEY.set(Box::new(f));
+}
+
 /// Hands an action to the island; the visibility cycle runs here.
 pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
@@ -336,6 +350,12 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     if action == "pauseToggle" {
         if let Some(f) = PAUSE_TOGGLE.get() {
             f();
+        }
+        return;
+    }
+    if action == "liveAccept" || action == "liveDismiss" {
+        if let Some(f) = LIVE_KEY.get() {
+            f(action == "liveAccept");
         }
         return;
     }
@@ -468,7 +488,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 7] = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim"];
+    const GLIM_IDS: [&str; 9] = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim", "liveAccept", "liveDismiss"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None
