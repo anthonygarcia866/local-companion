@@ -1215,7 +1215,7 @@ mod probe {
                 let tp2 = e.GetCurrentPatternAs::<IUIAutomationTextPattern2>(UIA_TextPattern2Id).is_ok();
                 let tp = e.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId).ok();
                 let sel_len = tp.as_ref().and_then(|p| p.GetSelection().ok()).map(|s| s.Length().unwrap_or(-1));
-                let (field, caret, line) = rects(&e);
+                let (field, caret, line, _) = rects(&e);
                 // A caret at the end of the first paragraph: collapsed just
                 // before its mark, then that mark (the fallback's character).
                 if let Some(p) = &tp {
