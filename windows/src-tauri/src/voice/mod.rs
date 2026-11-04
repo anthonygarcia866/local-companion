@@ -52,9 +52,10 @@ pub fn take_field_context() -> (String, String) {
     FIELD_CONTEXT.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default()
 }
 
-/// The polished text left out a detail and the clean one was used instead:
-/// the "typed" card says so (set by voice::run, read once).
-pub static POLISH_FELL_BACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Why the polished text wasn't used and the clean one was ("polish-detail"
+/// or "polish-borrowed"): the "typed" card says so (set by voice::run,
+/// read once). Empty: it was used.
+pub static POLISH_FELL_BACK: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 /// Shorter than this held is an accidental press: nothing recorded or sent.
 pub const MIN_HELD_MS: u64 = 400;

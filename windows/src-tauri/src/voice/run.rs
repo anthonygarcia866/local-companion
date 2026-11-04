@@ -566,7 +566,7 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
     };
     // A clean-up that worked has no "why", unless polishing fell back to Clean.
     let why = cleanup.as_ref().err().map(CleanupFailed::code).unwrap_or_else(|| {
-        if mode == Mode::Dictate && super::POLISH_FELL_BACK.swap(false, Ordering::SeqCst) { "polish-detail".to_string() } else { String::new() }
+        if mode == Mode::Dictate { std::mem::take(&mut *super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner())) } else { String::new() }
     });
     let field = super::FIELD_AT_PRESS.load(Ordering::SeqCst);
     let decision = super::decide(mode, transcript, cleanup, field);
@@ -1102,7 +1102,7 @@ fn api_ready() -> Result<(crate::ai::rewrite::Config, crate::ai::key::ApiKey), C
 /// The Claude clean-up, with 1c's checks first (api_ready), its spend recorded.
 async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Option<&Asked>) -> Result<Cleanup, CleanupFailed> {
     use crate::ai::{claude, dictate, polish, spend};
-    super::POLISH_FELL_BACK.store(false, Ordering::SeqCst);
+    super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner()).clear();
     // The dictation level (Settings → Writing → Dictation, and per app):
     // Verbatim sends nothing at all.
     let settings = app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default();
@@ -1157,15 +1157,16 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
                 };
                 let polish_started = Instant::now();
                 match polish::polish(&base, &api_key, config.model, transcript, &p).await {
-                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" => {
-                        // It left out a detail: Clean instead, and the card says so.
+                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" => {
+                        // It left out a detail, or brought in words the user
+                        // didn't say: Clean instead, and the card says so.
                         if let Some(u) = &u {
-                            crate::log::line(format!("voice: polished left out a detail, clean instead; polish {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, polish_started.elapsed().as_secs_f64()));
+                            crate::log::line(format!("voice: polished not used ({code}), clean instead; polish {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, polish_started.elapsed().as_secs_f64()));
                             if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
                                 crate::log::line(format!("voice: could not record the spend: {err}"));
                             }
                         }
-                        super::POLISH_FELL_BACK.store(true, Ordering::SeqCst);
+                        *super::POLISH_FELL_BACK.lock().unwrap_or_else(|e| e.into_inner()) = code;
                         dictate::clean_up(&base, &api_key, config.model, transcript, &cx).await
                     }
                     other => other,

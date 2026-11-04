@@ -243,6 +243,23 @@ fn the_preview_sits_just_above_the_paragraph_or_falls_back() {
 }
 
 #[test]
+fn polished_dictation_gets_the_text_before_and_the_message_replied_to() {
+    let field = "Hi Dana,\n\nThe walkthrough is set.\n\nFrom: Dana Okafor\nSent: Monday\nTo: me\nCan you confirm the time?";
+    let mut s = Session::default();
+    let t0 = Instant::now();
+    // The caret at the end of the user's own text.
+    let r = Observed { same: false, text: Some(field), caret: Some("Hi Dana,\n\nThe walkthrough is set.".chars().count()), rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: false };
+    s.observe_in(&r, t0, |_| {});
+    let (before, replying) = s.dictation_context().unwrap();
+    assert_eq!(before, "Hi Dana,\n\nThe walkthrough is set.");
+    assert_eq!(replying, "From: Dana Okafor\nSent: Monday\nTo: me\nCan you confirm the time?");
+    // A signature is not a message replied to.
+    assert_eq!(crate::writing::text::quoted_reply("Thanks!\n\nBest regards,\nSam"), "");
+    assert_eq!(crate::writing::text::quoted_reply("ok\n> earlier words"), "> earlier words");
+    assert!(Session::default().dictation_context().is_none());
+}
+
+#[test]
 fn the_context_is_the_paragraph_before() {
     let field = "Hi Dana,\n\nThanks for the update.\n\nWe recieved the payment and will deposit it tomorow.";
     let mut s = Session::default();

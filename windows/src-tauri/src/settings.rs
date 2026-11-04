@@ -773,6 +773,15 @@ mod tests {
     }
 
     #[test]
+    fn dictation_is_polished_unless_chosen_otherwise() {
+        let d = Settings::default();
+        assert_eq!(d.dictation_level, "polished");
+        assert!(d.dictation_levels.is_empty());
+        assert_eq!(parse(br#"{"screen":"active"}"#).unwrap().dictation_level, "polished", "a file from before the levels");
+        assert_eq!(parse(br#"{"dictationLevel":"verbatim"}"#).unwrap().dictation_level, "verbatim");
+    }
+
+    #[test]
     fn glim_learns_shortcuts_unless_turned_off() {
         assert!(Settings::default().learn_shortcuts);
         assert!(parse(br#"{"screen":"active"}"#).unwrap().learn_shortcuts, "a file from before the switch");

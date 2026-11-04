@@ -105,7 +105,7 @@ export function needsCard(v: VoiceState | null): boolean {
   // Verbatim was the user's choice: the raw words in the field say it.
   if (v.phase === "typed" && !v.cleaned && v.code === "verbatim") return false;
   // Polished left out a detail, so the clean version went in: the card says so.
-  if (v.phase === "typed" && v.cleaned && v.code === "polish-detail") return true;
+  if (v.phase === "typed" && v.cleaned && (v.code === "polish-detail" || v.code === "polish-borrowed")) return true;
   return v.phase !== "typed" || !v.cleaned;
 }
 
