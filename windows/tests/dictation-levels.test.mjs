@@ -35,7 +35,12 @@ test("the picker and the per-app rows save what is chosen", () => {
   const el = dictationGroup({ settings: () => settings, save: async () => { saves++; } }, KNOWN);
   const selects = el.find("select");
   const level = selects.find((s) => s.getAttribute("data-role") === "dictation-level");
-  assert.equal(level.value, "polished");
+  // Polished asks first (core/consent.ts): Clean until it's on.
+  assert.equal(level.value, "clean");
+  level.value = "polished";
+  level.fire("change");
+  assert.equal(settings.dictationLevel, "polished");
+  assert.equal(settings.cloudConsent.polish, "on", "picking Polished is the answer");
   level.value = "clean";
   level.fire("change");
   assert.equal(settings.dictationLevel, "clean");
@@ -44,7 +49,7 @@ test("the picker and the per-app rows save what is chosen", () => {
   rows[1].value = "verbatim";
   rows[1].fire("change");
   assert.deepEqual(settings.dictationLevels, { "ms-teams.exe": "verbatim" });
-  assert.equal(saves, 2);
+  assert.equal(saves, 3);
 });
 
 test("a polished fallback says so; verbatim needs no card or badge", () => {

@@ -12,6 +12,7 @@ import { askPlacement, type WritingAsk } from "./core/ask";
 import { answerAsk, askClock } from "./views/ask";
 import { docsTipPlacement } from "./core/docs-tip";
 import { closeDocsTip } from "./views/docs-tip";
+import { isCloudFeature } from "./core/consent";
 import { needsCard, nextVoice, running, voicePlacement, type VoiceEvent } from "./core/voice";
 import { voiceShown } from "./views/voice";
 import { returnKeyboard } from "./core/keyboard";
@@ -246,6 +247,28 @@ async function main() {
     if (where === "show") island.alert("writingAsk");
     // In the ember the "?" is what is in sight: the 30 s run from now.
     if (where === "ember") askClock.start(ask.exe, () => answerAsk("later", askHost));
+    State.notify();
+  });
+
+  // Ask first (consent.rs): a cloud feature would have sent by itself.
+  // Nothing was sent; the card says what would be, until answered.
+  await onEvent<{ feature?: string }>("consent-ask", (e) => {
+    const feature = e?.feature;
+    if (!isCloudFeature(feature)) return;
+    State.consentAsk = feature;
+    island.alert("consentAsk");
+    State.notify();
+  });
+
+  // A live revision on its way (writing/live.rs "sending" / "sent"): the
+  // lantern's data-leaving look, at most 20 s.
+  let liveTimer: ReturnType<typeof setTimeout> | undefined;
+  await onEvent<{ phase?: string }>("writing-live", (e) => {
+    const sending = e?.phase === "sending";
+    if (sending === State.liveSending) return;
+    State.liveSending = sending;
+    clearTimeout(liveTimer);
+    if (sending) liveTimer = setTimeout(() => { State.liveSending = false; State.notify(); }, 20_000);
     State.notify();
   });
 

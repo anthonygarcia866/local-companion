@@ -256,8 +256,9 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
         return (Err(CleanupFailed::Outage("sensitive".into())), None);
     }
     let typed_form = crate::shield::normalize::dictation(transcript);
-    let before = context_piece(&tail(p.before, MAX_BEFORE));
-    let replying = context_piece(&head(p.replying_to, MAX_REPLYING));
+    // Signature blocks in the context are never sent (shield::signature).
+    let before = context_piece(&tail(crate::shield::signature::split(p.before).0, MAX_BEFORE));
+    let replying = context_piece(&head(crate::shield::signature::split(p.replying_to).0, MAX_REPLYING));
     let words = context_piece(p.words);
     let rules: Vec<String> = p.rules.iter().take(MAX_RULES).map(|r| context_piece(r)).filter(|r| !r.is_empty()).collect();
     let mut texts: Vec<&str> = vec![&typed_form, &before, &replying, &words];
@@ -291,6 +292,10 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
             let from_context = masked.placeholders().iter().any(|p| text.contains(p) && !masked_texts[0].contains(p));
             if from_context || borrowed_from_context(&masked_texts[0], &text, &[&masked_texts[1], &masked_texts[2]]) {
                 return Err(CleanupFailed::Outage("polish-borrowed".into()));
+            }
+            // The numbers-and-dates rule (shield::facts): the same set, or Clean.
+            if !crate::shield::facts::check("polish", &masked_texts[0], &text) {
+                return Err(CleanupFailed::Outage("polish-facts".into()));
             }
             let back = if super::dictate::spoken_correction(transcript) {
                 crate::shield::unmask(&text, &masked, crate::shield::Check::Partial)

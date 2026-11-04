@@ -19,6 +19,7 @@ import { buildRewrite } from "./rewrite";
 import { buildAsk } from "./ask";
 import { buildResume } from "./resume";
 import { buildDocsTip } from "./docs-tip";
+import { buildConsent } from "./consent";
 import { buildVoice } from "./voice";
 import { buildDraft } from "./draft";
 import { buildCalendar } from "./calendar";
@@ -1074,6 +1075,7 @@ export function buildViews(
   map.set("writingAsk", buildAsk(actions));
   map.set("resume", buildResume(actions));
   map.set("writingDocsTip", buildDocsTip(actions));
+  map.set("consentAsk", buildConsent(actions));
   map.set("voice", buildVoice(actions));
   map.set("draft", buildDraft(actions));
   map.set("calendar", buildCalendar(actions));

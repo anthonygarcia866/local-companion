@@ -1107,7 +1107,14 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
     // Verbatim sends nothing at all.
     let settings = app.try_state::<crate::Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default();
     let exe = crate::writing::tones::current_app().unwrap_or_default();
-    let level = if mode == Mode::Dictate { polish::level_for(&exe, &settings.dictation_level, &settings.dictation_levels) } else { polish::Level::Clean };
+    let mut level = if mode == Mode::Dictate { polish::level_for(&exe, &settings.dictation_level, &settings.dictation_levels) } else { polish::Level::Clean };
+    // Ask first (consent.rs): Polished sends more than what was said (the
+    // field's context): until "Turn on", this one is Clean (holding the key
+    // is the user asking for that much).
+    if level == polish::Level::Polished && !crate::consent::gate(crate::consent::Feature::Polish) {
+        crate::log::line("voice: polished not on yet (asks first), clean instead");
+        level = polish::Level::Clean;
+    }
     let field_context = super::take_field_context();
     if level == polish::Level::Verbatim {
         crate::log::line("voice: verbatim (no AI)");
@@ -1157,7 +1164,7 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
                 };
                 let polish_started = Instant::now();
                 match polish::polish(&base, &api_key, config.model, transcript, &p).await {
-                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" => {
+                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" || code == "polish-facts" => {
                         // It left out a detail, or brought in words the user
                         // didn't say: Clean instead, and the card says so.
                         if let Some(u) = &u {

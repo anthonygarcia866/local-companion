@@ -58,6 +58,7 @@ export function voiceText(v: VoiceState): { title: string; body: string; note: s
   switch (v.phase) {
     case "typed":
       if (v.cleaned && v.code === "polish-borrowed") return { title: t("Typed in {app}", { app: v.app }), body: "", note: t("The polished version added words you didn't say, so the clean version was typed.") };
+      if (v.cleaned && v.code === "polish-facts") return { title: t("Typed in {app}", { app: v.app }), body: "", note: t("The polished version changed a number, time or date you said, so the clean version was typed.") };
       if (v.cleaned && v.code === "polish-detail") return { title: t("Typed in {app}", { app: v.app }), body: "", note: t("The polished version left out a detail you said, so the clean version was typed.") };
       return { title: t("Typed in {app}, not cleaned up", { app: v.app }), body: "", note: notCleanedText(v.code) };
     case "not-typed":

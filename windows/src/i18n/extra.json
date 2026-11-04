@@ -7828,6 +7828,182 @@
    "pt-BR": "Ditados recentes",
    "ru": "Недавние диктовки",
    "id": "Dikte terbaru"
+  },
+  "My names and businesses": {
+   "zh-Hans": "我的名字和公司",
+   "hi": "मेरे नाम और व्यवसाय",
+   "es": "Mis nombres y negocios",
+   "ar": "أسمائي وأعمالي",
+   "fr": "Mes noms et entreprises",
+   "bn": "আমার নাম ও ব্যবসা",
+   "pt-BR": "Meus nomes e empresas",
+   "ru": "Мои имена и компании",
+   "id": "Nama dan usaha saya"
+  },
+  "One per line: your own names and your businesses' names. Always hidden, in any case, and put back exactly as you wrote them. Add your business names here. Signature blocks (from a \"--\" line, or a sign-off like \"Best,\" at the end) are never sent or rewritten.": {
+   "zh-Hans": "每行一个：你自己的名字和你公司的名字。无论大小写都会隐藏，并按你写的样子原样放回。请在这里添加你的公司名称。签名块（从“--”行开始，或结尾的“Best,”等结束语）从不发送也不改写。",
+   "hi": "हर पंक्ति में एक: आपके अपने नाम और आपके व्यवसायों के नाम। किसी भी केस में हमेशा छिपाए जाते हैं और ठीक वैसे ही वापस रखे जाते हैं जैसे आपने लिखे। अपने व्यवसाय के नाम यहाँ जोड़ें। हस्ताक्षर ब्लॉक (\"--\" पंक्ति से, या अंत में \"Best,\" जैसे समापन से) कभी भेजे या दोबारा लिखे नहीं जाते।",
+   "es": "Uno por línea: tus propios nombres y los de tus negocios. Siempre se ocultan, en mayúsculas o minúsculas, y se devuelven tal como los escribiste. Añade aquí los nombres de tus negocios. Las firmas (desde una línea \"--\", o una despedida como \"Best,\" al final) nunca se envían ni se reescriben.",
+   "ar": "واحد في كل سطر: أسماؤك وأسماء أعمالك. تُخفى دائمًا بأي حالة أحرف وتُعاد كما كتبتها تمامًا. أضف أسماء أعمالك هنا. كتل التوقيع (من سطر \"--\" أو عبارة ختام مثل \"Best,\" في النهاية) لا تُرسل ولا يُعاد كتابتها أبدًا.",
+   "fr": "Un par ligne : vos propres noms et ceux de vos entreprises. Toujours masqués, quelle que soit la casse, et remis exactement comme vous les avez écrits. Ajoutez ici les noms de vos entreprises. Les signatures (à partir d'une ligne « -- », ou d'une formule comme « Best, » à la fin) ne sont jamais envoyées ni réécrites.",
+   "bn": "প্রতি লাইনে একটি: আপনার নিজের নাম ও আপনার ব্যবসার নাম। যেকোনো কেসে সবসময় লুকানো হয় এবং আপনি যেমন লিখেছেন ঠিক তেমন ফেরত বসানো হয়। আপনার ব্যবসার নাম এখানে যোগ করুন। স্বাক্ষর ব্লক (\"--\" লাইন থেকে, বা শেষে \"Best,\" এর মতো বিদায়বাক্য থেকে) কখনো পাঠানো বা নতুন করে লেখা হয় না।",
+   "pt-BR": "Um por linha: seus próprios nomes e os nomes das suas empresas. Sempre ocultos, em qualquer caixa, e devolvidos exatamente como você escreveu. Adicione aqui os nomes das suas empresas. Assinaturas (a partir de uma linha \"--\", ou de uma despedida como \"Best,\" no final) nunca são enviadas nem reescritas.",
+   "ru": "По одному в строке: ваши имена и названия ваших компаний. Всегда скрываются в любом регистре и возвращаются точно так, как вы их написали. Добавьте сюда названия своих компаний. Подписи (от строки «--» или от прощания вроде «Best,» в конце) никогда не отправляются и не переписываются.",
+   "id": "Satu per baris: nama Anda sendiri dan nama usaha Anda. Selalu disembunyikan, huruf besar atau kecil, dan dikembalikan persis seperti yang Anda tulis. Tambahkan nama usaha Anda di sini. Blok tanda tangan (dari baris \"--\", atau salam penutup seperti \"Best,\" di akhir) tidak pernah dikirim atau ditulis ulang."
+  },
+  "Not shown: Claude's answer changed a number, amount, time or date. Try again.": {
+   "zh-Hans": "未显示：Claude 的回答改动了数字、金额、时间或日期。请重试。",
+   "hi": "नहीं दिखाया गया: Claude के जवाब ने कोई संख्या, राशि, समय या तारीख बदल दी। फिर से कोशिश करें।",
+   "es": "No se muestra: la respuesta de Claude cambió un número, un importe, una hora o una fecha. Inténtalo de nuevo.",
+   "ar": "لم يُعرض: غيّرت إجابة Claude رقمًا أو مبلغًا أو وقتًا أو تاريخًا. حاول مرة أخرى.",
+   "fr": "Non affiché : la réponse de Claude a changé un nombre, un montant, une heure ou une date. Réessayez.",
+   "bn": "দেখানো হয়নি: Claude-এর উত্তর একটি সংখ্যা, পরিমাণ, সময় বা তারিখ বদলে দিয়েছে। আবার চেষ্টা করুন।",
+   "pt-BR": "Não exibido: a resposta do Claude mudou um número, valor, horário ou data. Tente de novo.",
+   "ru": "Не показано: ответ Claude изменил число, сумму, время или дату. Попробуйте ещё раз.",
+   "id": "Tidak ditampilkan: jawaban Claude mengubah angka, jumlah, waktu, atau tanggal. Coba lagi."
+  },
+  "The polished version changed a number, time or date you said, so the clean version was typed.": {
+   "zh-Hans": "润色版本改动了你说的数字、时间或日期，所以输入的是整洁版本。",
+   "hi": "पॉलिश किए गए संस्करण ने आपकी कही कोई संख्या, समय या तारीख बदल दी, इसलिए साफ़ संस्करण टाइप किया गया।",
+   "es": "La versión pulida cambió un número, una hora o una fecha que dijiste, así que se escribió la versión limpia.",
+   "ar": "غيّرت النسخة المصقولة رقمًا أو وقتًا أو تاريخًا قلته، لذا كُتبت النسخة النظيفة.",
+   "fr": "La version soignée a changé un nombre, une heure ou une date que vous avez dit, donc la version nette a été tapée.",
+   "bn": "পরিমার্জিত সংস্করণ আপনার বলা একটি সংখ্যা, সময় বা তারিখ বদলে দিয়েছে, তাই পরিষ্কার সংস্করণ টাইপ করা হয়েছে।",
+   "pt-BR": "A versão polida mudou um número, horário ou data que você disse, então a versão limpa foi digitada.",
+   "ru": "Отшлифованная версия изменила названное вами число, время или дату, поэтому набрана чистая версия.",
+   "id": "Versi rapi mengubah angka, waktu, atau tanggal yang Anda ucapkan, jadi versi bersih yang diketik."
+  },
+  "Turn on live revisions?": {
+   "zh-Hans": "开启实时修改？",
+   "hi": "लाइव संशोधन चालू करें?",
+   "es": "¿Activar las revisiones en vivo?",
+   "ar": "تشغيل المراجعات الفورية؟",
+   "fr": "Activer les révisions en direct ?",
+   "bn": "লাইভ সংশোধন চালু করবেন?",
+   "pt-BR": "Ativar as revisões ao vivo?",
+   "ru": "Включить правки на лету?",
+   "id": "Nyalakan revisi langsung?"
+  },
+  "The paragraph you're editing, when you pause typing": {
+   "zh-Hans": "你停止输入时正在编辑的段落",
+   "hi": "जब आप टाइप करना रोकते हैं, तब आप जिस अनुच्छेद को संपादित कर रहे हैं",
+   "es": "El párrafo que estás editando, cuando dejas de escribir",
+   "ar": "الفقرة التي تحررها، عندما تتوقف عن الكتابة",
+   "fr": "Le paragraphe que vous modifiez, quand vous faites une pause",
+   "bn": "আপনি টাইপ থামালে যে অনুচ্ছেদটি সম্পাদনা করছেন",
+   "pt-BR": "O parágrafo que você está editando, quando para de digitar",
+   "ru": "Абзац, который вы правите, когда вы делаете паузу",
+   "id": "Paragraf yang sedang Anda sunting, saat Anda berhenti mengetik"
+  },
+  "The paragraph before it, for context": {
+   "zh-Hans": "它前面的段落，作为上下文",
+   "hi": "उससे पहले का अनुच्छेद, संदर्भ के लिए",
+   "es": "El párrafo anterior, como contexto",
+   "ar": "الفقرة التي قبلها، للسياق",
+   "fr": "Le paragraphe précédent, pour le contexte",
+   "bn": "তার আগের অনুচ্ছেদ, প্রসঙ্গের জন্য",
+   "pt-BR": "O parágrafo anterior, como contexto",
+   "ru": "Предыдущий абзац, для контекста",
+   "id": "Paragraf sebelumnya, sebagai konteks"
+  },
+  "Up to 5 of your remembered rules that match it": {
+   "zh-Hans": "最多 5 条与之相关的已记住规则",
+   "hi": "उससे मेल खाने वाले आपके याद रखे गए अधिकतम 5 नियम",
+   "es": "Hasta 5 de tus reglas recordadas que coincidan",
+   "ar": "حتى 5 من قواعدك المحفوظة التي تطابقها",
+   "fr": "Jusqu'à 5 de vos règles mémorisées qui s'y rapportent",
+   "bn": "এর সাথে মেলে এমন আপনার মনে রাখা সর্বোচ্চ ৫টি নিয়ম",
+   "pt-BR": "Até 5 das suas regras lembradas que combinem",
+   "ru": "До 5 ваших запомненных правил, которые к нему подходят",
+   "id": "Hingga 5 aturan Anda yang diingat dan cocok"
+  },
+  "Turn on polished dictation?": {
+   "zh-Hans": "开启润色听写？",
+   "hi": "पॉलिश डिक्टेशन चालू करें?",
+   "es": "¿Activar el dictado pulido?",
+   "ar": "تشغيل الإملاء المصقول؟",
+   "fr": "Activer la dictée soignée ?",
+   "bn": "পরিমার্জিত ডিক্টেশন চালু করবেন?",
+   "pt-BR": "Ativar o ditado polido?",
+   "ru": "Включить отшлифованную диктовку?",
+   "id": "Nyalakan dikte rapi?"
+  },
+  "What you said, in its typed form": {
+   "zh-Hans": "你说的话，以书面形式",
+   "hi": "आपने जो कहा, टाइप किए गए रूप में",
+   "es": "Lo que dijiste, en forma escrita",
+   "ar": "ما قلته، بصيغته المكتوبة",
+   "fr": "Ce que vous avez dit, sous sa forme écrite",
+   "bn": "আপনি যা বলেছেন, লিখিত রূপে",
+   "pt-BR": "O que você disse, na forma digitada",
+   "ru": "То, что вы сказали, в письменном виде",
+   "id": "Apa yang Anda ucapkan, dalam bentuk ketikan"
+  },
+  "The text just before the cursor, and the message you're replying to in that field": {
+   "zh-Hans": "光标前的文字，以及该字段中你正在回复的消息",
+   "hi": "कर्सर से ठीक पहले का टेक्स्ट, और उस फ़ील्ड में जिस संदेश का आप जवाब दे रहे हैं",
+   "es": "El texto justo antes del cursor y el mensaje al que respondes en ese campo",
+   "ar": "النص الذي قبل المؤشر مباشرة، والرسالة التي ترد عليها في ذلك الحقل",
+   "fr": "Le texte juste avant le curseur, et le message auquel vous répondez dans ce champ",
+   "bn": "কার্সরের ঠিক আগের লেখা, এবং ওই ঘরে যে বার্তার উত্তর দিচ্ছেন",
+   "pt-BR": "O texto logo antes do cursor e a mensagem que você está respondendo nesse campo",
+   "ru": "Текст прямо перед курсором и сообщение, на которое вы отвечаете в этом поле",
+   "id": "Teks tepat sebelum kursor, dan pesan yang Anda balas di kolom itu"
+  },
+  "Your dictation word list and up to 5 remembered rules that match": {
+   "zh-Hans": "你的听写词表，以及最多 5 条相关的已记住规则",
+   "hi": "आपकी डिक्टेशन शब्द सूची और मेल खाने वाले अधिकतम 5 याद रखे गए नियम",
+   "es": "Tu lista de palabras de dictado y hasta 5 reglas recordadas que coincidan",
+   "ar": "قائمة كلمات الإملاء لديك وحتى 5 قواعد محفوظة مطابقة",
+   "fr": "Votre liste de mots de dictée et jusqu'à 5 règles mémorisées qui s'y rapportent",
+   "bn": "আপনার ডিক্টেশন শব্দতালিকা এবং মেলে এমন সর্বোচ্চ ৫টি মনে রাখা নিয়ম",
+   "pt-BR": "Sua lista de palavras de ditado e até 5 regras lembradas que combinem",
+   "ru": "Ваш словарь для диктовки и до 5 подходящих запомненных правил",
+   "id": "Daftar kata dikte Anda dan hingga 5 aturan yang diingat dan cocok"
+  },
+  "Check with AI automatically?": {
+   "zh-Hans": "自动用 AI 检查？",
+   "hi": "AI से अपने आप जाँचें?",
+   "es": "¿Revisar con IA automáticamente?",
+   "ar": "التدقيق بالذكاء الاصطناعي تلقائيًا؟",
+   "fr": "Vérifier avec l'IA automatiquement ?",
+   "bn": "স্বয়ংক্রিয়ভাবে AI দিয়ে যাচাই করবেন?",
+   "pt-BR": "Verificar com IA automaticamente?",
+   "ru": "Проверять с ИИ автоматически?",
+   "id": "Periksa dengan AI secara otomatis?"
+  },
+  "The paragraph you're typing in, after a 2-second pause, once per version": {
+   "zh-Hans": "你正在输入的段落，停顿 2 秒后，每个版本一次",
+   "hi": "आप जिस अनुच्छेद में टाइप कर रहे हैं, 2 सेकंड के ठहराव के बाद, हर संस्करण पर एक बार",
+   "es": "El párrafo en el que escribes, tras una pausa de 2 segundos, una vez por versión",
+   "ar": "الفقرة التي تكتب فيها، بعد توقف ثانيتين، مرة لكل نسخة",
+   "fr": "Le paragraphe où vous tapez, après une pause de 2 secondes, une fois par version",
+   "bn": "আপনি যে অনুচ্ছেদে টাইপ করছেন, ২ সেকেন্ড থামার পরে, প্রতি সংস্করণে একবার",
+   "pt-BR": "O parágrafo em que você digita, após uma pausa de 2 segundos, uma vez por versão",
+   "ru": "Абзац, который вы набираете, после 2-секундной паузы, один раз на версию",
+   "id": "Paragraf yang Anda ketik, setelah jeda 2 detik, sekali per versi"
+  },
+  "Only to Claude (api.anthropic.com). Names, emails, phone numbers, addresses and unit numbers become placeholders on this PC first; signatures are left out; card, ID and bank numbers are never sent.": {
+   "zh-Hans": "只发给 Claude（api.anthropic.com）。姓名、邮箱、电话号码、地址和单元号会先在这台电脑上换成占位符；签名不发送；卡号、证件号和银行账号从不发送。",
+   "hi": "सिर्फ़ Claude (api.anthropic.com) को। नाम, ईमेल, फ़ोन नंबर, पते और यूनिट नंबर पहले इसी पीसी पर प्लेसहोल्डर बन जाते हैं; हस्ताक्षर छोड़ दिए जाते हैं; कार्ड, आईडी और बैंक नंबर कभी नहीं भेजे जाते।",
+   "es": "Solo a Claude (api.anthropic.com). Los nombres, correos, teléfonos, direcciones y números de unidad se convierten antes en marcadores en este PC; las firmas se dejan fuera; los números de tarjeta, identificación y cuenta bancaria nunca se envían.",
+   "ar": "إلى Claude فقط (api.anthropic.com). تتحول الأسماء والبريد الإلكتروني وأرقام الهواتف والعناوين وأرقام الوحدات أولًا إلى عناصر نائبة على هذا الكمبيوتر؛ وتُستبعد التواقيع؛ ولا تُرسل أرقام البطاقات والهويات والحسابات البنكية أبدًا.",
+   "fr": "Uniquement à Claude (api.anthropic.com). Les noms, e-mails, numéros de téléphone, adresses et numéros de logement deviennent d'abord des marqueurs sur ce PC ; les signatures sont laissées de côté ; les numéros de carte, d'identité et de compte ne sont jamais envoyés.",
+   "bn": "শুধু Claude-এ (api.anthropic.com)। নাম, ইমেল, ফোন নম্বর, ঠিকানা ও ইউনিট নম্বর আগে এই পিসিতেই প্লেসহোল্ডার হয়ে যায়; স্বাক্ষর বাদ থাকে; কার্ড, আইডি ও ব্যাংক নম্বর কখনো পাঠানো হয় না।",
+   "pt-BR": "Só para o Claude (api.anthropic.com). Nomes, e-mails, telefones, endereços e números de unidade viram marcadores neste PC antes; assinaturas ficam de fora; números de cartão, documento e conta bancária nunca são enviados.",
+   "ru": "Только в Claude (api.anthropic.com). Имена, адреса почты, номера телефонов, адреса и номера квартир сначала заменяются метками на этом ПК; подписи не отправляются; номера карт, документов и банковских счетов не отправляются никогда.",
+   "id": "Hanya ke Claude (api.anthropic.com). Nama, email, nomor telepon, alamat, dan nomor unit diganti penanda di PC ini lebih dulu; tanda tangan tidak disertakan; nomor kartu, identitas, dan rekening bank tidak pernah dikirim."
+  },
+  "Turn on": {
+   "zh-Hans": "开启",
+   "hi": "चालू करें",
+   "es": "Activar",
+   "ar": "تشغيل",
+   "fr": "Activer",
+   "bn": "চালু করুন",
+   "pt-BR": "Ativar",
+   "ru": "Включить",
+   "id": "Nyalakan"
   }
  }
 }

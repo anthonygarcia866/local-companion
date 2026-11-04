@@ -453,7 +453,12 @@ fn shortcut_keys() -> Vec<String> {
 #[test]
 #[ignore = "needs GLIM_VOICE_CLIPS and GLIM_WHISPER_DIR (CI's voice step)"]
 fn voice_without_a_mic() {
-    let clips = PathBuf::from(std::env::var_os("GLIM_VOICE_CLIPS").expect("GLIM_VOICE_CLIPS"));
+    // Ask first (consent.rs): this run is the user having turned Polished on.
+    let _consent = crate::consent::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut answered = crate::settings::Settings::default();
+    answered.cloud_consent.polish = "on".into();
+    crate::consent::apply_settings(&answered);
+    let clips =PathBuf::from(std::env::var_os("GLIM_VOICE_CLIPS").expect("GLIM_VOICE_CLIPS"));
     let whisper_dir = PathBuf::from(std::env::var_os("GLIM_WHISPER_DIR").expect("GLIM_WHISPER_DIR"));
     copy_dir(&whisper_dir, &super::whisper::folder());
     assert!(super::whisper::files("base").is_some(), "whisper-server.exe and the base model");

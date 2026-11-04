@@ -464,6 +464,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         match (rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent), saved) {
                             (Ok(()), Ok(Some(api_key))) => {
                                 live_refused = None;
+                                send_live(&crate::writing::live::LiveEvent { phase: "sending", id: src.id, ..Default::default() });
                                 let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(&src.paragraph).into_iter().take(crate::ai::live::MAX_RULES).cloned().collect(), false));
                                 tauri::async_runtime::spawn(async move {
                                     let started = std::time::Instant::now();
@@ -486,6 +487,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     }
                     Request::LiveDone { id, reply, elapsed, paused_for } => {
                         use crate::ai::spend;
+                        send_live(&crate::writing::live::LiveEvent { phase: "sent", id, ..Default::default() });
                         if let Some(usage) = &reply.usage {
                             if let Err(err) = spend::record(&spend::path(), &spend::month_now(), usage) {
                                 crate::log::line(format!("live: could not record the spend: {err}"));
@@ -687,7 +689,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         writer.observe_in(&r, std::time::Instant::now(), send_list);
         // "Check with AI automatically when I pause typing" (§15.1, off by
         // default): once per paragraph version, the same path as a click.
-        if checked.is_some() && crate::writing::prefs::get().ai_auto_check && writer.ai_auto_take(std::time::Instant::now()) {
+        // Ask first (consent.rs): never asked, the first pause asks instead.
+        let auto = crate::consent::answer(crate::consent::Feature::AutoCheck);
+        if checked.is_some() && auto != crate::consent::Answer::Off && writer.ai_auto_take(std::time::Instant::now()) && crate::consent::gate(crate::consent::Feature::AutoCheck) {
             request(Request::AiCheck { auto: true });
         }
         // Live revisions (owner, 2026-11-03): a paused, edited paragraph
@@ -698,12 +702,18 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             let live_config = crate::writing::live::config();
             let chat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site) == crate::writing::tones::Category::Chat;
             let now = std::time::Instant::now();
-            if writer.live_warm_due(&live_config, &capture.meta.app) && live_warmed.is_none_or(|t| now.duration_since(t) >= crate::writing::live::WARM_EVERY) {
+            let live_ok = crate::consent::allowed(crate::consent::Feature::Live);
+            if live_ok && writer.live_warm_due(&live_config, &capture.meta.app) && live_warmed.is_none_or(|t| now.duration_since(t) >= crate::writing::live::WARM_EVERY) {
                 live_warmed = Some(now);
                 crate::writing::live::prewarm();
             }
             if let Some(src) = writer.live_take(now, &live_config, &capture.meta.app, chat) {
-                request(Request::Live(src));
+                // Ask first (consent.rs): nothing is sent until "Turn on".
+                if crate::consent::gate(crate::consent::Feature::Live) {
+                    request(Request::Live(src));
+                } else {
+                    writer.live_failed(src.id);
+                }
             }
         }
         writer.live_expire(std::time::Instant::now());

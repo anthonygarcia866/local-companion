@@ -361,6 +361,29 @@ pub fn is_stop_word(w: &str) -> bool {
     STOP_WORDS.contains(&w)
 }
 
+/// Stop words that are also first names or surnames ("Carter", "Grant",
+/// "Will"): hidden alone after a title ("Mr. Carter").
+const NAME_LIKE: &[&str] = &[
+    "art", "bill", "carter", "chase", "cole", "dash", "dean", "faith", "frank", "grace", "grant", "hall", "hope", "hunter", "jack", "joy",
+    "lane", "mark", "max", "pat", "price", "ray", "rich", "rose", "summer", "sunny", "will", "park", "page",
+];
+
+pub fn is_name_like(w: &str) -> bool {
+    NAME_LIKE.contains(&w)
+}
+
+const TITLES: &[&str] = &["mr", "mrs", "ms", "mx", "dr", "miss", "prof"];
+
+/// Whether the word before `at` is a title ("Mr." or "Mr", any case).
+fn after_title(text: &str, words: &[(usize, usize)], i: usize) -> bool {
+    if i == 0 {
+        return false;
+    }
+    let (s, e) = words[i - 1];
+    let gap = &text[e..words[i].0];
+    TITLES.contains(&text[s..e].to_lowercase().as_str()) && matches!(gap, " " | ". " | "  " | ".  ")
+}
+
 /// A name entry's words, lower case: what's in parentheses goes, and an
 /// address is no name. "Lopez, Maria" also gives "maria lopez" (second).
 pub fn name_words(entry: &str) -> (Vec<String>, Option<Vec<String>>) {
@@ -413,9 +436,13 @@ fn people(text: &str, words: &[(usize, usize)], names: &NameSet) -> Vec<Span> {
             i += full.len();
             continue;
         }
-        // One word of a name, written with a capital.
+        // One word of a name: a surname or first name alone ("Smith",
+        // "Mr. Smith", "SMITH"), written with a capital; any case when it's
+        // from the user's own lists; a common word ("Carter") after a title.
         let w = &text[words[i].0..words[i].1];
-        if capitalized(w) && names.words.contains(&lw[i]) && !is_stop_word(&lw[i]) {
+        let known = names.words.contains(&lw[i]) && !is_stop_word(&lw[i]);
+        let titled = names.titled.contains(&lw[i]) && capitalized(w) && after_title(text, words, i);
+        if known && (capitalized(w) || names.any_case.contains(&lw[i])) || titled {
             out.push(Span { start: words[i].0, end: words[i].1, kind: Kind::Person });
         }
         i += 1;
