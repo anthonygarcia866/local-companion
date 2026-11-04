@@ -25,14 +25,37 @@ pub const REREAD: Duration = Duration::from_secs(30 * 60);
 pub const MAX_ENTRIES: i32 = 20_000;
 const OUTLOOK_EXE: &str = "OUTLOOK.EXE";
 
-/// The running Outlook's address-book names, or None when Glim couldn't
-/// attach (not running, still starting).
-pub fn read_names() -> Option<Vec<String>> {
+/// The running Outlook's MAPI namespace, or None (not running, starting).
+fn namespace() -> Option<Disp> {
     let clsid = unsafe { CLSIDFromProgID(windows::core::w!("Outlook.Application")) }.ok()?;
     let mut unknown: Option<IUnknown> = None;
     unsafe { GetActiveObject(&clsid, None, &mut unknown) }.ok()?;
     let app: IDispatch = unknown?.cast().ok()?;
-    let ns = Disp::from(app).call_obj("GetNamespace", &[VARIANT::from("MAPI")]).ok()?;
+    Disp::from(app).call_obj("GetNamespace", &[VARIANT::from("MAPI")]).ok()
+}
+
+/// The display name of the Outlook account sending as `address` (Settings
+/// → Email drafts → Your address), to seed My names and businesses.
+pub fn account_name(address: &str) -> Option<String> {
+    let accounts = namespace()?.obj("Accounts").ok()?;
+    for i in 1..=accounts.int("Count") {
+        let Ok(a) = accounts.item(i) else { continue };
+        if !a.text("SmtpAddress").trim().eq_ignore_ascii_case(address) {
+            continue;
+        }
+        let name = a.obj("CurrentUser").map(|u| u.text("Name")).unwrap_or_default();
+        let name = name.trim();
+        if !name.is_empty() && !name.contains('@') {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+/// The running Outlook's address-book names, or None when Glim couldn't
+/// attach (not running, still starting).
+pub fn read_names() -> Option<Vec<String>> {
+    let ns = namespace()?;
     let lists = ns.obj("AddressLists").ok()?;
     let mut names: Vec<String> = Vec::new();
     for l in 1..=lists.int("Count") {
@@ -51,9 +74,10 @@ pub fn read_names() -> Option<Vec<String>> {
     Some(names)
 }
 
-/// Starts the thread (lib.rs, at launch).
-pub fn spawn() {
-    std::thread::spawn(|| {
+/// Starts the thread (lib.rs, at launch). `seeded` gets the draft account's
+/// name once, when My names has yet to be seeded (lib.rs saves it).
+pub fn spawn(seeded: impl Fn(String) + Send + 'static) {
+    std::thread::spawn(move || {
         let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
         let mut last_read: Option<Instant> = None;
         let mut was_running = false;
@@ -64,6 +88,10 @@ pub fn spawn() {
                 if let Some(names) = read_names() {
                     crate::log::line(format!("shield: address book read, {} entries", names.len()));
                     super::set_address_book(names);
+                    if let Some(name) = super::seed_from().and_then(|a| account_name(&a)) {
+                        super::set_seed(&name);
+                        seeded(name);
+                    }
                     last_read = Some(Instant::now());
                     was_running = true;
                 }

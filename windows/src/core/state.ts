@@ -216,6 +216,11 @@ export interface Settings {
   privacyShield?: boolean;
   /** Settings → Privacy: names the shield always hides, one per entry. */
   shieldNames?: string[];
+  /** Settings → Privacy: My names and businesses, always hidden in any case
+   *  and put back exactly. Seeded once by Rust from the draft account's name. */
+  ownNames?: string[];
+  /** Rust's: My names was seeded (never twice). */
+  ownNamesSeeded?: boolean;
   /** Settings → Writing → Live revisions: on unless false. */
   liveRevisions?: boolean;
   /** Per-app switches, "on" / "off" by exe; an app not listed is on. */
@@ -279,6 +284,8 @@ export const DEFAULT_SETTINGS: Settings = {
   learnShortcuts: true,
   privacyShield: true,
   shieldNames: [],
+  ownNames: [],
+  ownNamesSeeded: false,
   liveRevisions: true,
   liveRevisionApps: {},
   livePauseMs: 1500,

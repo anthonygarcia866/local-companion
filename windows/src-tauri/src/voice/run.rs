@@ -1157,7 +1157,7 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
                 };
                 let polish_started = Instant::now();
                 match polish::polish(&base, &api_key, config.model, transcript, &p).await {
-                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" => {
+                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" || code == "polish-facts" => {
                         // It left out a detail, or brought in words the user
                         // didn't say: Clean instead, and the card says so.
                         if let Some(u) = &u {

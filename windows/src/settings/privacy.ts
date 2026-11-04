@@ -126,12 +126,21 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
     void host.save();
   });
 
+  const mineLabel = t("My names and businesses");
+  const mine = h("textarea", { rows: "3", spellcheck: "false", autocomplete: "off", "data-role": "own-names", "aria-label": mineLabel }) as HTMLTextAreaElement;
+  mine.value = (host.settings().ownNames ?? []).join("\n");
+  mine.addEventListener("change", () => {
+    host.settings().ownNames = shieldNamesFrom(mine.value);
+    void host.save();
+  });
+
   return h(
     "section",
     {},
     h("h2", {}, h("span", { text: t("Privacy") })),
     h("div", { class: "row" }, h("label", { text: shieldLabel }), shield),
     h("div", { class: "hint", text: t("Before anything goes to Claude, names, emails, phone numbers, addresses and unit numbers are swapped for placeholders on this PC and put back in the answer.") }),
+    h("div", { class: "pill-group" }, h("h3", { text: mineLabel }), mine, h("div", { class: "hint", text: t("One per line: your own names and your businesses' names. Always hidden, in any case, and put back exactly as you wrote them. Add your business names here. Signature blocks (from a \"--\" line, or a sign-off like \"Best,\" at the end) are never sent or rewritten.") })),
     h("div", { class: "pill-group" }, h("h3", { text: namesLabel }), names, h("div", { class: "hint", text: t("One per line. Names in Outlook's address book (while Outlook is open) and people you've drafted emails to are hidden too.") })),
     h("div", { class: "hint", text: t("Glim never reads fields in these apps or on these sites: nothing is checked, kept or rewritten there.") }),
     body,

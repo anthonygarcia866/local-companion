@@ -233,21 +233,34 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
     if paragraph.chars().count() > MAX_PARAGRAPH_CHARS {
         return Reply::failed(Failure::TooLong);
     }
-    let masked = match crate::shield::mask(paragraph) {
+    // A signature block is never sent or rewritten: it comes back as it was.
+    let (body, tail) = crate::shield::signature::split(paragraph);
+    if body.trim().is_empty() {
+        return Reply::failed(Failure::Empty);
+    }
+    let masked = match crate::shield::mask(body) {
         Ok(m) => m,
         Err(m) => return Reply::failed(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }),
     };
     match send(base, key, &request_body(model_id, tone, &masked.text)).await {
-        Ok(body) => unshield(parse_answer(&body, model_id), &masked),
+        Ok(answer) => unshield(parse_answer(&answer, model_id), &masked, body, tail),
         Err(f) => Reply::failed(f),
     }
 }
 
 /// The rewrite with the real values back, or dropped (shield::Check::Whole:
-/// every placeholder back, none doubled or changed). The cost stays.
-fn unshield(mut reply: Reply, masked: &crate::shield::Masked) -> Reply {
+/// every placeholder back, none doubled or changed; and the numbers and
+/// dates of `body` kept, shield::facts). The cost stays. `tail` (the
+/// signature) goes back after it.
+fn unshield(mut reply: Reply, masked: &crate::shield::Masked, body: &str, tail: &str) -> Reply {
     if let Ok(text) = &reply.result {
-        reply.result = crate::shield::unmask(text, masked, crate::shield::Check::Whole).map_err(Failure::Shield);
+        reply.result = crate::shield::unmask(text, masked, crate::shield::Check::Whole).map_err(Failure::Shield).and_then(|back| {
+            if crate::shield::facts::check("rewrite", body, &back) {
+                Ok(crate::shield::signature::rejoin(&back, tail))
+            } else {
+                Err(Failure::Shield(crate::shield::Mismatch::Facts))
+            }
+        });
     }
     reply
 }

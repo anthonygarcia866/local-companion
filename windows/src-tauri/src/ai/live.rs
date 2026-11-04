@@ -74,8 +74,13 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
     if paragraph.chars().count() > claude::MAX_PARAGRAPH_CHARS {
         return Reply { result: Err(Failure::TooLong), usage: None };
     }
+    // Signature blocks are never sent or rewritten (shield::signature).
+    let (paragraph, tail) = crate::shield::signature::split(paragraph);
+    if paragraph.trim().is_empty() {
+        return Reply { result: Err(Failure::Empty), usage: None };
+    }
     let before: String = {
-        let chars: Vec<char> = before.trim().chars().collect();
+        let chars: Vec<char> = crate::shield::signature::split(before.trim()).0.chars().collect();
         chars[chars.len().saturating_sub(MAX_BEFORE_CHARS)..].iter().collect()
     };
     let rules: Vec<&str> = rules.iter().take(MAX_RULES).map(String::as_str).collect();
@@ -92,8 +97,15 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
     };
     // Every placeholder of the paragraph back; one only in the context may
     // be left out.
+    // And every number and date of the paragraph kept, none added (shield::facts).
     if let Ok(text) = &reply.result {
-        reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield);
+        reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield).and_then(|back| {
+            if crate::shield::facts::check("live", paragraph, &back) {
+                Ok(crate::shield::signature::rejoin(&back, tail))
+            } else {
+                Err(Failure::Shield(crate::shield::Mismatch::Facts))
+            }
+        });
     }
     reply
 }
