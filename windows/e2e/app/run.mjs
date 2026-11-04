@@ -329,6 +329,9 @@ async function liveRevisions(g, win) {
     const before = await readField(win);
     if (!before.includes(TYPED)) {
       const seen = await win.ask({ cmd: "text" });
+      const list = await win.ask({ cmd: "windows", pid: notepad.pid });
+      const w = Array.isArray(list) ? list.find((x) => x.visible && x.w > 100) : null;
+      if (w) await win.ask({ cmd: "shot", x: w.x, y: w.y, w: w.w, h: w.h, out: join(out, "live-notepad.png") });
       return result("live revisions: typing", "SKIPPED", `Notepad didn't get the keys (focus ${JSON.stringify(focus)}; focused field ${JSON.stringify(seen.cls)}: ${JSON.stringify(before.slice(0, 80))})`);
     }
     result("live revisions: typing", "PASS", "typed into Notepad");

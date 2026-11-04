@@ -33,6 +33,24 @@ public static class GlimWin {
   [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, StringBuilder l);
+  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+
+  /// The text of the foreground window's Edit or RichEdit child (classic
+  /// Notepad), by WM_GETTEXT; null when it has none.
+  public static string ForegroundEditText() {
+    var top = GetForegroundWindow();
+    foreach (var cls in new[] { "Edit", "RichEditD2DPT", "RICHEDIT50W" }) {
+      var e = FindWindowEx(top, IntPtr.Zero, cls, null);
+      if (e == IntPtr.Zero) continue;
+      int n = SendMessage(e, 0x000E, IntPtr.Zero, IntPtr.Zero).ToInt32();
+      var sb = new StringBuilder(n + 1);
+      SendMessage(e, 0x000D, (IntPtr)(n + 1), sb);
+      return sb.ToString();
+    }
+    return null;
+  }
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int n);
 
   [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
@@ -136,7 +154,9 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)) { $value = $vp.Current.Value }
         $tp = $null
         if ($null -eq $value -and $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp)) { $value = $tp.DocumentRange.GetText(-1) }
-        $out = '{"text":' + ([string]$value | ConvertTo-Json -Compress) + ',"cls":' + ([string]$el.Current.ClassName | ConvertTo-Json -Compress) + '}'
+        $direct = [GlimWin]::ForegroundEditText()
+        if ([string]::IsNullOrEmpty([string]$value) -and $null -ne $direct) { $value = $direct }
+        $out = '{"text":' + ([string]$value | ConvertTo-Json -Compress) + ',"cls":' + ([string]$el.Current.ClassName | ConvertTo-Json -Compress) + ',"direct":' + ($null -ne $direct).ToString().ToLower() + '}'
       }
       'quit' { exit 0 }
       default { $out = '{"error":"unknown command"}' }
