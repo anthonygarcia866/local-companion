@@ -255,10 +255,9 @@ pub async fn rewrite(base: &Url, key: &ApiKey, model_id: &str, tone: Tone, parag
 fn unshield(mut reply: Reply, masked: &crate::shield::Masked, body: &str, tail: &str) -> Reply {
     if let Ok(text) = &reply.result {
         reply.result = crate::shield::unmask(text, masked, crate::shield::Check::Whole).map_err(Failure::Shield).and_then(|back| {
-            if crate::shield::facts::same(body, &back) {
+            if crate::shield::facts::check("rewrite", body, &back) {
                 Ok(crate::shield::signature::rejoin(&back, tail))
             } else {
-                crate::log::line(crate::shield::facts::log_counts("rewrite", body, &back));
                 Err(Failure::Shield(crate::shield::Mismatch::Facts))
             }
         });

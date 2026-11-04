@@ -396,10 +396,16 @@ mod tests {
         let (issues, _) = place("Café: they was late.", json!([{ "quote": "they was", "replacement": "they were", "message": "m" }]).as_array().unwrap());
         assert_eq!((issues[0].start, issues[0].end), (6, 14));
         // At most MAX_ISSUES.
-        let many: Vec<Value> = (0..12).map(|i| json!({ "quote": format!("w{i:02}"), "replacement": "x", "message": "m" })).collect();
-        let text: String = (0..12).map(|i| format!("w{i:02} ")).collect();
+        let word = |i: u8| format!("w{}", (b'a' + i) as char);
+        let many: Vec<Value> = (0..12).map(|i| json!({ "quote": word(i), "replacement": "x", "message": "m" })).collect();
+        let text: String = (0..12).map(|i| format!("{} ", word(i))).collect();
         let (issues, dropped) = place(&text, &many);
         assert_eq!((issues.len(), dropped), (MAX_ISSUES, 12 - MAX_ISSUES));
+        // The numbers-and-dates rule (shield::facts): a fix never changes one.
+        let fix = |q: &str, r: &str| json!([{ "quote": q, "replacement": r, "message": "m" }]);
+        assert_eq!(place("Pay $1,850 on Tuesday.", fix("$1,850", "$1,580").as_array().unwrap()).1, 1);
+        assert_eq!(place("Pay $1,850 on Tuesday.", fix("on Tuesday", "on Wednesday").as_array().unwrap()).1, 1);
+        assert_eq!(place("Pay $1,850 on tusday.", fix("tusday", "Tuesday").as_array().unwrap()).1, 0, "a spelling fix");
     }
 
     #[test]

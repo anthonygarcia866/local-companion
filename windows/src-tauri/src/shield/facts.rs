@@ -157,6 +157,37 @@ fn digit_facts(text: &str, out: &mut Facts) {
     }
 }
 
+/// Edit distance, for short words.
+fn distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut cur = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            cur.push((prev[j] + usize::from(ca != cb)).min(prev[j + 1] + 1).min(cur[j] + 1));
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// A fact word as meant: itself, or the one it misspells by a letter
+/// ("tomorow", "wenesday", "febuary", "fourty"), so that fixing the
+/// spelling is not a changed date. Words under 5 letters only exactly.
+fn as_meant(w: &str) -> String {
+    // Real words a letter away from one ("weight" / "eight", "forth" / "forty").
+    const WORDS: &[&str] = &["weight", "weights", "height", "heights", "weighty", "forth", "seconds", "thirds", "fourths", "fifths", "tenths"];
+    let vocab = UNITS.iter().chain(&TENS).chain(&ORDINALS).chain(&TENS_ORDINALS).chain(&DAYS).chain(&MONTHS).chain(&RELATIVE);
+    let vocab: Vec<&str> = vocab.copied().filter(|v| !v.is_empty()).collect();
+    if w.chars().count() < 5 || vocab.contains(&w) || WORDS.contains(&w) {
+        return w.to_string();
+    }
+    match vocab.iter().find(|v| v.chars().count() >= 5 && distance(w, v) == 1) {
+        Some(v) => v.to_string(),
+        None => w.to_string(),
+    }
+}
+
 /// Number words, ordinals, days, months, today/tomorrow, am/pm.
 fn word_facts(text: &str, out: &mut Facts) {
     // (lower-case word, written with a capital, has a digit)
@@ -166,7 +197,7 @@ fn word_facts(text: &str, out: &mut Facts) {
         let capital = w.chars().next().is_some_and(char::is_uppercase);
         let digit = w.chars().any(|c| c.is_ascii_digit());
         for part in w.split('-').filter(|p| !p.is_empty()) {
-            words.push((part.to_lowercase(), capital, digit));
+            words.push((if digit { part.to_lowercase() } else { as_meant(&part.to_lowercase()) }, capital, digit));
         }
     }
     // "o'clock" and "a.m." are split by word_spans: join them back.
@@ -278,6 +309,16 @@ pub fn log_counts(what: &str, before: &str, after: &str) -> String {
     format!("{what}: numbers/dates changed, discarded (before={} after={})", facts(before).len(), facts(after).len())
 }
 
+/// `same`, and the log's note (counts only) when not: for the callers that
+/// keep no log of their own (ai/claude.rs logs nothing itself).
+pub fn check(what: &str, before: &str, after: &str) -> bool {
+    let ok = same(before, after);
+    if !ok {
+        crate::log::line(log_counts(what, before, after));
+    }
+    ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +356,10 @@ mod tests {
             ("Tuesday at 3pm", "Tuesday at 3 p.m."),
             ("See you on Tuesday.", "See you Tuesday!"),
             ("unit four B", "unit 4B"),
+            // A spelling fix is not a changed date.
+            ("we will deposit it tomorow", "we will deposit it tomorrow"),
+            ("see you wenesday", "see you Wednesday"),
+            ("fourty dollars", "forty dollars"),
         ] {
             assert!(same(a, b), "{a} / {b}");
         }

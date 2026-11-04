@@ -100,10 +100,9 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
     // And every number and date of the paragraph kept, none added (shield::facts).
     if let Ok(text) = &reply.result {
         reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield).and_then(|back| {
-            if crate::shield::facts::same(paragraph, &back) {
+            if crate::shield::facts::check("live", paragraph, &back) {
                 Ok(crate::shield::signature::rejoin(&back, tail))
             } else {
-                crate::log::line(crate::shield::facts::log_counts("live", paragraph, &back));
                 Err(Failure::Shield(crate::shield::Mismatch::Facts))
             }
         });
