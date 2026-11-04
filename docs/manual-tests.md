@@ -773,6 +773,38 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 5. **Stop:** start a watch, say "stop watching". **See:** "Stopped watching", no data-leaving lantern. A 4th watch at once: "Glim is already watching 3 things".
 6. **Never read:** ask to watch your password manager's window. **See:** refused, nothing read.
 
+## 41. Privacy shield (PR #79)
+
+*Where: a build with it, the Claude key set; classic Outlook open with your address book; glim.log open.*
+
+1. **Names from Outlook:** start Glim with Outlook already open. **See:** glim.log `shield: address book read, N entries` (a count only).
+2. **A rewrite keeps the real values:** in Word, write "pls call Maria at 555-123-4567 about unit 7D, she's at 12 Main St" (use a real contact's name) and press the rewrite key, Grammar. **See:** the rewrite has the same name, number, unit and street, unchanged.
+3. **Never sent:** write "DOB: 03/04/1980, please update" and press the rewrite key. **See:** "Not sent: … a date of birth …". Same with "Her monthly income is $3,200". "Rent is $1,250" does go.
+4. **Switch:** Settings → Privacy → Privacy shield off, then on; add a name under "Names to always hide". **See:** saved; glim.log has no names, ever.
+
+## 42. Live revisions (PRs #80, #81)
+
+*Where: a build with them, the Claude key set; Outlook, Word, Teams and AppFolio (in Chrome or Edge); glim.log open.*
+
+1. **Outlook:** in a new email, type a paragraph with a typo ("we recieved the payment and will deposit it tomorow") and stop. **See:** within ~1.5-3 s a small card just above the paragraph: "recieved" struck through, "received" highlighted, "Ctrl+Alt+Shift+Enter to apply". Your typing never lost focus.
+2. **Apply:** press Ctrl+Alt+Shift+Enter. **See:** only that paragraph changes, the caret at its end; Ctrl+Z puts it back in one step.
+3. **Changed:** get a card, type one more letter, then press the key at once. **See:** the card goes; if it was still up, "Text changed: wait for a new suggestion"; nothing replaced.
+4. **Hide rules:** a card goes when you type, click into another field, press Ctrl+Alt+Shift+Backspace, or after 20 s.
+5. **Word:** a long paragraph (5+ lines) with a few fixes. **See:** the card cut at ~3 lines with "…"; clicking "…" shows all, focus stays in Word.
+6. **Teams:** type a sloppy message and pause. **See:** a short, casual revision; the key copies it ("Copied: Glim doesn't type in Teams yet. Paste with Ctrl+V.") and nothing is sent.
+7. **AppFolio:** in a notes or message box, type a paragraph with a tenant's name, a unit and a phone number. **See:** the revision keeps them exactly; glim.log `live: shown … $0.0000xx 0.9s (pause+2.4s)` with no text.
+8. **Never:** in a password field, your password manager or a banking site: no card, nothing in the log.
+9. **Settings → Writing → Live revisions:** turn Teams off (no card there), set the pause to 3 s (the card comes later), turn the master switch off (no card anywhere).
+
+## 43. Polished dictation (PR #82)
+
+*Where: a build with it, the Claude key set; Outlook and Teams.*
+
+1. **Outlook reply:** reply to an email, put the cursor under "Hi …,", hold Ctrl+Alt+Shift+V and ramble: "um so the walkthrough for unit four B is on Thursday at three thirty and uh tell them to bring the keys". **See:** well-written sentences in your voice, "unit 4B", "Thursday", "3:30" all there, no greeting or sign-off you didn't say.
+2. **Teams:** dictate "yeah sounds good I can do Friday at noon". **See:** short and natural ("Sounds good, I can do Friday at noon."), nothing sent.
+3. **A detail kept:** if a polished version ever drops a number, name or date, the card says "The polished version left out a detail you said, so the clean version was typed."
+4. **Levels:** Settings → Writing → Dictation → Dictation style: Clean (as before), Verbatim (typed as heard, no card, glim.log `voice: verbatim (no AI)`); set Teams alone to Verbatim under "Style in each app".
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
