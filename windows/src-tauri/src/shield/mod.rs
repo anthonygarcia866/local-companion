@@ -170,7 +170,7 @@ impl Mismatch {
 
 /// The names to look for, compiled: whole names (lowercase words) and the
 /// single words of any name.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct NameSet {
     pub(crate) full: Vec<Vec<String>>,
     /// One word of a name: hidden alone when written with a capital
@@ -182,6 +182,13 @@ pub struct NameSet {
     /// Words of a name that are also common words ("Carter", "Grant"):
     /// hidden alone only after Mr., Ms., Mrs., Dr. or Mx.
     pub(crate) titled: HashSet<String>,
+}
+
+impl std::fmt::Debug for NameSet {
+    /// Counts only: never a name (security review, 2026-11-04).
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NameSet").field("full", &self.full.len()).field("words", &self.words.len()).finish()
+    }
 }
 
 impl NameSet {
