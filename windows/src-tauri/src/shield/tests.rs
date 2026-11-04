@@ -188,6 +188,8 @@ fn never_send_blocks_numbers_ssns_birth_dates_and_income() {
         ("SNAP benefits: 250 dollars", Reason::Income),
         ("Salary $85k", Reason::Income),
         ("child support of $400", Reason::Income),
+        ("my card is 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1", Reason::Number),
+        ("it's four one one one, one one one one, one one one one, one one one one", Reason::Number),
     ];
     for (text, why) in blocked {
         assert_eq!(reason(text), Some(why), "{text}");
@@ -201,6 +203,8 @@ fn never_send_blocks_numbers_ssns_birth_dates_and_income() {
         "I was born in Ohio.",
         "Meeting on 2026-11-03 at 10:30.",
         "Call 555-123-4567.",
+        "call five five five one two three four five six seven",
+        "steps 1 2 3 then 4 5 6",
     ];
     for text in fine {
         assert_eq!(reason(text), None, "{text}");

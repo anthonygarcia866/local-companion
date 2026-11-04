@@ -242,7 +242,7 @@ mod tests {
             ("apartment two oh four", "apartment 204"),
             ("suite twenty two C.", "suite 22C."),
             ("unit one hundred four", "unit 104"),
-            ("unit number seven", "unit 7"),
+            ("unit number seven", "unit number 7"),
             ("Unit 2-0-4.", "Unit 204."),
             ("unit two-oh-four", "unit 204"),
             ("unit 2 oh 4 is next", "unit 204 is next"),
