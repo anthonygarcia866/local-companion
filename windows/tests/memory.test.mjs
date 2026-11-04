@@ -108,7 +108,7 @@ test("Rust: the commands are registered and the privacy change is in CLAUDE.md",
   const lib = read("src-tauri/src/lib.rs");
   for (const cmd of ["memory_list", "memory_delete", "memory_forget_all"]) assert.match(lib, new RegExp(`\\n\\s+${cmd},\\n`), cmd);
   const claude = read("../CLAUDE.md");
-  assert.ok(claude.includes("Remembered rules and facts (Settings → Memory, `docs/glim-learns-plan.md` §3) go to `api.anthropic.com` inside Ask Glim requests only"));
+  assert.ok(claude.includes("Remembered rules and facts (Settings → Memory, `docs/glim-learns-plan.md` §3) go to `api.anthropic.com` inside Ask Glim requests (every fact, and only the rules sharing a word with the request) and, rules only"));
   const memory = read("src-tauri/src/memory.rs");
   assert.ok(!/net::|reqwest|TcpStream/.test(memory.split("#[cfg(test)]")[0]), "the module never touches the network");
 });

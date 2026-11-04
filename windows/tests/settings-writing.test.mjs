@@ -125,3 +125,36 @@ test("Strictness: a line under each level says what it covers, the current one m
   const note = el.find("div").find((d) => d.getAttribute("data-role") === "strictness-ai-note");
   assert.match(note.textContent, /Alex and I was.*need the AI/);
 });
+
+test("live revisions: on everywhere by default, a switch per app, a 1-3 s pause", async () => {
+  const { liveGroup, livePause } = await import("../src/settings/writing.ts");
+  const settings = { ...DEFAULT_SETTINGS, liveRevisionApps: {} };
+  delete settings.liveRevisions; // a settings.json from before the switch
+  let saves = 0;
+  const el = liveGroup({ settings: () => settings, save: async () => { saves++; } }, KNOWN);
+  const button = (pred) => el.find("button").find(pred);
+  const master = button((b) => b.getAttribute("data-role") === "live-revisions");
+  assert.ok(master.classList.contains("on"), "on when the file has no value");
+  master.fire("click");
+  assert.equal(settings.liveRevisions, false);
+  // Only the apps the checker reads by default; all on.
+  const rows = el.find("button").filter((b) => b.getAttribute("data-live-exe"));
+  assert.deepEqual(rows.map((b) => b.getAttribute("data-live-exe")), ["WINWORD.EXE", "slack.exe"]);
+  assert.ok(rows.every((b) => b.classList.contains("on")));
+  rows[1].fire("click");
+  assert.deepEqual(settings.liveRevisionApps, { "slack.exe": "off" });
+  const slack = el.find("button").find((b) => b.getAttribute("data-live-exe") === "slack.exe");
+  slack.fire("click");
+  assert.deepEqual(settings.liveRevisionApps, {}, "back on: nothing stored");
+  // The pause: Rust's clamp, in half-second steps on the slider.
+  assert.equal(livePause(undefined), 1500);
+  assert.equal(livePause(250), 1000);
+  assert.equal(livePause(99999), 3000);
+  assert.equal(livePause(2049), 2000);
+  const range = el.find("input").find((i) => i.getAttribute("data-role") === "live-pause");
+  assert.equal(range.value, "1500");
+  range.value = "2500";
+  range.fire("change");
+  assert.equal(settings.livePauseMs, 2500);
+  assert.equal(saves, 4);
+});

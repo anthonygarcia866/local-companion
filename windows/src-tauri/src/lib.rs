@@ -134,6 +134,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
     shared.gate.drop_zone.store(settings.file_drop_zone, std::sync::atomic::Ordering::Relaxed);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&settings));
     shield::apply_settings(&settings);
+    writing::live::set_config(writing::live::Config::from_settings(&settings));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&settings));
     phone::apply_settings(&settings);
     screen_capture::apply(&app);
@@ -750,6 +751,7 @@ fn update_settings(app: &AppHandle, shared: &Shared, change: impl FnOnce(&mut Se
     writing::prefs::set(writing::prefs::Prefs::from_settings(&updated));
     phone::apply_settings(&updated);
     shield::apply_settings(&updated);
+    writing::live::set_config(writing::live::Config::from_settings(&updated));
     let _ = app.emit("settings-changed", updated);
 }
 
@@ -1463,6 +1465,7 @@ pub fn run() {
     i18n::set_picked(&loaded.language);
     ai::rewrite::set_config(ai::rewrite::Config::from_settings(&loaded));
     shield::apply_settings(&loaded);
+    writing::live::set_config(writing::live::Config::from_settings(&loaded));
     writing::prefs::set(writing::prefs::Prefs::from_settings(&loaded));
     phone::apply_settings(&loaded);
     let gate = Arc::new(PollGate::new());

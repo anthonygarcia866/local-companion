@@ -2,7 +2,9 @@
 // (claude::send refuses the whole body; nothing is masked instead).
 //
 // - card, ID and bank numbers (capture::sensitive: Luhn-valid cards, numbers
-//   written like an SSN, IBANs, long digit runs being typed);
+//   written like an SSN, IBANs, long digit runs being typed), and LONG_RUN or
+//   more digits said one at a time ("4 1 1 1 …", "four one one one …"), as
+//   dictation hears a card read out;
 // - an SSN written any other way after its label ("SSN 123456789",
 //   "social security number: 123 45 6789", "ITIN …");
 // - a date of birth: a label ("DOB", "date of birth", "birth date", "born
@@ -45,6 +47,9 @@ pub fn reason(text: &str) -> Option<Reason> {
     }
     let words: Vec<(usize, usize)> = word_spans(text);
     let lw: Vec<String> = words.iter().map(|&(s, e)| text[s..e].to_lowercase()).collect();
+    if said_digit_by_digit(&lw) {
+        return Some(Reason::Number);
+    }
     if labelled_ssn(text, &words, &lw) {
         return Some(Reason::Ssn);
     }
@@ -69,6 +74,25 @@ fn labels_at(lw: &[String], labels: &[&[&str]]) -> Vec<(usize, usize)> {
         }
     }
     out
+}
+
+// ── Digits said one at a time ─────────────────────────────────────────────
+
+const DIGIT_WORDS: &[&str] = &["zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+/// LONG_RUN (12) or more words in a row that are each one digit, written
+/// ("4") or said ("four", "oh"): a card or account number read out. A phone
+/// number (10 or 11) stays under it.
+fn said_digit_by_digit(lw: &[String]) -> bool {
+    let one = |w: &String| (w.len() == 1 && w.chars().all(|c| c.is_ascii_digit())) || DIGIT_WORDS.contains(&w.as_str());
+    let mut run = 0;
+    for w in lw {
+        run = if one(w) { run + 1 } else { 0 };
+        if run >= crate::capture::sensitive::LONG_RUN {
+            return true;
+        }
+    }
+    false
 }
 
 // ── SSN after its label ───────────────────────────────────────────────────

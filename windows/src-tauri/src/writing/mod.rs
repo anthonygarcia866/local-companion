@@ -17,6 +17,7 @@ pub mod ask;
 pub mod bubble;
 pub mod checker;
 pub mod docs_tip;
+pub mod live;
 pub mod prefs;
 pub mod text;
 pub mod tones;
@@ -348,12 +349,16 @@ pub struct Session {
     /// or text holding a card, SSN or IBAN. A rewrite asked for there says
     /// so (owner, 2026-10-13) instead of "click in the paragraph".
     withheld: bool,
+    /// Live revisions (writing/live.rs): the one on its way, the one shown.
+    live: live::LiveState,
 }
 
 /// The focused field's paragraph, for a rewrite.
 struct Current {
     text: String,
     start: usize,
+    /// The paragraph before it in the field (live revisions' context).
+    before: String,
     /// key_of the paragraph: which version of it this is.
     key: u64,
     mode: FixMode,
@@ -466,6 +471,7 @@ impl Session {
             self.ai_found = None;
             self.checkable = false;
             self.debounce.reset();
+            self.live_reset("paused");
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         }
@@ -484,11 +490,13 @@ impl Session {
         if !r.same {
             self.debounce.reset();
             self.kept = None;
+            self.live_reset("field");
         }
         let Some(text) = r.text else {
             self.debounce.reset();
             self.kept = None;
             self.current = None;
+            self.live_note();
             self.refresh(&mut emit);
             return;
         };
@@ -499,10 +507,15 @@ impl Session {
             self.kept = None;
             self.current = None;
             self.checkable = false;
+            self.live_note();
             self.show(Suggestions::default(), FixMode::View, &mut emit);
             return;
         };
-        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
+        let before = crate::writing::text::paragraph_before(text, paragraph.start);
+        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, before, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
+        // The debouncer sees this version first, so a pause counts from its
+        // last change (live revisions read it).
+        self.live_note();
         if self.rewrite.as_ref().is_some_and(|w| now.duration_since(w.at) >= KEEP_FOR) {
             self.rewrite = None;
         }
@@ -544,6 +557,7 @@ impl Session {
     /// The writing settings changed (an app switched off, 1d): everything
     /// shown, kept or remembered goes, and the field is looked at afresh.
     pub fn settings_changed(&mut self, mut emit: impl FnMut(&Suggestions)) {
+        self.live_reset("settings");
         self.kept = None;
         self.current = None;
         self.rewrite = None;

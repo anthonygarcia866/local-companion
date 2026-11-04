@@ -160,6 +160,13 @@ pub struct Settings {
     /// Settings → Privacy → names the shield always hides, one per entry
     /// (besides Outlook's address book and remembered recipients).
     pub shield_names: Vec<String>,
+    /// Settings → Writing → Live revisions (owner, 2026-11-03): on by
+    /// default, everywhere the checker reads.
+    pub live_revisions: bool,
+    /// Per-app switches, "on" / "off" by exe (all on unless listed off).
+    pub live_revision_apps: BTreeMap<String, String>,
+    /// How long a pause in typing sends the paragraph, in ms (1000-3000).
+    pub live_pause_ms: u32,
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
@@ -279,6 +286,9 @@ impl Default for Settings {
             learn_shortcuts: true,
             privacy_shield: true,
             shield_names: Vec::new(),
+            live_revisions: true,
+            live_revision_apps: BTreeMap::new(),
+            live_pause_ms: 1500,
             phone: PhoneSettings::default(),
         }
     }
@@ -592,6 +602,9 @@ mod tests {
   "learnShortcuts": false,
   "privacyShield": false,
   "shieldNames": ["Zephyrine Quill", "Vonk"],
+  "liveRevisions": false,
+  "liveRevisionApps": { "slack.exe": "off" },
+  "livePauseMs": 2500,
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" }
 }"##;
 
@@ -739,6 +752,15 @@ mod tests {
         assert!(parse(br#"{"screen":"active"}"#).unwrap().privacy_shield, "a file from before the switch");
         assert!(!parse(br#"{"privacyShield":false}"#).unwrap().privacy_shield);
         assert!(parse(&custom_with("privacyShield", None)).unwrap().privacy_shield);
+    }
+
+    #[test]
+    fn live_revisions_are_on_everywhere_unless_turned_off() {
+        let d = Settings::default();
+        assert!(d.live_revisions && d.live_revision_apps.is_empty());
+        assert_eq!(d.live_pause_ms, 1500);
+        assert!(parse(br#"{"screen":"active"}"#).unwrap().live_revisions, "a file from before the switch");
+        assert!(!parse(br#"{"liveRevisions":false}"#).unwrap().live_revisions);
     }
 
     #[test]
@@ -1075,6 +1097,9 @@ mod tests {
                 "learnShortcuts",
                 "privacyShield",
                 "shieldNames",
+                "liveRevisions",
+                "liveRevisionApps",
+                "livePauseMs",
                 "phone",
             ]
         );

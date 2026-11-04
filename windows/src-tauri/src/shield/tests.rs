@@ -155,6 +155,15 @@ fn the_map_never_shows_in_debug() {
 }
 
 #[test]
+fn the_never_send_filter_sees_the_text_before_any_placeholder() {
+    // A card said digit by digit, or one next to a phone: refused as written.
+    assert_eq!(mask_with("pay with 4111 1111 1111 1111 or call 555-123-4567", &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(mask_with("DOB: 03/04/1980, call 555-123-4567", &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(mask_many(&["fine", "SSN 123456789"], &names()).unwrap_err(), Mismatch::Sensitive);
+    assert_eq!(Mismatch::Sensitive.code(), "sensitive");
+}
+
+#[test]
 fn nothing_to_swap_leaves_the_text_alone() {
     let text = "Thanks for the update, see you tomorrow.";
     let m = mask_with(text, &names()).unwrap();
@@ -179,6 +188,8 @@ fn never_send_blocks_numbers_ssns_birth_dates_and_income() {
         ("SNAP benefits: 250 dollars", Reason::Income),
         ("Salary $85k", Reason::Income),
         ("child support of $400", Reason::Income),
+        ("my card is 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1", Reason::Number),
+        ("it's four one one one, one one one one, one one one one, one one one one", Reason::Number),
     ];
     for (text, why) in blocked {
         assert_eq!(reason(text), Some(why), "{text}");
@@ -192,6 +203,8 @@ fn never_send_blocks_numbers_ssns_birth_dates_and_income() {
         "I was born in Ohio.",
         "Meeting on 2026-11-03 at 10:30.",
         "Call 555-123-4567.",
+        "call five five five one two three four five six seven",
+        "steps 1 2 3 then 4 5 6",
     ];
     for text in fine {
         assert_eq!(reason(text), None, "{text}");
