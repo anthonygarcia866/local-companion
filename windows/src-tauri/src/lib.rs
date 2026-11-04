@@ -983,6 +983,16 @@ const MIC_SETTINGS: &str = "ms-settings:privacy-microphone";
 
 /// The mini lantern's popover opened or closed (1e, §7a.3): the window is
 /// laid out again at once.
+/// The live preview's page has loaded and listens: the revision that came
+/// while its window was being made is shown now (live_window.rs).
+#[tauri::command]
+fn live_page_ready(app: AppHandle) {
+    #[cfg(windows)]
+    live_window::page_ready(&app);
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
 /// The live preview's "…" was clicked: its window is taller from the next
 /// reading on (live_window.rs).
 #[tauri::command]
@@ -1649,6 +1659,7 @@ pub fn run() {
             resume_open,
             bubble_popover,
             live_expand,
+            live_page_ready,
             bubble_rewrite,
             writing_rewrite_apply,
             writing_rewrite_copy,

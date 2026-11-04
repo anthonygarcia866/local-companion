@@ -1,5 +1,7 @@
 // The live revision's preview window: wires LiveView to Rust. Listens only
-// (capabilities/live.json); acts only through Glim's own live_expand command.
+// (capabilities/live.json); acts only through Glim's own live_expand command,
+// and says once that it listens (live_page_ready: the first revision of a
+// run came while this window was being made).
 
 import "../style.css";
 import "./live.css";
@@ -20,6 +22,7 @@ async function main() {
   });
   document.getElementById("live-root")!.append(view.el);
   await onEvent<LivePreviewEvent>("live-preview", (e) => view.on(e));
+  void Bridge.livePageReady();
   await onEvent<typeof State.settings>("settings-changed", (s) => { State.settings = { ...State.settings, ...s }; });
 }
 

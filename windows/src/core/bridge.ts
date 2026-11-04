@@ -138,6 +138,8 @@ export const Bridge = {
   bubblePopover: (open: boolean) => call<void>("bubble_popover", { open }),
   /** The live preview's "…" was clicked: Rust makes its window taller (live_window.rs). */
   liveExpand: (open: boolean) => call<void>("live_expand", { open }),
+  /** The live preview's page listens now: Rust sends the revision that came before it. */
+  livePageReady: () => call<void>("live_page_ready"),
   /** Rewrite… in the mini lantern's popover: the same as Ctrl+Alt+Shift+R. */
   bubbleRewrite: () => call<void>("bubble_rewrite"),
   /** Apply all: every row of list `checkId`, each with its first replacement. */
