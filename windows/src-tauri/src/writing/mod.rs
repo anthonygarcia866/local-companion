@@ -147,6 +147,7 @@ struct Kept {
 }
 
 /// Everything one fix needs, handed to the apply step (apply.rs).
+#[derive(Clone)]
 pub struct Job {
     /// The paragraph as it was checked.
     pub paragraph: String,
@@ -158,6 +159,10 @@ pub struct Job {
     pub replacement: String,
     /// The app's short name, for the island's note.
     pub app: String,
+    /// Put in as one paste, so ONE Ctrl+Z takes it back (a live revision's
+    /// accept, a rewrite's "Use this": a whole paragraph, which typed key by
+    /// key leaves Word several undo steps; away-mode live test 2026-11-05).
+    pub one_step: bool,
 }
 
 impl std::fmt::Debug for Job {
@@ -638,6 +643,7 @@ impl Session {
             end,
             replacement: replacement.clone(),
             app: self.shown.app.clone(),
+            one_step: false,
         })
     }
 
@@ -728,7 +734,7 @@ impl Session {
         if !offerable(text) {
             return Err(Outcome::Blocked);
         }
-        Ok(Job { paragraph: w.paragraph.clone(), field_start: w.start, start: 0, end: w.paragraph.chars().count(), replacement: text.clone(), app: w.app.clone() })
+        Ok(Job { paragraph: w.paragraph.clone(), field_start: w.start, start: 0, end: w.paragraph.chars().count(), replacement: text.clone(), app: w.app.clone(), one_step: true })
     }
 
     /// The rewrite's text for its Copy button (fields Glim can't type in, or
@@ -1595,7 +1601,7 @@ Anthony", word.to_uppercase());
 
     #[test]
     fn a_job_never_shows_its_words() {
-        let j = Job { paragraph: "SENTINEL-p".into(), field_start: 0, start: 0, end: 1, replacement: "SENTINEL-r".into(), app: "Word".into() };
+        let j = Job { paragraph: "SENTINEL-p".into(), field_start: 0, start: 0, end: 1, replacement: "SENTINEL-r".into(), app: "Word".into(), one_step: false };
         assert!(!format!("{j:?} {j:#?}").contains("SENTINEL"));
     }
 

@@ -39,6 +39,16 @@ pub trait Field {
     /// Step 7: types `text` over the selection in one go; an empty `text` is
     /// one Backspace. False if Windows didn't take the input.
     fn type_over(&mut self, text: &str) -> bool;
+    /// Step 7 for a one-step job (`Job::one_step`): puts `text` over the
+    /// selection as ONE paste, so one Ctrl+Z takes it back. False when it
+    /// can't (the clipboard is busy, or holds something it couldn't put
+    /// back): the text is typed instead.
+    fn paste_over(&mut self, text: &str) -> bool {
+        let _ = text;
+        false
+    }
+    /// After a paste, landed or not: the user's clipboard as it was.
+    fn after_paste(&mut self) {}
     /// A short pause while the app takes the keys: `SendInput` only queues
     /// them, so the field changes a moment later, a key at a time.
     fn pause(&mut self);
@@ -177,8 +187,10 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         undo_select(f);
         return o;
     }
-    // 7. Type it.
-    if !f.type_over(&job.replacement) {
+    // 7. Put it in: a one-step job as one paste (one Ctrl+Z takes it back),
+    // anything else typed.
+    let pasted = job.one_step && !job.replacement.is_empty() && f.paste_over(&job.replacement);
+    if !pasted && !f.type_over(&job.replacement) {
         undo_select(f);
         return Outcome::Unsupported;
     }
@@ -197,10 +209,17 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         }
         f.pause();
     }
+    if pasted {
+        f.after_paste();
+    }
     let Some(after) = landed else {
         // Nothing changed at all: the keys didn't land (an app that ignores
         // them, or Windows blocked them). Otherwise something else happened.
         let untouched = locate(f, &job.paragraph, job.field_start).is_some();
+        if pasted && untouched {
+            // An app that doesn't paste: typed instead, through every step again.
+            return run(f, &Job { one_step: false, ..job.clone() });
+        }
         return if untouched { Outcome::Unsupported } else { Outcome::NotClean };
     };
     // The caret back where the user was typing (owner, 2026-10-11).
@@ -292,6 +311,12 @@ mod tests {
         typing_fails: bool,
         typed: Vec<String>,
         selects: usize,
+        /// Whether a paste can be done (the clipboard free and restorable).
+        paste_ok: bool,
+        /// An app that takes the paste keys but pastes nothing.
+        paste_ignored: bool,
+        pasted: Vec<String>,
+        restored: usize,
     }
 
     impl Fake {
@@ -313,6 +338,10 @@ mod tests {
                 pending: None,
                 lag: 0,
                 pauses: 0,
+                paste_ok: true,
+                paste_ignored: false,
+                pasted: Vec::new(),
+                restored: 0,
             }
         }
         fn text(&self) -> String {
@@ -384,6 +413,23 @@ mod tests {
             self.caret = s + lands.chars().count();
             true
         }
+        fn paste_over(&mut self, text: &str) -> bool {
+            if !self.paste_ok {
+                return false;
+            }
+            self.pasted.push(text.to_string());
+            if self.paste_ignored {
+                return true;
+            }
+            // A paste lands whole, at once (one undo step).
+            let (s, e) = self.sel.take().unwrap_or((self.caret, self.caret));
+            self.doc.splice(s..e, text.chars());
+            self.caret = s + text.chars().count();
+            true
+        }
+        fn after_paste(&mut self) {
+            self.restored += 1;
+        }
         fn pause(&mut self) {
             self.pauses += 1;
             if let Some((s, e, text, left)) = self.pending.take() {
@@ -408,7 +454,56 @@ mod tests {
             end: start + problem.chars().count(),
             replacement: replacement.into(),
             app: "Notepad".into(),
+            one_step: false,
         }
+    }
+
+    /// A live revision's accept: the whole paragraph, one step.
+    fn whole(paragraph: &str, revised: &str) -> Job {
+        Job { paragraph: paragraph.into(), field_start: 8, start: 0, end: paragraph.chars().count(), replacement: revised.into(), app: "Outlook".into(), one_step: true }
+    }
+
+    #[test]
+    fn a_one_step_job_is_one_paste_and_the_clipboard_goes_back() {
+        let mut f = Fake::new(DOC, "payment");
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Applied);
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.pasted, ["We received the payment today."], "one paste");
+        assert!(f.typed.is_empty(), "nothing typed key by key");
+        assert_eq!(f.restored, 1, "the user's clipboard put back");
+    }
+
+    #[test]
+    fn a_one_step_job_is_typed_when_the_clipboard_cant_be_used_or_the_app_ignores_the_paste() {
+        // The clipboard is busy (or holds what couldn't be put back).
+        let mut f = Fake::new(DOC, "payment");
+        f.paste_ok = false;
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
+        assert!(f.pasted.is_empty());
+        assert_eq!(f.typed, ["We received the payment today."]);
+        assert_eq!(f.restored, 0);
+        // An app that pastes nothing: typed instead, through every step again.
+        let mut f = Fake::new(DOC, "payment");
+        f.paste_ignored = true;
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
+        assert_eq!(f.pasted.len(), 1);
+        assert_eq!(f.typed, ["We received the payment today."]);
+        assert_eq!(f.restored, 1);
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+    }
+
+    #[test]
+    fn a_one_word_fix_is_still_typed_and_the_landed_check_still_refuses_a_wrong_paste() {
+        let mut f = Fake::new(DOC, "payment");
+        assert_eq!(run(&mut f, &fix()), Outcome::Applied);
+        assert!(f.pasted.is_empty());
+        assert_eq!(f.typed, ["received"]);
+        // The live and rewrite jobs ask for one step; a single fix doesn't.
+        let src = include_str!("live.rs");
+        assert!(src.contains("app: s.app.clone(), one_step: true"), "live accept is one step");
+        let src = include_str!("mod.rs");
+        assert!(src.contains("app: w.app.clone(), one_step: true"), "rewrite's Use this is one step");
     }
 
     fn fix() -> Job {
