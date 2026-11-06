@@ -373,7 +373,7 @@ impl Session {
         if !super::offerable(&s.revised) {
             return Err(Outcome::Blocked);
         }
-        Ok(super::Job { paragraph: s.paragraph.clone(), field_start: s.start, start: 0, end: s.paragraph.chars().count(), replacement: s.revised.clone(), app: s.app.clone() })
+        Ok(super::Job { paragraph: s.paragraph.clone(), field_start: s.start, start: 0, end: s.paragraph.chars().count(), replacement: s.revised.clone(), app: s.app.clone(), one_step: true })
     }
 
     /// Suggestions-only apps: the revision to copy, if the field still holds

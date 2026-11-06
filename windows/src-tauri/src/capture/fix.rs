@@ -8,10 +8,13 @@
 use std::time::{Duration, Instant};
 
 use windows::core::BOOL;
-use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
-use windows::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData};
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
+};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::System::Threading::{OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Accessibility::{
@@ -22,7 +25,7 @@ use windows::Win32::UI::Accessibility::{
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LBUTTON, VK_LWIN, VK_MBUTTON, VK_MENU, VK_RBUTTON,
-    VK_RWIN, VK_SHIFT,
+    VK_RWIN, VK_SHIFT, VK_V,
 };
 
 use super::sensitive::{is_browser, is_sensitive_field, PauseList};
@@ -41,11 +44,13 @@ pub struct UiaField<'a> {
     element: IUIAutomationElement,
     pid: u32,
     pause: &'a PauseList,
+    /// The user's clipboard while Glim pastes a one-step job: put back after.
+    saved_clip: Option<Option<String>>,
 }
 
 impl<'a> UiaField<'a> {
     pub fn new(uia: &'a IUIAutomation, element: IUIAutomationElement, pid: u32, pause: &'a PauseList) -> Self {
-        UiaField { uia, element, pid, pause }
+        UiaField { uia, element, pid, pause, saved_clip: None }
     }
 
     fn pattern2(&self) -> Option<IUIAutomationTextPattern2> {
@@ -218,6 +223,42 @@ impl Field for UiaField<'_> {
         sent as usize == inputs.len()
     }
 
+    fn paste_over(&mut self, text: &str) -> bool {
+        // The user's clipboard first: only plain text (or nothing) can be put
+        // back exactly; anything else and the text is typed instead.
+        let Some(saved) = save_clipboard() else { return false };
+        if !open_clipboard() {
+            return false;
+        }
+        let set = unsafe { EmptyClipboard() }.is_ok() && set_text(text, true).is_some();
+        unsafe {
+            let _ = CloseClipboard();
+        }
+        if !set {
+            restore_clipboard(&saved);
+            return false;
+        }
+        self.saved_clip = Some(saved);
+        // Ctrl+V, in one call (Windows doesn't interleave the user's input).
+        let key = |vk: VIRTUAL_KEY, up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) }, time: 0, dwExtraInfo: 0 } },
+        };
+        let inputs = [key(VK_CONTROL, false), key(VK_V, false), key(VK_V, true), key(VK_CONTROL, true)];
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize != inputs.len() {
+            self.after_paste();
+            return false;
+        }
+        true
+    }
+
+    fn after_paste(&mut self) {
+        if let Some(saved) = self.saved_clip.take() {
+            restore_clipboard(&saved);
+        }
+    }
+
     fn pause(&mut self) {
         std::thread::sleep(Duration::from_millis(30));
     }
@@ -298,42 +339,121 @@ fn token_elevated(pid: u32) -> Option<bool> {
     }
 }
 
+/// Opens the clipboard (a few tries: another app may hold it a moment).
+fn open_clipboard() -> bool {
+    for _ in 0..5 {
+        if unsafe { OpenClipboard(None) }.is_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+/// Hands `bytes` to the clipboard as `format` (it must be open and emptied).
+fn set_data(format: u32, bytes: &[u8]) -> Option<()> {
+    unsafe {
+        let mem = GlobalAlloc(GMEM_MOVEABLE, bytes.len().max(1)).ok()?;
+        let dst = GlobalLock(mem) as *mut u8;
+        if dst.is_null() {
+            let _ = GlobalFree(Some(mem));
+            return None;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+        let _ = GlobalUnlock(mem);
+        // The clipboard owns the memory once this succeeds.
+        if SetClipboardData(format, Some(HANDLE(mem.0))).is_err() {
+            let _ = GlobalFree(Some(mem));
+            return None;
+        }
+    }
+    Some(())
+}
+
+/// Puts `text` on the clipboard (it must be open and emptied). `private`:
+/// kept out of Windows' clipboard history and cloud clipboard (Glim's own
+/// paste of the user's paragraph, which is only passing through).
+fn set_text(text: &str, private: bool) -> Option<()> {
+    let bytes: Vec<u8> = text.encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
+    set_data(CF_UNICODETEXT.0 as u32, &bytes)?;
+    if private {
+        let zero = 0u32.to_le_bytes();
+        let format = |name: windows::core::PCWSTR| unsafe { RegisterClipboardFormatW(name) };
+        let _ = set_data(format(windows::core::w!("ExcludeClipboardContentFromMonitorProcessing")), &[]);
+        let _ = set_data(format(windows::core::w!("CanIncludeInClipboardHistory")), &zero);
+        let _ = set_data(format(windows::core::w!("CanUploadToCloudClipboard")), &zero);
+    }
+    Some(())
+}
+
 /// Puts `text` on the clipboard (a Copy button the user clicked). False if
 /// another app holds the clipboard.
 pub fn copy_to_clipboard(text: &str) -> bool {
-    let units: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+    if !open_clipboard() {
+        return false;
+    }
+    let done = unsafe { EmptyClipboard() }.is_ok() && set_text(text, false).is_some();
     unsafe {
-        let mut open = false;
-        for _ in 0..5 {
-            if OpenClipboard(None).is_ok() {
-                open = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        if !open {
-            return false;
-        }
-        let done = (|| {
-            EmptyClipboard().ok()?;
-            let mem = GlobalAlloc(GMEM_MOVEABLE, units.len() * 2).ok()?;
-            let dst = GlobalLock(mem) as *mut u16;
-            if dst.is_null() {
-                let _ = GlobalFree(Some(mem));
-                return None;
-            }
-            std::ptr::copy_nonoverlapping(units.as_ptr(), dst, units.len());
-            let _ = GlobalUnlock(mem);
-            // The clipboard owns the memory once this succeeds.
-            if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(mem.0))).is_err() {
-                let _ = GlobalFree(Some(mem));
-                return None;
-            }
-            Some(())
-        })()
-        .is_some();
         let _ = CloseClipboard();
-        done
+    }
+    done
+}
+
+/// Clipboard formats Glim can put back exactly: plain text in its forms.
+/// Anything else there (a picture, files, a web page's formatting) and Glim
+/// types instead of pasting, so the user's clipboard is never changed.
+const RESTORABLE: [u32; 4] = [1 /* CF_TEXT */, 7 /* CF_OEMTEXT */, 13 /* CF_UNICODETEXT */, 16 /* CF_LOCALE */];
+
+/// What the clipboard holds now, if Glim can put it back exactly: Some(None)
+/// when empty, Some(Some(text)) for plain text; None otherwise (or busy).
+fn save_clipboard() -> Option<Option<String>> {
+    if !open_clipboard() {
+        return None;
+    }
+    unsafe {
+        let saved = (|| {
+            let mut format = 0u32;
+            loop {
+                format = EnumClipboardFormats(format);
+                if format == 0 {
+                    break;
+                }
+                if !RESTORABLE.contains(&format) {
+                    return None;
+                }
+            }
+            if IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32).is_err() {
+                return Some(None);
+            }
+            let h = GetClipboardData(CF_UNICODETEXT.0 as u32).ok()?;
+            let mem = HGLOBAL(h.0);
+            let units = GlobalSize(mem) / 2;
+            let src = GlobalLock(mem) as *const u16;
+            if src.is_null() {
+                return None;
+            }
+            let all = std::slice::from_raw_parts(src, units);
+            let len = all.iter().position(|&u| u == 0).unwrap_or(units);
+            let text = String::from_utf16_lossy(&all[..len]);
+            let _ = GlobalUnlock(mem);
+            Some(Some(text))
+        })();
+        let _ = CloseClipboard();
+        saved
+    }
+}
+
+/// Puts the saved clipboard back (empty, or its text), out of the history.
+fn restore_clipboard(saved: &Option<String>) {
+    if !open_clipboard() {
+        return;
+    }
+    let emptied = unsafe { EmptyClipboard() }.is_ok();
+    if let (true, Some(text)) = (emptied, saved) {
+        let _ = set_text(text, true);
+    }
+    unsafe {
+        let _ = CloseClipboard();
     }
 }
 

@@ -50,6 +50,7 @@ In every row, names (address book, remembered recipients, the user's lists, My n
 
 - **Agents' hooks** (Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Muse Code, OpenCode, Amp, Hermes): the agent runs the relay `glim-hook.exe` on each event, and the relay forwards the event to Glim over a named pipe `\\.\pipe\glim-<user SID>`. Nothing in this path is networked. Details in `PROJECT_STATUS.md` → "Claude Code integration".
 - **Ollama / LM Studio** on `127.0.0.1`. If you point `OLLAMA_HOST` at another machine, the allowlist refuses it.
+- **The clipboard, for one paste** (2026-11-05): accepting a live revision or Rewrite's **Use this** puts the new paragraph in as one paste, so one Ctrl+Z takes it back. Glim reads the clipboard first, only when it holds plain text or nothing (anything else and the paragraph is typed instead), keeps that text in memory for about two seconds, and puts it back once the paste has landed; it is never logged, stored or sent. Glim's own paste and the put-back are marked so Windows keeps them out of clipboard history and the cloud clipboard (`capture/fix.rs`).
 - **Launching other apps on request**: "Open terminal" brings the session's terminal forward or opens VS Code (`code`), the Claude Desktop pill opens the Claude app, and "Show folder" opens Explorer. Those apps are separate programs with their own network behaviour; Glim only starts or focuses them when you click.
 
 ## Not covered by the choke point
