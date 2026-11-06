@@ -88,8 +88,9 @@ export function buildRewrite(actions: ViewActions): ViewHost {
 
   const closeCard = () => {
     void Bridge.writingRewriteDismiss();
-    State.rewrite = null;
+    // The island logs the close (island.ts logRewriteClose) while the card is still set.
     actions.setView(State.defaultView());
+    State.rewrite = null;
   };
   const pick = (tone: string) => {
     sendTone(tone);

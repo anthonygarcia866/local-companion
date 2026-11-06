@@ -36,6 +36,15 @@ export class IslandStateMachine {
   greetHoverCollapseDelay = 10;
   /** An alert waiting for an answer stays open, even when the mouse leaves. */
   pinned = false;
+  /**
+   * How much longer the open island must stay open, ms (0: it may fold): a
+   * card still waiting on Claude, or one whose answer just came in (the
+   * Rewrite card, core/rewrite.ts rewriteHoldMs). Asked when the countdown
+   * ends; a hold starts it again for that long.
+   */
+  holdOpen: (() => number) | null = null;
+  /** The countdown folded the island (the island logs it). */
+  onAutoClose: (() => void) | null = null;
 
   /**
    * When the open island will fold, on the performance.now() clock, while the
@@ -141,16 +150,24 @@ export class IslandStateMachine {
     }, this.petitToHiddenDelay * 1000);
   }
 
-  private scheduleHomeCollapse() {
+  private scheduleHomeCollapse(delayMs?: number) {
     this.clear("homeCollapse");
     if (this.pinned) return;
-    const ms = this.homeDelay * 1000;
+    const ms = delayMs ?? this.homeDelay * 1000;
     this.homeCollapseDueAt = performance.now() + ms;
     this.homeCollapse = window.setTimeout(() => {
       this.homeCollapse = null;
       this.homeCollapseDueAt = null;
       // An alert pinned while the countdown ran keeps the island open.
-      if (this.state === "home" && !this.pinned) this.transition("petit");
+      if (this.state !== "home" || this.pinned) return;
+      // A card still waiting (or just answered) holds it open a while longer.
+      const hold = this.holdOpen?.() ?? 0;
+      if (hold > 0) {
+        this.scheduleHomeCollapse(hold);
+        return;
+      }
+      this.onAutoClose?.();
+      this.transition("petit");
     }, ms);
   }
 

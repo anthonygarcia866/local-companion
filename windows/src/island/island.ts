@@ -17,7 +17,7 @@ import {
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
 import { State } from "../core/state";
-import { sendingToApi } from "../core/rewrite";
+import { rewriteHoldMs, sendingToApi } from "../core/rewrite";
 import { aiSending } from "../core/ai-check";
 import { answering, meterPercent, modeLabel, rawBadge, voiceLantern, voiceSending } from "../core/voice";
 import { BotEngine, hexToRGB } from "../mochi/engine";
@@ -374,6 +374,10 @@ export class Island {
     // Pill mode means the pill is on screen: it never folds into the invisible
     // wake strip by itself (that made Normal look like Hidden).
     this.fsm.foldsToHidden = false;
+    // The Rewrite card never folds while it waits on Claude, nor in the
+    // 10 s after its answer (away-mode live test, 2026-11-05).
+    this.fsm.holdOpen = () => rewriteHoldMs(State.rewrite, State.mode === "expanded" && State.view === "rewrite", performance.now());
+    this.fsm.onAutoClose = () => this.logRewriteClose("auto-close");
     this.fsm.onTransition = (from, to) => {
       // The launch is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
@@ -484,6 +488,7 @@ export class Island {
   }
 
   setView(view: IslandViewName) {
+    if (view !== "rewrite") this.logRewriteClose(view === State.defaultView() ? "closed on the card" : `replaced by ${view}`);
     this.stopSequenceIfLeaving(view);
     if (view !== "overview") closePlanCard();
     if (State.mode !== "expanded") {
@@ -500,7 +505,15 @@ export class Island {
     State.notify();
   }
 
+  /** The log's line when the Rewrite card closes: why, and its phase; never text. */
+  logRewriteClose(why: string) {
+    // Not open, or already closed (its own ✕ logs that).
+    if (State.mode !== "expanded" || State.view !== "rewrite" || !State.rewrite) return;
+    void Bridge.log(`rewrite card: closed (${why}; ${State.rewrite.phase})`);
+  }
+
   collapse() {
+    this.logRewriteClose("collapse");
     // A waiting card is only ever folded, never dropped by a close.
     if (State.pendingApproval) {
       this.foldApproval();

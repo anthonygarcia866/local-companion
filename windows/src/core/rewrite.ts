@@ -91,7 +91,7 @@ export function rewriteKey(cardOpen: boolean): boolean {
  * drops the rewrite); events for another rewrite than the one on the card
  * are ignored.
  */
-export function nextRewrite(cur: RewriteState | null, e: RewriteEvent): RewriteState | null {
+export function nextRewrite(cur: RewriteState | null, e: RewriteEvent, now = performance.now()): RewriteState | null {
   if (!cur) return null;
   const ours = cur.id === 0 || cur.id === e.id;
   switch (e.phase) {
@@ -103,7 +103,7 @@ export function nextRewrite(cur: RewriteState | null, e: RewriteEvent): RewriteS
       return {
         phase: e.phase, id: e.id, tone: cur.tone, text: e.text, mode: e.mode, app: e.app, offerable: e.offerable,
         model: e.model || cur.model, costUsd: e.costUsd, code: e.code, retryAfter: e.retryAfter, outcome: "", busy: false,
-        defaultTone: cur.defaultTone,
+        defaultTone: cur.defaultTone, readyAt: now,
       };
     case "stale":
       return cur.phase === "sending" && cur.id === e.id ? chooseTone(cur.defaultTone) : cur;
@@ -111,6 +111,22 @@ export function nextRewrite(cur: RewriteState | null, e: RewriteEvent): RewriteS
       return cur.phase === "done" && cur.id === e.id ? { ...cur, outcome: e.outcome, app: e.app || cur.app, busy: false } : cur;
   }
   return cur;
+}
+
+/** How long the Rewrite card stays open after its answer came in, at least
+ *  (away-mode live test 2026-11-05: never folded while waiting on Claude). */
+export const REWRITE_HOLD_MS = 10_000;
+
+/**
+ * How much longer the open Rewrite card must stay, ms (0: it may fold with
+ * the island's usual countdown): while the rewrite is on its way, or "Use
+ * this" / Copy is; and for REWRITE_HOLD_MS after the answer came in.
+ */
+export function rewriteHoldMs(r: RewriteState | null, onCard: boolean, now: number): number {
+  if (!onCard || !r) return 0;
+  if (r.phase === "sending" || r.busy) return REWRITE_HOLD_MS;
+  if ((r.phase === "done" || r.phase === "failed") && r.readyAt !== undefined) return Math.max(0, r.readyAt + REWRITE_HOLD_MS - now);
+  return 0;
 }
 
 /** The lantern shows its "data leaving" state while text is on its way to the API: from

@@ -211,3 +211,28 @@ test("the card sends ids only and never logs; the event handler only stores", ()
   // The data-leaving state is shown only while Rust is sending.
   assert.match(read("src/island/island.ts"), /else if \(voiceSending\(State\.voice\) \|\| sendingToApi\(State\.rewrite\) \|\| aiSending\(State\.aiCheck\) \|\| State\.liveSending\) this\.lantern\.showReserved\(DELEGATE_STATE, "api-request"\);/);
 });
+
+test("the Rewrite card is held open while Claude works and 10 s after the answer (live test 2026-11-05)", async () => {
+  const { rewriteHoldMs, REWRITE_HOLD_MS } = await import("../src/core/rewrite.ts");
+  assert.equal(REWRITE_HOLD_MS, 10_000);
+  const s = nextRewrite(sending("friendlier"), ev("sending"));
+  assert.ok(rewriteHoldMs(s, true, 0) > 0, "waiting on Claude: held");
+  const d = nextRewrite(s, ev("done", { text: "x", mode: "apply", offerable: true }), 1_000);
+  assert.equal(d.readyAt, 1_000);
+  assert.equal(rewriteHoldMs(d, true, 1_000), 10_000);
+  assert.equal(rewriteHoldMs(d, true, 9_000), 2_000);
+  assert.equal(rewriteHoldMs(d, true, 11_000), 0, "10 s after the answer it may fold");
+  assert.ok(rewriteHoldMs({ ...d, busy: true }, true, 60_000) > 0, "Use this on its way: held");
+  assert.equal(rewriteHoldMs(d, false, 1_000), 0, "another view: no hold");
+  assert.equal(rewriteHoldMs(null, true, 0), 0);
+  const f = nextRewrite(s, ev("failed", { code: "network" }), 5_000);
+  assert.equal(rewriteHoldMs(f, true, 6_000), 9_000, "a failure is read too");
+  // The island asks it, and logs every close with why (never text).
+  const island = read("src/island/island.ts");
+  assert.ok(island.includes("this.fsm.holdOpen = () => rewriteHoldMs(State.rewrite"));
+  assert.ok(island.includes('this.fsm.onAutoClose = () => this.logRewriteClose("auto-close")'));
+  assert.ok(island.includes("rewrite card: closed (${why}; ${State.rewrite.phase})"));
+  assert.ok(island.includes('"closed on the card"'), "the card's ✕ is logged through setView");
+  const view = read("src/views/rewrite.ts");
+  assert.ok(view.indexOf("actions.setView(State.defaultView());") < view.indexOf("State.rewrite = null;\n  };"), "the view closes before the card is cleared, so the close is logged");
+});

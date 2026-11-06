@@ -375,6 +375,9 @@ export interface RewriteState {
   /** The field's default tone (1d, §14.3): first and highlighted; a second
    *  press of the hotkey sends it. "" until Rust says. */
   defaultTone: string;
+  /** When the answer (done or failed) came in, performance.now() ms; the
+   *  card stays open at least REWRITE_HOLD_MS after it. */
+  readyAt?: number;
 }
 
 class AppState {
