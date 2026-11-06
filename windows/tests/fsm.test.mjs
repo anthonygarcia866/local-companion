@@ -326,3 +326,29 @@ test("Glim's pill never folds to hidden by itself (foldsToHidden off)", () => {
   seconds(3600);
   assert.equal(fsm.state, "petit");
 });
+
+test("a hold keeps the open island past its countdown, then it folds and says so once", () => {
+  let hold = 10_000;
+  let autoClosed = 0;
+  fsm.holdOpen = () => hold;
+  fsm.onAutoClose = () => autoClosed++;
+  fsm.forceHome();
+  fsm.mouseLeft();
+  seconds(15);
+  assert.equal(fsm.state, "home", "held: still open after the 15 s countdown");
+  assert.equal(autoClosed, 0);
+  hold = 0;
+  seconds(10);
+  assert.equal(fsm.state, "petit", "folds once nothing holds it");
+  assert.equal(autoClosed, 1);
+});
+
+test("without a hold the countdown folds the island as before", () => {
+  let autoClosed = 0;
+  fsm.onAutoClose = () => autoClosed++;
+  fsm.forceHome();
+  fsm.mouseLeft();
+  seconds(15);
+  assert.equal(fsm.state, "petit");
+  assert.equal(autoClosed, 1);
+});
