@@ -26,6 +26,7 @@
 
 pub mod detect;
 pub mod facts;
+pub mod names;
 pub mod never_send;
 pub mod signature;
 pub mod normalize;
@@ -153,6 +154,10 @@ pub enum Mismatch {
     /// The answer changed, dropped or added a number, amount, time or date
     /// (facts.rs): discarded.
     Facts,
+    /// A known name in the text (address book, My names and businesses, the
+    /// names list) is missing or spelled differently in the answer
+    /// (`names::kept`): discarded.
+    Names,
 }
 
 impl Mismatch {
@@ -164,6 +169,7 @@ impl Mismatch {
             Mismatch::Collision => "shield-collision",
             Mismatch::Sensitive => "sensitive",
             Mismatch::Facts => "facts-changed",
+            Mismatch::Names => "names-changed",
         }
     }
 }
@@ -557,6 +563,51 @@ pub fn enabled() -> bool {
 /// How many name words the shield knows (the log's count).
 pub fn name_count() -> usize {
     SOURCES.read().unwrap_or_else(|e| e.into_inner()).as_ref().map_or(0, |s| s.compiled.len())
+}
+
+// ── Defense in depth: known names come back unchanged ──────────────────────
+
+/// The words of `text` that are words of a known name (lower case), with
+/// how often each is there. Common words ("Will", "Grant") are left out: a
+/// rewrite may change those.
+fn name_word_counts(text: &str, names: &NameSet) -> std::collections::HashMap<String, usize> {
+    let mut out = std::collections::HashMap::new();
+    for (s, e) in detect::word_spans(text) {
+        let w = text[s..e].to_lowercase();
+        if names.words.contains(&w) && !detect::is_stop_word(&w) {
+            *out.entry(w).or_insert(0) += 1;
+        }
+    }
+    out
+}
+
+/// Whether every known name word in `before` is in `after` at least as
+/// often, spelled the same (any case: a dictated "dale" may become "Dale").
+/// Names the shield masked come back through their placeholders; this
+/// catches one it didn't (a contact it didn't know yet, a lowercase word).
+pub fn names_kept_with(before: &str, after: &str, names: &NameSet) -> bool {
+    let want = name_word_counts(before, names);
+    if want.is_empty() {
+        return true;
+    }
+    let got = name_word_counts(after, names);
+    want.iter().all(|(w, n)| got.get(w).copied().unwrap_or(0) >= *n)
+}
+
+/// How many known name words `before` holds, and how many of them `after`
+/// lost or respelled (counts only, for names.rs's log line).
+pub(crate) fn names_lost_with(before: &str, after: &str, names: &NameSet) -> (usize, usize) {
+    let want = name_word_counts(before, names);
+    let got = name_word_counts(after, names);
+    let lost = want.iter().filter(|(w, n)| got.get(*w).copied().unwrap_or(0) < **n).count();
+    (lost, want.len())
+}
+
+/// Runs `f` with the app's names, whether or not the shield is on.
+pub(crate) fn with_names<R>(f: impl FnOnce(&NameSet) -> R) -> R {
+    let guard = SOURCES.read().unwrap_or_else(|e| e.into_inner());
+    let empty = NameSet::default();
+    f(guard.as_ref().map_or(&empty, |s| &s.compiled))
 }
 
 /// `text`, masked with the app's names; as it is when the shield is off.

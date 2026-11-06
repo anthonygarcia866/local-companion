@@ -312,3 +312,71 @@ fn my_names_come_from_settings_and_are_seeded_once() {
 fn a_facts_mismatch_has_its_own_code() {
     assert_eq!(Mismatch::Facts.code(), "facts-changed");
 }
+
+// ── Live test 2026-11-05: an address-book surname went out unmasked ───────
+
+/// A Contacts-folder entry as Outlook gives it (full, first, last name and
+/// company), one with many words, and a surname that is a misspelled word.
+const CONTACT: [&str; 3] = ["Odalys Brenwick Surveyers", "Odalys", "Surveyers"];
+
+#[test]
+fn a_contact_surname_alone_is_masked_after_hi_with_a_comma() {
+    let n = NameSet::from_entries(CONTACT.iter().copied());
+    for text in ["Hi Surveyers, the deposit is due.", "Hi Surveyers: thanks", "Thanks, Surveyers."] {
+        let m = mask_with(text, &n).unwrap();
+        assert!(!m.text.contains("Surveyers"), "{text} -> {}", m.text);
+        assert!(m.text.contains("[PERSON1]"), "{text} -> {}", m.text);
+    }
+}
+
+#[test]
+fn a_contact_with_many_words_and_a_company_word_is_masked() {
+    // A long entry ("Name Middle Surname Co Group") and a company-like word.
+    let n = NameSet::from_entries(["Odalys Brenwick Surveyers Holdings Group", "Brightwater Holdings"]);
+    let m = mask_with("Ask Brenwick and Brightwater about it", &n).unwrap();
+    assert_eq!(m.text, "Ask [PERSON1] and [PERSON2] about it");
+}
+
+#[test]
+fn names_kept_catches_a_respelled_or_dropped_name() {
+    let n = NameSet::from_entries(CONTACT.iter().copied().chain(["Dale Booking"]));
+    let before = "Hi Surveyers, Dale Booking will send the receipt.";
+    // The run's answer: the surname "corrected".
+    assert!(!names_kept_with(before, "Hi Surveyors: Dale Booking will send the receipt.", &n));
+    // A name dropped.
+    assert!(!names_kept_with(before, "Hi Surveyers, Booking will send the receipt.", &n));
+    // Kept (case may change, as dictation capitalizes a name).
+    assert!(names_kept_with(before, "Hi Surveyers, Dale Booking will send it.", &n));
+    assert!(names_kept_with("ask dale booking", "Ask Dale Booking.", &n));
+    // No known name: nothing to keep.
+    assert!(names_kept_with("the roof repair can starts", "the roof repair can start", &n));
+    // Common words that are names too ("Will") may change.
+    let w = NameSet::from_entries(["Will Bishop"]);
+    assert!(names_kept_with("Will you call Bishop?", "Could you call Bishop?", &w));
+}
+
+#[test]
+fn names_kept_uses_the_app_names_and_logs_no_name() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    set_address_book(CONTACT.iter().map(|s| s.to_string()).collect());
+    assert!(!names::kept("test", "Hi Surveyers,", "Hi Surveyors,"));
+    assert!(names::kept("test", "Hi Surveyers,", "Hello Surveyers,"));
+    set_address_book(Vec::new());
+    assert_eq!(Mismatch::Names.code(), "names-changed");
+}
+
+#[test]
+fn contacts_folders_are_read_and_every_answer_path_keeps_names() {
+    // A contact without an email address is in no address list.
+    let book = include_str!("address_book.rs");
+    for needle in ["contact_names(&ns, &mut names)", "\"FullName\", \"FirstName\", \"LastName\", \"CompanyName\"", "OL_FOLDER_CONTACTS"] {
+        assert!(book.contains(needle), "address_book.rs: {needle}");
+    }
+    for (file, src, what) in [
+        ("ai/live.rs", include_str!("../ai/live.rs"), "names::kept(\"live\""),
+        ("ai/claude.rs", include_str!("../ai/claude.rs"), "names::kept(\"rewrite\""),
+        ("ai/polish.rs", include_str!("../ai/polish.rs"), "names::kept(\"polish\""),
+    ] {
+        assert!(src.contains(what), "{file} must check {what}");
+    }
+}
