@@ -1,7 +1,9 @@
 // The shield's names from classic Outlook's address book (its Contacts and
 // the offline global address list), read through local COM only while
 // Outlook is already running: Glim attaches (GetActiveObject) and never
-// starts it, like the calendar glance. Only entries' display names are read,
+// starts it, like the calendar glance. Also its Contacts folders (a contact
+// without an email address is in no address list): their full, first and
+// last names and company. Only names are read,
 // kept in memory (shield::set_address_book), never stored, logged or sent;
 // the log gets a count.
 //
@@ -52,12 +54,59 @@ pub fn account_name(address: &str) -> Option<String> {
     None
 }
 
-/// The running Outlook's address-book names, or None when Glim couldn't
-/// attach (not running, still starting).
+const OL_FOLDER_CONTACTS: i32 = 10;
+const OL_CONTACT: i32 = 40;
+/// How deep into the Contacts folder's subfolders.
+const MAX_DEPTH: usize = 3;
+
+/// The names in Outlook's Contacts folder and its subfolders: a contact with
+/// no email address is in no address list (found by the live test,
+/// 2026-11-05: such a surname went out unmasked), so its full name, first
+/// and last name and company are read here.
+fn contact_names(ns: &Disp, out: &mut Vec<String>) {
+    let Ok(root) = ns.call_obj("GetDefaultFolder", &[crate::outlook::int(OL_FOLDER_CONTACTS)]) else { return };
+    let mut folders = vec![(root, 0usize)];
+    let mut read = 0;
+    while let Some((folder, depth)) = folders.pop() {
+        if let Ok(items) = folder.obj("Items") {
+            for i in 1..=items.int("Count") {
+                if read >= MAX_ENTRIES {
+                    return;
+                }
+                let Ok(c) = items.item(i) else { continue };
+                // Contacts only (not distribution lists).
+                if c.int("Class") != OL_CONTACT {
+                    continue;
+                }
+                read += 1;
+                for field in ["FullName", "FirstName", "LastName", "CompanyName"] {
+                    let v = c.text(field);
+                    if !v.trim().is_empty() {
+                        out.push(v);
+                    }
+                }
+            }
+        }
+        if depth < MAX_DEPTH {
+            if let Ok(subs) = folder.obj("Folders") {
+                for k in 1..=subs.int("Count") {
+                    if let Ok(f) = subs.item(k) {
+                        folders.push((f, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The running Outlook's address-book names (its address lists and its
+/// Contacts folders), or None when Glim couldn't attach (not running, still
+/// starting).
 pub fn read_names() -> Option<Vec<String>> {
     let ns = namespace()?;
     let lists = ns.obj("AddressLists").ok()?;
     let mut names: Vec<String> = Vec::new();
+    contact_names(&ns, &mut names);
     for l in 1..=lists.int("Count") {
         let Ok(list) = lists.item(l) else { continue };
         let Ok(entries) = list.obj("AddressEntries") else { continue };

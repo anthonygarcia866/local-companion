@@ -297,6 +297,11 @@ pub async fn polish(base: &Url, key: &ApiKey, model: &str, transcript: &str, p: 
             if !crate::shield::facts::check("polish", &masked_texts[0], &text) {
                 return Err(CleanupFailed::Outage("polish-facts".into()));
             }
+            // Every known name that was said back, spelled the same (both
+            // masked: a masked name is checked through its placeholder).
+            if !crate::shield::names_kept("polish", &masked_texts[0], &text) {
+                return Err(CleanupFailed::Outage("polish-names".into()));
+            }
             let back = if super::dictate::spoken_correction(transcript) {
                 crate::shield::unmask(&text, &masked, crate::shield::Check::Partial)
             } else {
