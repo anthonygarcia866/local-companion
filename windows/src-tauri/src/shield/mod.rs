@@ -26,6 +26,7 @@
 
 pub mod detect;
 pub mod facts;
+pub mod names;
 pub mod never_send;
 pub mod signature;
 pub mod normalize;
@@ -155,7 +156,7 @@ pub enum Mismatch {
     Facts,
     /// A known name in the text (address book, My names and businesses, the
     /// names list) is missing or spelled differently in the answer
-    /// (`names_kept`): discarded.
+    /// (`names::kept`): discarded.
     Names,
 }
 
@@ -593,20 +594,20 @@ pub fn names_kept_with(before: &str, after: &str, names: &NameSet) -> bool {
     want.iter().all(|(w, n)| got.get(w).copied().unwrap_or(0) >= *n)
 }
 
-/// `names_kept_with` with the app's names, whether or not the shield is on.
-/// Logs counts only, never a name: "shield: names changed (live): 1 of 3".
-pub fn names_kept(what: &str, before: &str, after: &str) -> bool {
-    let guard = SOURCES.read().unwrap_or_else(|e| e.into_inner());
-    let empty = NameSet::default();
-    let names = guard.as_ref().map_or(&empty, |s| &s.compiled);
-    if names_kept_with(before, after, names) {
-        return true;
-    }
+/// How many known name words `before` holds, and how many of them `after`
+/// lost or respelled (counts only, for names.rs's log line).
+pub(crate) fn names_lost_with(before: &str, after: &str, names: &NameSet) -> (usize, usize) {
     let want = name_word_counts(before, names);
     let got = name_word_counts(after, names);
     let lost = want.iter().filter(|(w, n)| got.get(*w).copied().unwrap_or(0) < **n).count();
-    crate::log::line(format!("shield: names changed ({what}): {lost} of {}", want.len()));
-    false
+    (lost, want.len())
+}
+
+/// Runs `f` with the app's names, whether or not the shield is on.
+pub(crate) fn with_names<R>(f: impl FnOnce(&NameSet) -> R) -> R {
+    let guard = SOURCES.read().unwrap_or_else(|e| e.into_inner());
+    let empty = NameSet::default();
+    f(guard.as_ref().map_or(&empty, |s| &s.compiled))
 }
 
 /// `text`, masked with the app's names; as it is when the shield is off.

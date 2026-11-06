@@ -271,7 +271,7 @@ fn unshield(mut reply: Reply, masked: &crate::shield::Masked, body: &str, tail: 
         reply.result = crate::shield::unmask(text, masked, crate::shield::Check::Whole).map_err(Failure::Shield).and_then(|back| {
             if !crate::shield::facts::check("rewrite", body, &back) {
                 Err(Failure::Shield(crate::shield::Mismatch::Facts))
-            } else if !crate::shield::names_kept("rewrite", body, &back) {
+            } else if !crate::shield::names::kept("rewrite", body, &back) {
                 // Every known name of the text back, spelled the same.
                 Err(Failure::Shield(crate::shield::Mismatch::Names))
             } else {

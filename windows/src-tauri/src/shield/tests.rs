@@ -359,8 +359,8 @@ fn names_kept_catches_a_respelled_or_dropped_name() {
 fn names_kept_uses_the_app_names_and_logs_no_name() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     set_address_book(CONTACT.iter().map(|s| s.to_string()).collect());
-    assert!(!names_kept("test", "Hi Surveyers,", "Hi Surveyors,"));
-    assert!(names_kept("test", "Hi Surveyers,", "Hello Surveyers,"));
+    assert!(!names::kept("test", "Hi Surveyers,", "Hi Surveyors,"));
+    assert!(names::kept("test", "Hi Surveyers,", "Hello Surveyers,"));
     set_address_book(Vec::new());
     assert_eq!(Mismatch::Names.code(), "names-changed");
 }
@@ -373,9 +373,9 @@ fn contacts_folders_are_read_and_every_answer_path_keeps_names() {
         assert!(book.contains(needle), "address_book.rs: {needle}");
     }
     for (file, src, what) in [
-        ("ai/live.rs", include_str!("../ai/live.rs"), "names_kept(\"live\""),
-        ("ai/claude.rs", include_str!("../ai/claude.rs"), "names_kept(\"rewrite\""),
-        ("ai/polish.rs", include_str!("../ai/polish.rs"), "names_kept(\"polish\""),
+        ("ai/live.rs", include_str!("../ai/live.rs"), "names::kept(\"live\""),
+        ("ai/claude.rs", include_str!("../ai/claude.rs"), "names::kept(\"rewrite\""),
+        ("ai/polish.rs", include_str!("../ai/polish.rs"), "names::kept(\"polish\""),
     ] {
         assert!(src.contains(what), "{file} must check {what}");
     }

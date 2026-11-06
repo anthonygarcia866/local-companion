@@ -102,7 +102,7 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
         reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield).and_then(|back| {
             if !crate::shield::facts::check("live", paragraph, &back) {
                 Err(Failure::Shield(crate::shield::Mismatch::Facts))
-            } else if !crate::shield::names_kept("live", paragraph, &back) {
+            } else if !crate::shield::names::kept("live", paragraph, &back) {
                 // Every known name of the paragraph back, spelled the same.
                 Err(Failure::Shield(crate::shield::Mismatch::Names))
             } else {
