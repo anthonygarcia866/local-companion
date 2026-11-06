@@ -707,12 +707,16 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                 live_warmed = Some(now);
                 crate::writing::live::prewarm();
             }
-            if let Some(src) = writer.live_take(now, &live_config, &capture.meta.app, chat) {
-                // Ask first (consent.rs): nothing is sent until "Turn on".
+            // "Not now" on the ask-first card: nothing is even taken.
+            let live_declined = crate::consent::answer(crate::consent::Feature::Live) == crate::consent::Answer::Off;
+            let taken = if live_declined { None } else { writer.live_take(now, &live_config, &capture.meta.app, chat) };
+            if let Some(src) = taken {
+                // Ask first (consent.rs): nothing is sent until "Turn on";
+                // the version waits, and goes once it is on.
                 if crate::consent::gate(crate::consent::Feature::Live) {
                     request(Request::Live(src));
                 } else {
-                    writer.live_failed(src.id);
+                    writer.live_held(src.id);
                 }
             }
         }
