@@ -265,6 +265,16 @@ impl Session {
         Some(LiveSource { id, paragraph, before, chat, paused_for })
     }
 
+    /// The request `id` was held back before it left (ask first, consent.rs:
+    /// the card is up): nothing on its way, and that version may still go
+    /// out, so "Turn on" sends the paragraph the user paused on without more
+    /// typing (away-mode live test 2026-11-05: it was used up by the card).
+    pub fn live_held(&mut self, id: u64) {
+        if let Some(p) = self.live.pending.take_if(|p| p.id == id) {
+            self.live.sent.retain(|k| *k != p.key);
+        }
+    }
+
     /// The request `id` failed: nothing on its way (that version is not
     /// sent again until it changes).
     pub fn live_failed(&mut self, id: u64) {

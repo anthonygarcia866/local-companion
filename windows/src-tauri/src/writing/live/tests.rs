@@ -271,3 +271,23 @@ fn the_context_is_the_paragraph_before() {
     assert_eq!(src.before, "Thanks for the update.");
     assert_eq!(crate::writing::text::paragraph_before("only one", 0), "");
 }
+
+#[test]
+fn a_version_held_by_the_ask_first_card_goes_out_once_it_is_on() {
+    // Away-mode live test 2026-11-05: the pause that raised the card used
+    // its version up, so "Turn on" sent nothing until more typing.
+    let (mut s, now) = typed(1500);
+    let src = s.live_take(now, &cfg(), "ms-teams.exe", true).expect("due");
+    s.live_held(src.id);
+    let again = s.live_take(now + ms(300), &cfg(), "ms-teams.exe", true).expect("the same version goes once allowed");
+    assert_eq!(again.paragraph, TYPED);
+    assert_ne!(again.id, src.id);
+    // A failure still uses the version up (it is not sent again).
+    s.live_failed(again.id);
+    assert!(s.live_take(now + ms(600), &cfg(), "ms-teams.exe", true).is_none());
+    // The capture thread holds it (never fails it) while the card asks, and
+    // takes nothing after "Not now".
+    let src = include_str!("../../capture/uia.rs");
+    assert!(src.contains("writer.live_held(src.id);"));
+    assert!(src.contains("let taken = if live_declined { None } else { writer.live_take("));
+}
