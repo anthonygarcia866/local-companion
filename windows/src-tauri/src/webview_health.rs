@@ -326,6 +326,21 @@ pub fn start_wake_watch(app: &AppHandle) {
 }
 
 fn after_wake(app: &AppHandle) {
+    // The live preview too: created once and only ever moved, it is never
+    // shown again, so nothing else would bring a page back that the sleep
+    // left blank or deaf (2026-11-07: live revisions "worked for hours, then
+    // stopped"; the PC goes into standby every evening). Its page says it
+    // listens again (live_page_ready) once reloaded.
+    #[cfg(windows)]
+    {
+        let app3 = app.clone();
+        post(app, move || {
+            if let Some(win) = app3.get_webview_window(crate::live_window::LABEL) {
+                let reloaded = win.reload().is_ok();
+                crate::log::line(format!("webview: woke; live preview page reloaded: {reloaded}"));
+            }
+        });
+    }
     if settings_visible() {
         let app2 = app.clone();
         post(app, move || {
@@ -539,6 +554,16 @@ fn shown_unexpectedly(visible: bool, was_visible: bool, shown_at: u64, now: u64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The live preview is never shown again after it is made, so a wake
+    /// must reload its page (2026-11-07).
+    #[test]
+    fn a_wake_reloads_the_live_preview_page() {
+        let src = include_str!("webview_health.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        let wake = &code[code.find("fn after_wake(").unwrap()..code.find("pub fn before_settings_shown").unwrap()];
+        assert!(wake.contains("get_webview_window(crate::live_window::LABEL)") && wake.contains("reload()"));
+    }
 
     #[test]
     fn render_failures_reload_and_the_rest_are_logged() {
