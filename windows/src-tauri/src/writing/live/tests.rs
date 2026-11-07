@@ -377,3 +377,35 @@ fn a_paragraph_with_a_key_token_or_password_never_goes_out() {
     see(&mut s, true, Some(&b), t0 + ms(1800));
     assert!(s.live_take(t0 + ms(1800), &cfg(), "Notepad.exe", false).is_none(), "the context holds a token");
 }
+
+/// Owner, 2026-11-07: the paragraph Glim just put in is not sent again (it
+/// was, about 2 s after every accept), but the user's next edit is.
+#[test]
+fn the_paragraph_glim_applied_is_not_sent_again_but_the_next_edit_is() {
+    let (mut s, now) = typed(1500);
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    let fixed = "We received the payment and will deposit it tomorrow.";
+    assert!(matches!(s.live_answer(src.id, fixed, now + ms(500)), Outcome::Shown(_)));
+    s.live_applied(fixed);
+    see(&mut s, true, Some(fixed), now + ms(700));
+    see(&mut s, true, Some(fixed), now + ms(2500));
+    assert!(s.live_take(now + ms(2500), &cfg(), "Notepad.exe", false).is_none(), "Glim's own text");
+    let more = "We received the payment and will deposit it tomorow morning.";
+    see(&mut s, true, Some(more), now + ms(2600));
+    see(&mut s, true, Some(more), now + ms(4200));
+    assert!(s.live_take(now + ms(4200), &cfg(), "Notepad.exe", false).is_some(), "the user's edit goes");
+}
+
+/// Owner, 2026-11-07: the same paragraph in a new field (a new email) is
+/// revised again; in the same field each version still goes once.
+#[test]
+fn a_paragraph_already_sent_goes_again_in_another_field() {
+    let (mut s, now) = typed(1500);
+    assert!(s.live_take(now, &cfg(), "Notepad.exe", false).is_some());
+    s.live_failed(1);
+    // A new field with the same text typed again.
+    see(&mut s, false, Some(FIRST), now + ms(3000));
+    see(&mut s, true, Some(TYPED), now + ms(3100));
+    see(&mut s, true, Some(TYPED), now + ms(4700));
+    assert!(s.live_take(now + ms(4700), &cfg(), "Notepad.exe", false).is_some(), "sent again in the new field");
+}

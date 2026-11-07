@@ -507,6 +507,7 @@ impl Session {
             self.debounce.reset();
             self.kept = None;
             self.live_reset("field");
+            self.live_new_field();
         }
         let Some(text) = r.text else {
             self.debounce.reset();
