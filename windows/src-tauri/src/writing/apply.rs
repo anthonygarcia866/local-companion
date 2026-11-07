@@ -66,6 +66,10 @@ pub trait Field {
 /// How many times the result is read back while the keys land (with `pause`
 /// between: about 1.5 s in all).
 pub const SETTLE_TRIES: usize = 50;
+/// How many times the selection is read back after Select (about 0.6 s):
+/// Chrome sets it a moment later (Gmail, live test 2026-11-07: every accept
+/// was refused before anything was pasted).
+pub const SELECT_TRIES: usize = 20;
 
 /// Where a paragraph was found: the range searched, and the paragraph's
 /// character index in that range's text.
@@ -204,7 +208,21 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
             place_caret(f, &found, &job.paragraph, c);
         }
     };
-    if !f.select(&target) || !f.selection().is_some_and(|t| same(&t, &problem)) {
+    if !f.select(&target) {
+        set_path("refused (select-failed)");
+        undo_select(f);
+        return Outcome::Unsupported;
+    }
+    let mut selected = false;
+    for _ in 0..SELECT_TRIES {
+        if f.selection().is_some_and(|t| same(&t, &problem)) {
+            selected = true;
+            break;
+        }
+        f.pause();
+    }
+    if !selected {
+        set_path("refused (selection-differs)");
         undo_select(f);
         return Outcome::Unsupported;
     }
@@ -333,6 +351,8 @@ mod tests {
         skew: usize,
         paragraph_unit: bool,
         select_works: bool,
+        /// Pauses before the selection reads back (Chrome).
+        selection_lag: usize,
         gate: Vec<Result<(), Outcome>>,
         keys: Result<(), Outcome>,
         /// What actually lands when typing (None: what was asked).
@@ -367,6 +387,7 @@ mod tests {
                 skew: 0,
                 paragraph_unit: true,
                 select_works: true,
+                selection_lag: 0,
                 gate: Vec::new(),
                 keys: Ok(()),
                 lands: None,
@@ -428,6 +449,10 @@ mod tests {
             true
         }
         fn selection(&mut self) -> Option<String> {
+            // An app that reports the new selection only a few pauses later.
+            if self.pauses < self.selection_lag {
+                return None;
+            }
             self.sel.map(|(s, e)| self.doc[s..e].iter().collect())
         }
         fn keys_ready(&mut self) -> Result<(), Outcome> {
@@ -674,6 +699,21 @@ Anthony");
         assert_eq!(run(&mut f, &fix()), Outcome::Changed);
         assert!(f.typed.is_empty());
         assert_eq!(f.text(), DOC);
+    }
+
+    /// Gmail in Chrome (2026-11-07): the selection reads back a moment after
+    /// Select; it is waited for, and a selection that never comes refuses.
+    #[test]
+    fn a_selection_that_reads_back_late_is_waited_for() {
+        let mut f = Fake::new(DOC, "payment");
+        f.selection_lag = 5;
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        let mut f = Fake::new(DOC, "payment");
+        f.selection_lag = SELECT_TRIES + 50;
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Unsupported);
+        assert_eq!(last_path(), "refused (selection-differs)");
+        assert!(f.pasted.is_empty() && f.typed.is_empty(), "nothing put in");
     }
 
     #[test]

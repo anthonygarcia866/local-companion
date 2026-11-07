@@ -300,6 +300,9 @@ pub fn one_step_note_from(path: &str, om: &str, paste: &str) -> String {
     if path.is_empty() {
         return String::new();
     }
+    if path.starts_with("refused") {
+        return format!(" via {path}");
+    }
     let mut why = Vec::new();
     if path != "word-om" && !om.is_empty() && om != "not-word" {
         why.push(format!("word-om: {om}"));
@@ -797,6 +800,7 @@ StartHTML:0
         assert_eq!(one_step_note_from("paste", "no-selection", ""), " via paste (word-om: no-selection)");
         assert_eq!(one_step_note_from("typed", "selection-differs", "unrestorable"), " via typed (word-om: selection-differs; paste: unrestorable)");
         assert_eq!(one_step_note_from("retyped", "", ""), " via retyped");
+        assert_eq!(one_step_note_from("refused (selection-differs)", "no-selection", "busy"), " via refused (selection-differs)");
     }
 
     #[test]
