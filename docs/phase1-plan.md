@@ -559,6 +559,7 @@ For apps on **neither** list (§5: off by default, ask once).
 - **When it appears:**
   - The user has been in an **editable text field** of such an app for **2 seconds** (UI Automation's editable signals, which capture already reads).
   - **No text is read before Yes.** Capture reads only the exe name and the control type for these apps, exactly as today (`SKIPPED_OFF`). Asking doesn't change what is read.
+    > ⚠️ **Amended 2026-11-07 (owner):** live revisions now run in **any** app with a readable editable field, not only the checker's. While Settings → Writing → Live revisions is on (and not declined on its ask-first card), capture reads the field of an app on neither list for live revisions only: nothing is checked or shown in the island's list there, and the accept key copies. Still never: password fields, payment/ID fields, the always-paused apps, the user's paused apps and sites, an app switched off (or answered "off") in Settings → Writing → Apps, the built-in off list (editors, terminals) and Windows' shell (`NEVER_ASK`). `writing::apps::live_reads`, `capture::uia::live_only`.
   - It asks **at most once a day per app** (**decision 8**), and **never** for:
     - Glim itself;
     - paused apps;

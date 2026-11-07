@@ -448,6 +448,10 @@ pub struct Observed<'a> {
     /// The reading was withheld as sensitive (capture: a payment or ID field,
     /// or a card, SSN or IBAN in the text). Its text is None.
     pub sensitive: bool,
+    /// Live revisions only (owner, 2026-11-07: they run in any app with a
+    /// readable field, the checker only in its apps): the paragraph is
+    /// tracked for the pause, nothing is checked, kept or shown.
+    pub live_only: bool,
 }
 
 impl Session {
@@ -462,7 +466,7 @@ impl Session {
         now: Instant,
         emit: impl FnMut(&Suggestions),
     ) {
-        let r = Observed { same, text, caret, rules, mode: FixMode::View, app: "", paused: false, sensitive: false };
+        let r = Observed { same, text, caret, rules, mode: FixMode::View, app: "", paused: false, sensitive: false, live_only: false };
         self.observe_in(&r, now, emit);
     }
 
@@ -525,6 +529,13 @@ impl Session {
         // The debouncer sees this version first, so a pause counts from its
         // last change (live revisions read it).
         self.live_note();
+        if r.live_only {
+            let _ = self.debounce.feed(key_of(&paragraph), now);
+            self.kept = None;
+            self.checkable = false;
+            self.refresh(&mut emit);
+            return;
+        }
         if self.rewrite.as_ref().is_some_and(|w| now.duration_since(w.at) >= KEEP_FOR) {
             self.rewrite = None;
         }
@@ -1184,7 +1195,7 @@ mod tests {
     /// A field where fixes are typed: one reading per step.
     fn feed(s: &mut Session, same: bool, text: Option<&str>, caret: Option<usize>, mode: FixMode, paused: bool, at: Instant) -> Option<Suggestions> {
         let mut got = None;
-        let r = Observed { same, text, caret, rules: Rules::Full, mode, app: "Notepad", paused, sensitive: false };
+        let r = Observed { same, text, caret, rules: Rules::Full, mode, app: "Notepad", paused, sensitive: false, live_only: false };
         s.observe_in(&r, at, |x| got = Some(x.clone()));
         got
     }
@@ -1328,7 +1339,7 @@ Anthony";
     #[test]
     fn a_rewrite_in_a_withheld_field_is_blocked_not_away() {
         let (mut s, t) = in_field(FixMode::Apply, "We will send it.");
-        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true };
+        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true, live_only: false };
         s.observe_in(&withheld, t, |_| {});
         assert_eq!(s.rewrite_begin(t).unwrap_err(), Outcome::Blocked);
         // Back to an ordinary field without text (another app): Away again.
@@ -1755,7 +1766,7 @@ Anthony", word.to_uppercase());
     #[test]
     fn nothing_goes_to_the_ai_from_a_withheld_field_or_while_paused() {
         let (mut s, t) = in_field(FixMode::Apply, AGREE);
-        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true };
+        let withheld = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: true, live_only: false };
         s.observe_in(&withheld, t, |_| {});
         assert_eq!(s.ai_begin(false).unwrap_err(), Outcome::Blocked);
         assert!(!s.ai_auto_take(t + Duration::from_secs(5)));

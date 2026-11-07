@@ -8,10 +8,12 @@
 // a word-level diff, kept with the paragraph exactly as it was sent so
 // accepting it can check the field still holds that text.
 //
-// It runs only where the writing checker reads (the paragraph is the
-// checker's `current`), so never in a password field, a payment or ID field,
-// or an app or site on the pause lists; and only in apps its own switch
-// leaves on (all by default). Nothing here logs or keeps text beyond the
+// It runs wherever a field is read (the paragraph is the session's
+// `current`): the checker's apps and, since 2026-11-07 (owner), any other
+// app with a readable editable field (writing::apps::live_reads; nothing is
+// checked there). Never in a password field, a payment or ID field, or an
+// app or site on the pause lists; and only in apps its own switch leaves on
+// (all by default). Nothing here logs or keeps text beyond the
 // paragraph on its way or shown.
 
 use std::collections::{BTreeMap, VecDeque};

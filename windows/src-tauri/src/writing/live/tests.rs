@@ -19,7 +19,7 @@ fn cfg() -> Config {
 }
 
 fn see(s: &mut Session, same: bool, text: Option<&str>, at: Instant) {
-    let r = Observed { same, text, caret: text.map(|t| t.chars().count()), rules: Rules::Full, mode: FixMode::Apply, app: "Notepad", paused: false, sensitive: false };
+    let r = Observed { same, text, caret: text.map(|t| t.chars().count()), rules: Rules::Full, mode: FixMode::Apply, app: "Notepad", paused: false, sensitive: false, live_only: false };
     s.observe_in(&r, at, |_| {});
 }
 
@@ -192,7 +192,7 @@ fn suggestions_only_apps_copy_instead() {
     let mut s = Session::default();
     let t0 = Instant::now();
     let view = |s: &mut Session, text: &str, at: Instant, same: bool| {
-        let r = Observed { same, text: Some(text), caret: Some(text.chars().count()), rules: Rules::Chat, mode: FixMode::View, app: "Teams", paused: false, sensitive: false };
+        let r = Observed { same, text: Some(text), caret: Some(text.chars().count()), rules: Rules::Chat, mode: FixMode::View, app: "Teams", paused: false, sensitive: false, live_only: false };
         s.observe_in(&r, at, |_| {});
     };
     view(&mut s, FIRST, t0, false);
@@ -248,7 +248,7 @@ fn polished_dictation_gets_the_text_before_and_the_message_replied_to() {
     let mut s = Session::default();
     let t0 = Instant::now();
     // The caret at the end of the user's own text.
-    let r = Observed { same: false, text: Some(field), caret: Some("Hi Dana,\n\nThe walkthrough is set.".chars().count()), rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: false };
+    let r = Observed { same: false, text: Some(field), caret: Some("Hi Dana,\n\nThe walkthrough is set.".chars().count()), rules: Rules::Full, mode: FixMode::Apply, app: "Outlook", paused: false, sensitive: false, live_only: false };
     s.observe_in(&r, t0, |_| {});
     let (before, replying) = s.dictation_context().unwrap();
     assert_eq!(before, "Hi Dana,\n\nThe walkthrough is set.");
@@ -290,4 +290,31 @@ fn a_version_held_by_the_ask_first_card_goes_out_once_it_is_on() {
     let src = include_str!("../../capture/uia.rs");
     assert!(src.contains("writer.live_held(src.id);"));
     assert!(src.contains("let taken = if live_declined { None } else { writer.live_take("));
+}
+
+/// Owner, 2026-11-07: live revisions run in apps the checker is off for. A
+/// live-only reading is tracked for the pause and goes out, but nothing is
+/// checked or shown in the island's list.
+#[test]
+fn a_live_only_app_gets_live_revisions_but_no_checker_suggestions() {
+    let mut s = Session::default();
+    let t0 = Instant::now();
+    let mut shown = 0usize;
+    let mut see_live = |s: &mut Session, same: bool, text: &str, at: Instant| {
+        let r = Observed { same, text: Some(text), caret: Some(text.chars().count()), rules: Rules::Full, mode: FixMode::View, app: "Acrobat", paused: false, sensitive: false, live_only: true };
+        s.observe_in(&r, at, |sug| shown += sug.items.len());
+    };
+    see_live(&mut s, false, FIRST, t0);
+    let mut at = 100;
+    while at <= 1900 {
+        see_live(&mut s, true, TYPED, t0 + ms(at));
+        at += 300;
+    }
+    assert_eq!(shown, 0, "nothing checked or shown");
+    assert_eq!(s.count(), 0);
+    let src = s.live_take(t0 + ms(1900), &cfg(), "Acrobat.exe", false).expect("the live revision is due");
+    assert_eq!(src.paragraph, TYPED);
+    // Suggestions-only there: the accept key copies, never types.
+    assert!(matches!(s.live_answer(src.id, "We received the payment and will deposit it tomorrow.", t0 + ms(2500)), Outcome::Shown(_)));
+    assert!(matches!(s.live_job(), Err(crate::writing::Outcome::Blocked)));
 }

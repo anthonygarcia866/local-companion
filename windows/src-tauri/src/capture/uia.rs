@@ -614,7 +614,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         // Paused: nothing is read at all, and the checker drops what it kept.
         if crate::writing::paused() {
-            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false };
+            let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false, live_only: false };
             writer.observe_in(&r, std::time::Instant::now(), send_list);
             fix_field = None;
             // Paused: the mini lantern goes too (§7a.5), within this reading.
@@ -671,12 +671,16 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         if !same && !apps.contains(&capture.meta.app) {
             apps.push(capture.meta.app.clone());
         }
-        // The checker only ever sees apps that have it on.
-        let checked = reading.text.as_deref().filter(|_| crate::writing::apps::enabled(&capture.meta.app));
+        // The checker only ever sees apps that have it on; live revisions
+        // also read the other apps with a readable field (live_only).
+        let checker_on = crate::writing::apps::enabled(&capture.meta.app);
+        let live_app = !checker_on && live_only(&capture.meta.app);
+        let checked = reading.text.as_deref().filter(|_| checker_on);
+        let watched = reading.text.as_deref().filter(|_| checker_on || live_app);
         let name = crate::writing::apps::display_name(&capture.meta.app);
         let r = crate::writing::Observed {
             same,
-            text: checked,
+            text: watched,
             caret: capture.meta.caret,
             rules: crate::writing::apps::rules(&capture.meta.app),
             mode: crate::writing::fix_mode(&capture.meta.app, &capture.meta.pattern, capture.meta.chat_site),
@@ -684,7 +688,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             paused: false,
             // Withheld for a card, SSN or IBAN (or a payment field), in an
             // app the checker is on for.
-            sensitive: capture.meta.sensitive && crate::writing::apps::enabled(&capture.meta.app),
+            sensitive: capture.meta.sensitive && (checker_on || live_app),
+            live_only: live_app,
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
         // "Check with AI automatically when I pause typing" (§15.1, off by
@@ -698,7 +703,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         // goes out; the connection is warmed while the user types (#75's
         // pre-warm, at most once a minute). A shown one that went away is
         // told to the island.
-        if checked.is_some() {
+        if watched.is_some() {
             let live_config = crate::writing::live::config();
             let chat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site) == crate::writing::tones::Category::Chat;
             let now = std::time::Instant::now();
@@ -730,7 +735,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
         fix_field = writer.kept_check().map(|_| (element.clone(), pid as u32));
-        if checked.is_some() {
+        if watched.is_some() {
             last_field = Some((element.clone(), pid as u32));
             let cat = crate::writing::tones::category(&capture.meta.app, capture.meta.chat_site, mail_site);
             crate::writing::tones::set_focus(&capture.meta.app, cat);
@@ -773,6 +778,15 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     Ok(())
 }
 
+/// An app the checker is off for whose fields live revisions read (owner,
+/// 2026-11-07): live revisions on, in this app too, not declined on the
+/// ask-first card, and an app they may read (writing::apps::live_reads).
+fn live_only(app: &str) -> bool {
+    crate::writing::live::config().on_in(app)
+        && crate::consent::answer(crate::consent::Feature::Live) != crate::consent::Answer::Off
+        && crate::writing::apps::live_reads(app)
+}
+
 /// Everything the panel shows about the focused element, and its text for
 /// the writing checker. Outside dev sessions, apps the checker is off for
 /// are not read at all.
@@ -790,7 +804,7 @@ fn read(uia: &IUIAutomation, element: &IUIAutomationElement, pid: i32, pause: &P
         && crate::writing::ask::askable(&meta.app, &crate::writing::prefs::get(), &crate::writing::ask::today())
         && !unsafe { element.CurrentIsPassword() }.is_ok_and(|b| b.as_bool())
         && is_editable(&edit_signals(element, control));
-    if !dev && !crate::writing::apps::enabled(&meta.app) {
+    if !dev && !crate::writing::apps::enabled(&meta.app) && !live_only(&meta.app) {
         meta.pattern = SKIPPED_OFF.into();
         let mut off: Reading = Capture { meta, window_title: String::new(), excerpt: None, via: String::new() }.into();
         off.ask = ask;
