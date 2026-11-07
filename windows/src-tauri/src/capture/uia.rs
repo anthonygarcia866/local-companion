@@ -358,6 +358,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         send_rewrite(rewrite::RewriteEvent::answered(id, &reply, shown.as_ref()));
                     }
                     Request::RewriteApply { id } => {
+                        let rewrite_text = writer.rewrite_job(id).ok().map(|j| j.replacement);
                         let outcome = match writer.rewrite_job(id) {
                             Err(o) => o,
                             Ok(_) if crate::writing::paused() => Outcome::Paused,
@@ -372,7 +373,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         let name = writer.rewrite_app();
                         crate::log::line(format!("writing: rewrite {} ({name}){}", outcome.code(), super::fix::one_step_note()));
                         if outcome == Outcome::Applied {
-                            // The paragraph changed: checked again at once.
+                            // The paragraph changed: checked again at once
+                            // (Glim's own text: not sent as a live revision).
+                            if let Some(t) = &rewrite_text {
+                                writer.live_applied(t);
+                            }
                             writer.rewrite_clear();
                             writer.after_fix();
                             rewrite_field = None;
@@ -530,6 +535,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     Request::LiveAccept => {
                         use crate::writing::live::LiveEvent;
                         let shown = writer.live_shown().map(|s| (s.id, s.app.clone()));
+                        let revised = writer.live_shown().map(|s| s.revised.clone());
                         if let Some((id, app_name)) = shown {
                         let outcome = match writer.live_job() {
                             Ok(_) if crate::writing::paused() => Outcome::Paused,
@@ -550,8 +556,9 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         };
                         crate::log::line(format!("live: accept {} ({app_name}){}", outcome.code(), super::fix::one_step_note()));
                         if outcome == Outcome::Applied {
-                            // The paragraph changed: checked again at once.
-                            writer.live_hide("applied");
+                            // The paragraph changed: checked again at once
+                            // (Glim's own text: not sent again).
+                            writer.live_applied(revised.as_deref().unwrap_or_default());
                             writer.after_fix();
                             fix_field = None;
                         } else {

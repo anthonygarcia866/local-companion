@@ -93,6 +93,11 @@ pub(super) struct LiveState {
     shown: Option<Shown>,
     /// A shown revision went away: the island is told once.
     hidden: Option<(u64, &'static str)>,
+    /// The paragraph as Glim itself just put it in (an accepted revision or a
+    /// rewrite's Use this): not the user's edit, so not sent again (owner,
+    /// 2026-11-07: one wasted request per accept). Kept until the paragraph
+    /// reads differently.
+    applied: Option<String>,
 }
 
 struct Pending {
@@ -196,8 +201,13 @@ impl Session {
             return;
         };
         let (start, key) = (c.start, c.key);
+        let ours = self.live.applied.as_deref().is_some_and(|a| a.trim() == c.text.trim());
+        if !ours {
+            self.live.applied = None;
+        }
         match self.live.seen {
-            Some((s, k)) if s == start && k != key => self.live.edited = Some(key),
+            Some((s, k)) if s == start && k != key && !ours => self.live.edited = Some(key),
+            Some((s, k)) if s == start && k != key => self.live.edited = None,
             Some((s, _)) if s != start => self.live.edited = None,
             None => self.live.edited = None,
             _ => {}
@@ -206,6 +216,21 @@ impl Session {
         if self.live.shown.as_ref().is_some_and(|s| s.key != key) {
             self.live_hide("typing");
         }
+    }
+
+    /// Glim put `text` in as the paragraph (accepted, or Use this): its next
+    /// reading is not an edit of the user's.
+    pub fn live_applied(&mut self, text: &str) {
+        self.live.applied = Some(text.to_string());
+        self.live_hide("applied");
+    }
+
+    /// Another field (owner, 2026-11-07): the versions already sent are
+    /// forgotten, so the same paragraph written in a new email is revised
+    /// too. Within one field each version still goes once.
+    pub(super) fn live_new_field(&mut self) {
+        self.live.sent.clear();
+        self.live.applied = None;
     }
 
     /// The field changed, or nothing may be read: everything live goes.
