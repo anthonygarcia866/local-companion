@@ -231,8 +231,13 @@ impl Field for UiaField<'_> {
     fn paste_over(&mut self, text: &str) -> bool {
         // The user's whole clipboard first, every format byte for byte; if
         // any of it can't be put back exactly, the text is typed instead.
-        let Some(saved) = save_clipboard() else { return false };
+        let Some(saved) = save_clipboard() else {
+            set_paste_refusal("unrestorable");
+            return false;
+        };
+        set_paste_refusal("");
         if !open_clipboard() {
+            set_paste_refusal("busy");
             return false;
         }
         // From here on, the guard puts it back however this ends.
@@ -242,6 +247,7 @@ impl Field for UiaField<'_> {
             let _ = CloseClipboard();
         }
         if !set {
+            set_paste_refusal("set-failed");
             return false;
         }
         self.saved_clip = Some(guard);
@@ -254,6 +260,7 @@ impl Field for UiaField<'_> {
         let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
         if sent as usize != inputs.len() {
             self.after_paste();
+            set_paste_refusal("keys");
             return false;
         }
         true
@@ -267,6 +274,40 @@ impl Field for UiaField<'_> {
     fn pause(&mut self) {
         std::thread::sleep(Duration::from_millis(30));
     }
+}
+
+thread_local! {
+    /// Why the last paste_over on this thread didn't paste ("" = it did).
+    static PASTE_REFUSED: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+fn set_paste_refusal(code: &'static str) {
+    PASTE_REFUSED.with(|c| c.set(code));
+}
+
+/// The code for the last paste_over's refusal, "" when it pasted (or none ran).
+pub fn last_paste_refusal() -> &'static str {
+    PASTE_REFUSED.with(std::cell::Cell::get)
+}
+
+/// How the last one-step job went in, for the log: codes only, never text.
+/// "via word-om", or e.g. "via typed (word-om: no-selection; paste: unrestorable)".
+pub fn one_step_note() -> String {
+    one_step_note_from(crate::writing::apply::last_path(), super::word_om::last_refusal(), last_paste_refusal())
+}
+
+pub fn one_step_note_from(path: &str, om: &str, paste: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let mut why = Vec::new();
+    if path != "word-om" && !om.is_empty() && om != "not-word" {
+        why.push(format!("word-om: {om}"));
+    }
+    if path == "typed" && !paste.is_empty() {
+        why.push(format!("paste: {paste}"));
+    }
+    if why.is_empty() { format!(" via {path}") } else { format!(" via {path} ({})", why.join("; ")) }
 }
 
 /// One keyboard event to send.
@@ -746,6 +787,16 @@ StartHTML:0
         let code = src.split("#[cfg(test)]").next().unwrap();
         let gate = &code[code.find("Every PR #8 rule").unwrap()..code.find("fn caret_paragraph").unwrap()];
         assert!(gate.contains("chat_site(u)") && gate.contains("pauses_url(u)"));
+    }
+
+    #[test]
+    fn the_one_step_note_is_codes_only() {
+        assert_eq!(one_step_note_from("", "", ""), "");
+        assert_eq!(one_step_note_from("word-om", "", ""), " via word-om");
+        assert_eq!(one_step_note_from("paste", "not-word", ""), " via paste");
+        assert_eq!(one_step_note_from("paste", "no-selection", ""), " via paste (word-om: no-selection)");
+        assert_eq!(one_step_note_from("typed", "selection-differs", "unrestorable"), " via typed (word-om: selection-differs; paste: unrestorable)");
+        assert_eq!(one_step_note_from("retyped", "", ""), " via retyped");
     }
 
     #[test]
