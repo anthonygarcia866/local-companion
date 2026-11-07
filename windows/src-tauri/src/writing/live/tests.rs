@@ -401,8 +401,8 @@ fn the_paragraph_glim_applied_is_not_sent_again_but_the_next_edit_is() {
 #[test]
 fn a_paragraph_already_sent_goes_again_in_another_field() {
     let (mut s, now) = typed(1500);
-    assert!(s.live_take(now, &cfg(), "Notepad.exe", false).is_some());
-    s.live_failed(1);
+    let first = s.live_take(now, &cfg(), "Notepad.exe", false).expect("due");
+    s.live_failed(first.id);
     // A new field with the same text typed again.
     see(&mut s, false, Some(FIRST), now + ms(3000));
     see(&mut s, true, Some(TYPED), now + ms(3100));
