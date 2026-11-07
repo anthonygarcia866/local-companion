@@ -107,6 +107,36 @@ pub fn enabled_in(exe: &str, switches: &std::collections::BTreeMap<String, bool>
     switches.get(&exe.to_ascii_lowercase()).copied().unwrap_or_else(|| on_by_default(exe))
 }
 
+/// Never read for live revisions unless the user turns the app on in
+/// Settings → Writing → Apps: more terminals, code editors and IDEs than the
+/// checker's off list names (code, commands, keys).
+pub const LIVE_NEVER: [&str; 24] = [
+    "wt.exe", "alacritty.exe", "wezterm-gui.exe", "mintty.exe", "putty.exe", "kitty.exe", "Hyper.exe", "Tabby.exe",
+    "WindowsTerminalPreview.exe", "bash.exe", "wsl.exe", "ssh.exe", "Windsurf.exe", "zed.exe", "sublime_text.exe",
+    "notepad++.exe", "idea64.exe", "pycharm64.exe", "rider64.exe", "webstorm64.exe", "clion64.exe", "goland64.exe",
+    "studio64.exe", "atom.exe",
+];
+
+/// Whether live revisions may read this app's fields (owner, 2026-11-07:
+/// any app with a readable editable field, not only the checker's): the
+/// user's switch in Settings → Writing → Apps when there is one (an app
+/// turned off, or answered "off", stays unread), else every app but the
+/// built-in off list (editors and terminals: code, commands and whole
+/// scrollbacks, where keys and secrets live) and Windows' own shell (Start
+/// search, the lock screen: writing::ask::NEVER_ASK). Password fields, the
+/// always-paused apps and the user's paused apps and sites are refused
+/// before this, in capture.
+pub fn live_reads(exe: &str) -> bool {
+    live_reads_in(exe, &super::prefs::get().apps)
+}
+
+/// `live_reads`, with the switches given (by lowercase exe).
+pub fn live_reads_in(exe: &str, switches: &std::collections::BTreeMap<String, bool>) -> bool {
+    switches.get(&exe.to_ascii_lowercase()).copied().unwrap_or_else(|| {
+        !OFF.iter().chain(LIVE_NEVER.iter()).chain(super::ask::NEVER_ASK.iter()).any(|a| a.eq_ignore_ascii_case(exe))
+    })
+}
+
 /// Whether the app is on either built-in list.
 pub fn is_known(exe: &str) -> bool {
     ON.iter().chain(OFF.iter()).any(|a| a.eq_ignore_ascii_case(exe))
@@ -181,6 +211,20 @@ mod tests {
         assert!(enabled_in("ACROBAT.exe", &switches), "an answered app");
         assert!(enabled_in("OUTLOOK.EXE", &switches), "no switch: the default");
         assert!(!enabled_in("SomeNewApp.exe", &switches));
+    }
+
+    #[test]
+    fn live_revisions_read_any_app_but_editors_terminals_and_switched_off_ones() {
+        let switches: std::collections::BTreeMap<String, bool> =
+            [("acrobat.exe".to_string(), false), ("code.exe".to_string(), true)].into_iter().collect();
+        for exe in ["OUTLOOK.EXE", "SomeNewApp.exe", "EXCEL.EXE", "Acrobat64.exe"] {
+            assert!(live_reads_in(exe, &switches), "{exe}");
+        }
+        assert!(!live_reads_in("Acrobat.exe", &switches), "the user's off wins");
+        assert!(live_reads_in("Code.exe", &switches), "the user's on wins");
+        for exe in ["WindowsTerminal.exe", "powershell.exe", "cmd.exe", "Cursor.exe", "explorer.exe", "SearchHost.exe", "LockApp.exe", "idea64.exe", "Alacritty.exe", "notepad++.exe"] {
+            assert!(!live_reads_in(exe, &switches), "{exe}");
+        }
     }
 
     #[test]

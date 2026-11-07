@@ -8,10 +8,12 @@
 // a word-level diff, kept with the paragraph exactly as it was sent so
 // accepting it can check the field still holds that text.
 //
-// It runs only where the writing checker reads (the paragraph is the
-// checker's `current`), so never in a password field, a payment or ID field,
-// or an app or site on the pause lists; and only in apps its own switch
-// leaves on (all by default). Nothing here logs or keeps text beyond the
+// It runs wherever a field is read (the paragraph is the session's
+// `current`): the checker's apps and, since 2026-11-07 (owner), any other
+// app with a readable editable field (writing::apps::live_reads; nothing is
+// checked there). Never in a password field, a payment or ID field, or an
+// app or site on the pause lists; and only in apps its own switch leaves on
+// (all by default). Nothing here logs or keeps text beyond the
 // paragraph on its way or shown.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -244,6 +246,12 @@ impl Session {
             self.live.pending = None;
         }
         let c = self.current.as_ref()?;
+        // A key, token or password in the paragraph or the one before it (its
+        // context): never sent (live revisions read any app since 2026-11-07,
+        // chats with keys included).
+        if looks_like_secret(&c.text) || looks_like_secret(&c.before) {
+            return None;
+        }
         let paused_for = self.debounce.stable_for(now)?;
         let due = self.live.edited == Some(c.key)
             && !self.live.sent.contains(&c.key)
@@ -430,6 +438,31 @@ pub fn prewarm() {
             let _ = crate::net::prewarm(&base).await;
         }
     });
+}
+
+/// A paragraph that seems to hold a credential: a PEM block, a known key or
+/// token prefix, a labelled password, or a long run of letters and digits
+/// (20+ characters, both kinds) that no word is. Checked before any live
+/// revision goes out; nothing is logged.
+pub fn looks_like_secret(text: &str) -> bool {
+    if text.contains("-----BEGIN") {
+        return true;
+    }
+    let lower = text.to_ascii_lowercase();
+    let labels = ["password:", "password=", "passwd", "pwd=", "passcode:", "api key:", "api_key", "secret=", "token="];
+    if labels.iter().any(|l| lower.contains(l)) {
+        return true;
+    }
+    text.split_whitespace().any(|raw| {
+        let t = raw.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c));
+        let prefixes = ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza", "eyJ"];
+        let prefixed = t.len() >= 16 && prefixes.iter().any(|p| t.starts_with(p));
+        let keyish = t.len() >= 20
+            && t.chars().all(|c| c.is_ascii_alphanumeric() || "-_+/=".contains(c))
+            && t.chars().any(|c| c.is_ascii_digit())
+            && t.chars().any(|c| c.is_ascii_alphabetic());
+        prefixed || keyish
+    })
 }
 
 /// Words and the spaces after them: "Hi  there," → ["Hi  ", "there,"].
