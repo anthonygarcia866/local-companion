@@ -154,9 +154,26 @@ fn place_caret<F: Field>(f: &mut F, found: &Found<F::Range>, paragraph: &str, at
     }
 }
 
+thread_local! {
+    /// How the last one-step job on this thread went in (a code, no text).
+    static PATH: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+/// The last one-step job's path: "word-om", "paste", "typed" (neither could
+/// be used) or "retyped" (put in one step, but the field didn't read back, so
+/// typed through every step again); "" for a job that wasn't one step.
+pub fn last_path() -> &'static str {
+    PATH.with(std::cell::Cell::get)
+}
+
+fn set_path(p: &'static str) {
+    PATH.with(|c| c.set(p));
+}
+
 /// Applies one fix (§7.3). Nothing is typed unless every check before it
 /// passed.
 pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
+    set_path("");
     // 1-2. The same field, in front, and allowed now.
     if let Err(o) = f.gate() {
         return o;
@@ -202,6 +219,9 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
     let one_step = job.one_step && !job.replacement.is_empty();
     let in_document = one_step && f.replace_in_document(&problem, &job.replacement);
     let pasted = one_step && !in_document && f.paste_over(&job.replacement);
+    if one_step {
+        set_path(if in_document { "word-om" } else if pasted { "paste" } else { "typed" });
+    }
     if !in_document && !pasted && !f.type_over(&job.replacement) {
         undo_select(f);
         return Outcome::Unsupported;
@@ -230,7 +250,9 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         let untouched = locate(f, &job.paragraph, job.field_start).is_some();
         if (pasted || in_document) && untouched {
             // An app that doesn't paste: typed instead, through every step again.
-            return run(f, &Job { one_step: false, ..job.clone() });
+            let outcome = run(f, &Job { one_step: false, ..job.clone() });
+            set_path("retyped");
+            return outcome;
         }
         return if untouched { Outcome::Unsupported } else { Outcome::NotClean };
     };
@@ -491,6 +513,26 @@ mod tests {
     /// A live revision's accept: the whole paragraph, one step.
     fn whole(paragraph: &str, revised: &str) -> Job {
         Job { paragraph: paragraph.into(), field_start: 8, start: 0, end: paragraph.chars().count(), replacement: revised.into(), app: "Outlook".into(), one_step: true }
+    }
+
+    #[test]
+    fn the_one_step_path_is_recorded_as_a_code() {
+        let job = || whole("We recieved the payment today.", "We received the payment today.");
+        let mut f = Fake::new(DOC, "payment");
+        f.word_doc = true;
+        assert_eq!(run(&mut f, &job()), Outcome::Applied);
+        assert_eq!(last_path(), "word-om");
+        let mut f = Fake::new(DOC, "payment");
+        assert_eq!(run(&mut f, &job()), Outcome::Applied);
+        assert_eq!(last_path(), "paste");
+        let mut f = Fake::new(DOC, "payment");
+        f.paste_ok = false;
+        assert_eq!(run(&mut f, &job()), Outcome::Applied);
+        assert_eq!(last_path(), "typed");
+        let mut f = Fake::new(DOC, "payment");
+        f.paste_ignored = true;
+        assert_eq!(run(&mut f, &job()), Outcome::Applied);
+        assert_eq!(last_path(), "retyped");
     }
 
     #[test]
