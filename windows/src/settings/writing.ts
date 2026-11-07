@@ -3,7 +3,7 @@
 // owns the built-in lists (writing::apps, writing::tones) and reads the
 // user's choices from settings.json within one reading of saving them.
 
-import { Bridge, type KnownApp } from "../core/bridge";
+import { Bridge, type KnownApp, type LiveStatus } from "../core/bridge";
 import type { Settings } from "../core/state";
 import { TONES } from "../core/rewrite";
 import { toneLabel } from "../views/rewrite";
@@ -456,6 +456,20 @@ export function livePause(ms: number | undefined): number {
 }
 
 /**
+ * The "Live revisions status" lines (owner, 2026-11-07: never silent): the
+ * last suggestion shown, and why live revisions didn't run in the last hour,
+ * as reason codes with counts (writing/live_stats.rs).
+ */
+export function liveStatusLines(s: LiveStatus): string[] {
+  const last = s.lastAt
+    ? t("Last suggestion: {time} in {app}", { time: s.lastAt, app: s.lastApp })
+    : t("No suggestion shown since Glim started");
+  const reasons = s.skipped.map(([why, n]) => `${why.replace(/-/g, " ")} ${n}`).join(", ");
+  const skipped = reasons ? t("Skipped in the last hour: {reasons}", { reasons }) : t("Nothing skipped in the last hour");
+  return [last, skipped];
+}
+
+/**
  * Settings → Writing → Live revisions (owner, 2026-11-03): on everywhere by
  * default, a switch per app the checker reads (all on), and the pause before
  * a suggestion (1-3 s, 1.5 s by default).
@@ -507,8 +521,16 @@ export function liveGroup(host: WritingHost, known: KnownApp[]): HTMLElement {
     }
   }
   drawApps();
+  const status = h("div", { class: "hint", "data-role": "live-status" });
+  const drawStatus = (s: LiveStatus) => {
+    clear(status);
+    for (const line of liveStatusLines(s)) status.append(h("div", { text: line }));
+  };
+  void Bridge.liveStatus().then((s) => { if (s) drawStatus(s); }).catch(() => {});
   return h("div", { class: "settings-group", id: "settings-writing-live" },
     h("div", { class: "row" }, h("label", { text: label }), sw),
+    h("h3", { text: t("Live revisions status") }),
+    status,
     h("div", { class: "hint", text: t("When you pause typing, the paragraph goes to Claude (through the privacy shield) for a light edit: grammar, spelling, punctuation and tighter wording in your own voice. Never in password fields, paused apps or banking and payment sites.") }),
     h("div", { class: "row" }, h("label", { text: t("Pause before a suggestion") }), pause, seconds),
     apps,

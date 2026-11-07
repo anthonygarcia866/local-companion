@@ -9,8 +9,9 @@
 // through tao's FOCUSABLE flag, with BROWSER_ARGS. It takes no keys: the
 // accept and dismiss keys are global shortcuts handled in Rust.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 
@@ -31,6 +32,42 @@ static CREATING: AtomicBool = AtomicBool::new(false);
 static PENDING: Mutex<Option<(LiveEvent, Option<Rect>)>> = Mutex::new(None);
 /// "…" was clicked: the preview is taller until the next revision.
 static EXPANDED: AtomicBool = AtomicBool::new(false);
+
+/// Never silent (owner, 2026-11-07): the page says it drew each revision
+/// (live_page_ready, after every "show"). No answer 3 s after a show reloads
+/// the page; still none 6 s after that, the window is built again and the
+/// revision shown in it (as webview_health does for Settings, #66).
+const ANSWER_WAIT: Duration = Duration::from_secs(3);
+const RELOAD_WAIT: Duration = Duration::from_secs(6);
+/// When (ms since launch, 0 = never) the last revision was sent to the page,
+/// and when the page last answered.
+static SHOWN_AT: AtomicU64 = AtomicU64::new(0);
+static ANSWERED_AT: AtomicU64 = AtomicU64::new(0);
+static CHECKING: AtomicBool = AtomicBool::new(false);
+/// The last revision shown, to show again in a rebuilt window.
+static LAST_SHOW: Mutex<Option<(LiveEvent, Option<Rect>)>> = Mutex::new(None);
+
+fn now_ms() -> u64 {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+/// What the check does after a wait: fine (answered since `since`), else
+/// reload first, then rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Fine,
+    Reload,
+    Rebuild,
+}
+
+fn next_step(answered_at: u64, since: u64, reloaded_already: bool) -> Step {
+    match (answered_at >= since, reloaded_already) {
+        (true, _) => Step::Fine,
+        (false, false) => Step::Reload,
+        (false, true) => Step::Rebuild,
+    }
+}
 
 pub fn set_expanded(on: bool) {
     EXPANDED.store(on, Ordering::SeqCst);
@@ -74,12 +111,81 @@ pub fn apply(app: &AppHandle, event: &LiveEvent, at: Option<Rect>) {
         }
         (_, Some(r)) => move_to(&win, r),
     }
+    if event.phase == "show" {
+        *LAST_SHOW.lock().unwrap_or_else(|e| e.into_inner()) = Some((event.clone(), at));
+        SHOWN_AT.store(now_ms(), Ordering::SeqCst);
+    }
     let _ = app.emit_to(LABEL, EVENT, event);
+    if event.phase == "show" {
+        check(app);
+    }
+}
+
+/// Makes sure the page drew the revision just sent (see ANSWER_WAIT).
+fn check(app: &AppHandle) {
+    if CHECKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("glim-live-check".into()).spawn(move || {
+        let since = SHOWN_AT.load(Ordering::SeqCst);
+        std::thread::sleep(ANSWER_WAIT);
+        if next_step(ANSWERED_AT.load(Ordering::SeqCst), since, false) != Step::Fine {
+            crate::log::line("live preview: no answer 3 s after a revision; reloading");
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(win) = app2.get_webview_window(LABEL) {
+                    let reloaded = win.reload().is_ok();
+                    crate::log::line(format!("live preview: page reloaded: {reloaded}"));
+                }
+            });
+            let reloaded_at = now_ms();
+            std::thread::sleep(RELOAD_WAIT);
+            if next_step(ANSWERED_AT.load(Ordering::SeqCst), reloaded_at, true) == Step::Rebuild {
+                crate::log::line("live preview: still no answer after the reload; building it again");
+                rebuild(&app);
+            } else {
+                crate::log::line("live preview: answered after the reload");
+            }
+        }
+        CHECKING.store(false, Ordering::SeqCst);
+    });
+    if spawned.is_err() {
+        CHECKING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Throws the window away and makes it again; the last revision waits for
+/// the new page (PENDING, page_ready). Runs on the check thread: destroy()
+/// is carried out by the UI thread, so the label is waited for.
+fn rebuild(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(LABEL) {
+        if let Err(err) = win.destroy() {
+            crate::log::line(format!("live preview: could not close it: {err}"));
+            return;
+        }
+    }
+    for _ in 0..30 {
+        if app.get_webview_window(LABEL).is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if app.get_webview_window(LABEL).is_some() {
+        crate::log::line("live preview: the old window did not close; not rebuilt");
+        return;
+    }
+    crate::webview_health::forget_watch(LABEL);
+    CREATING.store(false, Ordering::SeqCst);
+    *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = LAST_SHOW.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    create(app);
+    crate::log::line("live preview: built again");
 }
 
 /// The page has loaded and listens (lib.rs live_page_ready): the revision
 /// that came before it, if it's still the one to show.
 pub fn page_ready(app: &AppHandle) {
+    ANSWERED_AT.store(now_ms(), Ordering::SeqCst);
     let pending = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take();
     if let Some((event, at)) = pending {
         if app.get_webview_window(LABEL).is_some() {
@@ -154,6 +260,21 @@ fn create(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use super::{next_step, Step};
+
+    #[test]
+    fn a_page_that_doesnt_answer_is_reloaded_then_built_again() {
+        assert_eq!(next_step(10, 5, false), Step::Fine);
+        assert_eq!(next_step(4, 5, false), Step::Reload);
+        assert_eq!(next_step(4, 5, true), Step::Rebuild);
+        assert_eq!(next_step(9, 5, true), Step::Fine);
+        let code = include_str!("live_window.rs");
+        let code = &code[..code.find("#[cfg(test)]").unwrap()];
+        let ready = &code[code.find("pub fn page_ready").unwrap()..];
+        assert!(ready.find("ANSWERED_AT.store").unwrap() < ready.find("PENDING").unwrap(), "every page_ready is an answer");
+        assert!(code.contains("forget_watch(LABEL)") && code.contains("CREATING.store(false"), "a rebuilt window is watched and made again");
+    }
+
     /// Like the mini lantern's: nothing here hands the window the keyboard.
     #[test]
     fn the_preview_never_takes_focus() {

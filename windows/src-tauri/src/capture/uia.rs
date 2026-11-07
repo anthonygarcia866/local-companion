@@ -39,7 +39,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowText
 use super::sensitive::{is_browser, is_sensitive_field, FieldLabels, PauseList};
 use super::{
     control_type_name, finish, is_editable, record_to, results_path, withheld, Capture, CaptureMeta, EditSignals,
-    Reading, MAX_FIELD_CHARS, SKIPPED_OFF, SKIPPED_READ_ONLY,
+    Reading, MAX_FIELD_CHARS, SKIPPED_OFF, SKIPPED_PAUSED, SKIPPED_READ_ONLY, SKIPPED_SENSITIVE,
 };
 
 /// How often the focused field is re-read between focus events: the fallback
@@ -222,6 +222,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
     let (mut events, mut polls, mut by_event, mut by_poll) = (0u32, 0u32, 0u32, 0u32);
     let mut apps: Vec<String> = Vec::new();
     let mut report_at = std::time::Instant::now() + REPORT_EVERY;
+    // Live revisions' counts go to the log every 5 minutes (live_stats).
+    let mut live_log_at = std::time::Instant::now() + crate::writing::live_stats::LOG_EVERY;
     // The writing settings in force (1d): a change drops what the checker
     // shows and keeps, and the next reading starts afresh.
     let mut prefs_version = crate::writing::prefs::version();
@@ -464,6 +466,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         match (rewrite::precheck(crate::writing::paused(), &config, &has_key, &spent), saved) {
                             (Ok(()), Ok(Some(api_key))) => {
                                 live_refused = None;
+                                crate::writing::live_stats::with(|s| s.result(std::time::Instant::now(), "sent"));
                                 send_live(&crate::writing::live::LiveEvent { phase: "sending", id: src.id, ..Default::default() });
                                 let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(&src.paragraph).into_iter().take(crate::ai::live::MAX_RULES).cloned().collect(), false));
                                 tauri::async_runtime::spawn(async move {
@@ -477,6 +480,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             }
                             (Err(code), _) => {
                                 writer.live_failed(src.id);
+                                crate::writing::live_stats::with(|s| s.skip(std::time::Instant::now(), code));
                                 if live_refused.as_deref() != Some(code) {
                                     crate::log::line(format!("live: not sent ({code})"));
                                     live_refused = Some(code.to_string());
@@ -501,6 +505,20 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             }
                         };
                         let word = outcome.as_ref().map_or("failed", |o| o.word());
+                        let stat = match (&outcome, &reply.result) {
+                            (Some(crate::writing::live::Outcome::Shown(_)), _) => None,
+                            (_, Err(f)) => Some(format!("failed ({})", crate::ai::rewrite::failure_code(f))),
+                            _ => Some(word.to_string()),
+                        };
+                        let shown_app = match &outcome {
+                            Some(crate::writing::live::Outcome::Shown(e)) => Some(e.app.clone()),
+                            _ => None,
+                        };
+                        crate::writing::live_stats::with(|s| match (&stat, &shown_app) {
+                            (Some(what), _) => s.result(std::time::Instant::now(), what),
+                            (None, Some(app_name)) => s.shown(std::time::Instant::now(), &clock_now(), app_name),
+                            (None, None) => {}
+                        });
                         crate::log::line(crate::ai::live::log_line(&reply, word, elapsed, paused_for + elapsed));
                         if let Some(crate::writing::live::Outcome::Shown(event)) = &outcome {
                             crate::ai::budget::note_live(elapsed.as_millis() as u64, reply.usage.as_ref().map_or(0, |u| u.cost_nanos));
@@ -603,6 +621,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             apps.clear();
             report_at = std::time::Instant::now() + REPORT_EVERY;
         }
+        if std::time::Instant::now() >= live_log_at {
+            let now = std::time::Instant::now();
+            crate::log::line(crate::writing::live_stats::with(|s| s.log_line(now, crate::writing::live_stats::LOG_EVERY)));
+            live_log_at = now + crate::writing::live_stats::LOG_EVERY;
+        }
         if crate::writing::prefs::version() != prefs_version {
             prefs_version = crate::writing::prefs::version();
             let prefs = crate::writing::prefs::get();
@@ -616,6 +639,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         if crate::writing::paused() {
             let r = crate::writing::Observed { same: false, text: None, caret: None, rules: crate::writing::Rules::Full, mode: crate::writing::FixMode::View, app: "", paused: true, sensitive: false, live_only: false };
             writer.observe_in(&r, std::time::Instant::now(), send_list);
+            crate::writing::live_stats::with(|s| s.skip(std::time::Instant::now(), "glim-paused"));
             fix_field = None;
             // Paused: the mini lantern goes too (§7a.5), within this reading.
             if bubble_last.as_ref().is_some_and(|d| d.window.is_some()) {
@@ -635,6 +659,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             continue;
         }
         let reading = read(&uia, &element, pid, &pause, dev);
+        let reading_docs = reading.docs_site;
         let ask = reading.ask;
         let mail_site = reading.mail_site;
         let (reading_field, reading_caret, reading_line) = (reading.field_rect, reading.caret_rect, reading.line_rect);
@@ -692,6 +717,28 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             live_only: live_app,
         };
         writer.observe_in(&r, std::time::Instant::now(), send_list);
+        // Never silent (owner, 2026-11-07): why live revisions don't run in
+        // this field, counted once per stay (live_stats; codes only).
+        {
+            let now = std::time::Instant::now();
+            let declined = crate::consent::answer(crate::consent::Feature::Live) == crate::consent::Answer::Off;
+            let why = if watched.is_some() {
+                if declined { Some("live-off") } else { writer.live_why_not(now, &crate::writing::live::config(), &capture.meta.app) }
+            } else {
+                skip_reason(&capture.meta, reading_docs, || {
+                    let control = unsafe { element.CurrentControlType() }.map(|t| t.0).unwrap_or(0);
+                    is_editable(&edit_signals(&element, control))
+                })
+            };
+            crate::writing::live_stats::with(|s| {
+                if !same {
+                    s.fresh();
+                }
+                if let Some(why) = why {
+                    s.skip(now, why);
+                }
+            });
+        }
         // "Check with AI automatically when I pause typing" (§15.1, off by
         // default): once per paragraph version, the same path as a click.
         // Ask first (consent.rs): never asked, the first pause asks instead.
@@ -776,6 +823,48 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
     }
     Ok(())
+}
+
+/// Why live revisions didn't read this field, for the status counts: a
+/// paused app or site, a password, payment/ID or sensitive field, Google
+/// Docs, an app they may not read or are off in, or a field whose text can't
+/// be read. Only text fields count (`editable` is asked last, and only for a
+/// field nothing was read from); None for read-only content and the rest.
+fn skip_reason(meta: &CaptureMeta, docs: bool, editable: impl FnOnce() -> bool) -> Option<&'static str> {
+    if meta.pattern == SKIPPED_PAUSED {
+        return Some("paused-app-or-site");
+    }
+    if meta.password {
+        return Some("password");
+    }
+    if meta.sensitive || meta.pattern == SKIPPED_SENSITIVE {
+        return Some("sensitive");
+    }
+    if docs {
+        return Some("google-docs");
+    }
+    if meta.read_only || !editable() {
+        return None;
+    }
+    if meta.pattern == SKIPPED_OFF {
+        let app = meta.app.as_str();
+        return Some(if !crate::writing::apps::live_reads(app) {
+            "app-not-allowed"
+        } else if !crate::writing::live::config().on {
+            "live-off"
+        } else if !crate::writing::live::config().on_in(app) {
+            "live-off-in-app"
+        } else {
+            "live-off"
+        });
+    }
+    Some("unreadable")
+}
+
+/// The clock now, "08:33" (the status line's last suggestion).
+fn clock_now() -> String {
+    let t = crate::platform::local_time();
+    format!("{:02}:{:02}", t.hour, t.minute)
 }
 
 /// An app the checker is off for whose fields live revisions read (owner,

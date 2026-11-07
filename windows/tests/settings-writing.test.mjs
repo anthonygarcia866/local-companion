@@ -161,3 +161,15 @@ test("live revisions: off until the user says so (ask first), a switch per app, 
   assert.equal(settings.livePauseMs, 2500);
   assert.equal(saves, 5);
 });
+
+test("the live revisions status says the last suggestion and the last hour's skips", async () => {
+  const { liveStatusLines } = await import("../src/settings/writing.ts");
+  assert.deepEqual(liveStatusLines({ lastAt: "", lastApp: "", minutesAgo: 0, skipped: [], results: [] }), [
+    "No suggestion shown since Glim started",
+    "Nothing skipped in the last hour",
+  ]);
+  assert.deepEqual(liveStatusLines({ lastAt: "08:33", lastApp: "Outlook", minutesAgo: 2, skipped: [["too-short", 3], ["password", 1]], results: [["sent", 4]] }), [
+    "Last suggestion: 08:33 in Outlook",
+    "Skipped in the last hour: too short 3, password 1",
+  ]);
+});

@@ -221,6 +221,61 @@
    "ru": "Правки на лету",
    "id": "Revisi langsung"
   },
+  "Live revisions status": {
+   "zh-Hans": "实时修订状态",
+   "hi": "लाइव संशोधन स्थिति",
+   "es": "Estado de las revisiones en vivo",
+   "ar": "حالة المراجعات المباشرة",
+   "fr": "État des révisions en direct",
+   "bn": "লাইভ সংশোধনের অবস্থা",
+   "pt-BR": "Status das revisões ao vivo",
+   "ru": "Состояние правок на лету",
+   "id": "Status revisi langsung"
+  },
+  "Last suggestion: {time} in {app}": {
+   "zh-Hans": "上次建议：{time}，在 {app}",
+   "hi": "पिछला सुझाव: {time}, {app} में",
+   "es": "Última sugerencia: {time} en {app}",
+   "ar": "آخر اقتراح: {time} في {app}",
+   "fr": "Dernière suggestion : {time} dans {app}",
+   "bn": "শেষ পরামর্শ: {time}, {app}-এ",
+   "pt-BR": "Última sugestão: {time} em {app}",
+   "ru": "Последнее предложение: {time} в {app}",
+   "id": "Saran terakhir: {time} di {app}"
+  },
+  "No suggestion shown since Glim started": {
+   "zh-Hans": "Glim 启动以来尚未显示建议",
+   "hi": "Glim शुरू होने के बाद से कोई सुझाव नहीं दिखाया गया",
+   "es": "Ninguna sugerencia desde que se inició Glim",
+   "ar": "لم يُعرض أي اقتراح منذ بدء Glim",
+   "fr": "Aucune suggestion depuis le démarrage de Glim",
+   "bn": "Glim চালু হওয়ার পর কোনো পরামর্শ দেখানো হয়নি",
+   "pt-BR": "Nenhuma sugestão desde que o Glim iniciou",
+   "ru": "С запуска Glim предложений не было",
+   "id": "Belum ada saran sejak Glim dimulai"
+  },
+  "Skipped in the last hour: {reasons}": {
+   "zh-Hans": "过去一小时跳过：{reasons}",
+   "hi": "पिछले एक घंटे में छोड़े गए: {reasons}",
+   "es": "Omitidas en la última hora: {reasons}",
+   "ar": "تم التخطي في الساعة الأخيرة: {reasons}",
+   "fr": "Ignorées dans la dernière heure : {reasons}",
+   "bn": "গত এক ঘণ্টায় বাদ পড়েছে: {reasons}",
+   "pt-BR": "Ignoradas na última hora: {reasons}",
+   "ru": "Пропущено за последний час: {reasons}",
+   "id": "Dilewati dalam satu jam terakhir: {reasons}"
+  },
+  "Nothing skipped in the last hour": {
+   "zh-Hans": "过去一小时没有跳过",
+   "hi": "पिछले एक घंटे में कुछ नहीं छोड़ा गया",
+   "es": "Nada omitido en la última hora",
+   "ar": "لم يتم تخطي شيء في الساعة الأخيرة",
+   "fr": "Rien d'ignoré dans la dernière heure",
+   "bn": "গত এক ঘণ্টায় কিছু বাদ পড়েনি",
+   "pt-BR": "Nada ignorado na última hora",
+   "ru": "За последний час ничего не пропущено",
+   "id": "Tidak ada yang dilewati dalam satu jam terakhir"
+  },
   "Pause before a suggestion": {
    "zh-Hans": "建议前的停顿",
    "hi": "सुझाव से पहले विराम",
