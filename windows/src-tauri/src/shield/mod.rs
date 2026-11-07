@@ -24,6 +24,7 @@
 // card, ID or bank number, an SSN, a date of birth or a labelled income or
 // benefit amount is not sent at all (claude::send).
 
+pub mod added;
 pub mod detect;
 pub mod facts;
 pub mod names;
@@ -158,6 +159,10 @@ pub enum Mismatch {
     /// names list) is missing or spelled differently in the answer
     /// (`names::kept`): discarded.
     Names,
+    /// A tone rewrite added to what the paragraph says: more than 60%
+    /// longer, or a claim it doesn't make (an attachment, something sent,
+    /// an earlier conversation, an apology, a promise; `added::check`).
+    Added,
 }
 
 impl Mismatch {
@@ -170,6 +175,7 @@ impl Mismatch {
             Mismatch::Sensitive => "sensitive",
             Mismatch::Facts => "facts-changed",
             Mismatch::Names => "names-changed",
+            Mismatch::Added => "added-content",
         }
     }
 }

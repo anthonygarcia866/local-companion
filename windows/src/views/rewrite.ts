@@ -32,6 +32,7 @@ export function failureText(code: string, retryAfter: number | null): string {
   if (code.startsWith("shield-")) return t("Not shown: Claude's answer didn't keep the hidden names and numbers exactly. Try again.");
   switch (code) {
     case "facts-changed": return t("Not shown: Claude's answer changed a number, amount, time or date. Try again.");
+    case "added-content": return t("Not shown: Claude's answer added something your paragraph doesn't say. Try again.");
     case "paused": return t("Glim is paused.");
     case "local-brain": return t("Rewriting with the local model isn't built yet. Choose Claude API in Settings → AI.");
     case "no-key": return t("Add your Anthropic API key in Settings → AI first.");
