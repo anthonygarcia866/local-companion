@@ -23,6 +23,8 @@ pub mod fix;
 pub mod sensitive;
 #[cfg(windows)]
 pub mod uia;
+#[cfg(windows)]
+pub mod word_om;
 
 use serde::Serialize;
 use std::io::Write;

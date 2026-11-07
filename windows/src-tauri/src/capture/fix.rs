@@ -11,7 +11,7 @@ use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL};
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    CloseClipboard, CountClipboardFormats, EmptyClipboard, EnumClipboardFormats, GetClipboardData, GetClipboardFormatNameW, IsClipboardFormatAvailable, OpenClipboard,
     RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
@@ -44,8 +44,9 @@ pub struct UiaField<'a> {
     element: IUIAutomationElement,
     pid: u32,
     pause: &'a PauseList,
-    /// The user's clipboard while Glim pastes a one-step job: put back after.
-    saved_clip: Option<Option<String>>,
+    /// The user's clipboard while Glim pastes a one-step job: put back
+    /// after, or when this field is dropped (any way out, a panic too).
+    saved_clip: Option<ClipGuard>,
 }
 
 impl<'a> UiaField<'a> {
@@ -223,22 +224,27 @@ impl Field for UiaField<'_> {
         sent as usize == inputs.len()
     }
 
+    fn replace_in_document(&mut self, expect: &str, text: &str) -> bool {
+        super::word_om::replace_selection(&process_name(self.pid as i32), expect, text)
+    }
+
     fn paste_over(&mut self, text: &str) -> bool {
-        // The user's clipboard first: only plain text (or nothing) can be put
-        // back exactly; anything else and the text is typed instead.
+        // The user's whole clipboard first, every format byte for byte; if
+        // any of it can't be put back exactly, the text is typed instead.
         let Some(saved) = save_clipboard() else { return false };
         if !open_clipboard() {
             return false;
         }
+        // From here on, the guard puts it back however this ends.
+        let guard = ClipGuard(saved);
         let set = unsafe { EmptyClipboard() }.is_ok() && set_text(text, true).is_some();
         unsafe {
             let _ = CloseClipboard();
         }
         if !set {
-            restore_clipboard(&saved);
             return false;
         }
-        self.saved_clip = Some(saved);
+        self.saved_clip = Some(guard);
         // Ctrl+V, in one call (Windows doesn't interleave the user's input).
         let key = |vk: VIRTUAL_KEY, up: bool| INPUT {
             r#type: INPUT_KEYBOARD,
@@ -254,9 +260,8 @@ impl Field for UiaField<'_> {
     }
 
     fn after_paste(&mut self) {
-        if let Some(saved) = self.saved_clip.take() {
-            restore_clipboard(&saved);
-        }
+        // Dropping the guard puts the clipboard back.
+        self.saved_clip = None;
     }
 
     fn pause(&mut self) {
@@ -370,20 +375,42 @@ fn set_data(format: u32, bytes: &[u8]) -> Option<()> {
     Some(())
 }
 
+/// Glim's own mark on a clipboard it fills for a paste: the text there is
+/// only passing through. Restoring checks for it (a clipboard the user
+/// changed meanwhile is left alone), and at startup any left over from a
+/// paste Glim never finished (killed mid-paste) is cleared
+/// (`clear_stale_paste`).
+const GLIM_MARK: windows::core::PCWSTR = windows::core::w!("Glim.PasteInProgress");
+
+/// Windows' markers that keep a clipboard out of clipboard history (Win+V),
+/// the cloud clipboard and clipboard monitors.
+/// ExcludeClipboard...'s presence is the signal (no value); the other two
+/// hold a DWORD 0.
+const PRIVATE_MARKS: [(windows::core::PCWSTR, &[u8]); 3] = [
+    (windows::core::w!("ExcludeClipboardContentFromMonitorProcessing"), &[]),
+    (windows::core::w!("CanIncludeInClipboardHistory"), &[0, 0, 0, 0]),
+    (windows::core::w!("CanUploadToCloudClipboard"), &[0, 0, 0, 0]),
+];
+
+fn registered(name: windows::core::PCWSTR) -> u32 {
+    unsafe { RegisterClipboardFormatW(name) }
+}
+
 /// Puts `text` on the clipboard (it must be open and emptied). `private`:
-/// kept out of Windows' clipboard history and cloud clipboard (Glim's own
-/// paste of the user's paragraph, which is only passing through).
+/// Glim's own paste of the user's paragraph, which is only passing through:
+/// marked so Windows keeps it out of clipboard history (Win+V) and the cloud
+/// clipboard, and with Glim's mark (`GLIM_MARK`).
 fn set_text(text: &str, private: bool) -> Option<()> {
     let bytes: Vec<u8> = text.encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
-    set_data(CF_UNICODETEXT.0 as u32, &bytes)?;
     if private {
-        let zero = 0u32.to_le_bytes();
-        let format = |name: windows::core::PCWSTR| unsafe { RegisterClipboardFormatW(name) };
-        let _ = set_data(format(windows::core::w!("ExcludeClipboardContentFromMonitorProcessing")), &[]);
-        let _ = set_data(format(windows::core::w!("CanIncludeInClipboardHistory")), &zero);
-        let _ = set_data(format(windows::core::w!("CanUploadToCloudClipboard")), &zero);
+        // Glim's mark first (whatever fails after it, the user's clipboard
+        // still goes back), then Windows' marks, before the text.
+        set_data(registered(GLIM_MARK), &[])?;
+        for (name, data) in PRIVATE_MARKS {
+            set_data(registered(name), data)?;
+        }
     }
-    Some(())
+    set_data(CF_UNICODETEXT.0 as u32, &bytes)
 }
 
 /// Puts `text` on the clipboard (a Copy button the user clicked). False if
@@ -399,61 +426,147 @@ pub fn copy_to_clipboard(text: &str) -> bool {
     done
 }
 
-/// Clipboard formats Glim can put back exactly: plain text in its forms.
-/// Anything else there (a picture, files, a web page's formatting) and Glim
-/// types instead of pasting, so the user's clipboard is never changed.
-const RESTORABLE: [u32; 4] = [1 /* CF_TEXT */, 7 /* CF_OEMTEXT */, 13 /* CF_UNICODETEXT */, 16 /* CF_LOCALE */];
+/// At startup: a clipboard that still holds Glim's mark is a paste Glim
+/// never finished (it was stopped between the paste and putting the user's
+/// clipboard back). It is emptied, so Glim's text never stays there. True
+/// when one was found.
+pub fn clear_stale_paste() -> bool {
+    if !open_clipboard() {
+        return false;
+    }
+    let stale = unsafe { IsClipboardFormatAvailable(registered(GLIM_MARK)) }.is_ok();
+    if stale {
+        unsafe {
+            let _ = EmptyClipboard();
+        }
+    }
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    stale
+}
 
-/// What the clipboard holds now, if Glim can put it back exactly: Some(None)
-/// when empty, Some(Some(text)) for plain text; None otherwise (or busy).
-fn save_clipboard() -> Option<Option<String>> {
+/// The user's clipboard, saved whole for a paste: every format, byte for byte.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Saved {
+    Empty,
+    Formats(Vec<(u32, Vec<u8>)>),
+}
+
+/// The most Glim saves (all formats together); more and it types instead.
+const MAX_SAVED_BYTES: usize = 64 << 20;
+
+/// Whether a clipboard format can be put back exactly from its bytes. Only
+/// memory formats can: a picture or drawing handle (bitmap, metafile,
+/// palette), an owner-drawn or private handle can't, and neither can the
+/// OLE clipboard ("DataObject", "Ole Private Data": the data stays in the
+/// app that copied it). `name` is the registered name ("" for Windows' own).
+pub fn restorable_format(format: u32, name: &str) -> bool {
+    const GDI: [u32; 8] = [
+        2,    // CF_BITMAP
+        3,    // CF_METAFILEPICT
+        9,    // CF_PALETTE
+        14,   // CF_ENHMETAFILE
+        0x80, // CF_OWNERDISPLAY
+        0x82, // CF_DSPBITMAP
+        0x83, // CF_DSPMETAFILEPICT
+        0x8E, // CF_DSPENHMETAFILE
+    ];
+    if GDI.contains(&format) || (0x0200..=0x03FF).contains(&format) {
+        // CF_PRIVATEFIRST..CF_GDIOBJLAST: handles Glim can't copy.
+        return false;
+    }
+    !["DataObject", "Ole Private Data"].iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
+/// The registered name of a format ("" for Windows' own numbered ones).
+fn format_name(format: u32) -> String {
+    if format < 0xC000 {
+        return String::new();
+    }
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetClipboardFormatNameW(format, &mut buf) }.max(0) as usize;
+    String::from_utf16_lossy(&buf[..n.min(buf.len())])
+}
+
+/// What the clipboard holds now, if Glim can put it back exactly: every
+/// format's bytes. None when it can't (a picture, a drawing, the OLE
+/// clipboard, a format whose data the copying app no longer gives
+/// (delayed rendering), too big, or the clipboard is busy): then the text
+/// is typed and the clipboard is never touched. A clipboard holding only
+/// Glim's own leftover paste (its mark) counts as empty.
+fn save_clipboard() -> Option<Saved> {
     if !open_clipboard() {
         return None;
     }
     unsafe {
         let saved = (|| {
+            if IsClipboardFormatAvailable(registered(GLIM_MARK)).is_ok() {
+                return Some(Saved::Empty);
+            }
+            let mut formats = Vec::new();
+            let mut total = 0usize;
             let mut format = 0u32;
             loop {
                 format = EnumClipboardFormats(format);
                 if format == 0 {
                     break;
                 }
-                if !RESTORABLE.contains(&format) {
+                if !restorable_format(format, &format_name(format)) {
                     return None;
                 }
+                // A delayed-rendered format is rendered now; one its app
+                // won't give is not restorable.
+                let h = GetClipboardData(format).ok()?;
+                let mem = HGLOBAL(h.0);
+                let size = GlobalSize(mem);
+                total += size;
+                if size == 0 || total > MAX_SAVED_BYTES {
+                    return None;
+                }
+                let src = GlobalLock(mem) as *const u8;
+                if src.is_null() {
+                    return None;
+                }
+                let bytes = std::slice::from_raw_parts(src, size).to_vec();
+                let _ = GlobalUnlock(mem);
+                formats.push((format, bytes));
             }
-            if IsClipboardFormatAvailable(CF_UNICODETEXT.0 as u32).is_err() {
-                return Some(None);
-            }
-            let h = GetClipboardData(CF_UNICODETEXT.0 as u32).ok()?;
-            let mem = HGLOBAL(h.0);
-            let units = GlobalSize(mem) / 2;
-            let src = GlobalLock(mem) as *const u16;
-            if src.is_null() {
-                return None;
-            }
-            let all = std::slice::from_raw_parts(src, units);
-            let len = all.iter().position(|&u| u == 0).unwrap_or(units);
-            let text = String::from_utf16_lossy(&all[..len]);
-            let _ = GlobalUnlock(mem);
-            Some(Some(text))
+            Some(if formats.is_empty() { Saved::Empty } else { Saved::Formats(formats) })
         })();
         let _ = CloseClipboard();
         saved
     }
 }
 
-/// Puts the saved clipboard back (empty, or its text), out of the history.
-fn restore_clipboard(saved: &Option<String>) {
+/// Puts the saved clipboard back exactly (every format, in its order), but
+/// only while the clipboard still holds Glim's paste (or nothing, if the
+/// paste failed after emptying it): if the user copied something
+/// meanwhile, theirs stays.
+fn restore_clipboard(saved: &Saved) {
     if !open_clipboard() {
         return;
     }
-    let emptied = unsafe { EmptyClipboard() }.is_ok();
-    if let (true, Some(text)) = (emptied, saved) {
-        let _ = set_text(text, true);
-    }
     unsafe {
+        let ours = IsClipboardFormatAvailable(registered(GLIM_MARK)).is_ok() || CountClipboardFormats() == 0;
+        if ours && EmptyClipboard().is_ok() {
+            if let Saved::Formats(formats) = saved {
+                for (format, bytes) in formats {
+                    let _ = set_data(*format, bytes);
+                }
+            }
+        }
         let _ = CloseClipboard();
+    }
+}
+
+/// The user's clipboard while Glim pastes: put back when dropped, so it
+/// comes back on every path out of a paste (the `finally`), a panic too.
+struct ClipGuard(Saved);
+
+impl Drop for ClipGuard {
+    fn drop(&mut self) {
+        restore_clipboard(&self.0);
     }
 }
 
@@ -475,6 +588,154 @@ mod tests {
         assert_eq!(key_events("\u{1F600}").len(), 4);
         // Never Enter or Tab: those are refused before this (writing::offerable).
         assert!(key_events("it's").iter().all(|k| !matches!(k, Key::Unicode(13 | 10 | 9, _))));
+    }
+
+    #[test]
+    fn a_browser_copy_is_restorable_and_pictures_drawings_and_the_ole_clipboard_are_not() {
+        // What Chrome or Edge puts there for copied rich text, plus Windows'
+        // own text forms and Glim's marks: memory formats, put back byte for byte.
+        for (format, name) in [
+            (13, ""),
+            (1, ""),
+            (7, ""),
+            (16, ""),
+            (15, ""), // CF_HDROP: a file list, memory too
+            (8, ""),  // CF_DIB alone (its synthesized CF_BITMAP is refused below)
+            (0xC0A1, "HTML Format"),
+            (0xC0A2, "Chromium internal source URL"),
+            (0xC0A3, "Rich Text Format"),
+            (0xC0A4, "ExcludeClipboardContentFromMonitorProcessing"),
+            (0xC0A5, "CanIncludeInClipboardHistory"),
+            (0xC0A6, "CanUploadToCloudClipboard"),
+            (0xC0A7, "Glim.PasteInProgress"),
+        ] {
+            assert!(restorable_format(format, name), "{format:#x} {name}");
+        }
+        // Handles, not memory: a picture, a drawing, a palette, owner-drawn
+        // or private handles; and the OLE clipboard, whose data stays in the
+        // app that copied it. Any of these and Glim types instead.
+        for (format, name) in [
+            (2, ""),
+            (3, ""),
+            (9, ""),
+            (14, ""),
+            (0x80, ""),
+            (0x82, ""),
+            (0x83, ""),
+            (0x8E, ""),
+            (0x200, ""),
+            (0x2FF, ""),
+            (0x300, ""),
+            (0x3FF, ""),
+            (0xC0B1, "DataObject"),
+            (0xC0B2, "Ole Private Data"),
+        ] {
+            assert!(!restorable_format(format, name), "{format:#x} {name}");
+        }
+    }
+
+    #[test]
+    fn glims_paste_is_marked_private_and_the_clipboard_comes_back_on_every_path() {
+        let src = include_str!("fix.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        // Glim's mark first, then Windows' three, then the text.
+        let set = &code[code.find("fn set_text(").unwrap()..code.find("pub fn copy_to_clipboard").unwrap()];
+        let mark = set.find("set_data(registered(GLIM_MARK)").unwrap();
+        let marks = set.find("for (name, data) in PRIVATE_MARKS").unwrap();
+        let text = set.find("set_data(CF_UNICODETEXT").unwrap();
+        assert!(mark < marks && marks < text);
+        for m in ["ExcludeClipboardContentFromMonitorProcessing", "CanIncludeInClipboardHistory\"), &[0, 0, 0, 0]", "CanUploadToCloudClipboard\"), &[0, 0, 0, 0]"] {
+            assert!(code.contains(m), "{m}");
+        }
+        // The paste: the guard owns the saved clipboard before it is emptied,
+        // and dropping it (any way out of the paste) puts it back.
+        let paste = &code[code.find("fn paste_over(").unwrap()..code.find("fn after_paste(").unwrap()];
+        assert!(paste.find("ClipGuard(saved)").unwrap() < paste.find("EmptyClipboard()").unwrap());
+        assert!(code.contains("impl Drop for ClipGuard {
+    fn drop(&mut self) {
+        restore_clipboard(&self.0);"));
+        // Restoring never overwrites what the user copied meanwhile.
+        let restore = &code[code.find("fn restore_clipboard(").unwrap()..code.find("struct ClipGuard").unwrap()];
+        assert!(restore.contains("IsClipboardFormatAvailable(registered(GLIM_MARK)).is_ok() || CountClipboardFormats() == 0"));
+    }
+
+    /// On the real clipboard (skipped when the session has none, e.g. a
+    /// service): a browser-like rich copy is saved whole, Glim's private
+    /// paste replaces it with its marks, and it comes back byte for byte; a
+    /// leftover Glim paste is cleared at startup.
+    #[test]
+    fn the_whole_clipboard_round_trips_and_a_stale_paste_is_cleared() {
+        let html = b"Version:0.9
+StartHTML:0
+<b>rich</b> text ".to_vec();
+        let text: Vec<u8> = "rich text".encode_utf16().chain(Some(0)).flat_map(u16::to_le_bytes).collect();
+        let html_format = registered(windows::core::w!("HTML Format"));
+        // The user's clipboard as it is now, to leave it as found.
+        let before = save_clipboard();
+        if !open_clipboard() {
+            eprintln!("no clipboard in this session: skipped");
+            return;
+        }
+        unsafe {
+            let _ = EmptyClipboard();
+        }
+        set_data(html_format, &html).unwrap();
+        set_data(CF_UNICODETEXT.0 as u32, &text).unwrap();
+        unsafe {
+            let _ = CloseClipboard();
+        }
+        let saved = save_clipboard().expect("a rich text copy is restorable");
+        let Saved::Formats(formats) = &saved else { panic!("not empty") };
+        assert!(formats.iter().any(|(f, b)| *f == html_format && b.starts_with(&html)));
+        // Glim's paste: guarded, private, marked.
+        {
+            let _guard = ClipGuard(saved.clone());
+            assert!(open_clipboard());
+            unsafe {
+                let _ = EmptyClipboard();
+            }
+            set_text("Glim's paragraph", true).unwrap();
+            unsafe {
+                let _ = CloseClipboard();
+                for name in [GLIM_MARK, PRIVATE_MARKS[0].0, PRIVATE_MARKS[1].0, PRIVATE_MARKS[2].0] {
+                    assert!(IsClipboardFormatAvailable(registered(name)).is_ok());
+                }
+                assert!(IsClipboardFormatAvailable(html_format).is_err());
+            }
+        } // dropped: put back
+        let back = save_clipboard().expect("restorable");
+        let Saved::Formats(after) = &back else { panic!("restored") };
+        for (f, b) in formats {
+            let got = after.iter().find(|(g, _)| g == f).map(|(_, b)| b).expect("format back");
+            // GlobalSize may round up: the original bytes, then padding.
+            assert!(got.starts_with(b), "{f:#x}");
+        }
+        unsafe {
+            assert!(IsClipboardFormatAvailable(registered(GLIM_MARK)).is_err(), "no mark left");
+        }
+        // A Glim paste left behind (Glim killed mid-paste) is cleared at startup.
+        assert!(open_clipboard());
+        unsafe {
+            let _ = EmptyClipboard();
+        }
+        set_text("left behind", true).unwrap();
+        unsafe {
+            let _ = CloseClipboard();
+        }
+        assert!(clear_stale_paste());
+        assert!(!clear_stale_paste(), "once");
+        // The clipboard as it was before the test.
+        if let Some(b) = before {
+            assert!(open_clipboard());
+            unsafe {
+                let _ = EmptyClipboard();
+            }
+            set_data(registered(GLIM_MARK), &[]).unwrap();
+            unsafe {
+                let _ = CloseClipboard();
+            }
+            restore_clipboard(&b);
+        }
     }
 
     /// A web chat app is view-only, and the gate checks it again at click

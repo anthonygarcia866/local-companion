@@ -39,6 +39,15 @@ pub trait Field {
     /// Step 7: types `text` over the selection in one go; an empty `text` is
     /// one Backspace. False if Windows didn't take the input.
     fn type_over(&mut self, text: &str) -> bool;
+    /// Step 7 for a one-step job in Outlook or Word: the app's own selection
+    /// (which must read `expect`) replaced through Word's object model, one
+    /// Range.Text assignment, so one Ctrl+Z takes it back; no clipboard, no
+    /// keys. False when the app isn't one of them or anything differs: the
+    /// job is pasted or typed instead.
+    fn replace_in_document(&mut self, expect: &str, text: &str) -> bool {
+        let _ = (expect, text);
+        false
+    }
     /// Step 7 for a one-step job (`Job::one_step`): puts `text` over the
     /// selection as ONE paste, so one Ctrl+Z takes it back. False when it
     /// can't (the clipboard is busy, or holds something it couldn't put
@@ -82,7 +91,7 @@ fn plain_quotes(s: &str) -> String {
 }
 
 /// The same text, but for the kind of quote marks.
-fn same(a: &str, b: &str) -> bool {
+pub(crate) fn same(a: &str, b: &str) -> bool {
     a.chars().map(plain_quote).eq(b.chars().map(plain_quote))
 }
 
@@ -187,10 +196,13 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         undo_select(f);
         return o;
     }
-    // 7. Put it in: a one-step job as one paste (one Ctrl+Z takes it back),
-    // anything else typed.
-    let pasted = job.one_step && !job.replacement.is_empty() && f.paste_over(&job.replacement);
-    if !pasted && !f.type_over(&job.replacement) {
+    // 7. Put it in. A one-step job (one Ctrl+Z takes it back): in Outlook
+    // and Word through Word's object model, elsewhere as one paste (the
+    // user's clipboard saved whole and put back); anything else typed.
+    let one_step = job.one_step && !job.replacement.is_empty();
+    let in_document = one_step && f.replace_in_document(&problem, &job.replacement);
+    let pasted = one_step && !in_document && f.paste_over(&job.replacement);
+    if !in_document && !pasted && !f.type_over(&job.replacement) {
         undo_select(f);
         return Outcome::Unsupported;
     }
@@ -216,7 +228,7 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         // Nothing changed at all: the keys didn't land (an app that ignores
         // them, or Windows blocked them). Otherwise something else happened.
         let untouched = locate(f, &job.paragraph, job.field_start).is_some();
-        if pasted && untouched {
+        if (pasted || in_document) && untouched {
             // An app that doesn't paste: typed instead, through every step again.
             return run(f, &Job { one_step: false, ..job.clone() });
         }
@@ -317,6 +329,10 @@ mod tests {
         paste_ignored: bool,
         pasted: Vec<String>,
         restored: usize,
+        /// Outlook or Word: the object model's replacement works.
+        word_doc: bool,
+        /// Each replacement through it: (the selection it expected, the text).
+        replaced: Vec<(String, String)>,
     }
 
     impl Fake {
@@ -342,6 +358,8 @@ mod tests {
                 paste_ignored: false,
                 pasted: Vec::new(),
                 restored: 0,
+                word_doc: false,
+                replaced: Vec::new(),
             }
         }
         fn text(&self) -> String {
@@ -413,6 +431,18 @@ mod tests {
             self.caret = s + lands.chars().count();
             true
         }
+        fn replace_in_document(&mut self, expect: &str, text: &str) -> bool {
+            // Like Word: only over a selection that reads `expect`.
+            let Some((s, e)) = self.sel else { return false };
+            if !self.word_doc || self.doc[s..e].iter().collect::<String>() != expect {
+                return false;
+            }
+            self.replaced.push((expect.to_string(), text.to_string()));
+            self.sel = None;
+            self.doc.splice(s..e, text.chars());
+            self.caret = s + text.chars().count();
+            true
+        }
         fn paste_over(&mut self, text: &str) -> bool {
             if !self.paste_ok {
                 return false;
@@ -472,6 +502,34 @@ mod tests {
         assert_eq!(f.pasted, ["We received the payment today."], "one paste");
         assert!(f.typed.is_empty(), "nothing typed key by key");
         assert_eq!(f.restored, 1, "the user's clipboard put back");
+    }
+
+    #[test]
+    fn in_outlook_and_word_a_one_step_job_goes_through_the_document_never_the_clipboard() {
+        let mut f = Fake::new(DOC, "payment");
+        f.word_doc = true;
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Applied);
+        assert_eq!(f.text(), "Hi Sam,
+We received the payment today.
+Best regards,
+Anthony");
+        // One Range.Text replacement over the checked selection: one undo step.
+        assert_eq!(f.replaced, [("We recieved the payment today.".to_string(), "We received the payment today.".to_string())]);
+        assert!(f.pasted.is_empty(), "the clipboard is never touched");
+        assert_eq!(f.restored, 0);
+        assert!(f.typed.is_empty(), "nothing typed");
+        // A one-word fix is still typed, never through the document.
+        let mut f = Fake::new(DOC, "payment");
+        f.word_doc = true;
+        assert_eq!(run(&mut f, &fix()), Outcome::Applied);
+        assert!(f.replaced.is_empty());
+        assert_eq!(f.typed, ["received"]);
+        // Not Outlook or Word (or the selection differs): pasted, as before.
+        let mut f = Fake::new(DOC, "payment");
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
+        assert!(f.replaced.is_empty());
+        assert_eq!(f.pasted.len(), 1);
     }
 
     #[test]

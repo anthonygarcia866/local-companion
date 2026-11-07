@@ -1790,6 +1790,12 @@ pub fn run() {
             if !selftest {
                 calendar::worker::start(&handle);
             }
+            // A paste Glim never finished (stopped between its paste and
+            // putting the user's clipboard back): its text never stays there.
+            #[cfg(windows)]
+            if !selftest && capture::fix::clear_stale_paste() {
+                log::line("clipboard: a paste Glim never finished was cleared");
+            }
             // The privacy shield's names from Outlook's address book: only an
             // Outlook that is already running, names in memory only.
             #[cfg(windows)]
