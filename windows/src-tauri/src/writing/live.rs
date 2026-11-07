@@ -246,9 +246,10 @@ impl Session {
             self.live.pending = None;
         }
         let c = self.current.as_ref()?;
-        // A key, token or password in the paragraph: never sent (live
-        // revisions read any app since 2026-11-07, chats with keys included).
-        if looks_like_secret(&c.text) {
+        // A key, token or password in the paragraph or the one before it (its
+        // context): never sent (live revisions read any app since 2026-11-07,
+        // chats with keys included).
+        if looks_like_secret(&c.text) || looks_like_secret(&c.before) {
             return None;
         }
         let paused_for = self.debounce.stable_for(now)?;

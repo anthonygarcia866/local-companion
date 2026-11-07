@@ -350,4 +350,14 @@ fn a_paragraph_with_a_key_token_or_password_never_goes_out() {
     see(&mut s, true, Some("Please use the key sk-ant-api03-abcdefghijklmnop now"), t0 + ms(100));
     see(&mut s, true, Some("Please use the key sk-ant-api03-abcdefghijklmnop now"), t0 + ms(1800));
     assert!(s.live_take(t0 + ms(1800), &cfg(), "Notepad.exe", false).is_none());
+    // A key in the paragraph before (sent as context) stops it too.
+    let mut s = Session::default();
+    let field = |p: &str| format!("Key: ghp_1234567890abcdefghij
+
+{p}");
+    let (a, b) = (field(FIRST), field(TYPED));
+    see(&mut s, false, Some(&a), t0);
+    see(&mut s, true, Some(&b), t0 + ms(100));
+    see(&mut s, true, Some(&b), t0 + ms(1800));
+    assert!(s.live_take(t0 + ms(1800), &cfg(), "Notepad.exe", false).is_none(), "the context holds a token");
 }
