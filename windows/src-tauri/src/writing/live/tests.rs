@@ -325,6 +325,22 @@ fn a_live_only_app_gets_live_revisions_but_no_checker_suggestions() {
 }
 
 #[test]
+fn why_not_names_a_short_or_secret_paragraph_only_after_the_pause() {
+    let t0 = Instant::now();
+    let mut s = Session::default();
+    see(&mut s, false, Some("Hi"), t0);
+    see(&mut s, true, Some("Hi there"), t0 + ms(100));
+    assert_eq!(s.live_why_not(t0 + ms(400), &cfg(), "Notepad.exe"), None, "still typing");
+    see(&mut s, true, Some("Hi there"), t0 + ms(1700));
+    assert_eq!(s.live_why_not(t0 + ms(1700), &cfg(), "Notepad.exe"), Some("too-short"));
+    let off = Config { on: false, ..cfg() };
+    assert_eq!(s.live_why_not(t0 + ms(1700), &off, "Notepad.exe"), Some("live-off"));
+    let (mut s, now) = typed(1500);
+    assert_eq!(s.live_why_not(now, &cfg(), "Notepad.exe"), None, "due: not a skip");
+    assert!(s.live_take(now, &cfg(), "Notepad.exe", false).is_some());
+}
+
+#[test]
 fn a_paragraph_with_a_key_token_or_password_never_goes_out() {
     for secret in [
         "Here is the key sk-ant-api03-abcdefghijklmnop for the test",

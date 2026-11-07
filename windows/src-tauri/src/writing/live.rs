@@ -273,6 +273,35 @@ impl Session {
         Some(LiveSource { id, paragraph, before, chat, paused_for })
     }
 
+    /// Why live revisions won't run on what is being read, for the status
+    /// counts (writing::live_stats): off, off in this app, withheld as
+    /// sensitive, or a paragraph the user edited and paused on that is under
+    /// MIN_WORDS words or looks like it holds a credential. None otherwise
+    /// (nothing edited, still typing, on its way: not skips).
+    pub fn live_why_not(&self, now: Instant, cfg: &Config, exe: &str) -> Option<&'static str> {
+        if !cfg.on {
+            return Some("live-off");
+        }
+        if !cfg.on_in(exe) {
+            return Some("live-off-in-app");
+        }
+        if self.withheld {
+            return Some("sensitive");
+        }
+        let c = self.current.as_ref()?;
+        let paused = self.debounce.key() == Some(c.key) && self.debounce.stable_for(now).is_some_and(|d| d >= cfg.pause);
+        if self.live.edited != Some(c.key) || !paused {
+            return None;
+        }
+        if c.text.split_whitespace().count() < MIN_WORDS {
+            return Some("too-short");
+        }
+        if looks_like_secret(&c.text) || looks_like_secret(&c.before) {
+            return Some("secret");
+        }
+        None
+    }
+
     /// The request `id` was held back before it left (ask first, consent.rs:
     /// the card is up): nothing on its way, and that version may still go
     /// out, so "Turn on" sends the paragraph the user paused on without more

@@ -993,6 +993,13 @@ fn live_page_ready(app: AppHandle) {
     let _ = app;
 }
 
+/// Settings → Writing → Live revisions status: the last revision shown and
+/// the last hour's counts (writing::live_stats; counts only, never text).
+#[tauri::command]
+fn live_status() -> writing::live_stats::Status {
+    writing::live_stats::status()
+}
+
 /// The live preview's "…" was clicked: its window is taller from the next
 /// reading on (live_window.rs).
 #[tauri::command]
@@ -1659,6 +1666,7 @@ pub fn run() {
             resume_open,
             bubble_popover,
             live_expand,
+            live_status,
             live_page_ready,
             bubble_rewrite,
             writing_rewrite_apply,

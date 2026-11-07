@@ -18,6 +18,7 @@ pub mod bubble;
 pub mod checker;
 pub mod docs_tip;
 pub mod live;
+pub mod live_stats;
 pub mod prefs;
 pub mod text;
 pub mod tones;

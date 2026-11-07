@@ -21,7 +21,12 @@ async function main() {
     acceptKeys: () => effective(accept, State.settings.shortcuts).keys,
   });
   document.getElementById("live-root")!.append(view.el);
-  await onEvent<LivePreviewEvent>("live-preview", (e) => view.on(e));
+  // Each revision drawn is answered (live_page_ready): Rust reloads or
+  // rebuilds a page that stops answering (live_window.rs, 2026-11-07).
+  await onEvent<LivePreviewEvent>("live-preview", (e) => {
+    view.on(e);
+    if (e.phase === "show") void Bridge.livePageReady();
+  });
   void Bridge.livePageReady();
   await onEvent<typeof State.settings>("settings-changed", (s) => { State.settings = { ...State.settings, ...s }; });
 }

@@ -150,7 +150,7 @@ fn first_watch(label: &str) -> bool {
     set.get_or_insert_with(HashSet::new).insert(label.to_string())
 }
 
-fn forget_watch(label: &str) {
+pub fn forget_watch(label: &str) {
     let mut set = WATCHED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(set) = set.as_mut() {
         set.remove(label);

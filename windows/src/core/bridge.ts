@@ -140,6 +140,7 @@ export const Bridge = {
   liveExpand: (open: boolean) => call<void>("live_expand", { open }),
   /** The live preview's page listens now: Rust sends the revision that came before it. */
   livePageReady: () => call<void>("live_page_ready"),
+  liveStatus: () => call<LiveStatus>("live_status"),
   /** Rewrite… in the mini lantern's popover: the same as Ctrl+Alt+Shift+R. */
   bubbleRewrite: () => call<void>("bubble_rewrite"),
   /** Apply all: every row of list `checkId`, each with its first replacement. */
@@ -393,6 +394,17 @@ export interface AiKeyStatus {
 }
 
 /** This month's Claude API spend, Glim's own estimate (ai/spend.rs). */
+/** Settings → Writing → Live revisions status (writing/live_stats.rs). */
+export interface LiveStatus {
+  /** "08:33", or "" when nothing was shown since Glim started. */
+  lastAt: string;
+  lastApp: string;
+  minutesAgo: number;
+  /** The last hour's skips: [reason code, count], most first. */
+  skipped: [string, number][];
+  results: [string, number][];
+}
+
 export interface AiSpend {
   month: string;
   usd: number;
