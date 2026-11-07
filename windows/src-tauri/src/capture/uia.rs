@@ -368,7 +368,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             },
                         };
                         let name = writer.rewrite_app();
-                        crate::log::line(format!("writing: rewrite {} ({name})", outcome.code()));
+                        crate::log::line(format!("writing: rewrite {} ({name}){}", outcome.code(), super::fix::one_step_note()));
                         if outcome == Outcome::Applied {
                             // The paragraph changed: checked again at once.
                             writer.rewrite_clear();
@@ -530,7 +530,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             },
                             Err(o) => o,
                         };
-                        crate::log::line(format!("live: accept {} ({app_name})", outcome.code()));
+                        crate::log::line(format!("live: accept {} ({app_name}){}", outcome.code(), super::fix::one_step_note()));
                         if outcome == Outcome::Applied {
                             // The paragraph changed: checked again at once.
                             writer.live_hide("applied");
