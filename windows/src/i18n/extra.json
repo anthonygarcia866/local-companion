@@ -7851,6 +7851,17 @@
    "ru": "По одному в строке: ваши имена и названия ваших компаний. Всегда скрываются в любом регистре и возвращаются точно так, как вы их написали. Добавьте сюда названия своих компаний. Подписи (от строки «--» или от прощания вроде «Best,» в конце) никогда не отправляются и не переписываются.",
    "id": "Satu per baris: nama Anda sendiri dan nama usaha Anda. Selalu disembunyikan, huruf besar atau kecil, dan dikembalikan persis seperti yang Anda tulis. Tambahkan nama usaha Anda di sini. Blok tanda tangan (dari baris \"--\", atau salam penutup seperti \"Best,\" di akhir) tidak pernah dikirim atau ditulis ulang."
   },
+  "Not shown: Claude's answer added something your paragraph doesn't say. Try again.": {
+   "zh-Hans": "未显示：Claude 的回答添加了你的段落里没有的内容。请重试。",
+   "hi": "नहीं दिखाया गया: Claude के जवाब में कुछ ऐसा जोड़ा गया जो आपके पैराग्राफ़ में नहीं है। फिर से कोशिश करें।",
+   "es": "No se muestra: la respuesta de Claude añadió algo que tu párrafo no dice. Inténtalo de nuevo.",
+   "ar": "لم يُعرض: أضافت إجابة Claude شيئًا لا تقوله فقرتك. حاول مرة أخرى.",
+   "fr": "Non affiché : la réponse de Claude a ajouté quelque chose que votre paragraphe ne dit pas. Réessayez.",
+   "bn": "দেখানো হয়নি: Claude-এর উত্তর এমন কিছু যোগ করেছে যা আপনার অনুচ্ছেদে নেই। আবার চেষ্টা করুন।",
+   "pt-BR": "Não exibido: a resposta do Claude acrescentou algo que seu parágrafo não diz. Tente de novo.",
+   "ru": "Не показано: ответ Claude добавил то, чего нет в вашем абзаце. Попробуйте ещё раз.",
+   "id": "Tidak ditampilkan: jawaban Claude menambahkan sesuatu yang tidak ada di paragraf Anda. Coba lagi."
+  },
   "Not shown: Claude's answer changed a number, amount, time or date. Try again.": {
    "zh-Hans": "未显示：Claude 的回答改动了数字、金额、时间或日期。请重试。",
    "hi": "नहीं दिखाया गया: Claude के जवाब ने कोई संख्या, राशि, समय या तारीख बदल दी। फिर से कोशिश करें।",
