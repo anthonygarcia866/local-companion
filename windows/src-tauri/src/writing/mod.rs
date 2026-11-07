@@ -371,6 +371,9 @@ struct Current {
     key: u64,
     mode: FixMode,
     app: String,
+    /// Read for live revisions only (an app the checker is off for): nothing
+    /// else (Rewrite, Check with AI, dictation's context) may use it.
+    live_only: bool,
 }
 
 /// A rewrite on its way or shown: the paragraph as it was sent (so applying
@@ -525,7 +528,7 @@ impl Session {
         };
         let before = crate::writing::text::paragraph_before(text, paragraph.start);
         let quoted = crate::writing::text::quoted_reply(text);
-        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, before, quoted, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string() });
+        self.current = Some(Current { text: paragraph.text.clone(), start: paragraph.start, before, quoted, key: key_of(&paragraph), mode: r.mode, app: r.app.to_string(), live_only: r.live_only });
         // The debouncer sees this version first, so a pause counts from its
         // last change (live revisions read it).
         self.live_note();
@@ -578,7 +581,7 @@ impl Session {
     /// cursor (the paragraph before and the caret's paragraph) and the
     /// message being replied to. None when no field is being read.
     pub fn dictation_context(&self) -> Option<(String, String)> {
-        let c = self.current.as_ref()?;
+        let c = self.current.as_ref().filter(|c| !c.live_only)?;
         let before = [c.before.as_str(), c.text.as_str()].iter().filter(|s| !s.trim().is_empty()).copied().collect::<Vec<_>>().join("\n\n");
         Some((before, c.quoted.clone()))
     }
@@ -708,7 +711,7 @@ impl Session {
     /// Blocked when the field was withheld as sensitive: nothing of it was read.
     pub fn rewrite_begin(&mut self, now: Instant) -> Result<RewriteSource, Outcome> {
         let none = if self.withheld { Outcome::Blocked } else { Outcome::Away };
-        let c = self.current.as_ref().ok_or(none)?;
+        let c = self.current.as_ref().filter(|c| !c.live_only).ok_or(none)?;
         if c.text.trim().is_empty() {
             return Err(Outcome::Away);
         }
@@ -776,7 +779,7 @@ impl Session {
     /// Blocked when the field was withheld as sensitive (nothing was read).
     pub fn ai_begin(&mut self, auto: bool) -> Result<RewriteSource, Outcome> {
         let none = if self.withheld { Outcome::Blocked } else { Outcome::Away };
-        let c = self.current.as_ref().ok_or(none)?;
+        let c = self.current.as_ref().filter(|c| !c.live_only).ok_or(none)?;
         if c.text.trim().is_empty() {
             return Err(Outcome::Away);
         }
@@ -847,7 +850,7 @@ impl Session {
     /// With "check automatically" on: the paragraph the caret is in has
     /// stayed the same for AI_AUTO_AFTER, and this version hasn't gone out.
     pub fn ai_auto_due(&self, now: Instant) -> bool {
-        let Some(c) = self.current.as_ref() else { return false };
+        let Some(c) = self.current.as_ref().filter(|c| !c.live_only) else { return false };
         !self.withheld
             && self.ai.is_none()
             && self.dismissed.is_none()

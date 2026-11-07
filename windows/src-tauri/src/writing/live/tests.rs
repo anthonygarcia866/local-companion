@@ -317,4 +317,37 @@ fn a_live_only_app_gets_live_revisions_but_no_checker_suggestions() {
     // Suggestions-only there: the accept key copies, never types.
     assert!(matches!(s.live_answer(src.id, "We received the payment and will deposit it tomorrow.", t0 + ms(2500)), Outcome::Shown(_)));
     assert!(matches!(s.live_job(), Err(crate::writing::Outcome::Blocked)));
+    // Nothing else may use a live-only paragraph.
+    assert!(s.dictation_context().is_none());
+    assert!(!s.ai_auto_due(t0 + ms(9000)));
+    assert!(matches!(s.rewrite_begin(t0 + ms(3000)), Err(crate::writing::Outcome::Away)));
+    assert!(matches!(s.ai_begin(false), Err(crate::writing::Outcome::Away)));
+}
+
+#[test]
+fn a_paragraph_with_a_key_token_or_password_never_goes_out() {
+    for secret in [
+        "Here is the key sk-ant-api03-abcdefghijklmnop for the test",
+        "use ghp_1234567890abcdefghij to push it",
+        "my password: Winter2026 please keep it",
+        "the token is a1b2c3d4e5f6g7h8i9j0k1l2 and that is all",
+        "-----BEGIN PRIVATE KEY----- something",
+    ] {
+        assert!(looks_like_secret(secret), "{secret}");
+    }
+    for fine in [
+        "We received the payment and will deposit it tomorrow.",
+        "The walkthrough is at 10:30 on 2026-11-09, unit 4B.",
+        "See https://example.com/docs/getting-started for the steps.",
+        "Internationalization and characteristically long words are fine.",
+    ] {
+        assert!(!looks_like_secret(fine), "{fine}");
+    }
+    // In the session: due by every other rule, still not taken.
+    let mut s = Session::default();
+    let t0 = Instant::now();
+    see(&mut s, false, Some("Please use the key sk-ant-api03-abcdefghij"), t0);
+    see(&mut s, true, Some("Please use the key sk-ant-api03-abcdefghijklmnop now"), t0 + ms(100));
+    see(&mut s, true, Some("Please use the key sk-ant-api03-abcdefghijklmnop now"), t0 + ms(1800));
+    assert!(s.live_take(t0 + ms(1800), &cfg(), "Notepad.exe", false).is_none());
 }

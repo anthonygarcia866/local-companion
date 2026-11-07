@@ -246,6 +246,11 @@ impl Session {
             self.live.pending = None;
         }
         let c = self.current.as_ref()?;
+        // A key, token or password in the paragraph: never sent (live
+        // revisions read any app since 2026-11-07, chats with keys included).
+        if looks_like_secret(&c.text) {
+            return None;
+        }
         let paused_for = self.debounce.stable_for(now)?;
         let due = self.live.edited == Some(c.key)
             && !self.live.sent.contains(&c.key)
@@ -432,6 +437,31 @@ pub fn prewarm() {
             let _ = crate::net::prewarm(&base).await;
         }
     });
+}
+
+/// A paragraph that seems to hold a credential: a PEM block, a known key or
+/// token prefix, a labelled password, or a long run of letters and digits
+/// (20+ characters, both kinds) that no word is. Checked before any live
+/// revision goes out; nothing is logged.
+pub fn looks_like_secret(text: &str) -> bool {
+    if text.contains("-----BEGIN") {
+        return true;
+    }
+    let lower = text.to_ascii_lowercase();
+    let labels = ["password:", "password=", "passwd", "pwd=", "passcode:", "api key:", "api_key", "secret=", "token="];
+    if labels.iter().any(|l| lower.contains(l)) {
+        return true;
+    }
+    text.split_whitespace().any(|raw| {
+        let t = raw.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c));
+        let prefixes = ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza", "eyJ"];
+        let prefixed = t.len() >= 16 && prefixes.iter().any(|p| t.starts_with(p));
+        let keyish = t.len() >= 20
+            && t.chars().all(|c| c.is_ascii_alphanumeric() || "-_+/=".contains(c))
+            && t.chars().any(|c| c.is_ascii_digit())
+            && t.chars().any(|c| c.is_ascii_alphabetic());
+        prefixed || keyish
+    })
 }
 
 /// Words and the spaces after them: "Hi  there," → ["Hi  ", "there,"].
