@@ -82,19 +82,49 @@ fn document(host: Host) -> Option<Disp> {
     }
 }
 
+/// Word's selection in `doc`: its ActiveWindow's, else its first window's.
+/// Outlook's message window hands out a WordEditor whose ActiveWindow is
+/// empty (probe on a test draft, 2026-11-07: every one-step job fell back to
+/// typing); Windows(1) is that same document's own window.
+fn selection(doc: &Disp) -> Option<Disp> {
+    doc.obj("ActiveWindow")
+        .and_then(|w| w.obj("Selection"))
+        .or_else(|_| doc.obj("Windows").and_then(|ws| ws.item(1)).and_then(|w| w.obj("Selection")))
+        .ok()
+}
+
+thread_local! {
+    /// Why the last replace_selection on this thread refused ("" = it wrote).
+    static REFUSED: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
+
+/// The code for the last replace_selection's refusal, "" when it wrote.
+pub fn last_refusal() -> &'static str {
+    REFUSED.with(std::cell::Cell::get)
+}
+
 /// Replaces Word's selection with `text` in one Range.Text assignment (one
 /// undo step), if the app is Outlook or Word and its selection holds exactly
 /// `expect` (but for the kind of quote marks). False, with nothing written,
-/// otherwise.
+/// otherwise (last_refusal says which step refused, as a code).
 pub fn replace_selection(exe: &str, expect: &str, text: &str) -> bool {
-    let Some(host) = host(exe) else { return false };
-    let Some(doc) = document(host) else { return false };
-    let Ok(range) = doc.obj("ActiveWindow").and_then(|w| w.obj("Selection")).and_then(|s| s.obj("Range")) else { return false };
+    let result = try_replace(exe, expect, text);
+    REFUSED.with(|r| r.set(result.err().unwrap_or("")));
+    result.is_ok()
+}
+
+fn try_replace(exe: &str, expect: &str, text: &str) -> Result<(), &'static str> {
+    let host = host(exe).ok_or("not-word")?;
+    let doc = document(host).ok_or("no-document")?;
+    let range = selection(&doc).ok_or("no-selection")?.obj("Range").map_err(|_| "no-range")?;
     // The selection read back through Word itself, right before the write.
-    if range.int("End") <= range.int("Start") || !crate::writing::apply::same(&range.text("Text"), expect) {
-        return false;
+    if range.int("End") <= range.int("Start") {
+        return Err("empty-selection");
     }
-    range.put("Text", VARIANT::from(word_text(text).as_str())).is_ok()
+    if !crate::writing::apply::same(&range.text("Text"), expect) {
+        return Err("selection-differs");
+    }
+    range.put("Text", VARIANT::from(word_text(text).as_str())).map_err(|_| "write-failed")
 }
 
 #[cfg(test)]
@@ -112,6 +142,25 @@ mod tests {
         }
     }
 
+    /// Outlook's message window: the WordEditor's ActiveWindow is empty, so
+    /// the selection comes from the document's first window instead.
+    #[test]
+    fn the_selection_falls_back_to_the_documents_own_window() {
+        let src = include_str!("word_om.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        let f = &code[code.find("fn selection(").unwrap()..code.find("thread_local!").unwrap()];
+        let active = f.find("obj(\"ActiveWindow\")").unwrap();
+        let first = f.find("ws.item(1)").unwrap();
+        assert!(active < first && f.contains(".or_else("));
+        assert!(code.contains("selection(&doc).ok_or(\"no-selection\")"));
+    }
+
+    #[test]
+    fn a_refusal_is_a_code_and_the_app_check_comes_first() {
+        assert!(!replace_selection("notepad.exe", "a", "b"));
+        assert_eq!(last_refusal(), "not-word");
+    }
+
     #[test]
     fn a_line_break_stays_inside_the_paragraph() {
         assert_eq!(word_text("one\ntwo"), "one\u{b}two");
@@ -125,7 +174,7 @@ mod tests {
     fn the_write_is_one_range_text_after_a_read_back() {
         let src = include_str!("word_om.rs");
         let code = src.split("#[cfg(test)]").next().unwrap();
-        let body = &code[code.find("pub fn replace_selection").unwrap()..];
+        let body = &code[code.find("fn try_replace").unwrap()..];
         let check = body.find("same(&range.text(\"Text\"), expect)").expect("read back");
         let write = body.find("range.put(\"Text\"").expect("one Range.Text");
         assert!(check < write);
