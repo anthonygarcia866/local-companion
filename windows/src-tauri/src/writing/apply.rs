@@ -70,6 +70,12 @@ pub const SETTLE_TRIES: usize = 50;
 /// Chrome sets it a moment later (Gmail, live test 2026-11-07: every accept
 /// was refused before anything was pasted).
 pub const SELECT_TRIES: usize = 20;
+/// After a paste, the read-back waits longer (about 4 s): Outlook's UI
+/// Automation text shows a paste later than its keys land (away-mode run 14,
+/// 2026-11-07: the paste wasn't seen within 1.5 s, so the paragraph was typed
+/// again on top). Only when the field still holds the paragraph untouched
+/// after that is it typed.
+pub const PASTE_SETTLE_TRIES: usize = 130;
 
 /// Where a paragraph was found: the range searched, and the paragraph's
 /// character index in that range's text.
@@ -250,7 +256,8 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
     let fixed: String = chars[..job.start].iter().collect::<String>() + &job.replacement + &chars[job.end..].iter().collect::<String>();
     let fixed_len = fixed.chars().count();
     let mut landed = None;
-    for _ in 0..SETTLE_TRIES {
+    let settle = if pasted { PASTE_SETTLE_TRIES } else { SETTLE_TRIES };
+    for _ in 0..settle {
         if let Some(found) = locate(f, &fixed, job.field_start) {
             if checked_sub(f, &found, 0, fixed_len, &fixed).is_some() {
                 landed = Some(found);
@@ -703,6 +710,17 @@ Anthony");
 
     /// Gmail in Chrome (2026-11-07): the selection reads back a moment after
     /// Select; it is waited for, and a selection that never comes refuses.
+    /// Run 14 (Outlook): a paste that reads back late is waited for, not
+    /// typed again on top.
+    #[test]
+    fn a_paste_that_reads_back_late_is_waited_for_not_retyped() {
+        assert!(PASTE_SETTLE_TRIES * 30 >= 3_500, "about 4 s at 30 ms a pause");
+        let src = include_str!("apply.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(code.contains("let settle = if pasted { PASTE_SETTLE_TRIES } else { SETTLE_TRIES };"));
+        assert!(code.contains("for _ in 0..settle {"));
+    }
+
     #[test]
     fn a_selection_that_reads_back_late_is_waited_for() {
         let mut f = Fake::new(DOC, "payment");
