@@ -116,8 +116,8 @@ pub fn replace_selection(exe: &str, expect: &str, text: &str) -> bool {
 fn try_replace(exe: &str, expect: &str, text: &str) -> Result<(), &'static str> {
     let host = host(exe).ok_or("not-word")?;
     // Outlook (2026-11-07, run 16 + harness probe): it ignores every
-    // simulated paste (SendInput Ctrl+V with or without scan codes, SendKeys,
-    // WM_PASTE) and its Ctrl+Z ignores object-model writes. The write here at
+    // simulated paste (injected Ctrl+V keys with or without scan codes, or a
+    // WM_PASTE message) and its Ctrl+Z ignores object-model writes. The write here at
     // least applies (one write, Undo via Word's own Undo command); the paste
     // (#96) applied nothing. One keyboard Ctrl+Z in Outlook is still open.
     let doc = document(host).ok_or("no-document")?;
