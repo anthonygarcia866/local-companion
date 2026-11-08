@@ -129,8 +129,22 @@ fn try_replace(exe: &str, expect: &str, text: &str) -> Result<(), &'static str> 
     if !crate::writing::apply::same(&range.text("Text"), expect) {
         return Err("selection-differs");
     }
-    range.put("Text", VARIANT::from(word_text(text).as_str())).map_err(|_| "write-failed")
+    // Outlook (owner, 2026-11-07): the write inside one named undo record
+    // ("Glim edit"), so Word's undo stack holds it as one step. Ended however
+    // the write goes. Verified by hand only: Outlook ignores injected Ctrl+Z.
+    let undo = if host == Host::Outlook { doc.obj("Application").and_then(|a| a.obj("UndoRecord")).ok() } else { None };
+    if let Some(u) = &undo {
+        let _ = u.call("StartCustomRecord", &[VARIANT::from(UNDO_NAME)]);
+    }
+    let written = range.put("Text", VARIANT::from(word_text(text).as_str()));
+    if let Some(u) = &undo {
+        let _ = u.call("EndCustomRecord", &[]);
+    }
+    written.map_err(|_| "write-failed")
 }
+
+/// The undo record's name in Outlook's Undo list.
+pub const UNDO_NAME: &str = "Glim edit";
 
 #[cfg(test)]
 mod tests {
@@ -168,6 +182,22 @@ mod tests {
         let code = include_str!("word_om.rs");
         let code = code.split("#[cfg(test)]").next().unwrap();
         assert!(!code.contains("return Err(\"outlook-uses-paste\")"));
+    }
+
+    /// Owner, 2026-11-07: in Outlook the write is wrapped in one named undo
+    /// record, started before it and ended after it (whatever it returns);
+    /// Word is unchanged.
+    #[test]
+    fn outlooks_write_is_one_named_undo_record() {
+        let src = include_str!("word_om.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        let body = &code[code.find("fn try_replace").unwrap()..];
+        let start = body.find("\"StartCustomRecord\"").unwrap();
+        let write = body.find("range.put(\"Text\"").unwrap();
+        let end = body.find("\"EndCustomRecord\"").unwrap();
+        assert!(start < write && write < end);
+        assert!(body.contains("if host == Host::Outlook { doc.obj(\"Application\").and_then(|a| a.obj(\"UndoRecord\")).ok() } else { None }"));
+        assert_eq!(UNDO_NAME, "Glim edit");
     }
 
     #[test]
