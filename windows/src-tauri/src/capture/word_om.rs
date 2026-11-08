@@ -115,14 +115,11 @@ pub fn replace_selection(exe: &str, expect: &str, text: &str) -> bool {
 
 fn try_replace(exe: &str, expect: &str, text: &str) -> Result<(), &'static str> {
     let host = host(exe).ok_or("not-word")?;
-    // Outlook: its compose box's Ctrl+Z doesn't see a write through the object
-    // model (away-mode probe 2026-11-07: plain Range.Text, an UndoRecord and
-    // typing through Word's selection alike, one or two presses, nothing came back), while
-    // one real paste is one Ctrl+Z there. So Outlook gets the paste; Word,
-    // whose Ctrl+Z does take the write back, keeps this path.
-    if host == Host::Outlook {
-        return Err("outlook-uses-paste");
-    }
+    // Outlook (2026-11-07, run 16 + harness probe): it ignores every
+    // simulated paste (SendInput Ctrl+V with or without scan codes, SendKeys,
+    // WM_PASTE) and its Ctrl+Z ignores object-model writes. The write here at
+    // least applies (one write, Undo via Word's own Undo command); the paste
+    // (#96) applied nothing. One keyboard Ctrl+Z in Outlook is still open.
     let doc = document(host).ok_or("no-document")?;
     let range = selection(&doc).ok_or("no-selection")?.obj("Range").map_err(|_| "no-range")?;
     // The selection read back through Word itself, right before the write.
@@ -167,9 +164,10 @@ mod tests {
     fn a_refusal_is_a_code_and_the_app_check_comes_first() {
         assert!(!replace_selection("notepad.exe", "a", "b"));
         assert_eq!(last_refusal(), "not-word");
-        // Outlook's Ctrl+Z ignores object-model writes: it gets the paste.
-        assert!(!replace_selection("OUTLOOK.EXE", "a", "b"));
-        assert_eq!(last_refusal(), "outlook-uses-paste");
+        // Outlook keeps this path: no simulated paste lands there.
+        let code = include_str!("word_om.rs");
+        let code = code.split("#[cfg(test)]").next().unwrap();
+        assert!(!code.contains("return Err(\"outlook-uses-paste\")"));
     }
 
     #[test]
