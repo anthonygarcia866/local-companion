@@ -50,6 +50,7 @@ export function noteText(code: string, app: string): string {
   switch (code) {
     case "changed": return t("Text changed: wait for a new suggestion");
     case "copied": return t("Copied: Glim doesn't type in {app} yet. Paste with Ctrl+V.", { app });
+    case "keys-held": return t("Release the keys to apply");
     default: return t("Couldn't apply it in {app}.", { app });
   }
 }

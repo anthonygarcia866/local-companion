@@ -62,6 +62,8 @@ test("notes after the accept key", () => {
   assert.equal(noteText("changed", "Word"), "Text changed: wait for a new suggestion");
   assert.equal(noteText("copied", "Teams"), "Copied: Glim doesn't type in Teams yet. Paste with Ctrl+V.");
   assert.equal(noteText("unconfirmed", "Word"), "Couldn't apply it in Word.");
+  // Keys still held 2 s after the accept hotkey (owner 2026-11-08).
+  assert.equal(noteText("keys-held", "Chrome"), "Release the keys to apply");
   const { v } = view();
   v.on({ phase: "note", id: 1, ops: [], app: "Word", why: "changed" });
   assert.ok(!v.el.classList.contains("is-hidden"));
