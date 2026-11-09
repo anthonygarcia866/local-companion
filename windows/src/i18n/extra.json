@@ -166,6 +166,17 @@
    "ru": "Не удалось применить в {app}.",
    "id": "Tidak dapat diterapkan di {app}."
   },
+  "Release the keys to apply": {
+   "zh-Hans": "松开按键即可应用",
+   "hi": "लागू करने के लिए कुंजियाँ छोड़ें",
+   "es": "Suelta las teclas para aplicarlo",
+   "ar": "حرّر المفاتيح لتطبيقه",
+   "fr": "Relâchez les touches pour appliquer",
+   "bn": "প্রয়োগ করতে কীগুলো ছেড়ে দিন",
+   "pt-BR": "Solte as teclas para aplicar",
+   "ru": "Отпустите клавиши, чтобы применить",
+   "id": "Lepaskan tombol untuk menerapkan"
+  },
   "{keys} to apply": {
    "zh-Hans": "按 {keys} 应用",
    "hi": "लागू करने के लिए {keys}",

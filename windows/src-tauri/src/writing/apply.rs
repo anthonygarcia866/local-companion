@@ -34,8 +34,10 @@ pub trait Field {
     fn select(&mut self, r: &Self::Range) -> bool;
     /// The app's selection's text, when there is exactly one.
     fn selection(&mut self) -> Option<String>;
-    /// Step 6: no key or mouse button held (waits a little for a release).
-    fn keys_ready(&mut self) -> Result<(), Outcome>;
+    /// Step 6: Ctrl, Alt, Shift, Win or a mouse button is down right now.
+    fn keys_down(&mut self) -> bool;
+    /// The wait between two looks at the keys (`KEYS_POLL_MS`).
+    fn key_pause(&mut self);
     /// Step 7: types `text` over the selection in one go; an empty `text` is
     /// one Backspace. False if Windows didn't take the input.
     fn type_over(&mut self, text: &str) -> bool;
@@ -76,6 +78,30 @@ pub const SELECT_TRIES: usize = 20;
 /// again on top). Only when the field still holds the paragraph untouched
 /// after that is it typed.
 pub const PASTE_SETTLE_TRIES: usize = 130;
+
+/// How often held keys are looked at, in ms.
+pub const KEYS_POLL_MS: u64 = 15;
+/// How many looks before a held key refuses (about 2 s). The accept hotkey
+/// fires while its own Ctrl+Alt+Shift are still down: a real hand lets go
+/// a few hundred ms later (owner 2026-11-08, 19:44 + 19:45: every real accept
+/// in Outlook and Chrome refused "keys-held" after the old 500 ms wait;
+/// injected keys release at once, so the harness never saw it).
+pub const KEYS_TRIES: usize = 2000 / KEYS_POLL_MS as usize;
+
+/// Waits for every modifier and mouse button to be released, before Glim
+/// sends keys (a held Ctrl, Alt or Shift would turn them into shortcuts).
+/// Ok(true): it had to wait, so whatever was checked before is checked again.
+fn keys_released<F: Field>(f: &mut F) -> Result<bool, Outcome> {
+    for tries in 0..=KEYS_TRIES {
+        if !f.keys_down() {
+            return Ok(tries > 0);
+        }
+        if tries < KEYS_TRIES {
+            f.key_pause();
+        }
+    }
+    Err(Outcome::KeysHeld)
+}
 
 /// Where a paragraph was found: the range searched, and the paragraph's
 /// character index in that range's text.
@@ -204,9 +230,14 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         (Some(c), Some(p)) if c >= p && c <= p + len => Some(c - p),
         _ => None,
     };
-    // 6 (first look): nothing held, before anything is selected.
-    if let Err(o) = f.keys_ready() {
-        return o;
+    // 6 (first look, a job typed key by key only): nothing held, before
+    // anything is selected. A one-step job may go in through Word's object
+    // model, which sends no keys: held keys don't matter there.
+    let one_step = job.one_step && !job.replacement.is_empty();
+    if !one_step {
+        if let Err(o) = keys_released(f) {
+            return o;
+        }
     }
     // 5. Select it, and read the app's selection back.
     let undo_select = |f: &mut F| {
@@ -232,17 +263,46 @@ pub fn run<F: Field>(f: &mut F, job: &Job) -> Outcome {
         undo_select(f);
         return Outcome::Unsupported;
     }
-    // 6. Last checks, immediately before typing.
-    if let Err(o) = f.gate().and_then(|_| f.keys_ready()) {
+    // 6. Last checks, immediately before writing.
+    if let Err(o) = f.gate() {
         undo_select(f);
         return o;
     }
     // 7. Put it in. A one-step job (one Ctrl+Z takes it back): in Outlook
-    // and Word through Word's object model, elsewhere as one paste (the
-    // user's clipboard saved whole and put back); anything else typed.
-    let one_step = job.one_step && !job.replacement.is_empty();
+    // and Word through Word's object model (no keys sent, so never a wait
+    // for held keys), elsewhere as one paste (the user's clipboard saved
+    // whole and put back); anything else typed.
     let in_document = one_step && f.replace_in_document(&problem, &job.replacement);
-    let pasted = one_step && !in_document && f.paste_over(&job.replacement);
+    let mut pasted = false;
+    if !in_document {
+        // Keys go out from here (a paste's Ctrl+V, or the text typed): wait
+        // for the user's keys to be released first.
+        match keys_released(f) {
+            Err(o) => {
+                if one_step {
+                    set_path("refused (keys-held)");
+                }
+                undo_select(f);
+                return o;
+            }
+            // It waited (up to 2 s): the field and the text checked again.
+            Ok(true) => {
+                if let Err(o) = f.gate() {
+                    undo_select(f);
+                    return o;
+                }
+                if !f.selection().is_some_and(|t| same(&t, &problem)) {
+                    if one_step {
+                        set_path("refused (changed-while-held)");
+                    }
+                    undo_select(f);
+                    return Outcome::Changed;
+                }
+            }
+            Ok(false) => {}
+        }
+        pasted = one_step && f.paste_over(&job.replacement);
+    }
     if one_step {
         set_path(if in_document { "word-om" } else if pasted { "paste" } else { "typed" });
     }
@@ -303,7 +363,7 @@ pub fn insert<F: Field>(f: &mut F, text: &str) -> Outcome {
         return o;
     }
     let before = f.document().and_then(|d| f.text(&d));
-    if let Err(o) = f.keys_ready().and_then(|_| f.gate()) {
+    if let Err(o) = keys_released(f).and_then(|_| f.gate()) {
         return o;
     }
     if !f.type_over(text) {
@@ -361,7 +421,12 @@ mod tests {
         /// Pauses before the selection reads back (Chrome).
         selection_lag: usize,
         gate: Vec<Result<(), Outcome>>,
-        keys: Result<(), Outcome>,
+        /// How many looks at the keys find one still held (usize::MAX: never let go).
+        keys_held_for: usize,
+        key_looks: usize,
+        key_pauses: usize,
+        /// The user edits the paragraph while still holding the keys.
+        edit_while_held: bool,
         /// What actually lands when typing (None: what was asked).
         lands: Option<String>,
         /// Keys still on their way: (start, end, text, pauses left). Until
@@ -396,7 +461,10 @@ mod tests {
                 select_works: true,
                 selection_lag: 0,
                 gate: Vec::new(),
-                keys: Ok(()),
+                keys_held_for: 0,
+                key_looks: 0,
+                key_pauses: 0,
+                edit_while_held: false,
                 lands: None,
                 typing_fails: false,
                 typed: Vec::new(),
@@ -462,8 +530,17 @@ mod tests {
             }
             self.sel.map(|(s, e)| self.doc[s..e].iter().collect())
         }
-        fn keys_ready(&mut self) -> Result<(), Outcome> {
-            self.keys
+        fn keys_down(&mut self) -> bool {
+            self.key_looks += 1;
+            self.key_looks <= self.keys_held_for
+        }
+        fn key_pause(&mut self) {
+            self.key_pauses += 1;
+            if self.edit_while_held && self.key_pauses == 1 {
+                // A word typed inside the paragraph: the selection is gone.
+                self.sel = None;
+                self.doc.splice(8..8, "So ".chars());
+            }
         }
         fn type_over(&mut self, text: &str) -> bool {
             if self.typing_fails {
@@ -746,10 +823,82 @@ Anthony");
     #[test]
     fn a_held_key_refuses_before_anything_is_selected() {
         let mut f = Fake::new(DOC, "payment");
-        f.keys = Err(Outcome::KeysHeld);
+        f.keys_held_for = usize::MAX;
         assert_eq!(run(&mut f, &fix()), Outcome::KeysHeld);
         assert!(f.typed.is_empty());
         assert_eq!(f.selects, 0);
+    }
+
+    /// Owner 2026-11-08 (19:44 Outlook, 19:45 Chrome): the accept hotkey
+    /// fires while its own Ctrl+Alt+Shift are still down. The paste waits
+    /// for them to be released, then goes in.
+    #[test]
+    fn held_modifiers_are_waited_for_then_the_accept_goes_in() {
+        // ~300 ms held (20 looks at 15 ms), then released.
+        let mut f = Fake::new(DOC, "payment");
+        f.keys_held_for = 20;
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Applied);
+        assert_eq!(last_path(), "paste");
+        assert_eq!(f.key_pauses, 20, "waited only as long as the keys were down");
+        assert_eq!(f.pasted, ["We received the payment today."]);
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        // A one-word fix typed key by key waits too.
+        let mut f = Fake::new(DOC, "payment");
+        f.keys_held_for = 20;
+        assert_eq!(run(&mut f, &fix()), Outcome::Applied);
+        assert_eq!(f.typed, ["received"]);
+    }
+
+    #[test]
+    fn keys_still_held_after_2_s_refuse_and_put_nothing_in() {
+        assert!((1_900..=2_100).contains(&(KEYS_TRIES as u64 * KEYS_POLL_MS)), "about 2 s");
+        assert_eq!(KEYS_POLL_MS, 15);
+        let mut f = Fake::new(DOC, "payment");
+        let caret = f.caret;
+        f.keys_held_for = usize::MAX;
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::KeysHeld);
+        assert_eq!(last_path(), "refused (keys-held)");
+        assert_eq!(f.key_pauses, KEYS_TRIES, "gave up after the wait, not before");
+        assert!(f.pasted.is_empty() && f.typed.is_empty(), "nothing put in");
+        assert_eq!(f.text(), DOC);
+        assert_eq!(f.caret, caret, "the selection was undone");
+    }
+
+    #[test]
+    fn outlook_and_word_never_wait_for_held_keys() {
+        let mut f = Fake::new(DOC, "payment");
+        f.word_doc = true;
+        f.keys_held_for = usize::MAX;
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Applied);
+        assert_eq!(last_path(), "word-om");
+        assert_eq!(f.key_looks, 0, "the keys were never even looked at");
+        assert_eq!(f.key_pauses, 0);
+        assert!(f.pasted.is_empty() && f.typed.is_empty());
+    }
+
+    #[test]
+    fn text_changed_while_the_keys_were_held_refuses() {
+        let mut f = Fake::new(DOC, "payment");
+        f.keys_held_for = 20;
+        f.edit_while_held = true;
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Changed);
+        assert_eq!(last_path(), "refused (changed-while-held)");
+        assert!(f.pasted.is_empty() && f.typed.is_empty(), "nothing put in");
+        // The field going away during the wait refuses too.
+        let mut f = Fake::new(DOC, "payment");
+        f.keys_held_for = 20;
+        f.gate = vec![Ok(()), Ok(()), Err(Outcome::Away)];
+        let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
+        assert_eq!(o, Outcome::Away);
+        assert!(f.pasted.is_empty() && f.typed.is_empty());
+        // No wait, no extra checks: two gates, as before.
+        let mut f = Fake::new(DOC, "payment");
+        f.gate = vec![Ok(()), Ok(()), Err(Outcome::Away)];
+        assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
     }
 
     #[test]
@@ -913,7 +1062,7 @@ Anthony");
             assert!(f.typed.is_empty());
         }
         let mut f = Fake::new(DOC, "payment ");
-        f.keys = Err(Outcome::KeysHeld);
+        f.keys_held_for = usize::MAX;
         assert_eq!(insert(&mut f, "hello"), Outcome::KeysHeld);
         assert!(f.typed.is_empty());
         let mut f = Fake::new(DOC, "payment ");

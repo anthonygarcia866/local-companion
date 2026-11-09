@@ -565,6 +565,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             let why = match outcome {
                                 Outcome::Changed => "changed",
                                 Outcome::Copied => "copied",
+                                Outcome::KeysHeld => "keys-held",
                                 _ => "failed",
                             };
                             let note = LiveEvent { phase: "note", id, app: app_name, why, ..Default::default() };

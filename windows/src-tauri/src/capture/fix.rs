@@ -5,7 +5,7 @@
 //
 // Privacy: nothing here logs, stores or sends the field's text.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL};
@@ -33,9 +33,6 @@ use super::uia::{edit_signals, field_labels, foreground_pid, offset_of, page_url
 use super::{is_editable, MAX_FIELD_CHARS};
 use crate::writing::apply::Field;
 use crate::writing::Outcome;
-
-/// How long a held key or mouse button is waited for before the fix is refused.
-const KEYS_WAIT: Duration = Duration::from_millis(500);
 
 /// The field a fix came from: the element focused when it was checked, and
 /// its process.
@@ -191,17 +188,12 @@ impl Field for UiaField<'_> {
         }
     }
 
-    fn keys_ready(&mut self) -> Result<(), Outcome> {
-        let until = Instant::now() + KEYS_WAIT;
-        loop {
-            if !keys_held() {
-                return Ok(());
-            }
-            if Instant::now() >= until {
-                return Err(Outcome::KeysHeld);
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
+    fn keys_down(&mut self) -> bool {
+        keys_held()
+    }
+
+    fn key_pause(&mut self) {
+        std::thread::sleep(Duration::from_millis(crate::writing::apply::KEYS_POLL_MS));
     }
 
     fn type_over(&mut self, text: &str) -> bool {
