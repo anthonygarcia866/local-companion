@@ -372,6 +372,13 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         };
                         let name = writer.rewrite_app();
                         crate::log::line(format!("writing: rewrite {} ({name}){}", outcome.code(), super::fix::one_step_note()));
+                        // Written but not read back clean: if the field does
+                        // hold Glim's text, it is still not the user's edit.
+                        if outcome == Outcome::NotClean {
+                            if let Some(t) = &rewrite_text {
+                                writer.live_mark_ours(t);
+                            }
+                        }
                         if outcome == Outcome::Applied {
                             // The paragraph changed: checked again at once
                             // (Glim's own text: not sent as a live revision).
@@ -555,6 +562,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             Err(o) => o,
                         };
                         crate::log::line(format!("live: accept {} ({app_name}){}", outcome.code(), super::fix::one_step_note()));
+                        // Written but not read back clean: if the field does
+                        // hold the revision, it is still not the user's edit.
+                        if outcome == Outcome::NotClean {
+                            writer.live_mark_ours(revised.as_deref().unwrap_or_default());
+                        }
                         if outcome == Outcome::Applied {
                             // The paragraph changed: checked again at once
                             // (Glim's own text: not sent again).
