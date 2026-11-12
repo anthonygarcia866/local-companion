@@ -512,6 +512,69 @@ pub fn preview_rect(paragraph: Option<Rect>, line: Option<Rect>, field: Option<R
     Some(Rect::new(left, top, left + w, top + h))
 }
 
+/// Where the preview's place came from (owner, 2026-11-11: logged in the
+/// 5-minute counts line): the caret's paragraph or line, the editable
+/// field's own rectangle (an app that gives no caret bounds, e.g. claude.ai),
+/// or the island.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+    Caret,
+    Field,
+    Island,
+}
+
+impl Placement {
+    pub fn code(self) -> &'static str {
+        match self {
+            Placement::Caret => "caret",
+            Placement::Field => "field",
+            Placement::Island => "island",
+        }
+    }
+}
+
+/// Where the preview goes when the app gives no caret or paragraph bounds
+/// but the editable element has a rectangle (owner, 2026-11-11, claude.ai):
+/// just above the field, else just below it, left-aligned with it, and
+/// clamped into its monitor's work area when neither fits. None with no
+/// usable rectangle or no monitor under it.
+pub fn field_rect(field: Option<Rect>, monitors: &[Monitor], expanded: bool) -> Option<Rect> {
+    let f = field.filter(|f| f.width() > 0 && f.height() > 0)?;
+    let (cx, cy) = (f.left + f.width() / 2, f.top + f.height() / 2);
+    let m = monitors
+        .iter()
+        .find(|m| cx >= m.work.left && cx < m.work.right && cy >= m.work.top && cy < m.work.bottom)
+        .or_else(|| monitors.iter().find(|m| f.left >= m.work.left && f.left < m.work.right && f.top >= m.work.top && f.top < m.work.bottom))?;
+    let px = |v: f64| (v * m.scale).round() as i32;
+    let (w, h, gap) = (px(PREVIEW_W), px(if expanded { PREVIEW_H_OPEN } else { PREVIEW_H }), px(PREVIEW_GAP));
+    let left = f.left.min(m.work.right - w).max(m.work.left);
+    let above = f.top - gap - h;
+    let below = f.bottom + gap;
+    let top = if above >= m.work.top {
+        above
+    } else if below + h <= m.work.bottom {
+        below
+    } else {
+        f.top.min(m.work.bottom - h).max(m.work.top)
+    };
+    Some(Rect::new(left, top, left + w, top + h))
+}
+
+/// The preview's place and where it came from: above the caret's paragraph
+/// or line (`preview_rect`); with no caret geometry at all, by the field's
+/// rectangle (`field_rect`); None: the caller falls back to the island.
+/// A caret with no room above still goes to the island, as before.
+pub fn preview_place(paragraph: Option<Rect>, line: Option<Rect>, field: Option<Rect>, monitors: &[Monitor], expanded: bool) -> Option<(Rect, Placement)> {
+    if let Some(r) = preview_rect(paragraph, line, field, monitors, expanded) {
+        return Some((r, Placement::Caret));
+    }
+    let caret = paragraph.filter(|r| r.height() > 0).or(line.filter(|r| r.height() > 0));
+    if caret.is_some() {
+        return None;
+    }
+    field_rect(field, monitors, expanded).map(|r| (r, Placement::Field))
+}
+
 /// The fallback: centred under the island's top edge (its window's
 /// rectangle), inside the work area of the monitor it is on.
 pub fn island_rect(island: Rect, monitors: &[Monitor], expanded: bool) -> Option<Rect> {
