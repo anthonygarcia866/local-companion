@@ -36,10 +36,13 @@ pub const MAX_PAUSE_MS: u64 = 3000;
 /// A request older than this is given up (its answer, if it comes, is stale)
 /// so the next pause can go out.
 pub const GIVE_UP: Duration = Duration::from_secs(12);
-/// How many paragraph versions are remembered as already checked.
-const REMEMBERED: usize = 64;
-/// How many paragraphs Glim put in are remembered as its own.
-const APPLIED_KEPT: usize = 16;
+/// How many paragraph versions are remembered as already checked (all
+/// fields together).
+const REMEMBERED: usize = 256;
+/// How many paragraphs Glim put in are remembered as its own (all fields).
+const APPLIED_KEPT: usize = 64;
+/// A version sent this long ago may be revised again (owner, 2026-11-11).
+pub const SENT_FOR: Duration = Duration::from_secs(30 * 60);
 
 /// Settings → Writing → Live revisions.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,8 +88,10 @@ pub fn config() -> Config {
 #[derive(Default)]
 pub(super) struct LiveState {
     pending: Option<Pending>,
-    /// Paragraph versions already sent (newest last).
-    sent: VecDeque<u64>,
+    /// Paragraph versions already sent, per field (newest last; owner,
+    /// 2026-11-11): kept while the user is elsewhere and comes back, gone
+    /// after SENT_FOR or once the field's window closes.
+    sent: VecDeque<Sent>,
     /// The paragraph last seen: where it starts and which version it was.
     seen: Option<(usize, u64)>,
     /// The version the user's typing made (edited in place), if the current
@@ -102,15 +107,31 @@ pub(super) struct LiveState {
     /// spacing still counts, and kept until the field changes: one odd
     /// reading in between (2026-11-11) no longer makes it the user's edit.
     applied: VecDeque<Applied>,
-    /// Which field this is: a new one on every field change.
+    /// Which field this is: capture's id for it (`live_field`: its window
+    /// and its UI Automation runtime id), else a new number on every field
+    /// change (no id given).
     field: u64,
+    /// The window of `field` (0: unknown), to forget it once it closes.
+    window: isize,
+    /// Capture gave this reading's field id (`live_field`).
+    ids: bool,
 }
 
 /// A paragraph Glim put in: the field it went into and its text's hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Applied {
     field: u64,
+    window: isize,
     hash: u64,
+}
+
+/// A paragraph version that went out: its field, when, and its key.
+#[derive(Clone, Copy, Debug)]
+struct Sent {
+    field: u64,
+    window: isize,
+    key: u64,
+    at: Instant,
 }
 
 /// A paragraph's text as a hash, whitespace runs folded to one space and
@@ -126,8 +147,13 @@ pub fn text_hash(text: &str) -> u64 {
 
 /// Whether `text` is a paragraph Glim put into this field.
 fn is_ours(live: &LiveState, text: &str) -> bool {
-    let a = Applied { field: live.field, hash: text_hash(text) };
-    live.applied.contains(&a)
+    let hash = text_hash(text);
+    live.applied.iter().any(|a| a.field == live.field && a.hash == hash)
+}
+
+/// Whether version `key` already went out in this field within SENT_FOR.
+fn already_sent(live: &LiveState, key: u64, now: Instant) -> bool {
+    live.sent.iter().any(|s| s.field == live.field && s.key == key && now.saturating_duration_since(s.at) < SENT_FOR)
 }
 
 struct Pending {
@@ -256,7 +282,7 @@ impl Session {
     /// wasn't read back clean): if the field holds it, it isn't the user's
     /// edit either. What is shown stays (its note says what happened).
     pub fn live_mark_ours(&mut self, text: &str) {
-        let a = Applied { field: self.live.field, hash: text_hash(text) };
+        let a = Applied { field: self.live.field, window: self.live.window, hash: text_hash(text) };
         if !self.live.applied.contains(&a) {
             if self.live.applied.len() == APPLIED_KEPT {
                 self.live.applied.pop_front();
@@ -268,10 +294,48 @@ impl Session {
     /// Another field (owner, 2026-11-07): the versions already sent are
     /// forgotten, so the same paragraph written in a new email is revised
     /// too. Within one field each version still goes once.
+    /// Since 2026-11-11 the memory is per field instead: what was sent in a
+    /// field stays with it (`live_field`), so coming back to it doesn't send
+    /// the same version again, and another field starts with none. Without
+    /// field ids every field change is a new field.
     pub(super) fn live_new_field(&mut self) {
-        self.live.sent.clear();
-        self.live.applied.clear();
-        self.live.field = self.live.field.wrapping_add(1);
+        if !self.live.ids {
+            self.live.field = self.live.field.wrapping_add(1);
+            self.live.window = 0;
+        }
+    }
+
+    /// Capture, before each reading: which field is read (`id`: a hash of
+    /// its window and its UI Automation runtime id; 0 = unknown) and its
+    /// window.
+    /// An unknown id falls back to the old rule for that reading: the field
+    /// is the one in use until focus moves (`live_new_field`).
+    pub fn live_field(&mut self, id: u64, window: isize) {
+        self.live.ids = id != 0;
+        if id != 0 {
+            self.live.field = id;
+            self.live.window = window;
+        }
+    }
+
+    /// What was sent or put in in windows that have closed is forgotten
+    /// (`alive` asks Windows; a 0 window is never asked), and what was
+    /// sent over SENT_FOR ago.
+    pub fn live_forget(&mut self, now: Instant, alive: impl Fn(isize) -> bool) {
+        let mut checked: Vec<(isize, bool)> = Vec::new();
+        let mut open = |w: isize| -> bool {
+            if w == 0 {
+                return true;
+            }
+            if let Some((_, a)) = checked.iter().find(|(x, _)| *x == w) {
+                return *a;
+            }
+            let a = alive(w);
+            checked.push((w, a));
+            a
+        };
+        self.live.sent.retain(|s| now.saturating_duration_since(s.at) < SENT_FOR && open(s.window));
+        self.live.applied.retain(|a| open(a.window));
     }
 
     /// The field changed, or nothing may be read: everything live goes.
@@ -320,7 +384,7 @@ impl Session {
         }
         let paused_for = self.debounce.stable_for(now)?;
         let due = self.live.edited == Some(c.key)
-            && !self.live.sent.contains(&c.key)
+            && !already_sent(&self.live, c.key, now)
             && !is_ours(&self.live, &c.text)
             && self.live.shown.as_ref().is_none_or(|s| s.key != c.key)
             && c.text.split_whitespace().count() >= MIN_WORDS
@@ -333,7 +397,7 @@ impl Session {
         if self.live.sent.len() == REMEMBERED {
             self.live.sent.pop_front();
         }
-        self.live.sent.push_back(key);
+        self.live.sent.push_back(Sent { field: self.live.field, window: self.live.window, key, at: now });
         self.next_id += 1;
         let id = self.next_id;
         self.live.pending = Some(Pending { id, key, sent_at: now });
@@ -375,7 +439,8 @@ impl Session {
     /// typing (away-mode live test 2026-11-05: it was used up by the card).
     pub fn live_held(&mut self, id: u64) {
         if let Some(p) = self.live.pending.take_if(|p| p.id == id) {
-            self.live.sent.retain(|k| *k != p.key);
+            let field = self.live.field;
+            self.live.sent.retain(|s| !(s.key == p.key && s.field == field));
         }
     }
 

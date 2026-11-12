@@ -736,6 +736,14 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             sensitive: capture.meta.sensitive && (checker_on || live_app),
             live_only: live_app,
         };
+        // Live revisions remember what was sent per field (owner, 2026-11-11):
+        // which field this is, and what belongs to closed windows or is old
+        // is forgotten.
+        {
+            let (field_id, window) = field_identity(&element);
+            writer.live_field(field_id, window);
+            writer.live_forget(std::time::Instant::now(), window_alive);
+        }
         writer.observe_in(&r, std::time::Instant::now(), send_list);
         // Never silent (owner, 2026-11-07): why live revisions don't run in
         // this field, counted once per stay (live_stats; codes only).
@@ -1028,6 +1036,42 @@ fn rects(
         all_rects(&p).into_iter().map(|(x, y, w, h)| Rect::new(x, y, x + w, y + h)).reduce(|a, b| Rect::new(a.left.min(b.left), a.top.min(b.top), a.right.max(b.right), a.bottom.max(b.bottom)))
     });
     (field, caret, line, para)
+}
+
+/// Which field `element` is, for live revisions' memory: a hash of the
+/// foreground window and the element's UI Automation runtime id, and that
+/// window. (0, _) when the runtime id can't be read. Nothing about the
+/// field's text goes in.
+fn field_identity(element: &IUIAutomationElement) -> (u64, isize) {
+    use std::hash::{Hash, Hasher};
+    use windows::Win32::System::Ole::{SafeArrayAccessData, SafeArrayDestroy, SafeArrayGetUBound, SafeArrayUnaccessData};
+    let window = unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() }.0 as isize;
+    let mut runtime: Vec<i32> = Vec::new();
+    unsafe {
+        if let Ok(sa) = element.GetRuntimeId() {
+            if !sa.is_null() {
+                let n = (SafeArrayGetUBound(sa, 1).unwrap_or(-1) + 1).max(0) as usize;
+                let mut data: *mut core::ffi::c_void = std::ptr::null_mut();
+                if n > 0 && SafeArrayAccessData(sa, &mut data).is_ok() && !data.is_null() {
+                    runtime.extend_from_slice(std::slice::from_raw_parts(data as *const i32, n));
+                    let _ = SafeArrayUnaccessData(sa);
+                }
+                let _ = SafeArrayDestroy(sa);
+            }
+        }
+    }
+    if runtime.is_empty() {
+        return (0, window);
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    window.hash(&mut h);
+    runtime.hash(&mut h);
+    (h.finish().max(1), window)
+}
+
+/// Whether a window still exists (live revisions forget closed fields).
+fn window_alive(window: isize) -> bool {
+    unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(HWND(window as *mut _))) }.as_bool()
 }
 
 /// All of a range's bounding rectangles: (left, top, width, height), rounded
