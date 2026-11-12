@@ -543,3 +543,43 @@ fn glims_paragraph_stays_its_own_when_coming_back_to_its_field() {
     s.live_forget(now + ms(3100), |w| w != 11);
     assert!(s.live.applied.is_empty(), "its window closed");
 }
+
+/// Owner, 2026-11-11 (claude.ai): no caret bounds, so the preview goes by
+/// the editable element's rectangle: above it, else below it, clamped to the
+/// monitor; the island only when there is neither.
+#[test]
+fn with_no_caret_bounds_the_preview_goes_by_the_field() {
+    use crate::writing::bubble::{Monitor, Rect};
+    let monitors = [Monitor { work: Rect::new(0, 0, 1920, 1040), scale: 1.0 }, Monitor { work: Rect::new(1920, 0, 3840, 1040), scale: 1.5 }];
+    // A chat box near the bottom: just above it, left with it, 6 px gap.
+    let chat = Some(Rect::new(400, 800, 1400, 900));
+    assert_eq!(preview_place(None, None, chat, &monitors, false), Some((Rect::new(400, 702, 840, 794), Placement::Field)));
+    // No room above: just below it.
+    let top = Some(Rect::new(400, 20, 1400, 120));
+    assert_eq!(field_rect(top, &monitors, false), Some(Rect::new(400, 126, 840, 218)));
+    // Room neither above nor below: clamped into the work area.
+    let full = Some(Rect::new(0, 0, 1920, 1040));
+    assert_eq!(field_rect(full, &monitors, false), Some(Rect::new(0, 0, 440, 92)));
+    // Kept inside the work area on the right.
+    assert_eq!(field_rect(Some(Rect::new(1700, 500, 1900, 560)), &monitors, false).unwrap().left, 1480);
+    // At the second monitor's scale.
+    assert_eq!(field_rect(Some(Rect::new(2000, 600, 3000, 700)), &monitors, false), Some(Rect::new(2000, 453, 2660, 591)));
+    // Expanded is taller, still ending above the field.
+    assert_eq!(field_rect(chat, &monitors, true).unwrap().bottom, 794);
+    // No usable rectangle: no place (the island).
+    assert_eq!(preview_place(None, None, None, &monitors, false), None);
+    assert_eq!(preview_place(None, None, Some(Rect::new(400, 800, 400, 900)), &monitors, false), None);
+}
+
+/// The caret's geometry still wins, and a caret with no room above still
+/// goes to the island (the field rule is only for apps with no caret bounds).
+#[test]
+fn the_caret_still_wins_and_keeps_its_island_fallback() {
+    use crate::writing::bubble::{Monitor, Rect};
+    let monitors = [Monitor { work: Rect::new(0, 0, 1920, 1040), scale: 1.0 }];
+    let field = Some(Rect::new(100, 200, 900, 700));
+    let para = Some(Rect::new(110, 400, 880, 460));
+    assert_eq!(preview_place(para, None, field, &monitors, false), Some((Rect::new(110, 302, 550, 394), Placement::Caret)));
+    assert_eq!(preview_place(Some(Rect::new(110, 40, 880, 80)), None, field, &monitors, false), None);
+    assert_eq!((Placement::Caret.code(), Placement::Field.code(), Placement::Island.code()), ("caret", "field", "island"));
+}

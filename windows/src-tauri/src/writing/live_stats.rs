@@ -27,6 +27,8 @@ enum Kind {
     Skip,
     /// A request went out, or what became of it.
     Result,
+    /// Where a shown revision's preview was placed (caret | field | island).
+    Placed,
 }
 
 #[derive(Default)]
@@ -80,6 +82,11 @@ impl Stats {
         self.push(at, Kind::Result, what);
     }
 
+    /// A shown revision's preview went by `how` ("caret", "field", "island").
+    pub fn placed(&mut self, at: Instant, how: &str) {
+        self.push(at, Kind::Placed, how);
+    }
+
     /// A revision was shown, at clock time `clock` ("08:33"), in `app`.
     pub fn shown(&mut self, at: Instant, clock: &str, app: &str) {
         self.result(at, "shown");
@@ -110,13 +117,18 @@ impl Stats {
     pub fn log_line(&self, now: Instant, within: Duration) -> String {
         let join = |v: Vec<(String, u32)>| v.iter().map(|(w, n)| format!("{w} {n}")).collect::<Vec<_>>().join(", ");
         let (results, skipped) = (self.counts(now, within, Kind::Result), self.counts(now, within, Kind::Skip));
+        let placed = self.counts(now, within, Kind::Placed);
         let mins = within.as_secs() / 60;
-        match (results.is_empty(), skipped.is_empty()) {
+        let mut line = match (results.is_empty(), skipped.is_empty()) {
             (true, true) => format!("live: last {mins} min: nothing"),
             (false, true) => format!("live: last {mins} min: {}", join(results)),
             (true, false) => format!("live: last {mins} min: skipped: {}", join(skipped)),
             (false, false) => format!("live: last {mins} min: {}; skipped: {}", join(results), join(skipped)),
+        };
+        if !placed.is_empty() {
+            line.push_str(&format!("; placed: {}", join(placed)));
         }
+        line
     }
 }
 
@@ -183,6 +195,22 @@ mod tests {
         st.skip(t0, "password");
         assert_eq!(st.log_line(t0 + s(1), LOG_EVERY), "live: last 5 min: sent 1, unchanged 1; skipped: password 1, too-short 1");
         assert_eq!(st.log_line(t0 + s(400), LOG_EVERY), "live: last 5 min: nothing");
+    }
+
+    #[test]
+    fn the_log_line_names_where_previews_were_placed() {
+        let t0 = Instant::now();
+        let mut st = Stats::default();
+        st.result(t0, "sent");
+        st.shown(t0, "08:33", "Claude");
+        st.placed(t0, "field");
+        st.result(t0, "sent");
+        st.shown(t0, "08:34", "Outlook");
+        st.placed(t0, "caret");
+        st.placed(t0, "field");
+        assert_eq!(st.log_line(t0 + s(1), LOG_EVERY), "live: last 5 min: sent 2, shown 2; placed: field 2, caret 1");
+        // Settings' status doesn't list placements.
+        assert_eq!(st.status(t0 + s(1)).results, vec![("sent".to_string(), 2), ("shown".to_string(), 2)]);
     }
 
     #[test]

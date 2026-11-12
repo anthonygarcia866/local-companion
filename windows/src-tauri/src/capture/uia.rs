@@ -535,7 +535,12 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                         if let Some(crate::writing::live::Outcome::Shown(event)) = &outcome {
                             crate::ai::budget::note_live(elapsed.as_millis() as u64, reply.usage.as_ref().map_or(0, |u| u.cost_nanos));
                             send_live(event);
-                            crate::live_window::apply(app, event, live_place(&live_rects));
+                            let r = &live_rects;
+                            let placed = crate::live_window::place_from(app, r.0, r.1, r.2, &crate::bubble_window::monitors(app));
+                            if let Some((_, how)) = placed {
+                                crate::writing::live_stats::with(|s| s.placed(std::time::Instant::now(), how.code()));
+                            }
+                            crate::live_window::apply(app, event, placed.map(|(at, _)| at));
                         }
                     }
                     Request::LiveDismiss => writer.live_hide("dismissed"),

@@ -77,14 +77,20 @@ pub fn expanded() -> bool {
     EXPANDED.load(Ordering::SeqCst)
 }
 
-/// Where the preview goes now: above the paragraph, else under the island.
+/// Where the preview goes now: above the paragraph, else by the field's
+/// rectangle (no caret geometry), else under the island.
 pub fn place(app: &AppHandle, paragraph: Option<Rect>, line: Option<Rect>, field: Option<Rect>, monitors: &[Monitor]) -> Option<Rect> {
+    place_from(app, paragraph, line, field, monitors).map(|(r, _)| r)
+}
+
+/// `place`, with where the place came from (caret | field | island).
+pub fn place_from(app: &AppHandle, paragraph: Option<Rect>, line: Option<Rect>, field: Option<Rect>, monitors: &[Monitor]) -> Option<(Rect, live::Placement)> {
     let open = expanded();
-    live::preview_rect(paragraph, line, field, monitors, open).or_else(|| {
+    live::preview_place(paragraph, line, field, monitors, open).or_else(|| {
         let island = app.get_webview_window(crate::island::WINDOW_LABEL)?;
         let (pos, size) = (island.outer_position().ok()?, island.outer_size().ok()?);
         let r = Rect::new(pos.x, pos.y, pos.x + size.width as i32, pos.y + size.height as i32);
-        live::island_rect(r, monitors, open)
+        live::island_rect(r, monitors, open).map(|r| (r, live::Placement::Island))
     })
 }
 
