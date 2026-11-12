@@ -409,3 +409,61 @@ fn a_paragraph_already_sent_goes_again_in_another_field() {
     see(&mut s, true, Some(TYPED), now + ms(4700));
     assert!(s.live_take(now + ms(4700), &cfg(), "Notepad.exe", false).is_some(), "sent again in the new field");
 }
+
+const FIXED: &str = "We received the payment and will deposit it tomorrow.";
+
+/// Owner, 2026-11-11: after an accept, one reading caught mid-write (or a
+/// read-back that only differs in spacing) must not turn Glim's own text
+/// into the user's edit, so it is not sent again.
+#[test]
+fn glims_paragraph_stays_its_own_through_an_odd_reading_and_spacing() {
+    let (mut s, now) = typed(1500);
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, now + ms(500)), Outcome::Shown(_)));
+    s.live_applied(FIXED);
+    see(&mut s, true, Some(FIXED), now + ms(700));
+    see(&mut s, true, Some("We received the payment"), now + ms(900));
+    let spaced = "We received the payment and will  deposit it tomorrow.\u{a0}";
+    see(&mut s, true, Some(spaced), now + ms(1100));
+    see(&mut s, true, Some(spaced), now + ms(2800));
+    assert!(s.live_take(now + ms(2800), &cfg(), "Notepad.exe", false).is_none(), "still Glim's own text");
+    let more = "We received the payment and will deposit it tomorrow morning.";
+    see(&mut s, true, Some(more), now + ms(2900));
+    see(&mut s, true, Some(more), now + ms(4500));
+    assert!(s.live_take(now + ms(4500), &cfg(), "Notepad.exe", false).is_some(), "the user's edit goes");
+}
+
+/// Glim's text is its own only in the field it went into: the same sentence
+/// written by the user in another field is the user's.
+#[test]
+fn glims_paragraph_is_its_own_only_in_the_field_it_went_into() {
+    let (mut s, now) = typed(1500);
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, now + ms(500)), Outcome::Shown(_)));
+    s.live_applied(FIXED);
+    see(&mut s, false, Some(FIRST), now + ms(3000));
+    see(&mut s, true, Some(FIXED), now + ms(3100));
+    see(&mut s, true, Some(FIXED), now + ms(4700));
+    assert!(s.live_take(now + ms(4700), &cfg(), "Notepad.exe", false).is_some(), "the user's text in another field");
+}
+
+/// An accept that wasn't read back clean: the text is marked as Glim's
+/// (not sent again if it is there) and the preview stays for its note.
+#[test]
+fn a_write_not_read_back_clean_is_marked_but_keeps_the_preview() {
+    let (mut s, now) = typed(1500);
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, now + ms(500)), Outcome::Shown(_)));
+    s.live_mark_ours(FIXED);
+    assert!(s.live_shown().is_some(), "the preview stays for the note");
+    see(&mut s, true, Some(FIXED), now + ms(700));
+    see(&mut s, true, Some(FIXED), now + ms(2400));
+    assert!(s.live_take(now + ms(2400), &cfg(), "Notepad.exe", false).is_none(), "Glim's own text");
+}
+
+#[test]
+fn text_hash_folds_spacing_only() {
+    assert_eq!(text_hash("a  b\u{a0}c "), text_hash(" a b c"));
+    assert_eq!(text_hash("a\r\nb"), text_hash("a b"));
+    assert_ne!(text_hash("a b c"), text_hash("a b d"));
+}

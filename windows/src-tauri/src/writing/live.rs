@@ -38,6 +38,8 @@ pub const MAX_PAUSE_MS: u64 = 3000;
 pub const GIVE_UP: Duration = Duration::from_secs(12);
 /// How many paragraph versions are remembered as already checked.
 const REMEMBERED: usize = 64;
+/// How many paragraphs Glim put in are remembered as its own.
+const APPLIED_KEPT: usize = 16;
 
 /// Settings → Writing → Live revisions.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,11 +95,39 @@ pub(super) struct LiveState {
     shown: Option<Shown>,
     /// A shown revision went away: the island is told once.
     hidden: Option<(u64, &'static str)>,
-    /// The paragraph as Glim itself just put it in (an accepted revision or a
-    /// rewrite's Use this): not the user's edit, so not sent again (owner,
-    /// 2026-11-07: one wasted request per accept). Kept until the paragraph
-    /// reads differently.
-    applied: Option<String>,
+    /// The paragraphs Glim itself put in (an accepted revision or a
+    /// rewrite's Use this), per field: not the user's edit, so not sent again
+    /// (owner, 2026-11-07: one wasted request per accept). Matched by
+    /// `text_hash` (whitespace folded), so a read-back that only differs in
+    /// spacing still counts, and kept until the field changes: one odd
+    /// reading in between (2026-11-11) no longer makes it the user's edit.
+    applied: VecDeque<Applied>,
+    /// Which field this is: a new one on every field change.
+    field: u64,
+}
+
+/// A paragraph Glim put in: the field it went into and its text's hash.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Applied {
+    field: u64,
+    hash: u64,
+}
+
+/// A paragraph's text as a hash, whitespace runs folded to one space and
+/// trimmed (an app's read-back may differ in spacing or no-break spaces).
+pub fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for w in text.split_whitespace() {
+        w.hash(&mut h);
+    }
+    h.finish()
+}
+
+/// Whether `text` is a paragraph Glim put into this field.
+fn is_ours(live: &LiveState, text: &str) -> bool {
+    let a = Applied { field: live.field, hash: text_hash(text) };
+    live.applied.contains(&a)
 }
 
 struct Pending {
@@ -201,10 +231,7 @@ impl Session {
             return;
         };
         let (start, key) = (c.start, c.key);
-        let ours = self.live.applied.as_deref().is_some_and(|a| a.trim() == c.text.trim());
-        if !ours {
-            self.live.applied = None;
-        }
+        let ours = is_ours(&self.live, &c.text);
         match self.live.seen {
             Some((s, k)) if s == start && k != key && !ours => self.live.edited = Some(key),
             Some((s, k)) if s == start && k != key => self.live.edited = None,
@@ -221,8 +248,21 @@ impl Session {
     /// Glim put `text` in as the paragraph (accepted, or Use this): its next
     /// reading is not an edit of the user's.
     pub fn live_applied(&mut self, text: &str) {
-        self.live.applied = Some(text.to_string());
+        self.live_mark_ours(text);
         self.live_hide("applied");
+    }
+
+    /// `text` may be in the field as Glim put it (an accept or Use this that
+    /// wasn't read back clean): if the field holds it, it isn't the user's
+    /// edit either. What is shown stays (its note says what happened).
+    pub fn live_mark_ours(&mut self, text: &str) {
+        let a = Applied { field: self.live.field, hash: text_hash(text) };
+        if !self.live.applied.contains(&a) {
+            if self.live.applied.len() == APPLIED_KEPT {
+                self.live.applied.pop_front();
+            }
+            self.live.applied.push_back(a);
+        }
     }
 
     /// Another field (owner, 2026-11-07): the versions already sent are
@@ -230,7 +270,8 @@ impl Session {
     /// too. Within one field each version still goes once.
     pub(super) fn live_new_field(&mut self) {
         self.live.sent.clear();
-        self.live.applied = None;
+        self.live.applied.clear();
+        self.live.field = self.live.field.wrapping_add(1);
     }
 
     /// The field changed, or nothing may be read: everything live goes.
@@ -280,6 +321,7 @@ impl Session {
         let paused_for = self.debounce.stable_for(now)?;
         let due = self.live.edited == Some(c.key)
             && !self.live.sent.contains(&c.key)
+            && !is_ours(&self.live, &c.text)
             && self.live.shown.as_ref().is_none_or(|s| s.key != c.key)
             && c.text.split_whitespace().count() >= MIN_WORDS
             && self.debounce.key() == Some(c.key)
