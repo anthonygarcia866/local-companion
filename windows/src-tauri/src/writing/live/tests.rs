@@ -467,3 +467,79 @@ fn text_hash_folds_spacing_only() {
     assert_eq!(text_hash("a\r\nb"), text_hash("a b"));
     assert_ne!(text_hash("a b c"), text_hash("a b d"));
 }
+
+/// A reading in field `field` (capture's id; its window is the same number here).
+fn see_in(s: &mut Session, field: u64, same: bool, text: Option<&str>, at: Instant) {
+    s.live_field(field, field as isize);
+    see(s, same, text, at);
+}
+
+/// Field A typed into and paused on: that version goes out (then fails, so
+/// nothing is on its way).
+fn sent_in(s: &mut Session, field: u64, t0: Instant) {
+    see_in(s, field, false, Some(FIRST), t0);
+    see_in(s, field, true, Some(TYPED), t0 + ms(100));
+    see_in(s, field, true, Some(TYPED), t0 + ms(1700));
+    let src = s.live_take(t0 + ms(1700), &cfg(), "Notepad.exe", false).expect("due");
+    s.live_failed(src.id);
+}
+
+/// Owner, 2026-11-11: what was sent stays with its field (coming back to it
+/// after another one doesn't send the same version again) for 30 minutes.
+#[test]
+fn what_was_sent_stays_with_its_field_for_thirty_minutes() {
+    let t0 = Instant::now();
+    let mut s = Session::default();
+    sent_in(&mut s, 11, t0);
+    see_in(&mut s, 22, false, Some("Something else entirely in this other field."), t0 + ms(2000));
+    // Back in A: a letter typed and deleted, the same version again.
+    let typo = "We recieved the payment and will deposit it tomorow..";
+    see_in(&mut s, 11, false, Some(TYPED), t0 + ms(3000));
+    see_in(&mut s, 11, true, Some(typo), t0 + ms(3100));
+    see_in(&mut s, 11, true, Some(TYPED), t0 + ms(3200));
+    see_in(&mut s, 11, true, Some(TYPED), t0 + ms(4800));
+    assert!(s.live_take(t0 + ms(4800), &cfg(), "Notepad.exe", false).is_none(), "already sent in this field");
+    let later = t0 + SENT_FOR + ms(5000);
+    see_in(&mut s, 11, true, Some(typo), later);
+    see_in(&mut s, 11, true, Some(TYPED), later + ms(100));
+    see_in(&mut s, 11, true, Some(TYPED), later + ms(1700));
+    assert!(s.live_take(later + ms(1700), &cfg(), "Notepad.exe", false).is_some(), "30 minutes on, it may go again");
+}
+
+/// The same paragraph in another field goes; a field whose window closed is
+/// forgotten.
+#[test]
+fn another_field_has_its_own_memory_and_a_closed_window_is_forgotten() {
+    let t0 = Instant::now();
+    let mut s = Session::default();
+    sent_in(&mut s, 11, t0);
+    sent_in(&mut s, 22, t0 + ms(3000));
+    s.live_forget(t0 + ms(6000), |w| w != 11);
+    sent_in(&mut s, 11, t0 + ms(6000));
+    s.live_forget(t0 + ms(9000), |_| true);
+    see_in(&mut s, 22, false, Some(FIRST), t0 + ms(9000));
+    see_in(&mut s, 22, true, Some(TYPED), t0 + ms(9100));
+    see_in(&mut s, 22, true, Some(TYPED), t0 + ms(10700));
+    assert!(s.live_take(t0 + ms(10700), &cfg(), "Notepad.exe", false).is_none(), "field 22 is still open: already sent");
+}
+
+/// Glim's own paragraph stays its own per field too: away and back, still
+/// not sent; the window closed, forgotten.
+#[test]
+fn glims_paragraph_stays_its_own_when_coming_back_to_its_field() {
+    let (mut s, now) = typed(1500);
+    s.live_field(11, 11);
+    let src = s.live_take(now, &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, now + ms(500)), Outcome::Shown(_)));
+    s.live_applied(FIXED);
+    see_in(&mut s, 11, true, Some(FIXED), now + ms(700));
+    see_in(&mut s, 22, false, Some("Something else entirely in this other field."), now + ms(900));
+    see_in(&mut s, 11, false, Some(FIXED), now + ms(1200));
+    let typo = "We received the payment and will deposit it tomorrow..";
+    see_in(&mut s, 11, true, Some(typo), now + ms(1300));
+    see_in(&mut s, 11, true, Some(FIXED), now + ms(1400));
+    see_in(&mut s, 11, true, Some(FIXED), now + ms(3000));
+    assert!(s.live_take(now + ms(3000), &cfg(), "Notepad.exe", false).is_none(), "Glim's own text in its field");
+    s.live_forget(now + ms(3100), |w| w != 11);
+    assert!(s.live.applied.is_empty(), "its window closed");
+}
