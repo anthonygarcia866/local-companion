@@ -179,6 +179,11 @@ export const Bridge = {
   phoneTest: () => callOrThrow<void>("phone_test"),
   /** Ms since the last keyboard or mouse input on this PC, or null. */
   phoneIdleMs: () => call<number>("phone_idle_ms"),
+  /** Settings → Secrets: names and saved dates, never a value. */
+  secretsList: () => call<SecretInfo[]>("secrets_list"),
+  /** Adds or replaces a secret; the value goes to Rust once and never comes back. */
+  secretsSave: (name: string, value: string) => callOrThrow<SecretInfo>("secrets_save", { name, value }),
+  secretsDelete: (name: string) => callOrThrow<null>("secrets_delete", { name }),
   phoneKeysStatus: () => call<PhoneKeysStatus>("phone_keys_status"),
   phoneKeysSave: (user: string, token: string) => callOrThrow<PhoneKeysStatus>("phone_keys_save", { user, token }),
   phoneKeysRemove: () => callOrThrow<PhoneKeysStatus>("phone_keys_remove"),
@@ -382,6 +387,13 @@ export interface DroppedFile {
 }
 
 /** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+/** A saved secret as Settings sees it: never its value. */
+export interface SecretInfo {
+  name: string;
+  /** Milliseconds since 1970. */
+  savedMs: number;
+}
+
 export interface PhoneKeysStatus {
   set: boolean;
   userHint: string;

@@ -805,6 +805,16 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 3. **A detail kept:** if a polished version ever drops a number, name or date, the card says "The polished version left out a detail you said, so the clean version was typed."
 4. **Levels:** Settings → Writing → Dictation → Dictation style: Clean (as before), Verbatim (typed as heard, no card, glim.log `voice: verbatim (no AI)`); set Teams alone to Verbatim under "Style in each app".
 
+## 44. Secrets (local agency v1, part 1)
+
+*Where: a build with it; Settings open; glim.log open; Control Panel → Credential Manager → Windows Credentials.*
+
+1. **Add:** Settings → Secrets → Add a secret: name `EXAMPLE_TOKEN`, paste any made-up value, Save. **See:** the value field empties at once; the list shows `EXAMPLE_TOKEN · saved <today's date and time>` and never the value. Credential Manager → Generic Credentials shows `Glim/EXAMPLE_TOKEN`.
+2. **Never shown again:** close and reopen Settings. **See:** the name and date only; no field holds the value. glim.log has `secrets: saved EXAMPLE_TOKEN` and nothing of the value (search it for a piece of the value).
+3. **Replace:** Replace → the name is locked; paste another value, Save. **See:** the date changes.
+4. **Delete asks:** Delete → "Delete EXAMPLE_TOKEN? …" with Delete / Cancel. Cancel keeps it; Delete removes it (gone from Credential Manager too).
+5. **Refused:** a name with a space, or `AnthropicApiKey`. **See:** a short reason, nothing saved; the AI key in Settings → AI is untouched.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.
