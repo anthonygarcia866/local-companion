@@ -8081,6 +8081,248 @@
    "pt-BR": "Ativar",
    "ru": "Включить",
    "id": "Nyalakan"
+  },
+  "Secrets": {
+   "zh-Hans": "密钥",
+   "hi": "सीक्रेट",
+   "es": "Secretos",
+   "ar": "الأسرار",
+   "fr": "Secrets",
+   "bn": "সিক্রেট",
+   "pt-BR": "Segredos",
+   "ru": "Секреты",
+   "id": "Rahasia"
+  },
+  "saved {date}": {
+   "zh-Hans": "保存于 {date}",
+   "hi": "{date} को सहेजा गया",
+   "es": "guardado el {date}",
+   "ar": "حُفظ في {date}",
+   "fr": "enregistré le {date}",
+   "bn": "{date} তারিখে সংরক্ষিত",
+   "pt-BR": "salvo em {date}",
+   "ru": "сохранено {date}",
+   "id": "disimpan {date}"
+  },
+  "Kept in Windows Credential Manager on this PC only. Glim never shows a secret again, never logs it and never sends it to the AI or anywhere else: a runbook you approved writes it into the file you chose.": {
+   "zh-Hans": "仅保存在这台电脑的 Windows 凭据管理器中。Glim 不会再次显示密钥，不会记录它，也不会把它发送给 AI 或任何地方：只有你批准的运行手册会把它写入你选择的文件。",
+   "hi": "सिर्फ़ इसी PC के Windows Credential Manager में रखा जाता है। Glim सीक्रेट को दोबारा कभी नहीं दिखाता, उसे लॉग नहीं करता और AI या कहीं और नहीं भेजता: आपकी मंज़ूर की हुई रनबुक उसे आपकी चुनी फ़ाइल में लिखती है।",
+   "es": "Se guarda solo en el Administrador de credenciales de Windows de este PC. Glim nunca vuelve a mostrar un secreto, nunca lo registra y nunca lo envía a la IA ni a ningún otro sitio: un runbook que aprobaste lo escribe en el archivo que elegiste.",
+   "ar": "يُحفظ في مدير بيانات الاعتماد في Windows على هذا الجهاز فقط. لا يعرض Glim السرّ مرة أخرى أبدًا، ولا يسجّله، ولا يرسله إلى الذكاء الاصطناعي أو إلى أي مكان آخر: دليل تشغيل وافقت عليه يكتبه في الملف الذي اخترته.",
+   "fr": "Conservé uniquement dans le Gestionnaire d'identification Windows de ce PC. Glim ne réaffiche jamais un secret, ne le journalise jamais et ne l'envoie jamais à l'IA ni ailleurs : un runbook que vous avez approuvé l'écrit dans le fichier que vous avez choisi.",
+   "bn": "শুধু এই PC-র Windows Credential Manager-এ রাখা হয়। Glim কখনো সিক্রেট আবার দেখায় না, লগ করে না এবং AI বা অন্য কোথাও পাঠায় না: আপনার অনুমোদিত রানবুক এটি আপনার বেছে নেওয়া ফাইলে লেখে।",
+   "pt-BR": "Guardado só no Gerenciador de Credenciais do Windows deste PC. O Glim nunca mostra um segredo de novo, nunca o registra e nunca o envia para a IA nem para nenhum outro lugar: um runbook que você aprovou o grava no arquivo que você escolheu.",
+   "ru": "Хранится только в диспетчере учётных данных Windows на этом ПК. Glim больше никогда не показывает секрет, не пишет его в журнал и не отправляет ни ИИ, ни куда-либо ещё: одобренный вами сценарий записывает его в выбранный вами файл.",
+   "id": "Disimpan hanya di Credential Manager Windows di PC ini. Glim tidak pernah menampilkan rahasia lagi, tidak pernah mencatatnya, dan tidak pernah mengirimnya ke AI atau ke mana pun: runbook yang kamu setujui menuliskannya ke file yang kamu pilih."
+  },
+  "Saved secrets": {
+   "zh-Hans": "已保存的密钥",
+   "hi": "सहेजे गए सीक्रेट",
+   "es": "Secretos guardados",
+   "ar": "الأسرار المحفوظة",
+   "fr": "Secrets enregistrés",
+   "bn": "সংরক্ষিত সিক্রেট",
+   "pt-BR": "Segredos salvos",
+   "ru": "Сохранённые секреты",
+   "id": "Rahasia tersimpan"
+  },
+  "No secrets yet.": {
+   "zh-Hans": "还没有密钥。",
+   "hi": "अभी कोई सीक्रेट नहीं।",
+   "es": "Aún no hay secretos.",
+   "ar": "لا توجد أسرار بعد.",
+   "fr": "Aucun secret pour l'instant.",
+   "bn": "এখনো কোনো সিক্রেট নেই।",
+   "pt-BR": "Nenhum segredo ainda.",
+   "ru": "Секретов пока нет.",
+   "id": "Belum ada rahasia."
+  },
+  "Delete": {
+   "zh-Hans": "删除",
+   "hi": "हटाएँ",
+   "es": "Eliminar",
+   "ar": "حذف",
+   "fr": "Supprimer",
+   "bn": "মুছুন",
+   "pt-BR": "Excluir",
+   "ru": "Удалить",
+   "id": "Hapus"
+  },
+  "Delete {name}? Runbooks that use it will stop at that step.": {
+   "zh-Hans": "删除 {name}？使用它的运行手册会在那一步停止。",
+   "hi": "{name} हटाएँ? जो रनबुक इसका इस्तेमाल करती हैं वे उस चरण पर रुक जाएँगी।",
+   "es": "¿Eliminar {name}? Los runbooks que lo usan se detendrán en ese paso.",
+   "ar": "حذف {name}؟ ستتوقف أدلة التشغيل التي تستخدمه عند تلك الخطوة.",
+   "fr": "Supprimer {name} ? Les runbooks qui l'utilisent s'arrêteront à cette étape.",
+   "bn": "{name} মুছবেন? যে রানবুকগুলো এটি ব্যবহার করে সেগুলো ওই ধাপে থেমে যাবে।",
+   "pt-BR": "Excluir {name}? Os runbooks que o usam vão parar nessa etapa.",
+   "ru": "Удалить {name}? Сценарии, которые его используют, остановятся на этом шаге.",
+   "id": "Hapus {name}? Runbook yang memakainya akan berhenti di langkah itu."
+  },
+  "Replace": {
+   "zh-Hans": "替换",
+   "hi": "बदलें",
+   "es": "Reemplazar",
+   "ar": "استبدال",
+   "fr": "Remplacer",
+   "bn": "বদলান",
+   "pt-BR": "Substituir",
+   "ru": "Заменить",
+   "id": "Ganti"
+  },
+  "Replace {name}": {
+   "zh-Hans": "替换 {name}",
+   "hi": "{name} बदलें",
+   "es": "Reemplazar {name}",
+   "ar": "استبدال {name}",
+   "fr": "Remplacer {name}",
+   "bn": "{name} বদলান",
+   "pt-BR": "Substituir {name}",
+   "ru": "Заменить {name}",
+   "id": "Ganti {name}"
+  },
+  "Add a secret": {
+   "zh-Hans": "添加密钥",
+   "hi": "सीक्रेट जोड़ें",
+   "es": "Añadir un secreto",
+   "ar": "إضافة سرّ",
+   "fr": "Ajouter un secret",
+   "bn": "একটি সিক্রেট যোগ করুন",
+   "pt-BR": "Adicionar um segredo",
+   "ru": "Добавить секрет",
+   "id": "Tambah rahasia"
+  },
+  "Name, like EXAMPLE_TOKEN": {
+   "zh-Hans": "名称，例如 EXAMPLE_TOKEN",
+   "hi": "नाम, जैसे EXAMPLE_TOKEN",
+   "es": "Nombre, como EXAMPLE_TOKEN",
+   "ar": "الاسم، مثل EXAMPLE_TOKEN",
+   "fr": "Nom, par exemple EXAMPLE_TOKEN",
+   "bn": "নাম, যেমন EXAMPLE_TOKEN",
+   "pt-BR": "Nome, como EXAMPLE_TOKEN",
+   "ru": "Имя, например EXAMPLE_TOKEN",
+   "id": "Nama, misalnya EXAMPLE_TOKEN"
+  },
+  "Secret": {
+   "zh-Hans": "密钥",
+   "hi": "सीक्रेट",
+   "es": "Secreto",
+   "ar": "السرّ",
+   "fr": "Secret",
+   "bn": "সিক্রেট",
+   "pt-BR": "Segredo",
+   "ru": "Секрет",
+   "id": "Rahasia"
+  },
+  "Give the secret a name first.": {
+   "zh-Hans": "请先给密钥起个名字。",
+   "hi": "पहले सीक्रेट को एक नाम दें।",
+   "es": "Primero dale un nombre al secreto.",
+   "ar": "أعطِ السرّ اسمًا أولًا.",
+   "fr": "Donnez d'abord un nom au secret.",
+   "bn": "আগে সিক্রেটটির একটি নাম দিন।",
+   "pt-BR": "Dê um nome ao segredo primeiro.",
+   "ru": "Сначала дайте секрету имя.",
+   "id": "Beri nama rahasia itu dulu."
+  },
+  "A name can use letters, digits, - _ and . (up to 64), starting with a letter or digit.": {
+   "zh-Hans": "名称可使用字母、数字、- _ 和 .（最多 64 个），并以字母或数字开头。",
+   "hi": "नाम में अक्षर, अंक, - _ और . (64 तक) हो सकते हैं, और यह किसी अक्षर या अंक से शुरू होना चाहिए।",
+   "es": "Un nombre puede usar letras, dígitos, - _ y . (hasta 64), y empezar por una letra o un dígito.",
+   "ar": "يمكن أن يحتوي الاسم على أحرف وأرقام و - _ و . (حتى 64)، ويبدأ بحرف أو رقم.",
+   "fr": "Un nom peut contenir des lettres, des chiffres, - _ et . (64 au plus), et commence par une lettre ou un chiffre.",
+   "bn": "নামে অক্ষর, সংখ্যা, - _ এবং . (৬৪টি পর্যন্ত) থাকতে পারে, আর এটি অক্ষর বা সংখ্যা দিয়ে শুরু হবে।",
+   "pt-BR": "Um nome pode usar letras, dígitos, - _ e . (até 64), começando com uma letra ou dígito.",
+   "ru": "Имя может содержать буквы, цифры, - _ и . (до 64) и должно начинаться с буквы или цифры.",
+   "id": "Nama boleh memakai huruf, angka, - _ dan . (hingga 64), diawali huruf atau angka."
+  },
+  "Glim uses that name for its own keys. Pick another.": {
+   "zh-Hans": "Glim 自己的密钥使用了这个名称。请换一个。",
+   "hi": "Glim यह नाम अपनी कुंजियों के लिए इस्तेमाल करता है। कोई दूसरा चुनें।",
+   "es": "Glim usa ese nombre para sus propias claves. Elige otro.",
+   "ar": "يستخدم Glim هذا الاسم لمفاتيحه الخاصة. اختر اسمًا آخر.",
+   "fr": "Glim utilise ce nom pour ses propres clés. Choisissez-en un autre.",
+   "bn": "Glim এই নামটি নিজের কী-র জন্য ব্যবহার করে। অন্য একটি বেছে নিন।",
+   "pt-BR": "O Glim usa esse nome para as próprias chaves. Escolha outro.",
+   "ru": "Glim использует это имя для своих ключей. Выберите другое.",
+   "id": "Glim memakai nama itu untuk kuncinya sendiri. Pilih yang lain."
+  },
+  "Paste the secret first.": {
+   "zh-Hans": "请先粘贴密钥。",
+   "hi": "पहले सीक्रेट पेस्ट करें।",
+   "es": "Primero pega el secreto.",
+   "ar": "الصق السرّ أولًا.",
+   "fr": "Collez d'abord le secret.",
+   "bn": "আগে সিক্রেটটি পেস্ট করুন।",
+   "pt-BR": "Cole o segredo primeiro.",
+   "ru": "Сначала вставьте секрет.",
+   "id": "Tempel rahasianya dulu."
+  },
+  "That secret is too long for Windows Credential Manager (2,560 bytes at most).": {
+   "zh-Hans": "这个密钥对 Windows 凭据管理器来说太长了（最多 2,560 字节）。",
+   "hi": "यह सीक्रेट Windows Credential Manager के लिए बहुत लंबा है (अधिकतम 2,560 बाइट)।",
+   "es": "Ese secreto es demasiado largo para el Administrador de credenciales de Windows (2.560 bytes como máximo).",
+   "ar": "هذا السرّ أطول مما يسمح به مدير بيانات الاعتماد في Windows (2,560 بايت كحد أقصى).",
+   "fr": "Ce secret est trop long pour le Gestionnaire d'identification Windows (2 560 octets au plus).",
+   "bn": "এই সিক্রেটটি Windows Credential Manager-এর জন্য খুব লম্বা (সর্বোচ্চ ২,৫৬০ বাইট)।",
+   "pt-BR": "Esse segredo é longo demais para o Gerenciador de Credenciais do Windows (no máximo 2.560 bytes).",
+   "ru": "Этот секрет слишком длинный для диспетчера учётных данных Windows (не больше 2 560 байт).",
+   "id": "Rahasia itu terlalu panjang untuk Credential Manager Windows (paling banyak 2.560 byte)."
+  },
+  "A secret must be one line.": {
+   "zh-Hans": "密钥必须是一行。",
+   "hi": "सीक्रेट एक ही पंक्ति का होना चाहिए।",
+   "es": "Un secreto debe ocupar una sola línea.",
+   "ar": "يجب أن يكون السرّ سطرًا واحدًا.",
+   "fr": "Un secret doit tenir sur une seule ligne.",
+   "bn": "সিক্রেট এক লাইনের হতে হবে।",
+   "pt-BR": "Um segredo precisa ter uma linha só.",
+   "ru": "Секрет должен быть в одну строку.",
+   "id": "Rahasia harus satu baris."
+  },
+  "Windows didn't keep the secret. Try again.": {
+   "zh-Hans": "Windows 没有保存这个密钥。请重试。",
+   "hi": "Windows ने सीक्रेट नहीं रखा। फिर से कोशिश करें।",
+   "es": "Windows no guardó el secreto. Inténtalo de nuevo.",
+   "ar": "لم يحتفظ Windows بالسرّ. حاول مرة أخرى.",
+   "fr": "Windows n'a pas conservé le secret. Réessayez.",
+   "bn": "Windows সিক্রেটটি রাখেনি। আবার চেষ্টা করুন।",
+   "pt-BR": "O Windows não guardou o segredo. Tente de novo.",
+   "ru": "Windows не сохранила секрет. Попробуйте ещё раз.",
+   "id": "Windows tidak menyimpan rahasia itu. Coba lagi."
+  },
+  "Windows Credential Manager refused: {error}": {
+   "zh-Hans": "Windows 凭据管理器拒绝了：{error}",
+   "hi": "Windows Credential Manager ने मना कर दिया: {error}",
+   "es": "El Administrador de credenciales de Windows se negó: {error}",
+   "ar": "رفض مدير بيانات الاعتماد في Windows: {error}",
+   "fr": "Le Gestionnaire d'identification Windows a refusé : {error}",
+   "bn": "Windows Credential Manager প্রত্যাখ্যান করেছে: {error}",
+   "pt-BR": "O Gerenciador de Credenciais do Windows recusou: {error}",
+   "ru": "Диспетчер учётных данных Windows отказал: {error}",
+   "id": "Credential Manager Windows menolak: {error}"
+  },
+  "The saved secret is damaged. Replace it.": {
+   "zh-Hans": "已保存的密钥已损坏。请替换它。",
+   "hi": "सहेजा गया सीक्रेट खराब हो गया है। उसे बदलें।",
+   "es": "El secreto guardado está dañado. Reemplázalo.",
+   "ar": "السرّ المحفوظ تالف. استبدله.",
+   "fr": "Le secret enregistré est endommagé. Remplacez-le.",
+   "bn": "সংরক্ষিত সিক্রেটটি নষ্ট হয়ে গেছে। এটি বদলান।",
+   "pt-BR": "O segredo salvo está danificado. Substitua-o.",
+   "ru": "Сохранённый секрет повреждён. Замените его.",
+   "id": "Rahasia yang tersimpan rusak. Ganti."
+  },
+  "Secrets are only available on Windows for now.": {
+   "zh-Hans": "密钥目前只在 Windows 上可用。",
+   "hi": "सीक्रेट अभी सिर्फ़ Windows पर उपलब्ध हैं।",
+   "es": "Por ahora los secretos solo están disponibles en Windows.",
+   "ar": "الأسرار متاحة على Windows فقط حاليًا.",
+   "fr": "Les secrets ne sont disponibles que sur Windows pour l'instant.",
+   "bn": "সিক্রেট আপাতত শুধু Windows-এ পাওয়া যায়।",
+   "pt-BR": "Por enquanto, segredos só estão disponíveis no Windows.",
+   "ru": "Секреты пока доступны только в Windows.",
+   "id": "Untuk sekarang rahasia hanya tersedia di Windows."
   }
  }
 }

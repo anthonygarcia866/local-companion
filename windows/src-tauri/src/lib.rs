@@ -21,6 +21,7 @@ mod platform;
 mod recap;
 mod resume;
 mod screen_capture;
+mod secrets;
 mod selftest;
 mod learn;
 mod memory;
@@ -681,6 +682,25 @@ async fn phone_test(shared: State<'_, Shared>) -> Result<(), String> {
 #[tauri::command]
 fn phone_idle_ms() -> Option<u64> {
     phone::idle_ms()
+}
+
+/// Settings → Secrets: names and saved dates only, never a value.
+#[tauri::command]
+fn secrets_list() -> Result<Vec<secrets::SecretInfo>, String> {
+    secrets::list(&secrets::store())
+}
+
+/// Settings → Secrets → Save (add or replace). The value comes in once and
+/// never goes back out: the answer is the name and its date.
+#[tauri::command]
+fn secrets_save(name: String, value: String) -> Result<secrets::SecretInfo, String> {
+    secrets::save_logged(&secrets::store(), &name, &value)
+}
+
+/// Settings → Secrets → Delete (the page asked first).
+#[tauri::command]
+fn secrets_delete(name: String) -> Result<(), String> {
+    secrets::delete_logged(&secrets::store(), &name)
 }
 
 #[tauri::command]
@@ -1628,6 +1648,9 @@ pub fn run() {
             phone_notify,
             phone_test,
             phone_idle_ms,
+            secrets_list,
+            secrets_save,
+            secrets_delete,
             phone_keys_status,
             phone_keys_save,
             phone_keys_remove,
