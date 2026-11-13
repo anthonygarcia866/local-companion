@@ -4,20 +4,20 @@
 // Before anything is written, git must say the file is ignored and not
 // tracked (`git ls-files --error-unmatch`, then `git check-ignore`): a
 // tracked file, one git doesn't ignore, or a folder that isn't in a git repo
-// is refused. The backup of the old file (dated, beside it) must be ignored
-// too: when it wouldn't be, `*.glim-backup-*` goes into the repo's own
-// .git/info/exclude (never a tracked .gitignore). The other lines stay as
+// is refused. The old file's backup (dated) and the temp file never go in
+// the project, or in any git repository: they live in
+// %LOCALAPPDATA%\Glim\backups\<runbook>\ (owner 2026-11-12: a backup beside
+// `.env.local` wasn't covered by the repo's `*.local` rule), and nothing in
+// the repo is touched but the file itself. The other lines stay as
 // they were; an existing KEY is replaced (later repeats of it dropped); the
-// line endings are kept. The new file is written next to it and moved over
-// it in one step. Errors never quote the value.
+// line endings are kept. The new file is written in the backups folder and
+// moved over the old one in one step (same drive needed). Errors never
+// quote the value.
 
 use std::path::Path;
 use std::process::Command;
 
 use crate::secrets::SecretValue;
-
-/// The backups' name pattern (and the temp file's: same pattern).
-pub const BACKUP_PATTERN: &str = "*.glim-backup-*";
 
 /// Backups kept per file; older ones go.
 pub const KEEP_BACKUPS: usize = 3;
@@ -70,43 +70,6 @@ fn refusal(g: &Git, what: &str) -> String {
         Git::Tracked => format!("{what} is tracked by git: refusing to put a secret in it"),
         Git::NotARepo => format!("{what} is not in a git repository: refusing (Glim only writes files git ignores)"),
         Git::Missing => "git isn't installed or isn't on PATH".to_string(),
-    }
-}
-
-/// The repo's own exclude file (`git rev-parse --git-path info/exclude`).
-fn exclude_file(dir: &Path) -> Option<std::path::PathBuf> {
-    let mut c = git(dir);
-    c.args(["rev-parse", "--git-path", "info/exclude"]).stdout(std::process::Stdio::piped());
-    let out = c.output().ok().filter(|o| o.status.success())?;
-    let p = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    let p = std::path::PathBuf::from(p);
-    Some(if p.is_absolute() { p } else { dir.join(p) })
-}
-
-/// Makes sure git ignores the backups next to `file`, through
-/// .git/info/exclude when it doesn't already.
-fn ensure_backups_ignored(file: &Path, probe: &Path) -> Result<(), String> {
-    if git_status(probe) == Git::Ignored {
-        return Ok(());
-    }
-    let dir = file.parent().ok_or("no folder")?;
-    let exclude = exclude_file(dir).ok_or("couldn't find the repository's info/exclude")?;
-    let mut text = std::fs::read_to_string(&exclude).unwrap_or_default();
-    if !text.lines().any(|l| l.trim() == BACKUP_PATTERN) {
-        if !text.is_empty() && !text.ends_with('\n') {
-            text.push('\n');
-        }
-        text.push_str("# Glim runbook backups (env_secret)\n");
-        text.push_str(BACKUP_PATTERN);
-        text.push('\n');
-        if let Some(d) = exclude.parent() {
-            std::fs::create_dir_all(d).map_err(|e| format!("couldn't write info/exclude: {e}"))?;
-        }
-        std::fs::write(&exclude, text).map_err(|e| format!("couldn't write info/exclude: {e}"))?;
-    }
-    match git_status(probe) {
-        Git::Ignored => Ok(()),
-        _ => Err("git still doesn't ignore the backup file: refusing".into()),
     }
 }
 
@@ -179,34 +142,47 @@ fn stamp() -> String {
     format!("{:04}{:02}{:02}-{:02}{:02}{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second)
 }
 
-/// Drops all but the newest KEEP_BACKUPS backups of `file`.
-fn prune_backups(file: &Path) {
-    let (Some(dir), Some(name)) = (file.parent(), file.file_name().map(|n| n.to_string_lossy().into_owned())) else { return };
-    let prefix = format!("{name}.glim-backup-2");
-    let mut backups: Vec<_> = std::fs::read_dir(dir)
+/// Whether `dir` is inside a git work tree.
+fn inside_repo(dir: &Path) -> bool {
+    git(dir).args(["rev-parse", "--is-inside-work-tree"]).status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// The start of every backup name for `file` in its runbook's folder: the
+/// file name and a short hash of its full path, so two projects' `.env.local`
+/// never mix.
+pub fn backup_prefix(file: &Path) -> String {
+    let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let full = super::show(file).to_ascii_lowercase();
+    format!("{name}.{}.bak-", &super::sha256_hex(full.as_bytes())[..8])
+}
+
+/// Drops all but the newest KEEP_BACKUPS backups of `file` in `backups`.
+fn prune_backups(backups: &Path, file: &Path) {
+    let prefix = backup_prefix(file);
+    let mut found: Vec<_> = std::fs::read_dir(backups)
         .map(|r| r.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(&prefix)).collect())
         .unwrap_or_default();
-    backups.sort();
-    while backups.len() > KEEP_BACKUPS {
-        let _ = std::fs::remove_file(dir.join(backups.remove(0)));
+    found.sort();
+    while found.len() > KEEP_BACKUPS {
+        let _ = std::fs::remove_file(backups.join(found.remove(0)));
     }
 }
 
-/// The env_secret step itself.
-pub fn write_secret(file: &Path, key: &str, value: &SecretValue) -> Result<(), String> {
+/// The env_secret step itself. `backups`: this runbook's backup folder,
+/// outside every repository (refused otherwise).
+pub fn write_secret(file: &Path, key: &str, value: &SecretValue, backups: &Path) -> Result<(), String> {
     let shown = super::show(file);
     match git_status(file) {
         Git::Ignored => {}
         other => return Err(refusal(&other, &shown)),
     }
-    let name = file.file_name().ok_or("not a file")?.to_string_lossy().into_owned();
-    let dir = file.parent().ok_or("no folder")?;
-    let backup = dir.join(format!("{name}.glim-backup-{}", stamp()));
-    let temp = dir.join(format!("{name}.glim-backup-tmp-{}", std::process::id()));
-    ensure_backups_ignored(file, &backup)?;
-    if git_status(&temp) != Git::Ignored {
-        return Err("git doesn't ignore Glim's temporary file: refusing".into());
+    std::fs::create_dir_all(backups).map_err(|e| format!("couldn't make the backup folder: {e}"))?;
+    let _ = crate::platform::ensure_private_dir(backups);
+    if inside_repo(backups) {
+        return Err(format!("the backup folder {} is inside a git repository: refusing", super::show(backups)));
     }
+    let backup = backups.join(format!("{}{}", backup_prefix(file), stamp()));
+    let temp = backups.join(format!("{}tmp-{}", backup_prefix(file), std::process::id()));
     let old = match std::fs::read(file) {
         Ok(b) => Some(String::from_utf8(b).map_err(|_| format!("{shown} is not UTF-8 text"))?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -221,8 +197,8 @@ pub fn write_secret(file: &Path, key: &str, value: &SecretValue) -> Result<(), S
     unsafe { new.as_bytes_mut().iter_mut().for_each(|b| *b = 0) };
     if written.is_err() {
         let _ = std::fs::remove_file(&temp);
-        return Err(format!("couldn't write {shown}"));
+        return Err(format!("couldn't write {shown} (it must be on the same drive as %LOCALAPPDATA%)"));
     }
-    prune_backups(file);
+    prune_backups(backups, file);
     Ok(())
 }

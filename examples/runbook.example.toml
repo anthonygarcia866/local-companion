@@ -23,7 +23,8 @@ commands = ['npm run dev']
 
 # Writes the secret saved in Settings -> Secrets as EXAMPLE_TOKEN into the
 # file as EXAMPLE_KEY=<value>. Refused unless git ignores the file and doesn't
-# track it. The other lines are kept; the old file is backed up beside it.
+# track it. The other lines are kept; the old file is backed up OUTSIDE the
+# project, in %LOCALAPPDATA%\Glim\backups\<runbook>\ (newest 3 kept).
 [[step]]
 type = "env_secret"
 secret = "EXAMPLE_TOKEN"
