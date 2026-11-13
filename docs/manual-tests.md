@@ -815,6 +815,18 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 4. **Delete asks:** Delete → "Delete EXAMPLE_TOKEN? …" with Delete / Cancel. Cancel keeps it; Delete removes it (gone from Credential Manager too).
 5. **Refused:** a name with a space, or `AnthropicApiKey`. **See:** a short reason, nothing saved; the AI key in Settings → AI is untouched.
 
+## 45. Runbooks (local agency v1, part 2)
+
+*Where: a build with it; a test git repo of your own (any folder with `git init` and `.env.local` in its `.gitignore`); a secret saved in Settings → Secrets (§44).*
+
+1. **Example:** copy `examples/runbook.example.toml` to `%APPDATA%\Glim\runbooks\test.toml`, point `[allow] folders` and the two paths at your test repo, set `secret` to your saved secret's name. Reopen Settings → Runbooks. **See:** `test · Needs approval`.
+2. **Approve:** Run. **See:** the card lists both steps with the secret's NAME only, "May write in or run in: <your folder>", Approve runbook / Cancel. Cancel: nothing written. Run → Approve runbook. **See:** "Step 1 of 2: OK (written)", "Step 2 of 2: OK (exists)", "Done". `.env.local` has the key line, its other lines unchanged, and a `.env.local.glim-backup-<date>` beside it; `git status` shows neither.
+3. **Changed:** add a comment line to test.toml, reopen Settings. **See:** "Changed since approved: approve again"; Run shows the card again.
+4. **Refused:** point `file` at a tracked file (or remove `.env.local` from `.gitignore`), approve, Run. **See:** "Step 1 of 2 failed: … is tracked by git" (or "not ignored by git"); the file is untouched.
+5. **Command line:** in a terminal, `glim.exe --run test` (from `%LOCALAPPDATA%\Glim`). **See:** `step 1/2 env_secret OK: written`, `step 2/2 check OK: exists`, `OK (2/2 steps) exit 0`. Change the file and run it again: `REFUSED: the file changed … exit 3`. Never the value.
+6. **Voice:** hold Ctrl+Alt+Shift+A and say "run test". **See:** Settings opens on Runbooks and runs it (or shows its card). Nothing goes to Claude (glim.log: `voice: runbook asked (on this PC)`).
+7. **Audit:** `%LOCALAPPDATA%\Glim\runbooks.log` has times, `test`, the trigger, each step's OK/FAIL; never the value. Settings → Runbooks → Last runs shows them.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

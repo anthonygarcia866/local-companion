@@ -315,6 +315,52 @@ fn activate_package(name: &str, app_id: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// A runbook's `start_app` protocol link (runbooks/mod.rs checked its
+/// scheme against the banned list and the runbook's allowlist): ShellExecute
+/// "open" on it, no arguments, no shell. False when Windows refuses.
+pub fn open_protocol(link: &str) -> bool {
+    use ::windows::core::{w, PCWSTR};
+    let wide: Vec<u16> = link.encode_utf16().chain(Some(0)).collect();
+    shell_open_args(PCWSTR(wide.as_ptr()), w!("open"))
+}
+
+fn shell_open_args(file: ::windows::core::PCWSTR, verb: ::windows::core::PCWSTR) -> bool {
+    use ::windows::Win32::UI::Shell::ShellExecuteW;
+    use ::windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let r = unsafe { ShellExecuteW(None, verb, file, None, None, SW_SHOWNORMAL) };
+    r.0 as usize > 32
+}
+
+/// A runbook's `run` step: one exact, allowlisted command line (no shell
+/// operators or variables: runbooks/mod.rs refused them) through
+/// `cmd.exe /d /s /c`, so `npm`-style .cmd launchers work, in `folder`, no
+/// window, output thrown away. Killed with its children after `timeout`.
+/// The exit code, or Err("timed out after N s" / "couldn't start").
+pub fn run_command_line(command: &str, folder: &std::path::Path, timeout: std::time::Duration) -> Result<i32, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    let mut c = Command::new("cmd.exe");
+    c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    no_console(&mut c);
+    let mut child = c.spawn().map_err(|_| "couldn't start".to_string())?;
+    let _ = kill_with_glim(&child);
+    let until = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
+            Ok(None) if std::time::Instant::now() >= until => {
+                // The whole tree: cmd.exe's children too.
+                let _ = no_console(Command::new("taskkill.exe").args(["/T", "/F", "/PID", &child.id().to_string()]).stdout(Stdio::null()).stderr(Stdio::null())).status();
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("timed out after {} s", timeout.as_secs()));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Err(_) => return Err("couldn't wait for it".into()),
+        }
+    }
+}
+
 pub fn reveal_folder(path: &str) {
     let _ = Command::new("explorer").arg(path).spawn();
 }

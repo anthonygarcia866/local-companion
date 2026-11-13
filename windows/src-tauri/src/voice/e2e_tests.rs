@@ -255,6 +255,12 @@ impl Effects for Fake {
         let h = tokio::spawn(fut);
         self.with(|r| r.spawned.push(h));
     }
+    fn runbook_names(&self) -> Vec<String> {
+        vec!["example-site".to_string()]
+    }
+    fn request_runbook(&self, name: String) {
+        self.act(format!("runbook {name}"));
+    }
 }
 
 /// A canned Messages API answer: one tool call.
@@ -443,6 +449,25 @@ fn rules_beat_shortcuts_and_a_card_number_is_never_remembered() {
         let e = fx.last_event();
         assert_eq!((e.phase, e.code.as_str()), ("failed", "sensitive"), "{e:?}");
         assert!(!shortcut_keys().iter().any(|k| k.contains("card")), "nothing learned from it");
+    });
+}
+
+/// "Run <runbook>" (runbooks v1) is matched on this PC: Settings is asked to
+/// run it, nothing goes to Claude, nothing is learned; other "run …" asks
+/// still go to Claude.
+#[test]
+fn run_a_runbook_by_voice_stays_on_this_pc() {
+    let _one = fresh();
+    let fx = fake();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let n = fx.with(|r| r.actions.len());
+        type_in(&fx, "Run example site.", None).await;
+        assert_eq!(fx.actions_since(n), ["runbook example-site"]);
+        assert_eq!(fx.with(|r| r.answered), 0, "no Claude call");
+        assert!(shortcut_keys().is_empty(), "nothing learned");
+        type_in(&fx, "run Outlook", Some(tool("open_app", json!({ "app": "outlook" })))).await;
+        assert_eq!(fx.with(|r| r.answered), 1, "not a runbook: Claude answers");
     });
 }
 

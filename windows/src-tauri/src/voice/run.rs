@@ -190,6 +190,10 @@ pub trait Effects: Clone + Send + Sync + 'static {
     fn clean_up(&self, mode: Mode, transcript: &str, asked: Option<&Asked>) -> impl Future<Output = Result<Cleanup, CleanupFailed>> + Send;
     /// Runs `fut` in the background (learning after an app came forward).
     fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static);
+    /// The runbooks on this PC, by name (runbooks/mod.rs).
+    fn runbook_names(&self) -> Vec<String>;
+    /// "run <name>": Settings → Runbooks runs it (or asks first).
+    fn request_runbook(&self, name: String);
 }
 
 impl Effects for AppHandle {
@@ -246,6 +250,12 @@ impl Effects for AppHandle {
     }
     fn spawn(&self, fut: impl Future<Output = ()> + Send + 'static) {
         tauri::async_runtime::spawn(fut);
+    }
+    fn runbook_names(&self) -> Vec<String> {
+        crate::runbooks::names_in(&crate::runbooks::dir())
+    }
+    fn request_runbook(&self, name: String) {
+        crate::request_runbook(self, name);
     }
 }
 
@@ -489,6 +499,17 @@ pub(crate) async fn act<F: Effects>(app: &F, transcript: &str, mode: Mode, asked
         let n = app.stop_watching();
         send(app, VoiceEvent { phase: "watch-stopped", code: n.to_string(), mode: mode.as_str(), ..Default::default() });
         return;
+    }
+    // "Run <runbook>" (runbooks/mod.rs): matched on this PC against the
+    // runbook files' names; nothing goes to Claude. Settings → Runbooks runs
+    // it, or shows its approval / ask card first.
+    if mode == Mode::Ask && asked.is_none() {
+        if let Some(name) = crate::runbooks::voice_match(transcript, &app.runbook_names()) {
+            crate::log::line("voice: runbook asked (on this PC)");
+            app.request_runbook(name);
+            send(app, VoiceEvent { phase: "idle", mode: mode.as_str(), ..Default::default() });
+            return;
+        }
     }
     // Glim learns §3: "no, …", "I meant …" within a minute of the last Ask
     // (learned replays and routines count as one) is a correction. Its tip is

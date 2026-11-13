@@ -249,6 +249,16 @@ pub fn open_url(url: &str) {
     let _ = Command::new("xdg-open").arg(url).spawn();
 }
 
+/// Runbooks are Windows-only for now.
+pub fn open_protocol(_link: &str) -> bool {
+    false
+}
+
+/// Runbooks are Windows-only for now.
+pub fn run_command_line(_command: &str, _folder: &std::path::Path, _timeout: std::time::Duration) -> Result<i32, String> {
+    Err("couldn't start".into())
+}
+
 pub fn reveal_folder(path: &str) {
     let _ = Command::new("xdg-open").arg(path).spawn();
 }

@@ -179,6 +179,14 @@ export const Bridge = {
   phoneTest: () => callOrThrow<void>("phone_test"),
   /** Ms since the last keyboard or mouse input on this PC, or null. */
   phoneIdleMs: () => call<number>("phone_idle_ms"),
+  /** Settings → Runbooks: the folder, the runbooks and the last runs. */
+  runbooksList: () => call<RunbooksView>("runbooks_list"),
+  /** "Approve runbook": only the version shown (`hash`). */
+  runbookApprove: (name: string, hash: string) => callOrThrow<null>("runbook_approve", { name, hash }),
+  /** Runs it on a thread of its own; `runbook-progress` / `runbook-done` follow. */
+  runbookRun: (name: string, hash: string, confirmed: number[], voice: boolean) => callOrThrow<null>("runbook_run", { name, hash, confirmed, voice }),
+  /** A runbook asked for by voice before the page listened. */
+  runbookTakeRequest: () => call<string | null>("runbook_take_request"),
   /** Settings → Secrets: names and saved dates, never a value. */
   secretsList: () => call<SecretInfo[]>("secrets_list"),
   /** Adds or replaces a secret; the value goes to Rust once and never comes back. */
@@ -387,6 +395,50 @@ export interface DroppedFile {
 }
 
 /** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+/** One runbook step as Rust describes it (secret names only). */
+export interface RunbookStepView {
+  kind: string;
+  text: string;
+  ask: boolean;
+}
+
+export interface RunbookView {
+  name: string;
+  description: string;
+  state: "approved" | "new" | "changed" | "invalid";
+  error: string;
+  hash: string;
+  steps: RunbookStepView[];
+  folders: string[];
+  apps: string[];
+  commands: string[];
+}
+
+export interface RunbookRun {
+  time: string;
+  name: string;
+  trigger: string;
+  outcome: string;
+  ok: boolean;
+  refused: boolean;
+  done: number;
+  total: number;
+}
+
+export interface RunbooksView {
+  folder: string;
+  books: RunbookView[];
+  runs: RunbookRun[];
+}
+
+export interface RunbookOutcome {
+  step: number;
+  total: number;
+  kind: string;
+  ok: boolean;
+  detail: string;
+}
+
 /** A saved secret as Settings sees it: never its value. */
 export interface SecretInfo {
   name: string;
