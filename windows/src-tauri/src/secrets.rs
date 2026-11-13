@@ -31,12 +31,18 @@ pub const MAX_NAME_CHARS: usize = 64;
 
 /// Names Glim already uses for its own credentials (ai/key.rs, phone.rs),
 /// never listed, replaced or deleted from here. Case doesn't matter.
-pub const RESERVED: &[&str] = &["AnthropicApiKey", "PushoverKeys"];
+pub const RESERVED: &[&str] = &["AnthropicApiKey", "PushoverKeys", "RunbookApprovalKey"];
 
 /// A saved value, as only a runbook step may see it.
 pub struct SecretValue(String);
 
 impl SecretValue {
+    /// A value for tests (runbooks' fakes).
+    #[cfg(test)]
+    pub fn for_test(v: &str) -> SecretValue {
+        SecretValue(v.to_string())
+    }
+
     /// The value itself: for a runbook's env_secret write, nothing else.
     pub fn reveal(&self) -> &str {
         &self.0
@@ -365,7 +371,7 @@ mod tests {
         for bad in ["", " ", "-x", "_x", ".x", "a b", "a/b", "a\\b", "a*", "naïve", &"x".repeat(65)] {
             assert!(check_name(bad).is_err(), "{bad:?}");
         }
-        for own in ["AnthropicApiKey", "anthropicapikey", "PushoverKeys", "TestOnly-DeleteMe", "testonlyx"] {
+        for own in ["AnthropicApiKey", "anthropicapikey", "PushoverKeys", "RunbookApprovalKey", "TestOnly-DeleteMe", "testonlyx"] {
             assert!(check_name(own).is_err(), "{own:?}");
         }
     }

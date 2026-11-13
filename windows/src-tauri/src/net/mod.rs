@@ -108,6 +108,27 @@ pub fn free_loopback_port() -> Option<u16> {
     l.local_addr().ok().map(|a| a.port())
 }
 
+/// A runbook's `check` step: whether something on this PC accepts a TCP
+/// connection on 127.0.0.1:`port`. Nothing is sent; the connection closes.
+pub fn loopback_port_answers(port: u16, timeout: Duration) -> bool {
+    std::net::TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, port)), timeout).is_ok()
+}
+
+/// A runbook's `check` step: the status of a GET to a URL on this PC
+/// (127.0.0.1 or localhost only, through `request`'s checks). The body is
+/// never read.
+pub fn loopback_status(raw: &str, timeout: Duration) -> Result<u16, String> {
+    let url = Url::parse(raw).map_err(|_| "not a URL".to_string())?;
+    if !is_loopback_url(&url) {
+        return Err("not on this PC".into());
+    }
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let r = request(Method::GET, &url, timeout)?.send().await.map_err(|_| "no answer".to_string())?;
+        Ok(r.status().as_u16())
+    })
+}
+
 /// Exact names: not `::1`, not other 127.x addresses, not `*.localhost`.
 pub const ALLOWED_HOSTS: &[&str] = &["127.0.0.1", "localhost"];
 

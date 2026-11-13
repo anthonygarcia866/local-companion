@@ -29,6 +29,10 @@ serde = { version = "1", features = ["derive"] }
 # its tree (checked 2026-10-10). Pinned; no thesaurus.
 harper-core = { version = "=2.11.0", default-features = false }
 serde_json = { version = "1", features = ["preserve_order"] }
+# Runbooks (src/runbooks/): the .toml files and their SHA-256. Both are
+# already in the build through Tauri (toml 1, sha2 0.10): nothing new compiled.
+toml = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt"] }
 # Only src/net/ may use it (the network choke point; a test enforces this).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -43,6 +47,8 @@ wv2_core = { package = "windows-core", version = "0.62" }
 windows-core = "0.61"
 windows = { version = "0.61", features = [
   "Win32_System_Com",
+  # `glim.exe --run` prints into the terminal that started it (runbooks/cli.rs).
+  "Win32_System_Console",
   "Win32_UI_Accessibility",
   "Win32_System_Variant",
   "Win32_Foundation",

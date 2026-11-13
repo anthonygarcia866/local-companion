@@ -39,6 +39,7 @@ mod tray;
 mod webview_drop;
 mod webview_health;
 mod relaunch;
+mod runbooks;
 #[cfg(windows)]
 mod bubble_window;
 #[cfg(windows)]
@@ -682,6 +683,99 @@ async fn phone_test(shared: State<'_, Shared>) -> Result<(), String> {
 #[tauri::command]
 fn phone_idle_ms() -> Option<u64> {
     phone::idle_ms()
+}
+
+/// Settings → Runbooks: the folder, each runbook (its steps with secret
+/// names only, its approval state) and the last runs.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunbooksView {
+    folder: String,
+    books: Vec<runbooks::BookView>,
+    runs: Vec<runbooks::RunView>,
+}
+
+#[tauri::command]
+fn runbooks_list() -> RunbooksView {
+    RunbooksView { folder: runbooks::show(&runbooks::dir()), books: runbooks::views(), runs: runbooks::recent() }
+}
+
+/// "Approve runbook" on the card: only the version the page showed (`hash`).
+#[tauri::command]
+fn runbook_approve(name: String, hash: String) -> Result<(), String> {
+    let r = runbooks::approve_now(&name, &hash);
+    log::line(if r.is_ok() { "runbooks: approved one" } else { "runbooks: approval refused" });
+    r
+}
+
+/// A runbook asked for by voice before the page was listening.
+#[tauri::command]
+fn runbook_take_request() -> Option<String> {
+    runbooks::REQUESTED.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+static RUNBOOKS_RUNNING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunbookProgress {
+    name: String,
+    #[serde(flatten)]
+    outcome: runbooks::Outcome,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunbookDone {
+    name: String,
+    ok: bool,
+    done: usize,
+    total: usize,
+    /// Why it didn't start, when it didn't.
+    refused: String,
+}
+
+/// Run on the page (Run, or a voice request the page picked up): the
+/// version it showed (`hash`) and the ask steps the owner said yes to
+/// (`confirmed`, 1-based). Runs on a thread of its own; progress comes as
+/// `runbook-progress`, the end as `runbook-done`.
+#[tauri::command]
+fn runbook_run(app: AppHandle, name: String, hash: String, confirmed: Vec<usize>, voice: bool) -> Result<(), String> {
+    {
+        let mut running = RUNBOOKS_RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        if running.contains(&name) {
+            return Err(i18n::t("That runbook is already running."));
+        }
+        running.push(name.clone());
+    }
+    std::thread::spawn(move || {
+        let trigger = if voice { runbooks::Trigger::Voice } else { runbooks::Trigger::Settings };
+        let app2 = app.clone();
+        let n2 = name.clone();
+        let r = runbooks::run_now(&name, Some(&hash), trigger, &confirmed, &mut |o| {
+            let _ = app2.emit_to("settings", "runbook-progress", RunbookProgress { name: n2.clone(), outcome: o.clone() });
+        });
+        let done = match &r {
+            Ok(steps) => {
+                let ok = steps.iter().filter(|o| o.ok).count();
+                let total = steps.first().map(|o| o.total).unwrap_or(0);
+                RunbookDone { name: name.clone(), ok: ok == total, done: ok, total, refused: String::new() }
+            }
+            Err(e) => RunbookDone { name: name.clone(), ok: false, done: 0, total: 0, refused: e.message() },
+        };
+        log::line(format!("runbooks: run {}", if done.ok { "ok" } else { "failed" }));
+        RUNBOOKS_RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|n| *n != name);
+        let _ = app.emit_to("settings", "runbook-done", done);
+    });
+    Ok(())
+}
+
+/// Voice "run <name>" (voice/run.rs): Settings opens on Runbooks, which runs
+/// it (or shows its approval or ask card first).
+pub(crate) fn request_runbook(app: &AppHandle, name: String) {
+    *runbooks::REQUESTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(name.clone());
+    show_settings_window(app, "voice");
+    let _ = app.emit_to("settings", "runbook-request", name);
 }
 
 /// Settings → Secrets: names and saved dates only, never a value.
@@ -1508,6 +1602,11 @@ pub fn run() {
     // A Glim started by relaunch.rs waits for the old one to exit, or the
     // single-instance plugin below would hand it straight back to it.
     let args: Vec<String> = std::env::args().collect();
+    // glim.exe --run <name> (runbooks/cli.rs): runs an approved runbook in
+    // this process and exits; the running Glim isn't involved.
+    if let Some(name) = runbooks::cli::requested(&args) {
+        std::process::exit(runbooks::cli::main(name));
+    }
     let relaunched = relaunch::wait_for_previous(&args);
     // glim.exe --selftest (selftest.rs): a running Glim would be handed this
     // launch, so it is refused instead.
@@ -1648,6 +1747,10 @@ pub fn run() {
             phone_notify,
             phone_test,
             phone_idle_ms,
+            runbooks_list,
+            runbook_approve,
+            runbook_take_request,
+            runbook_run,
             secrets_list,
             secrets_save,
             secrets_delete,
