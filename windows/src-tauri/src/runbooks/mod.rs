@@ -248,7 +248,7 @@ fn forbidden_folder(canon: &Path) -> bool {
     under("WINDIR") || under("ProgramFiles") || under("ProgramFiles(x86)") || under("ProgramData") || is("USERPROFILE")
 }
 
-fn allowed_folder(raw: &str) -> Result<PathBuf, String> {
+pub(crate) fn allowed_folder(raw: &str) -> Result<PathBuf, String> {
     let p = full_local(raw)?;
     let canon = std::fs::canonicalize(&p).map_err(|_| format!("allowed folder {raw:?} doesn't exist"))?;
     if !canon.is_dir() {

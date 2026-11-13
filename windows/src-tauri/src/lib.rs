@@ -13,6 +13,7 @@ mod hooks;
 mod i18n;
 mod identity;
 mod island;
+mod keepalive;
 mod local_chat;
 mod log;
 mod net;
@@ -125,6 +126,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         // The draft card's remembered picks are Rust's (voice::draft_worker,
         // draft_forget).
         settings.draft_recipients = current.draft_recipients.clone();
+        // Settings → Remote's list is Rust's (keepalive_* commands).
+        settings.keep_alive = current.keep_alive.clone();
         // Whether My names was seeded is Rust's (shield::address_book).
         settings.own_names_seeded |= current.own_names_seeded;
         // The day the calendar's morning summary was last shown is Rust's.
@@ -683,6 +686,65 @@ async fn phone_test(shared: State<'_, Shared>) -> Result<(), String> {
 #[tauri::command]
 fn phone_idle_ms() -> Option<u64> {
     phone::idle_ms()
+}
+
+/// Settings → Remote: the switch, the list and each entry's status.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeepAliveStatus {
+    settings: keepalive::KeepAliveSettings,
+    entries: Vec<keepalive::EntryView>,
+}
+
+fn keepalive_now(shared: &Shared) -> KeepAliveStatus {
+    let s = shared.settings.lock().unwrap().keep_alive.clone();
+    KeepAliveStatus { entries: keepalive::views(&s), settings: s }
+}
+
+#[tauri::command]
+fn keepalive_status(shared: State<Shared>) -> KeepAliveStatus {
+    keepalive_now(&shared)
+}
+
+/// The switch. Turning it on needs the consent card's "Turn on" once
+/// (`consent`); without it the switch stays off.
+#[tauri::command]
+fn keepalive_set(app: AppHandle, shared: State<Shared>, on: bool, consent: bool) -> Result<KeepAliveStatus, String> {
+    let consented = shared.settings.lock().unwrap().keep_alive.consented || consent;
+    if on && !consented {
+        return Err(i18n::t("Answer the card first."));
+    }
+    update_settings(&app, &shared, |s| {
+        s.keep_alive.consented = consented;
+        s.keep_alive.on = on;
+    });
+    log::line(if on { "keep-alive: on" } else { "keep-alive: off" });
+    Ok(keepalive_now(&shared))
+}
+
+#[tauri::command]
+fn keepalive_add(app: AppHandle, shared: State<Shared>, folder: String) -> Result<KeepAliveStatus, String> {
+    let folder = folder.trim().trim_matches('"').to_string();
+    let list = shared.settings.lock().unwrap().keep_alive.folders.clone();
+    if let Some(why) = keepalive::folder_problem(&folder, &list) {
+        return Err(why);
+    }
+    update_settings(&app, &shared, |s| s.keep_alive.folders.push(folder));
+    log::line("keep-alive: a folder added");
+    Ok(keepalive_now(&shared))
+}
+
+#[tauri::command]
+fn keepalive_remove(app: AppHandle, shared: State<Shared>, folder: String) -> KeepAliveStatus {
+    update_settings(&app, &shared, |s| s.keep_alive.folders.retain(|f| !f.eq_ignore_ascii_case(&folder)));
+    log::line("keep-alive: a folder removed");
+    keepalive_now(&shared)
+}
+
+#[tauri::command]
+fn keepalive_desktop(app: AppHandle, shared: State<Shared>, on: bool) -> KeepAliveStatus {
+    update_settings(&app, &shared, |s| s.keep_alive.desktop_app = on);
+    keepalive_now(&shared)
 }
 
 /// Settings → Runbooks: the folder, each runbook (its steps with secret
@@ -1747,6 +1809,11 @@ pub fn run() {
             phone_notify,
             phone_test,
             phone_idle_ms,
+            keepalive_status,
+            keepalive_set,
+            keepalive_add,
+            keepalive_remove,
+            keepalive_desktop,
             runbooks_list,
             runbook_approve,
             runbook_take_request,
@@ -1926,6 +1993,20 @@ pub fn run() {
             }
             // A paste Glim never finished (stopped between its paste and
             // putting the user's clipboard back): its text never stays there.
+            // Settings → Remote's keep-alive (keepalive.rs): its supervisor
+            // looks at the switch and the list every 2 s; nothing starts while
+            // the switch is off (the default) or before its consent card.
+            if !selftest {
+                let ka = handle.clone();
+                keepalive::start(
+                    move || ka.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default(),
+                    move |settings, project| {
+                        tauri::async_runtime::spawn(async move {
+                            let _ = phone::notify(&settings, phone::Kind::KeepAlive, "integration_claude", &project).await;
+                        });
+                    },
+                );
+            }
             #[cfg(windows)]
             if !selftest && capture::fix::clear_stale_paste() {
                 log::line("clipboard: a paste Glim never finished was cleared");

@@ -827,6 +827,19 @@ Use the paragraph from §19 (`Hi Sarah, I recieved the the lease. …`).
 6. **Voice:** hold Ctrl+Alt+Shift+A and say "run test". **See:** Settings opens on Runbooks and runs it (or shows its card). Nothing goes to Claude (glim.log: `voice: runbook asked (on this PC)`).
 7. **Audit:** `%LOCALAPPDATA%\Glim\runbooks.log` has times, `test`, the trigger, each step's OK/FAIL; never the value. Settings → Runbooks → Last runs shows them.
 
+## 46. Keep-alive switch (local agency v1, part 3)
+
+*Where: a build with it; Claude Code signed in (`claude` works in a terminal); a project folder of your own; Settings → Phone on for step 5.*
+
+1. **Off by default:** Settings → Remote. **See:** "Keep Claude Code reachable" off, no folders.
+2. **Consent:** add your folder (Add), then turn the switch on. **See:** the "Keep Claude Code reachable?" card; Not now keeps it off. Turn it on again → Turn on. **See:** within ~2 s a terminal (a Windows Terminal tab or window) opens in that folder running `claude remote-control … --name "<folder> (PC)"`; Settings says "Running since <time>" and shows that exact command.
+3. **Reachable:** on your phone or claude.ai/code, the session "<folder> (PC)" is listed and opens.
+4. **Restart:** close that terminal. **See:** "Stopped (exit code …); starting again at <time +30 s>", then a new terminal. Close it again: the next wait is 2 min, then 10 min.
+5. **Phone:** keep closing it until it has stopped 3 times within an hour after restarts. **See:** one push "Claude Code in <folder>: remote control stopped 3 times in an hour"; Settings: "Stopped 3 times in the last hour."
+6. **Login:** restart the PC (launch at startup on). **See:** the terminal opens again by itself once Glim starts.
+7. **Desktop app:** turn on "Also keep the Claude desktop app open", quit the Claude app. **See:** it opens again within a minute or so.
+8. **Off:** turn the switch off. **See:** the terminals Glim started close; nothing restarts. Remove the folder: nothing for it is ever started again.
+
 ## After testing
 
 - Tell Claude Code what passed and what didn't. For a failure, say the section and step, and what you saw instead.

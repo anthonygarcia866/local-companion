@@ -181,6 +181,8 @@ pub struct Settings {
     /// Settings → Phone (docs/phone-plan.md): pushes to the owner's phone,
     /// off by default. The Pushover keys are not here (phone.rs).
     pub phone: PhoneSettings,
+    /// Settings → Remote (keepalive.rs): Rust's; a page's save never changes it.
+    pub keep_alive: crate::keepalive::KeepAliveSettings,
     /// Ask first (owner, 2026-11-04; consent.rs): the answer for each cloud
     /// feature that sends by itself. Empty until asked.
     pub cloud_consent: CloudConsent,
