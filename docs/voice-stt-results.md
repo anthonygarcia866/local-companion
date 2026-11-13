@@ -27,14 +27,14 @@ Synthetic speech is clean, evenly paced, accent-free and has no "um"s, so **real
   - *lenient*: strict, plus formatting that isn't a mishearing counted as right ("24th" = "24", "first" = "1st", "9 a.m." = "9am").
   - The lenient figure is the one that matters for dictation, because the Claude clean-up step (§4) normalizes formatting anyway.
 - **Command start:** after optional filler ("hey Glim", "um"), the transcript starts with the clip's command word(s). That's Glim's no-Claude "safe to type" rule (§4.1): a miss there means a spoken command could be typed as text.
-- **Key terms:** the 47 names, numbers and domain words across the clips ("Okafor", "4B", "HOA", "4471", "dale cuts", "Glim"…), each allowing a few spellings.
+- **Key terms:** the 47 names, numbers and domain words across the clips ("Okafor", "4B", "HOA", "4471", a private web project's name, "Glim"…), each allowing a few spellings.
 - **Speed:**
   - *processing* is whisper's own total minus model load, which is what Glim would pay with the model kept loaded;
   - *wall* is the whole process run, including load.
   - Clips are 1.6–8 s long (median 3.6 s).
 - **Two configurations:**
   - *plain*;
-  - *with a vocabulary hint*: whisper's `--prompt` given "Glim, HOA, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, lease renewal, gate code, unit 4B." This is the local counterpart of the cloud services' "keyterms", i.e. a personal word list the user would keep in Settings.
+  - *with a vocabulary hint*: whisper's `--prompt` given "Glim, HOA, Okafor, Nguyen, Rodriguez Plumbing, <a private web project's name>, lease renewal, gate code, unit 4B." This is the local counterpart of the cloud services' "keyterms", i.e. a personal word list the user would keep in Settings.
 
 ## Results
 
@@ -59,8 +59,8 @@ Run on all 20 clips. Processing times varied between the runs that day (the PC w
   - "Glim" → "glimpse" (medium: "Glimm");
   - "HOA board" → "ho aboard" (an email command would go to the wrong place).
 - **base:** "Okafor" → "Akafer"; and on the fast clip, "Thursday" → "authors day" (still wrong with the hint).
-- **small:** "Okafor" → "Ocopher"; "dale cuts" → "Dale Cutts"; "gate code" → "gatecode".
-- **medium:** "Nguyen" → "Wen" on the noisy clip; "dale cuts" → "Dalecuts".
+- **small:** "Okafor" → "Ocopher"; the private web project's name → split into two misspelled words; "gate code" → "gatecode".
+- **medium:** "Nguyen" → "Wen" on the noisy clip; the private web project's name → run together as one word.
 
 **With the vocabulary hint:**
 - "HOA", "Okafor" and "Nguyen" came through in every model.
@@ -73,14 +73,14 @@ Run on all 20 clips. Processing times varied between the runs that day (the PC w
 
 Why: the retest found weak accuracy (a unit's letter dropped, "Unit 7", "Claude" heard as "Claw", "shift" as "knowledge shift"). Installed on the PC: **base.en** (`ggml-base.en-q5_1.bin`, Settings → Dictation → Speech model = Base), and **the word list was empty**, so whisper got no vocabulary hint at all.
 
-Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the built-in words of that day (the app's names plus the owner's own terms; cut to `Claude, Claude Code, Codex, Glim` on 2026-10-24) and the clips' words as the hint (`Claude, Claude Code, Codex, Glim, Okafor, Nguyen, Rodriguez Plumbing, dale-cuts, HOA`):
+Same tool and clips as above, whisper.cpp b5454 CLI, this PC, with the built-in words of that day (the app's names plus the owner's own terms; cut to `Claude, Claude Code, Codex, Glim` on 2026-10-24) and the clips' words as the hint (`Claude, Claude Code, Codex, Glim, Okafor, Nguyen, Rodriguez Plumbing, <a private web project's name>, HOA`):
 
 | | base.en | small.en |
 |---|---|---|
 | Processing, median | **0.55 s** | 1.93 s |
 | Processing, worst | 0.74 s | 2.31 s |
 | Lenient WER (20 clips) | 4.1% | 3.6% |
-| Clips with a key term missed | 1 (h1 "Thursday", fast clip) | 2 ("gate code", "dale cuts") |
+| Clips with a key term missed | 1 (h1 "Thursday", fast clip) | 2 ("gate code", the private web project's name) |
 | Command word heard first | 12/12 | 12/12 |
 
 **Small runs fast enough to use** (~2 s after letting go of the key, against ~0.5 s), but on these clips it is not clearly more accurate. **Keep base**, now with the built-in word list (fix d) and the unit-number fix-up; **decide with Anthony's own 22 clips** (`docs/voice-clips-to-record.md`, folder `%USERPROFILE%\glim-clips\` created 2026-10-17). Switching is a Settings change plus `ggml-small.en-q5_1.bin` in `%LOCALAPPDATA%\Glim\whisper` (not there now).
@@ -103,7 +103,7 @@ Upstream Coucou's Windows app does speech-to-text with **Parakeet TDT 0.6B v3** 
 
 ## Cloud candidates (prices from the official pages, 2026-10-14; not measured)
 
-Picked on the day as the two that sell short-clip batch transcription and a custom-vocabulary option (needed for names like Okafor, Glim, dale-cuts):
+Picked on the day as the two that sell short-clip batch transcription and a custom-vocabulary option (needed for names like Okafor, Glim and a private web project's name):
 
 | | Deepgram Nova-3 (English) | AssemblyAI Universal |
 |---|---|---|
