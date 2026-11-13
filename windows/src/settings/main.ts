@@ -26,6 +26,7 @@ import { askSection } from "./ask";
 import { memorySection } from "./memory";
 import { secretsSection } from "./secrets";
 import { runbooksSection } from "./runbooks";
+import { remoteSection } from "./remote";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
@@ -1053,6 +1054,7 @@ async function render() {
   memory.id = "settings-memory";
   const secrets = secretsSection();
   const runbooks = runbooksSection();
+  const remote = remoteSection(toggle);
   const shortcuts = shortcutsSection(shortcutReport);
   shortcuts.id = "settings-shortcuts";
   const about = h("section", { id: "settings-about" },
@@ -1074,6 +1076,7 @@ async function render() {
     memory,
     secrets,
     runbooks,
+    remote,
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },
       claudeSection(status),

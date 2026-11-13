@@ -8609,6 +8609,182 @@
    "pt-BR": "Esse runbook já está em execução.",
    "ru": "Этот сценарий уже выполняется.",
    "id": "Runbook itu sudah berjalan."
+  },
+  "Remote": {
+   "zh-Hans": "远程",
+   "hi": "रिमोट",
+   "es": "Remoto",
+   "ar": "عن بُعد",
+   "fr": "À distance",
+   "bn": "রিমোট",
+   "pt-BR": "Remoto",
+   "ru": "Удалённо",
+   "id": "Jarak jauh"
+  },
+  "Off": {
+   "zh-Hans": "关闭",
+   "hi": "बंद",
+   "es": "Desactivado",
+   "ar": "متوقف",
+   "fr": "Désactivé",
+   "bn": "বন্ধ",
+   "pt-BR": "Desligado",
+   "ru": "Выключено",
+   "id": "Mati"
+  },
+  "Running since {time}": {
+   "zh-Hans": "自 {time} 起运行",
+   "hi": "{time} से चल रहा है",
+   "es": "En marcha desde las {time}",
+   "ar": "يعمل منذ {time}",
+   "fr": "En cours depuis {time}",
+   "bn": "{time} থেকে চলছে",
+   "pt-BR": "Rodando desde {time}",
+   "ru": "Работает с {time}",
+   "id": "Berjalan sejak {time}"
+  },
+  "Stopped (exit code {code}); starting again at {time}": {
+   "zh-Hans": "已停止（退出代码 {code}）；将在 {time} 再次启动",
+   "hi": "रुक गया (एग्ज़िट कोड {code}); {time} पर फिर शुरू होगा",
+   "es": "Se detuvo (código de salida {code}); vuelve a empezar a las {time}",
+   "ar": "توقف (رمز الخروج {code})؛ سيبدأ مجددًا عند {time}",
+   "fr": "Arrêté (code de sortie {code}) ; redémarrage à {time}",
+   "bn": "থেমে গেছে (এক্সিট কোড {code}); {time}-এ আবার শুরু হবে",
+   "pt-BR": "Parou (código de saída {code}); começa de novo às {time}",
+   "ru": "Остановлен (код выхода {code}); снова запустится в {time}",
+   "id": "Berhenti (kode keluar {code}); mulai lagi pukul {time}"
+  },
+  "Couldn't start ({why}); trying again at {time}": {
+   "zh-Hans": "无法启动（{why}）；将在 {time} 重试",
+   "hi": "शुरू नहीं हो सका ({why}); {time} पर फिर कोशिश होगी",
+   "es": "No se pudo iniciar ({why}); se reintenta a las {time}",
+   "ar": "تعذّر البدء ({why})؛ ستُعاد المحاولة عند {time}",
+   "fr": "Impossible de démarrer ({why}) ; nouvel essai à {time}",
+   "bn": "শুরু করা যায়নি ({why}); {time}-এ আবার চেষ্টা হবে",
+   "pt-BR": "Não foi possível iniciar ({why}); nova tentativa às {time}",
+   "ru": "Не удалось запустить ({why}); повтор в {time}",
+   "id": "Tidak bisa dimulai ({why}); dicoba lagi pukul {time}"
+  },
+  "Starting…": {
+   "zh-Hans": "正在启动…",
+   "hi": "शुरू हो रहा है…",
+   "es": "Iniciando…",
+   "ar": "جارٍ البدء…",
+   "fr": "Démarrage…",
+   "bn": "শুরু হচ্ছে…",
+   "pt-BR": "Iniciando…",
+   "ru": "Запуск…",
+   "id": "Memulai…"
+  },
+  "Keeps Claude Code's remote control running for the folders below, so you can reach this PC's Claude Code from your phone or claude.ai. Each one starts when Glim starts, in a terminal window you can see, and starts again if it stops. Nothing else is ever run.": {
+   "zh-Hans": "让下列文件夹的 Claude Code 远程控制保持运行，这样你可以从手机或 claude.ai 使用这台电脑上的 Claude Code。每个都会在 Glim 启动时在一个可见的终端窗口中启动，停止后会再次启动。不会运行其他任何东西。",
+   "hi": "नीचे दिए फ़ोल्डरों के लिए Claude Code का रिमोट कंट्रोल चालू रखता है, ताकि आप अपने फ़ोन या claude.ai से इस PC के Claude Code तक पहुँच सकें। हर एक Glim के शुरू होने पर एक दिखने वाली टर्मिनल विंडो में शुरू होता है, और रुकने पर फिर शुरू होता है। इसके अलावा कुछ भी नहीं चलाया जाता।",
+   "es": "Mantiene en marcha el control remoto de Claude Code para las carpetas de abajo, para que puedas usar el Claude Code de este PC desde tu teléfono o claude.ai. Cada uno se inicia cuando se inicia Glim, en una ventana de terminal visible, y vuelve a iniciarse si se detiene. Nunca se ejecuta nada más.",
+   "ar": "يُبقي التحكم عن بُعد في Claude Code قيد التشغيل للمجلدات أدناه، لتصل إلى Claude Code على هذا الجهاز من هاتفك أو من claude.ai. يبدأ كل واحد عند بدء Glim في نافذة طرفية مرئية، ويبدأ مجددًا إذا توقف. لا يُشغَّل أي شيء آخر أبدًا.",
+   "fr": "Garde le contrôle à distance de Claude Code actif pour les dossiers ci-dessous, pour joindre le Claude Code de ce PC depuis votre téléphone ou claude.ai. Chacun démarre avec Glim, dans une fenêtre de terminal visible, et redémarre s'il s'arrête. Rien d'autre n'est jamais lancé.",
+   "bn": "নিচের ফোল্ডারগুলোর জন্য Claude Code-এর রিমোট কন্ট্রোল চালু রাখে, যাতে আপনি ফোন বা claude.ai থেকে এই PC-র Claude Code ব্যবহার করতে পারেন। প্রতিটি Glim চালু হলে একটি দৃশ্যমান টার্মিনাল উইন্ডোতে শুরু হয়, আর থেমে গেলে আবার শুরু হয়। এর বাইরে কিছুই চালানো হয় না।",
+   "pt-BR": "Mantém o controle remoto do Claude Code rodando para as pastas abaixo, para você acessar o Claude Code deste PC pelo celular ou pelo claude.ai. Cada um começa quando o Glim começa, numa janela de terminal visível, e começa de novo se parar. Nada além disso é executado.",
+   "ru": "Держит удалённое управление Claude Code запущенным для папок ниже, чтобы вы могли пользоваться Claude Code этого ПК с телефона или claude.ai. Каждое запускается вместе с Glim в видимом окне терминала и перезапускается, если остановится. Ничего другого никогда не запускается.",
+   "id": "Menjaga remote control Claude Code tetap berjalan untuk folder di bawah, agar kamu bisa memakai Claude Code di PC ini dari ponsel atau claude.ai. Masing-masing dimulai saat Glim mulai, di jendela terminal yang terlihat, dan dimulai lagi kalau berhenti. Tidak ada yang lain yang dijalankan."
+  },
+  "Keep Claude Code reachable?": {
+   "zh-Hans": "让 Claude Code 保持可访问？",
+   "hi": "Claude Code को पहुँच में रखें?",
+   "es": "¿Mantener Claude Code accesible?",
+   "ar": "إبقاء Claude Code متاحًا؟",
+   "fr": "Garder Claude Code joignable ?",
+   "bn": "Claude Code নাগালে রাখবেন?",
+   "pt-BR": "Manter o Claude Code acessível?",
+   "ru": "Держать Claude Code доступным?",
+   "id": "Biarkan Claude Code tetap terjangkau?"
+  },
+  "Glim will start Claude Code's remote control for each folder on the list whenever Glim starts, and restart it if it stops. Remote control connects to Anthropic so that you, signed in to your Claude account, can use these sessions from another device. Glim itself sends nothing. You can turn it off here at any time.": {
+   "zh-Hans": "每次 Glim 启动时，它都会为列表中的每个文件夹启动 Claude Code 远程控制，停止后会重新启动。远程控制会连接 Anthropic，让登录了 Claude 账户的你可以在其他设备上使用这些会话。Glim 本身不发送任何内容。你随时可以在这里关闭它。",
+   "hi": "Glim हर बार शुरू होने पर सूची के हर फ़ोल्डर के लिए Claude Code का रिमोट कंट्रोल शुरू करेगा, और रुकने पर उसे फिर शुरू करेगा। रिमोट कंट्रोल Anthropic से जुड़ता है ताकि अपने Claude खाते में साइन इन करके आप इन सेशनों को दूसरे डिवाइस से इस्तेमाल कर सकें। Glim खुद कुछ नहीं भेजता। आप इसे यहाँ कभी भी बंद कर सकते हैं।",
+   "es": "Glim iniciará el control remoto de Claude Code para cada carpeta de la lista cada vez que se inicie, y lo reiniciará si se detiene. El control remoto se conecta a Anthropic para que tú, con tu cuenta de Claude, puedas usar estas sesiones desde otro dispositivo. Glim no envía nada por su cuenta. Puedes desactivarlo aquí cuando quieras.",
+   "ar": "سيبدأ Glim التحكم عن بُعد في Claude Code لكل مجلد في القائمة كلما بدأ، وسيعيد تشغيله إذا توقف. يتصل التحكم عن بُعد بـ Anthropic كي تستخدم هذه الجلسات من جهاز آخر وأنت مسجّل الدخول إلى حسابك في Claude. لا يرسل Glim نفسه أي شيء. يمكنك إيقافه من هنا في أي وقت.",
+   "fr": "À chaque démarrage, Glim lancera le contrôle à distance de Claude Code pour chaque dossier de la liste, et le relancera s'il s'arrête. Le contrôle à distance se connecte à Anthropic pour que vous, connecté à votre compte Claude, puissiez utiliser ces sessions depuis un autre appareil. Glim lui-même n'envoie rien. Vous pouvez le désactiver ici à tout moment.",
+   "bn": "Glim যখনই চালু হবে, তালিকার প্রতিটি ফোল্ডারের জন্য Claude Code-এর রিমোট কন্ট্রোল শুরু করবে, আর থেমে গেলে আবার শুরু করবে। রিমোট কন্ট্রোল Anthropic-এর সাথে যুক্ত হয়, যাতে আপনার Claude অ্যাকাউন্টে সাইন ইন করে আপনি অন্য ডিভাইস থেকে এই সেশনগুলো ব্যবহার করতে পারেন। Glim নিজে কিছু পাঠায় না। আপনি যেকোনো সময় এখানে এটি বন্ধ করতে পারেন।",
+   "pt-BR": "Sempre que o Glim iniciar, ele vai abrir o controle remoto do Claude Code para cada pasta da lista e reiniciá-lo se parar. O controle remoto se conecta à Anthropic para que você, conectado à sua conta Claude, use essas sessões em outro dispositivo. O Glim em si não envia nada. Você pode desligar aqui quando quiser.",
+   "ru": "При каждом запуске Glim будет запускать удалённое управление Claude Code для каждой папки из списка и перезапускать его, если оно остановится. Удалённое управление подключается к Anthropic, чтобы вы, войдя в свою учётную запись Claude, могли пользоваться этими сеансами с другого устройства. Сам Glim ничего не отправляет. Выключить можно здесь в любой момент.",
+   "id": "Setiap kali Glim mulai, ia akan menjalankan remote control Claude Code untuk tiap folder di daftar, dan memulainya lagi kalau berhenti. Remote control terhubung ke Anthropic agar kamu, yang masuk ke akun Claude, bisa memakai sesi ini dari perangkat lain. Glim sendiri tidak mengirim apa pun. Kamu bisa mematikannya di sini kapan saja."
+  },
+  "Keep Claude Code reachable": {
+   "zh-Hans": "让 Claude Code 保持可访问",
+   "hi": "Claude Code को पहुँच में रखें",
+   "es": "Mantener Claude Code accesible",
+   "ar": "إبقاء Claude Code متاحًا",
+   "fr": "Garder Claude Code joignable",
+   "bn": "Claude Code নাগালে রাখুন",
+   "pt-BR": "Manter o Claude Code acessível",
+   "ru": "Держать Claude Code доступным",
+   "id": "Biarkan Claude Code tetap terjangkau"
+  },
+  "Folders": {
+   "zh-Hans": "文件夹",
+   "hi": "फ़ोल्डर",
+   "es": "Carpetas",
+   "ar": "المجلدات",
+   "fr": "Dossiers",
+   "bn": "ফোল্ডার",
+   "pt-BR": "Pastas",
+   "ru": "Папки",
+   "id": "Folder"
+  },
+  "No folders yet.": {
+   "zh-Hans": "还没有文件夹。",
+   "hi": "अभी कोई फ़ोल्डर नहीं।",
+   "es": "Aún no hay carpetas.",
+   "ar": "لا توجد مجلدات بعد.",
+   "fr": "Aucun dossier pour l'instant.",
+   "bn": "এখনো কোনো ফোল্ডার নেই।",
+   "pt-BR": "Nenhuma pasta ainda.",
+   "ru": "Папок пока нет.",
+   "id": "Belum ada folder."
+  },
+  "Stopped {n} times in the last hour.": {
+   "zh-Hans": "过去一小时内停止了 {n} 次。",
+   "hi": "पिछले एक घंटे में {n} बार रुका।",
+   "es": "Se detuvo {n} veces en la última hora.",
+   "ar": "توقف {n} مرات في الساعة الأخيرة.",
+   "fr": "Arrêté {n} fois dans la dernière heure.",
+   "bn": "গত এক ঘণ্টায় {n} বার থেমেছে।",
+   "pt-BR": "Parou {n} vezes na última hora.",
+   "ru": "Останавливался {n} раз за последний час.",
+   "id": "Berhenti {n} kali dalam satu jam terakhir."
+  },
+  "Project folder, like C:\\path\\to\\project": {
+   "zh-Hans": "项目文件夹，例如 C:\\path\\to\\project",
+   "hi": "प्रोजेक्ट फ़ोल्डर, जैसे C:\\path\\to\\project",
+   "es": "Carpeta del proyecto, como C:\\path\\to\\project",
+   "ar": "مجلد المشروع، مثل C:\\path\\to\\project",
+   "fr": "Dossier du projet, par exemple C:\\path\\to\\project",
+   "bn": "প্রজেক্ট ফোল্ডার, যেমন C:\\path\\to\\project",
+   "pt-BR": "Pasta do projeto, como C:\\path\\to\\project",
+   "ru": "Папка проекта, например C:\\path\\to\\project",
+   "id": "Folder proyek, misalnya C:\\path\\to\\project"
+  },
+  "Also keep the Claude desktop app open": {
+   "zh-Hans": "同时保持 Claude 桌面应用打开",
+   "hi": "Claude डेस्कटॉप ऐप भी खुला रखें",
+   "es": "Mantener también abierta la app de escritorio de Claude",
+   "ar": "إبقاء تطبيق Claude لسطح المكتب مفتوحًا أيضًا",
+   "fr": "Garder aussi l'app de bureau Claude ouverte",
+   "bn": "Claude ডেস্কটপ অ্যাপও খোলা রাখুন",
+   "pt-BR": "Manter também o app Claude para desktop aberto",
+   "ru": "Также держать открытым приложение Claude для ПК",
+   "id": "Biarkan aplikasi desktop Claude tetap terbuka juga"
+  },
+  "Answer the card first.": {
+   "zh-Hans": "请先回答卡片。",
+   "hi": "पहले कार्ड का जवाब दें।",
+   "es": "Responde primero a la tarjeta.",
+   "ar": "أجب عن البطاقة أولًا.",
+   "fr": "Répondez d'abord à la carte.",
+   "bn": "আগে কার্ডটির উত্তর দিন।",
+   "pt-BR": "Responda o cartão primeiro.",
+   "ru": "Сначала ответьте на карточку.",
+   "id": "Jawab kartunya dulu."
   }
  }
 }

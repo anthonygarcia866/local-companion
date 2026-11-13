@@ -248,7 +248,7 @@ fn forbidden_folder(canon: &Path) -> bool {
     under("WINDIR") || under("ProgramFiles") || under("ProgramFiles(x86)") || under("ProgramData") || is("USERPROFILE")
 }
 
-fn allowed_folder(raw: &str) -> Result<PathBuf, String> {
+pub(crate) fn allowed_folder(raw: &str) -> Result<PathBuf, String> {
     let p = full_local(raw)?;
     let canon = std::fs::canonicalize(&p).map_err(|_| format!("allowed folder {raw:?} doesn't exist"))?;
     if !canon.is_dir() {
@@ -360,7 +360,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
         "run" => {
             none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
             let command = command_entry(&need(&s.command, "command")?)?;
-            if !allow.commands.iter().any(|c| *c == command) {
+            if !allow.commands.contains(&command) {
                 return Err(format!("command {command:?} is not exactly in [allow] commands"));
             }
             let raw = need(&s.folder, "folder")?;

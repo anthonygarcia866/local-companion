@@ -259,6 +259,22 @@ pub fn run_command_line(_command: &str, _folder: &std::path::Path, _timeout: std
     Err("couldn't start".into())
 }
 
+/// Keep-alive is Windows-only for now.
+pub fn kill_tree(_pid: u32) {}
+
+/// Keep-alive is Windows-only for now.
+pub fn start_in_console(_command: &str, _folder: &std::path::Path, _env: &[(&str, &str)], _new_console: bool) -> Result<std::process::Child, String> {
+    Err("couldn't start".into())
+}
+
+pub fn find_claude() -> Option<PathBuf> {
+    None
+}
+
+pub fn claude_desktop_running() -> bool {
+    false
+}
+
 pub fn reveal_folder(path: &str) {
     let _ = Command::new("xdg-open").arg(path).spawn();
 }

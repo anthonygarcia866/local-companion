@@ -14,10 +14,10 @@ const { h } = await import("../src/views/dom.ts");
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 test("the sidebar lists the sections in the asked order, Writing with its three parts", () => {
-  assert.deepEqual(NAV.map((e) => e.label), ["General", "Presence", "Writing", "Ask Glim", "Calendar", "Privacy", "Memory", "Secrets", "Runbooks", "Shortcuts", "Claude Code & Agents", "Phone", "About"]);
+  assert.deepEqual(NAV.map((e) => e.label), ["General", "Presence", "Writing", "Ask Glim", "Calendar", "Privacy", "Memory", "Secrets", "Runbooks", "Remote", "Shortcuts", "Claude Code & Agents", "Phone", "About"]);
   assert.deepEqual(NAV[2].children.map((e) => e.label), ["Apps", "Tones", "Strictness"]);
   // Every entry's target exists in the Settings code.
-  const src = read("src/settings/main.ts") + read("src/settings/writing.ts") + read("src/settings/phone.ts") + read("src/settings/secrets.ts") + read("src/settings/runbooks.ts");
+  const src = read("src/settings/main.ts") + read("src/settings/writing.ts") + read("src/settings/phone.ts") + read("src/settings/secrets.ts") + read("src/settings/runbooks.ts") + read("src/settings/remote.ts");
   for (const e of flatNav()) assert.ok(src.includes(`"${e.id}"`), e.id);
 });
 

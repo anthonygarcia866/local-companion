@@ -54,6 +54,8 @@ pub enum Kind {
     Test,
     /// "Tell me when …" (watch.rs) fired.
     Watch,
+    /// Keep-alive (keepalive.rs): 3 restarts ended within an hour.
+    KeepAlive,
 }
 
 impl Kind {
@@ -66,6 +68,7 @@ impl Kind {
             Kind::SpendLimit => "spend limit",
             Kind::Test => "test",
             Kind::Watch => "watch",
+            Kind::KeepAlive => "keep-alive",
         }
     }
 }
@@ -112,6 +115,7 @@ pub fn message(kind: Kind, agent: &str, project: Option<&str>) -> String {
         Kind::SpendLimit => format!("{who} hit a spend limit"),
         Kind::Test => "Test notification from Glim".into(),
         Kind::Watch => format!("{who}: what you asked Glim to watch for happened"),
+        Kind::KeepAlive => format!("{who}: remote control stopped 3 times in an hour"),
     }
 }
 
@@ -126,6 +130,8 @@ pub fn wanted(settings: &Settings, kind: Kind) -> bool {
             Kind::Test => true,
             // Asked for by voice, each time: the master switch is enough.
             Kind::Watch => true,
+            // The owner turned keep-alive on: the master switch is enough.
+            Kind::KeepAlive => true,
         }
 }
 

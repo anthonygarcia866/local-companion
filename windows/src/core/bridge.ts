@@ -179,6 +179,13 @@ export const Bridge = {
   phoneTest: () => callOrThrow<void>("phone_test"),
   /** Ms since the last keyboard or mouse input on this PC, or null. */
   phoneIdleMs: () => call<number>("phone_idle_ms"),
+  /** Settings → Remote: the switch, the list, each entry's status. */
+  keepAliveStatus: () => call<KeepAliveStatus>("keepalive_status"),
+  /** `consent`: the card's "Turn on" (needed once before the first on). */
+  keepAliveSet: (on: boolean, consent: boolean) => callOrThrow<KeepAliveStatus>("keepalive_set", { on, consent }),
+  keepAliveAdd: (folder: string) => callOrThrow<KeepAliveStatus>("keepalive_add", { folder }),
+  keepAliveRemove: (folder: string) => callOrThrow<KeepAliveStatus>("keepalive_remove", { folder }),
+  keepAliveDesktop: (on: boolean) => callOrThrow<KeepAliveStatus>("keepalive_desktop", { on }),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
   runbooksList: () => call<RunbooksView>("runbooks_list"),
   /** "Approve runbook": only the version shown (`hash`). */
@@ -395,6 +402,33 @@ export interface DroppedFile {
 }
 
 /** Settings → AI: whether a key is saved, and its hint ("sk-ant-…abcd"). */
+/** Settings → Remote (keepalive.rs). */
+export interface KeepAliveSettings {
+  on: boolean;
+  consented: boolean;
+  folders: string[];
+  desktopApp: boolean;
+}
+
+export interface KeepAliveEntry {
+  id: string;
+  /** "" for the desktop app. */
+  folder: string;
+  /** The fixed command ("" for the desktop app). */
+  command: string;
+  state: "running" | "waiting" | "start-failed" | "off";
+  /** Seconds since 1970: running since / next try. */
+  at: number;
+  lastExit: number | null;
+  why: string;
+  failedLastHour: number;
+}
+
+export interface KeepAliveStatus {
+  settings: KeepAliveSettings;
+  entries: KeepAliveEntry[];
+}
+
 /** One runbook step as Rust describes it (secret names only). */
 export interface RunbookStepView {
   kind: string;

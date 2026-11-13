@@ -34,6 +34,7 @@ export const NAV: NavEntry[] = [
   { id: "settings-memory", label: N_("Memory") },
   { id: "settings-secrets", label: N_("Secrets") },
   { id: "settings-runbooks", label: N_("Runbooks") },
+  { id: "settings-remote", label: N_("Remote") },
   { id: "settings-shortcuts", label: N_("Shortcuts") },
   { id: "settings-agents", label: N_("Claude Code & Agents") },
   { id: "settings-phone", label: N_("Phone") },
