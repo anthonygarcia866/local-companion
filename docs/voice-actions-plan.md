@@ -40,7 +40,7 @@ Speech-to-text is **not decided** (owner, 2026-10-11). This is the method; the r
   - **Cloud:** two or three services, picked on the day from current docs and price pages (not from memory), each needing an API key in Windows Credential Manager like Anthropic's.
 - **The clips:** 20 clips of the owner's own speech, 5–40 s each, recorded once and used for every option:
   - 8 dictation clips (emails and notes, with property-management words: unit numbers like "4B", tenant and vendor names, "lease renewal", "HOA", dollar amounts, dates);
-  - 8 command clips ("open Outlook", "pick up where I left off in dale-cuts", "draft an email to …");
+  - 8 command clips ("open Outlook", "pick up where I left off in web-project", "draft an email to …");
   - 4 hard clips: fast, noisy room, a pause mid-sentence, numbers spelled two ways.
   > **Note 2026-10-16:** the list to record is `docs/voice-clips-to-record.md`: 22 clips, mixed 6 dictation / 12 commands / 4 hard so that every approved command word and each `open_app` target gets a clip.
   - Each clip has a hand-written reference transcript.
@@ -96,7 +96,7 @@ Full write-up: **`docs/voice-stt-results.md`**. Tool: `windows/dev/stt-compare/`
 - **Examples** (transcript → tool call):
   - "hey can you say thanks for the quick turnaround on unit 7D we'll get the lease to you by friday" in Outlook → `dictate { text: "Thanks for the quick turnaround on unit 7D. We'll get the lease to you by Friday." }`
   - "open outlook" → `open_app { app: "outlook" }`
-  - "pick up from yesterday" → `resume_work {}`; "where was I on dale cuts" → `resume_work { repo: "dale-cuts" }`
+  - "pick up from yesterday" → `resume_work {}`; "where was I on web project" → `resume_work { repo: "web-project" }` (web-project = a private web project)
   - "draft an email to Maria saying the plumber comes Tuesday at ten" → `draft_email { to: ["Maria"], subject: "Plumber visit Tuesday", body: "Hi Maria,\n\nThe plumber is coming Tuesday at 10am.\n\n…" }`
   - "send it" → **not a tool**. There is no `send_email` tool; Claude can't produce one. The reply is `clarify { question: "Click Send on the draft to send it." }`.
 - **Sensitive data:** the transcript goes through the card/SSN/IBAN scan before the API call. A hit stops the request ("Not sent: …", the 1c wording). For `dictate`, the text Claude returns is scanned again before typing.
