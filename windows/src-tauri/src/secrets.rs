@@ -37,12 +37,6 @@ pub const RESERVED: &[&str] = &["AnthropicApiKey", "PushoverKeys", "RunbookAppro
 pub struct SecretValue(String);
 
 impl SecretValue {
-    /// A value for tests (runbooks' fakes).
-    #[cfg(test)]
-    pub fn for_test(v: &str) -> SecretValue {
-        SecretValue(v.to_string())
-    }
-
     /// The value itself: for a runbook's env_secret write, nothing else.
     pub fn reveal(&self) -> &str {
         &self.0

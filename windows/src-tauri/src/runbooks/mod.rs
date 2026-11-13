@@ -281,7 +281,7 @@ fn app_entry(raw: &str) -> Result<App, String> {
     if !ok {
         return Err(format!("app {raw:?} is neither a path to an .exe/.lnk nor a protocol link (like example-app:)"));
     }
-    if BANNED_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()) {
+    if BANNED_SCHEMES.iter().any(|b| b.eq_ignore_ascii_case(scheme)) {
         return Err(format!("{scheme}: links can't be a runbook app"));
     }
     Ok(App::Protocol(raw.to_string()))
@@ -718,6 +718,7 @@ fn one(step: &Step, world: &dyn World) -> Result<String, String> {
 /// Everything about one run of a named runbook: load, check approval, run,
 /// audit. `seen_hash`: Settings passes the version it showed; a different
 /// file is refused as changed.
+#[allow(clippy::too_many_arguments)]
 pub fn run_named(
     dir: &Path,
     approvals: &Approvals,
