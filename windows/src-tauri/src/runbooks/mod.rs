@@ -6,7 +6,8 @@
 //
 // - `env_secret`: a saved secret (secrets.rs) written as KEY=value into a
 //   file under an allowlisted folder, only when git says that file is
-//   ignored and not tracked (env_file.rs).
+//   ignored and not tracked (env_file.rs); the old file's backup goes in
+//   %LOCALAPPDATA%\Glim\backups\<runbook>\, never in a repository.
 // - `start_app`: an allowlisted .exe/.lnk or protocol, no arguments, no shell.
 // - `run`: an exact allowlisted command line in an allowlisted folder, with
 //   a timeout; the exit code is logged, the output is thrown away.
@@ -59,6 +60,11 @@ pub fn dir() -> PathBuf {
 
 fn approvals_path() -> PathBuf {
     crate::platform::config_dir().join("runbooks-approved.json")
+}
+
+/// %LOCALAPPDATA%\Glim\backups: env_secret's backups, one folder per runbook.
+pub fn backups_dir() -> PathBuf {
+    crate::settings::local_dir().join("backups")
 }
 
 pub fn audit_path() -> PathBuf {
@@ -648,6 +654,8 @@ impl Refusal {
 /// What the runner needs from the outside world: real in the app, fakes in tests.
 pub trait World {
     fn secret(&self, name: &str) -> Result<Option<secrets::SecretValue>, String>;
+    /// Where a runbook's env_secret backups go (outside every repository).
+    fn backups(&self, runbook: &str) -> PathBuf;
     fn start_app(&self, app: &App) -> bool;
     /// Exit code, or Err("timeout" / "couldn't start").
     fn run(&self, command: &str, folder: &Path, timeout: Duration) -> Result<i32, String>;
@@ -666,7 +674,7 @@ pub fn run_steps(book: &Runbook, world: &dyn World, confirmed: &[usize], progres
     let total = book.steps.len();
     let mut out = Vec::new();
     for (i, s) in book.steps.iter().enumerate() {
-        let (ok, detail) = match one(&s.step, world) {
+        let (ok, detail) = match one(&book.name, &s.step, world) {
             Ok(d) => (true, d),
             Err(d) => (false, d),
         };
@@ -680,11 +688,11 @@ pub fn run_steps(book: &Runbook, world: &dyn World, confirmed: &[usize], progres
     Ok(out)
 }
 
-fn one(step: &Step, world: &dyn World) -> Result<String, String> {
+fn one(runbook: &str, step: &Step, world: &dyn World) -> Result<String, String> {
     match step {
         Step::EnvSecret { secret, file, key } => {
             let value = world.secret(secret)?.ok_or_else(|| format!("no secret called {secret} (Settings → Secrets → Add a secret)"))?;
-            env_file::write_secret(file, key, &value).map(|()| "written".to_string())
+            env_file::write_secret(file, key, &value, &world.backups(runbook)).map(|()| "written".to_string())
         }
         Step::StartApp { app } => {
             if world.start_app(app) { Ok("started".into()) } else { Err("Windows couldn't start it".into()) }
@@ -828,6 +836,10 @@ impl World for RealWorld {
     fn secret(&self, name: &str) -> Result<Option<secrets::SecretValue>, String> {
         // runbooks: the only place a secret is read out (secrets.rs test).
         secrets::read(&secrets::store(), name)
+    }
+
+    fn backups(&self, runbook: &str) -> PathBuf {
+        backups_dir().join(runbook)
     }
 
     fn start_app(&self, app: &App) -> bool {

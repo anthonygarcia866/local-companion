@@ -44,6 +44,8 @@ fn book(dir: &Path, name: &str, text: &str) {
 
 struct Fake {
     store: MemoryStore,
+    /// Stands in for %LOCALAPPDATA%\Glim\backups.
+    backups: PathBuf,
     started: RefCell<Vec<String>>,
     exit: i32,
     port: bool,
@@ -52,13 +54,16 @@ struct Fake {
 
 impl Default for Fake {
     fn default() -> Self {
-        Fake { store: MemoryStore::default(), started: RefCell::new(vec![]), exit: 0, port: true, status: 200 }
+        Fake { store: MemoryStore::default(), backups: scratch("backups"), started: RefCell::new(vec![]), exit: 0, port: true, status: 200 }
     }
 }
 
 impl World for Fake {
     fn secret(&self, name: &str) -> Result<Option<SecretValue>, String> {
         crate::secrets::read(&self.store, name)
+    }
+    fn backups(&self, runbook: &str) -> PathBuf {
+        self.backups.join(runbook)
     }
     fn start_app(&self, app: &App) -> bool {
         self.started.borrow_mut().push(format!("{app:?}"));
@@ -262,20 +267,61 @@ fn env_secret_writes_an_ignored_file_keeping_other_lines_with_a_backup() {
     assert!(r.iter().all(|o| o.ok), "{r:?}");
     let text = std::fs::read_to_string(&env).unwrap();
     assert_eq!(text, format!("# keep me\r\nOTHER=1\r\nEXAMPLE_KEY={VALUE}\r\n"));
-    // A dated backup beside it, ignored by git.
-    let backups: Vec<_> = std::fs::read_dir(&d).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(".env.local.glim-backup-2")).collect();
-    assert_eq!(backups.len(), 1, "{backups:?}");
-    assert_eq!(std::fs::read_to_string(d.join(&backups[0])).unwrap(), "# keep me\r\nOTHER=1\r\nEXAMPLE_KEY=old\r\nexport EXAMPLE_KEY=older\r\n");
-    assert_eq!(git_status(&d.join(&backups[0])), Git::Ignored);
-    // No temp file left; git status shows nothing new to commit.
-    assert!(!std::fs::read_dir(&d).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains("glim-backup-tmp")));
-    let porcelain = std::process::Command::new("git").args(["status", "--porcelain"]).current_dir(&d).output().unwrap();
+    // Nothing new in the repo: no backup or temp file beside it, no
+    // info/exclude entry; `git status` shows nothing new.
+    let beside: Vec<_> = std::fs::read_dir(&d).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(".env.local.")).collect();
+    assert!(beside.is_empty(), "{beside:?}");
+    let exclude = std::fs::read_to_string(d.join(".git").join("info").join("exclude")).unwrap_or_default();
+    assert!(!exclude.contains("glim"), "{exclude}");
+    let porcelain = std::process::Command::new("git").args(["status", "--porcelain", "--ignored"]).current_dir(&d).output().unwrap();
     let porcelain = String::from_utf8_lossy(&porcelain.stdout);
-    assert!(!porcelain.contains(".env.local"), "{porcelain}");
+    assert!(!porcelain.contains("bak") && !porcelain.contains("tmp"), "{porcelain}");
+    // The dated backup is in the runbook's own backup folder, outside the repo.
+    let folder = fake.backups.join("example");
+    let backups: Vec<_> = std::fs::read_dir(&folder).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(backups.len(), 1, "{backups:?}");
+    assert!(backups[0].starts_with(&env_file::backup_prefix(&std::fs::canonicalize(&env).unwrap())), "{backups:?}");
+    assert!(backups[0].contains(".bak-2"), "{backups:?}");
+    assert_eq!(std::fs::read_to_string(folder.join(&backups[0])).unwrap(), "# keep me\r\nOTHER=1\r\nEXAMPLE_KEY=old\r\nexport EXAMPLE_KEY=older\r\n");
     // The value is in no log line and no printed line.
     for l in audit.iter().chain(shown.iter()) {
         assert!(!l.contains("SENTINEL"), "{l}");
     }
+}
+
+#[test]
+fn a_backup_folder_inside_a_repository_is_refused() {
+    let d = repo("bkrepo");
+    let env = d.join(".env.local");
+    std::fs::write(&env, "A=1\n").unwrap();
+    let (books, approvals, key) = approved_dir("bkrepo-books", &env_book(&d, ".env.local"));
+    let fake = Fake { backups: repo("bkrepo-target"), ..Default::default() };
+    fake.store.write("EXAMPLE_TOKEN", VALUE).unwrap();
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Cli, &[], &fake, &mut |_| {}, &mut |_| {}).unwrap();
+    assert!(!r[0].ok && r[0].detail.contains("inside a git repository"), "{r:?}");
+    assert_eq!(std::fs::read_to_string(&env).unwrap(), "A=1\n", "untouched");
+}
+
+#[test]
+fn backups_keep_the_newest_three_per_file() {
+    let d = repo("prune");
+    let env = d.join(".env.local");
+    std::fs::write(&env, "A=1\n").unwrap();
+    let fake = Fake::default();
+    let folder = fake.backups.join("example");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = std::fs::canonicalize(&env).unwrap();
+    let prefix = env_file::backup_prefix(&file);
+    for stamp in ["20200101-000000", "20200102-000000", "20200103-000000", "20200104-000000"] {
+        std::fs::write(folder.join(format!("{prefix}{stamp}")), "old").unwrap();
+    }
+    std::fs::write(folder.join("other-file.aaaaaaaa.bak-20200101-000000"), "kept").unwrap();
+    env_file::write_secret(&file, "K", &crate::secrets::read(&{ let s = MemoryStore::default(); s.write("X", VALUE).unwrap(); s }, "X").unwrap().unwrap(), &folder).unwrap();
+    let mut names: Vec<_> = std::fs::read_dir(&folder).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    assert_eq!(names.iter().filter(|n| n.starts_with(&prefix)).count(), 3, "{names:?}");
+    assert!(!names.iter().any(|n| n.ends_with("20200101-000000") && n.starts_with(&prefix)), "the oldest went: {names:?}");
+    assert!(names.contains(&"other-file.aaaaaaaa.bak-20200101-000000".to_string()), "another file's backups stay");
 }
 
 #[test]
