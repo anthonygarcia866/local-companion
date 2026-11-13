@@ -375,3 +375,15 @@ fn names_are_file_stems_and_only_toml() {
     std::fs::write(d.join("notes.txt"), "").unwrap();
     assert_eq!(names_in(&d), ["A", "b"]);
 }
+
+/// examples/runbook.example.toml (the repo's only runbook) is valid runbook
+/// TOML, and its paths are placeholders only.
+#[test]
+fn the_example_runbook_is_valid_and_has_placeholders_only() {
+    let text = include_str!("../../../../examples/runbook.example.toml");
+    let raw: RawBook = toml::from_str(text).unwrap();
+    assert_eq!(raw.step.iter().map(|s| s.kind.as_str()).collect::<Vec<_>>(), ["env_secret", "check"]);
+    for line in text.lines().filter(|l| l.contains(":\\")) {
+        assert!(line.contains("C:\path\to\\"), "not a placeholder path: {line}");
+    }
+}
