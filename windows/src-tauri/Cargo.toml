@@ -65,6 +65,8 @@ windows = { version = "0.61", features = [
   "Storage_Streams",
   "Win32_Security",
   "Win32_Security_Authorization",
+  # The runbook approvals' random MAC key (runbooks/mod.rs): BCryptGenRandom.
+  "Win32_Security_Cryptography",
   # The Anthropic API key (ai/key.rs): Credential Manager, this user and PC only.
   "Win32_Security_Credentials",
   # "Open terminal": the relay's process tree leads to the session's window.
