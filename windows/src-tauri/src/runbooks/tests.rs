@@ -384,6 +384,6 @@ fn the_example_runbook_is_valid_and_has_placeholders_only() {
     let raw: RawBook = toml::from_str(text).unwrap();
     assert_eq!(raw.step.iter().map(|s| s.kind.as_str()).collect::<Vec<_>>(), ["env_secret", "check"]);
     for line in text.lines().filter(|l| l.contains(":\\")) {
-        assert!(line.contains("C:\path\to\\"), "not a placeholder path: {line}");
+        assert!(line.contains(r"C:\path\to\"), "not a placeholder path: {line}");
     }
 }
