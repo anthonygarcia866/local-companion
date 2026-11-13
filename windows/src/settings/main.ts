@@ -25,6 +25,7 @@ import { privacySection } from "./privacy";
 import { askSection } from "./ask";
 import { memorySection } from "./memory";
 import { secretsSection } from "./secrets";
+import { runbooksSection } from "./runbooks";
 import { buildNav, currentSection, flatNav, type Nav } from "./nav";
 import { phoneSection } from "./phone";
 import { colorDot } from "./colors";
@@ -1051,6 +1052,7 @@ async function render() {
   const memory = memorySection();
   memory.id = "settings-memory";
   const secrets = secretsSection();
+  const runbooks = runbooksSection();
   const shortcuts = shortcutsSection(shortcutReport);
   shortcuts.id = "settings-shortcuts";
   const about = h("section", { id: "settings-about" },
@@ -1071,6 +1073,7 @@ async function render() {
     privacy,
     memory,
     secrets,
+    runbooks,
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },
       claudeSection(status),

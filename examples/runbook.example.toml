@@ -1,0 +1,57 @@
+# A Glim runbook (local agency v1). EXAMPLE ONLY: every path, name and
+# command below is a placeholder. Copy this file to
+#   %APPDATA%\Glim\runbooks\<name>.toml
+# (the file name is the runbook's name: letters, digits, - _ or ., no spaces),
+# change the placeholders, then open Settings -> Runbooks -> Run. The first
+# run shows every step and asks you to approve it; any later change to the
+# file means approving it again.
+#
+# Steps run in order and stop at the first failure. Only four step types:
+# env_secret, start_app, run, check. Use single-quoted TOML strings for
+# Windows paths so backslashes stay as they are.
+
+description = "Example: put a token into a project's .env.local and check it"
+
+[allow]
+# Folders the steps may write in (env_secret) or run in (run). Never a drive,
+# Windows, Program Files or your whole profile.
+folders = ['C:\path\to\example-project']
+# Apps start_app may open: a full path to an .exe/.lnk, or a protocol link.
+apps = ['C:\path\to\ExampleApp.exe', 'example-app:']
+# Exact command lines run may use: one command, no & | < > ^ % !
+commands = ['npm run dev']
+
+# Writes the secret saved in Settings -> Secrets as EXAMPLE_TOKEN into the
+# file as EXAMPLE_KEY=<value>. Refused unless git ignores the file and doesn't
+# track it. The other lines are kept; the old file is backed up beside it.
+[[step]]
+type = "env_secret"
+secret = "EXAMPLE_TOKEN"
+file = 'C:\path\to\example-project\.env.local'
+key = "EXAMPLE_KEY"
+
+# Read-only checks: exactly one of file_exists, port (on 127.0.0.1) or url
+# (on this PC). wait_s retries every second, up to that many seconds.
+[[step]]
+type = "check"
+file_exists = 'C:\path\to\example-project\.env.local'
+
+# Opens an app from [allow] apps, with no arguments.
+# [[step]]
+# type = "start_app"
+# app = 'example-app:'
+
+# Runs an exact command from [allow] commands in an allowed folder. The exit
+# code is logged; the output isn't kept. ask = true asks you on every run
+# (and glim.exe --run refuses such a runbook).
+# [[step]]
+# type = "run"
+# command = "npm run dev"
+# folder = 'C:\path\to\example-project'
+# timeout_s = 120
+# ask = true
+
+# [[step]]
+# type = "check"
+# port = 5173
+# wait_s = 30

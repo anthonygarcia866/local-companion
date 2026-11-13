@@ -794,6 +794,8 @@ pub struct RunView {
     pub trigger: String,
     /// "OK", "FAIL" or "refused <code>".
     pub outcome: String,
+    pub ok: bool,
+    pub refused: bool,
     pub done: usize,
     pub total: usize,
 }
@@ -806,9 +808,9 @@ pub fn history(text: &str, n: usize) -> Vec<RunView> {
         // date time name trigger end OK 2/2  |  date time name trigger refused code
         if w.len() >= 6 && w[4] == "end" {
             let (done, total) = w.get(6).and_then(|f| f.split_once('/')).map(|(a, b)| (a.parse().unwrap_or(0), b.parse().unwrap_or(0))).unwrap_or((0, 0));
-            out.push(RunView { time: format!("{} {}", w[0], w[1]), name: w[2].into(), trigger: w[3].into(), outcome: w[5].into(), done, total });
+            out.push(RunView { time: format!("{} {}", w[0], w[1]), name: w[2].into(), trigger: w[3].into(), outcome: w[5].into(), ok: w[5] == "OK", refused: false, done, total });
         } else if w.len() >= 6 && w[4] == "refused" {
-            out.push(RunView { time: format!("{} {}", w[0], w[1]), name: w[2].into(), trigger: w[3].into(), outcome: format!("refused {}", w[5]), done: 0, total: 0 });
+            out.push(RunView { time: format!("{} {}", w[0], w[1]), name: w[2].into(), trigger: w[3].into(), outcome: format!("refused {}", w[5]), ok: false, refused: true, done: 0, total: 0 });
         }
         if out.len() == n {
             break;
