@@ -319,6 +319,7 @@ impl Default for Settings {
             dictation_level: "polished".into(),
             dictation_levels: BTreeMap::new(),
             phone: PhoneSettings::default(),
+            keep_alive: crate::keepalive::KeepAliveSettings::default(),
             cloud_consent: CloudConsent::default(),
         }
     }
