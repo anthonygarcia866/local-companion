@@ -60,6 +60,8 @@ pub struct KeepAliveSettings {
 /// spaces, `-_.` only, at most 40; "project" when nothing is left.
 pub fn display_name(folder: &str) -> String {
     let last = folder.trim_end_matches(['\\', '/']).rsplit(['\\', '/']).next().unwrap_or("");
+    // A drive ("C:") has no name of its own.
+    let last = if last.contains(':') { "" } else { last };
     let clean: String = last.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.')).take(40).collect();
     let clean = clean.trim().to_string();
     if clean.is_empty() { "project".into() } else { clean }
@@ -174,7 +176,6 @@ enum Phase {
 }
 
 struct Slot {
-    spec: Spec,
     phase: Phase,
     backoff: Backoff,
 }
@@ -238,7 +239,7 @@ impl Supervisor {
             let slot = match slot {
                 std::collections::btree_map::Entry::Vacant(v) => {
                     let phase = launch(spec, now, false, launcher, &mut events, &id);
-                    v.insert(Slot { spec: spec.clone(), phase, backoff: Backoff::default() });
+                    v.insert(Slot { phase, backoff: Backoff::default() });
                     continue;
                 }
                 std::collections::btree_map::Entry::Occupied(o) => o.into_mut(),
@@ -296,15 +297,6 @@ impl Supervisor {
                 v
             })
             .collect()
-    }
-
-    /// Stops everything (Glim quitting, or the switch going off at once).
-    pub fn stop_all(&mut self) {
-        for (_, mut s) in std::mem::take(&mut self.slots) {
-            if let Phase::Running { child, .. } = &mut s.phase {
-                child.stop();
-            }
-        }
     }
 }
 
@@ -417,9 +409,7 @@ impl Launcher for RealLauncher {
             }
             Spec::Folder(folder) => {
                 // Checked again: the folder may have gone since it was added.
-                if let Err(e) = crate::runbooks::allowed_folder(folder) {
-                    return Err(e);
-                }
+                crate::runbooks::allowed_folder(folder)?;
                 let child = crate::platform::start_in_console(&self.command_for(folder)?, std::path::Path::new(folder), &[(ENV_NAME, ENV_VALUE)], self.new_console())?;
                 Ok(Box::new(Child(child)))
             }
@@ -468,13 +458,6 @@ pub fn start(settings: impl Fn() -> crate::settings::Settings + Send + 'static, 
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
-}
-
-/// Glim is quitting: the consoles it started go with it.
-pub fn stop_all() {
-    if let Some(sup) = SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        sup.stop_all();
-    }
 }
 
 #[cfg(test)]
