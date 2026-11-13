@@ -267,6 +267,10 @@ pub fn start_in_console(_command: &str, _folder: &std::path::Path, _env: &[(&str
     Err("couldn't start".into())
 }
 
+pub fn find_claude() -> Option<PathBuf> {
+    None
+}
+
 pub fn claude_desktop_running() -> bool {
     false
 }

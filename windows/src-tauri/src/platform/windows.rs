@@ -341,6 +341,9 @@ pub fn run_command_line(command: &str, folder: &std::path::Path, timeout: std::t
     use std::process::Stdio;
     let mut c = Command::new("cmd.exe");
     c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // cmd would otherwise look for the program in `folder` first, so a
+    // planted npm.cmd there would run instead of the real one.
+    c.env("NoDefaultCurrentDirectoryInExePath", "1");
     no_console(&mut c);
     let mut child = c.spawn().map_err(|_| "couldn't start".to_string())?;
     let _ = kill_with_glim(&child);
@@ -378,6 +381,9 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
     const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
     let mut c = Command::new("cmd.exe");
     c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder);
+    // Never a program from `folder` itself (keepalive passes claude's full
+    // path; this is the backstop).
+    c.env("NoDefaultCurrentDirectoryInExePath", "1");
     for (k, v) in env {
         c.env(k, v);
     }
@@ -393,6 +399,15 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
 
 /// Whether the Claude desktop app is running: a claude.exe from its install
 /// (WindowsApps or AnthropicClaude), not the Claude Code CLI's claude.exe.
+/// Claude Code's own launcher: on PATH (absolute entries only), else in
+/// ~/.local/bin where its installer puts it.
+pub fn find_claude() -> Option<PathBuf> {
+    find_on_path("claude").or_else(|| {
+        let local = super::home_dir().join(".local").join("bin").join("claude.exe");
+        local.is_file().then_some(local)
+    })
+}
+
 pub fn claude_desktop_running() -> bool {
     use ::windows::core::PWSTR;
     use ::windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -467,7 +482,9 @@ pub fn open_claude_code_in(folder: &std::path::Path, prompt: &str) -> bool {
 pub fn find_on_path(stem: &str) -> Option<PathBuf> {
     let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     let dirs = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&dirs) {
+    // A relative PATH entry ("." and the like) would search the current
+    // folder: never.
+    for dir in std::env::split_paths(&dirs).filter(|d| d.is_absolute()) {
         for ext in exts.split(';').filter(|e| !e.is_empty()) {
             let candidate = dir.join(format!("{stem}{}", ext.to_lowercase()));
             if candidate.is_file() {

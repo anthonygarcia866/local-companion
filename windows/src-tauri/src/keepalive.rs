@@ -70,6 +70,13 @@ pub fn command_line(folder: &str) -> String {
     format!("claude remote-control --spawn same-dir --capacity 1 --name \"{} (PC)\"", display_name(folder))
 }
 
+/// The fixed command with `claude` as its full path, quoted.
+pub fn launch_line(exe: &str, folder: &str) -> String {
+    let rest = command_line(folder);
+    let rest = rest.strip_prefix("claude").unwrap_or(&rest);
+    format!("\"{exe}\"{rest}")
+}
+
 /// Why a typed folder can't go on the list, or None.
 pub fn folder_problem(raw: &str, list: &[String]) -> Option<String> {
     let raw = raw.trim();
@@ -372,12 +379,21 @@ impl RealLauncher {
         }
     }
 
-    fn command_for(&self, folder: &str) -> String {
+    /// What actually runs: the fixed command with `claude` replaced by the
+    /// launcher's full path, found on PATH or in ~/.local/bin, never inside
+    /// the project folder (a planted claude.cmd there would run otherwise).
+    fn command_for(&self, folder: &str) -> Result<String, String> {
         #[cfg(test)]
         if let Some(c) = &self.fake_command {
-            return c.clone();
+            return Ok(c.clone());
         }
-        command_line(folder)
+        let exe = crate::platform::find_claude().ok_or("Claude Code (claude) isn't installed or isn't on PATH")?;
+        let canon_exe = std::fs::canonicalize(&exe).unwrap_or_else(|_| exe.clone());
+        let canon_folder = crate::runbooks::allowed_folder(folder)?;
+        if canon_exe.starts_with(&canon_folder) {
+            return Err("the claude found is inside the project folder: refusing".into());
+        }
+        Ok(launch_line(&exe.to_string_lossy(), folder))
     }
 
     fn new_console(&self) -> bool {
@@ -404,7 +420,7 @@ impl Launcher for RealLauncher {
                 if let Err(e) = crate::runbooks::allowed_folder(folder) {
                     return Err(e);
                 }
-                let child = crate::platform::start_in_console(&self.command_for(folder), std::path::Path::new(folder), &[(ENV_NAME, ENV_VALUE)], self.new_console())?;
+                let child = crate::platform::start_in_console(&self.command_for(folder)?, std::path::Path::new(folder), &[(ENV_NAME, ENV_VALUE)], self.new_console())?;
                 Ok(Box::new(Child(child)))
             }
         }
@@ -514,6 +530,14 @@ mod tests {
         assert_eq!(display_name("C:\\x\\we\"ird&name|"), "weirdname");
         assert_eq!(display_name("C:\\"), "project");
         assert_eq!(display_name("C:\\a\\b\\"), "b");
+    }
+
+    #[test]
+    fn what_runs_is_claudes_full_path_and_the_fixed_arguments() {
+        assert_eq!(
+            launch_line(r"C:\Users\x\.local\bin\claude.exe", FOLDER),
+            r#""C:\Users\x\.local\bin\claude.exe" remote-control --spawn same-dir --capacity 1 --name "example-project (PC)""#
+        );
     }
 
     #[test]
