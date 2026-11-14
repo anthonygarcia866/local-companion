@@ -1,8 +1,8 @@
 // The dictation lane's neutral form (owner, 2026-11-03): before the shield
 // masks a transcript, phone numbers and unit numbers are written the way
 // they should be typed, on this PC. The placeholder then stands for the
-// formatted value, so what comes back into the field is "unit 4B" and
-// "555-123-4567", not whisper's "unit four B" or "555 123 4567". Claude
+// formatted value, so what comes back into the field is "unit 4D" and
+// "555-123-4567", not whisper's "unit four D" or "555 123 4567". Claude
 // never sees either value.
 //
 // - Phones: digits said as words ("five five five, one two three …") or
@@ -10,7 +10,7 @@
 //   1-555-123-4567 or 555-0123. "+…" international numbers stay as written.
 // - Units: after "unit", "apt", "apartment", "suite", "ste" or "room", a
 //   number said as words ("four", "two oh four", "twenty two", "one hundred
-//   four") or in digits, and a letter said apart ("B"), become "4B", "204".
+//   four") or in digits, and a letter said apart ("B"), become "4D", "204".
 
 use super::detect::word_spans;
 
@@ -212,7 +212,7 @@ fn units(text: &str) -> String {
             continue;
         };
         let last = k + used - 1;
-        // A letter said apart, right after it ("4 B", "four B").
+        // A letter said apart, right after it ("4 D", "four D").
         let letter = lw.get(last + 1).and_then(|_| unit_letter(&text[words[last + 1].0..words[last + 1].1])).filter(|_| {
             let gap = &text[words[last].1..words[last + 1].0];
             gap == " " || gap == "-"
@@ -236,9 +236,9 @@ mod tests {
     #[test]
     fn units_said_any_way_are_written_as_a_unit() {
         for (said, want) in [
-            ("unit four B is ready", "unit 4B is ready"),
-            ("Unit 4 B is ready", "Unit 4B is ready"),
-            ("Unit 4B is ready", "Unit 4B is ready"),
+            ("unit four D is ready", "unit 4D is ready"),
+            ("Unit 4 D is ready", "Unit 4D is ready"),
+            ("Unit 4D is ready", "Unit 4D is ready"),
             ("apartment two oh four", "apartment 204"),
             ("suite twenty two C.", "suite 22C."),
             ("unit one hundred four", "unit 104"),

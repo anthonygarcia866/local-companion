@@ -604,7 +604,7 @@ mod tests {
         }
     }
 
-    const DOC: &str = "Hi Sam,\nWe recieved the payment today.\nBest regards,\nAnthony";
+    const DOC: &str = "Hi Sam,\nWe recieved the payment today.\nBest regards,\nMerrick";
 
     fn job(paragraph: &str, problem: &str, replacement: &str, field_start: usize) -> Job {
         let start = paragraph[..paragraph.find(problem).unwrap()].chars().count();
@@ -649,7 +649,7 @@ mod tests {
         let mut f = Fake::new(DOC, "payment");
         let o = run(&mut f, &whole("We recieved the payment today.", "We received the payment today."));
         assert_eq!(o, Outcome::Applied);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
         assert_eq!(f.pasted, ["We received the payment today."], "one paste");
         assert!(f.typed.is_empty(), "nothing typed key by key");
         assert_eq!(f.restored, 1, "the user's clipboard put back");
@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(f.text(), "Hi Sam,
 We received the payment today.
 Best regards,
-Anthony");
+Merrick");
         // One Range.Text replacement over the checked selection: one undo step.
         assert_eq!(f.replaced, [("We recieved the payment today.".to_string(), "We received the payment today.".to_string())]);
         assert!(f.pasted.is_empty(), "the clipboard is never touched");
@@ -699,7 +699,7 @@ Anthony");
         assert_eq!(f.pasted.len(), 1);
         assert_eq!(f.typed, ["We received the payment today."]);
         assert_eq!(f.restored, 1);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
     }
 
     #[test]
@@ -724,7 +724,7 @@ Anthony");
         let mut f = Fake::new(DOC, "payment today.");
         let caret_before = f.caret;
         assert_eq!(run(&mut f, &fix()), Outcome::Applied);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
         assert_eq!(f.typed, ["received"]);
         // "received" is as long as "recieved": the caret is where it was.
         assert_eq!(f.caret, caret_before);
@@ -803,7 +803,7 @@ Anthony");
         let mut f = Fake::new(DOC, "payment");
         f.selection_lag = 5;
         assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Applied);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
         let mut f = Fake::new(DOC, "payment");
         f.selection_lag = SELECT_TRIES + 50;
         assert_eq!(run(&mut f, &whole("We recieved the payment today.", "We received the payment today.")), Outcome::Unsupported);
@@ -842,7 +842,7 @@ Anthony");
         assert_eq!(last_path(), "paste");
         assert_eq!(f.key_pauses, 20, "waited only as long as the keys were down");
         assert_eq!(f.pasted, ["We received the payment today."]);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
         // A one-word fix typed key by key waits too.
         let mut f = Fake::new(DOC, "payment");
         f.keys_held_for = 20;
@@ -942,7 +942,7 @@ Anthony");
         let caret = f.caret;
         f.lag = 5;
         assert_eq!(run(&mut f, &fix()), Outcome::Applied);
-        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nAnthony");
+        assert_eq!(f.text(), "Hi Sam,\nWe received the payment today.\nBest regards,\nMerrick");
         assert_eq!(f.caret, caret, "the caret is put back once they have landed");
         assert!(f.pauses >= 5);
         // Keys that never finish landing: reported, after the wait.
@@ -992,7 +992,7 @@ Anthony");
     const THREE: &str = "Hi Sam,
 We recieved the payment tomorow, posible.
 Best regards,
-Anthony";
+Merrick";
 
     /// The three jobs Session::jobs_all makes for THREE: back to front, each
     /// on the paragraph the later fixes left.
@@ -1012,7 +1012,7 @@ Anthony";
         assert_eq!(f.text(), "Hi Sam,
 We received the payment tomorrow, possible.
 Best regards,
-Anthony");
+Merrick");
         assert_eq!(f.typed, ["possible", "tomorrow", "received"]);
     }
 

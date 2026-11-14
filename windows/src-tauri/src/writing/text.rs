@@ -230,9 +230,9 @@ mod tests {
         let long = "Thanks,\nI looked at the unit today and the carpet needs replacing before the new tenant arrives next week, so please get three quotes.\nAlso check the blinds.";
         assert_eq!(at(long, "Also").as_deref(), Some("Also check the blinds."));
         // "Thanks for the update!" is a sentence, not a closing.
-        assert_eq!(at("Thanks for the update!\nAnthony", "update").as_deref(), Some("Thanks for the update!"));
+        assert_eq!(at("Thanks for the update!\nMerrick", "update").as_deref(), Some("Thanks for the update!"));
         // Typing at the very end of the own text, right before the signature.
-        let field = "The rent is due.\nBest,\nAnthony";
+        let field = "The rent is due.\nBest,\nMerrick";
         assert_eq!(paragraph_to_check(field, Some(16)).map(|p| p.text).as_deref(), Some("The rent is due."));
     }
 

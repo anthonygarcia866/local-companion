@@ -1,7 +1,7 @@
 // Voice 1.5d: "draft an email to Maria saying …" (docs/voice-actions-plan.md
-// §4, §5; decided 2026-10-16, Anthony): the island's "Draft email" card,
+// §4, §5; decided 2026-10-16, the owner): the island's "Draft email" card,
 // then a draft saved in Outlook's Drafts and opened in Outlook. Glim never
-// sends: Anthony sends it himself, in Outlook.
+// sends: the owner sends it themselves, in Outlook.
 //
 // This file holds the rules, pure and tested: how a spoken name becomes an
 // address (`resolve`: "me", a spoken or written address checked against the
@@ -550,7 +550,7 @@ impl Outlook for DryRun<'_> {
 mod tests {
     use super::*;
 
-    const ME_ADDR: &str = "anthony@example.com";
+    const ME_ADDR: &str = "owner@example.com";
 
     fn c(name: &str, address: &str) -> Contact {
         Contact { name: name.into(), address: address.into() }
@@ -739,7 +739,7 @@ mod tests {
         assert_eq!(create(&o, "leasing@example.com", &p, true), Err(DraftError::SharedAccount));
         assert_eq!(create(&o, " Leasing@Example.com ", &p, true), Err(DraftError::SharedAccount));
         assert_eq!(DraftError::SharedAccount.code(), "shared-account");
-        assert!(!never_from("leasingoffice@example.com") && !never_from("anthony@example.com"));
+        assert!(!never_from("leasingoffice@example.com") && !never_from("owner@example.com"));
         assert_eq!(o.saved.lock().unwrap().len(), 1);
     }
 
@@ -751,7 +751,7 @@ mod tests {
         // Only the text is replaced; the marks before the signature stay.
         assert_eq!(text_to_word("New one.\n\nSecond\nline."), "New one.\rSecond\u{b}line.");
         assert_eq!(replaced_len("Old.\r\r"), 4);
-        assert_eq!(replaced_len("Été 4B.\r"), 7, "Word counts UTF-16 characters");
+        assert_eq!(replaced_len("Été 4D.\r"), 7, "Word counts UTF-16 characters");
         for body in ["Glim edit test, CHANGED.\n\nSecond paragraph. And a third", "One line", "a\nb\n\nc"] {
             assert_eq!(word_to_text(&format!("{}\r\r", text_to_word(body))), body, "{body:?}");
         }

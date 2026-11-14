@@ -609,20 +609,20 @@ fn voice_without_a_mic() {
         assert!(shortcut_keys().iter().any(|k| k == "open {app}"), "a slot shortcut has no words of its own: kept");
         assert!(fx.with(|r| r.notified.iter().any(|n| n == "memory-changed")));
 
-        // 9. Dictation: made-up names (Settings words) and "unit four B" -> "unit 4B".
+        // 9. Dictation: made-up names (Settings words) and "unit four D" -> "unit 4D".
         super::FIELD_AT_PRESS.store(true, std::sync::atomic::Ordering::SeqCst);
         let n = fx.with(|r| r.actions.len());
         // The shield is on: Claude sees "unit [UNIT1]" and answers with it.
         let t = r.say("dictation", Mode::Dictate, Some(tool("dictate", json!({ "text": "Please tell Zorvath Quillane that unit [UNIT1] is ready for the walkthrough." })))).await;
         let sent = fx.with(|r| r.last_sent.clone());
-        assert!(sent.contains("[UNIT1]") && !sent.to_lowercase().contains("4b") && !sent.to_lowercase().contains("four b"), "the unit is masked on the way out: {sent:?}");
+        assert!(sent.contains("[UNIT1]") && !sent.to_lowercase().contains("4d") && !sent.to_lowercase().contains("four d"), "the unit is masked on the way out: {sent:?}");
         // The made-up names come from the run's word list (whisper's prompt).
         let names: Vec<&str> = ["Zorvath", "Quillane"].into_iter().filter(|n| t.contains(n)).collect();
         println!("    names as written: {} of 2 ({names:?})", names.len());
         assert!(!names.is_empty(), "no made-up name as written: {t:?}");
         let typed = fx.actions_since(n);
         assert_eq!(typed.len(), 1, "{typed:?}");
-        assert!(typed[0].starts_with("type ") && typed[0].to_lowercase().contains("unit 4b"), "{typed:?}");
+        assert!(typed[0].starts_with("type ") && typed[0].to_lowercase().contains("unit 4d"), "{typed:?}");
 
         // 9b. Shield vs dictation formatting (owner, 2026-11-03): a phone
         // said digit by digit and a unit said as words come back typed as
@@ -649,7 +649,7 @@ fn voice_without_a_mic() {
         let typed = fx.actions_since(n);
         println!("    typed: {typed:?}");
         assert_eq!(typed.len(), 1, "{typed:?}");
-        for detail in ["4B", "Thursday", "3:30", "Zorvath"] {
+        for detail in ["4D", "Thursday", "3:30", "Zorvath"] {
             assert!(typed[0].contains(detail), "{detail} kept: {typed:?}");
         }
         let n = fx.with(|r| r.actions.len());

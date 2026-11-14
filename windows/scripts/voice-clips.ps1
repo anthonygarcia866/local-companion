@@ -22,10 +22,10 @@ $clips = [ordered]@{
     'open-the-office'   = 'Open the office.'
     'remember-office'   = 'Remember: when I say the office, I mean Outlook.'
     # Made-up names (the run's "Words Glim should know") and a unit.
-    'dictation'         = 'Please tell Zorvath Quillane that unit four B is ready for the walkthrough.'
+    'dictation'         = 'Please tell Zorvath Quillane that unit four D is ready for the walkthrough.'
     # The shield vs formatting: a made-up phone number said digit by digit, a unit said as words.
     # Polished dictation: an email-style ramble and a chat message (details kept).
-    'polish-email'      = 'Um so the walkthrough for unit four B is on Thursday at three thirty, and uh Zorvath will bring the keys. Thanks.'
+    'polish-email'      = 'Um so the walkthrough for unit four D is on Thursday at three thirty, and uh Zorvath will bring the keys. Thanks.'
     'polish-chat'       = 'Yeah sounds good, I can do Friday at noon.'
     'dictation-phone'   = 'Call me at five five five, one two three, four five six seven about unit two oh four.'
     # Dictation's spoken edits: a correction, "scratch that", a new paragraph.

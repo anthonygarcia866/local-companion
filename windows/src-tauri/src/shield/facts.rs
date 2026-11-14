@@ -113,7 +113,7 @@ fn without_placeholders(text: &str) -> String {
     out
 }
 
-/// Digits as written: "1,850.00", "2.5", "10:30", "10th", "3pm", "4B".
+/// Digits as written: "1,850.00", "2.5", "10:30", "10th", "3pm", "4D".
 fn digit_facts(text: &str, out: &mut Facts) {
     let b = text.as_bytes();
     let digits_at = |i: usize| b[i..].iter().take_while(|c| c.is_ascii_digit()).count();
@@ -368,7 +368,7 @@ mod tests {
             ("5551234567", "555-123-4567"),
             ("Tuesday at 3pm", "Tuesday at 3 p.m."),
             ("See you on Tuesday.", "See you Tuesday!"),
-            ("unit four B", "unit 4B"),
+            ("unit four D", "unit 4D"),
             // Whisper writes a time as "3.30" (Stage 4 on CI, 2026-11-04).
             ("on Thursday at 3.30", "on Thursday at 3:30"),
             ("$2.50 each", "$2.50 each"),

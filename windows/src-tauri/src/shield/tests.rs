@@ -339,15 +339,15 @@ fn a_contact_with_many_words_and_a_company_word_is_masked() {
 
 #[test]
 fn names_kept_catches_a_respelled_or_dropped_name() {
-    let n = NameSet::from_entries(CONTACT.iter().copied().chain(["Dale Booking"]));
-    let before = "Hi Surveyers, Dale Booking will send the receipt.";
+    let n = NameSet::from_entries(CONTACT.iter().copied().chain(["Bayfield Plumbing"]));
+    let before = "Hi Surveyers, Bayfield Plumbing will send the receipt.";
     // The run's answer: the surname "corrected".
-    assert!(!names_kept_with(before, "Hi Surveyors: Dale Booking will send the receipt.", &n));
+    assert!(!names_kept_with(before, "Hi Surveyors: Bayfield Plumbing will send the receipt.", &n));
     // A name dropped.
     assert!(!names_kept_with(before, "Hi Surveyers, Booking will send the receipt.", &n));
     // Kept (case may change, as dictation capitalizes a name).
-    assert!(names_kept_with(before, "Hi Surveyers, Dale Booking will send it.", &n));
-    assert!(names_kept_with("ask dale booking", "Ask Dale Booking.", &n));
+    assert!(names_kept_with(before, "Hi Surveyers, Bayfield Plumbing will send it.", &n));
+    assert!(names_kept_with("ask bayfield plumbing", "Ask Bayfield Plumbing.", &n));
     // No known name: nothing to keep.
     assert!(names_kept_with("the roof repair can starts", "the roof repair can start", &n));
     // Common words that are names too ("Will") may change.
