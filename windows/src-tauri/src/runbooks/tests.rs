@@ -412,6 +412,34 @@ fn require_prefix_refuses_without_revealing_the_value_or_writing() {
 }
 
 #[test]
+fn require_prefix_on_a_stdin_secret_refuses_before_the_process_starts() {
+    let d = repo("stdin-prefix");
+    let f = p(&d);
+    let text = |prefixes: &str| format!("[allow]\nfolders = ['{f}']\ncommands = [\"example-cli secret put EXAMPLE_KEY\"]\n[[step]]\ntype = \"run\"\ncommand = \"example-cli secret put EXAMPLE_KEY\"\nfolder = '{f}'\nsecret_stdin = \"EXAMPLE_TOKEN\"\nrequire_prefix = [{prefixes}]\nask = true\n");
+    let fake = Fake::default();
+    fake.store.write("EXAMPLE_TOKEN", VALUE).unwrap();
+    let wrong = parse("example", text("\"sk_live_\", \"rk_live_\"").as_bytes()).unwrap();
+    let line = wrong.steps[0].step.describe();
+    assert!(line.contains("secret EXAMPLE_TOKEN goes to its input only (only if it starts with sk_live_ or rk_live_)"), "{line}");
+    let out = run_steps(&wrong, &fake, &[1], &mut |_| {}).unwrap();
+    assert!(!out[0].ok);
+    assert_eq!(out[0].detail, "secret EXAMPLE_TOKEN doesn't start with an allowed prefix: nothing started");
+    assert!(!out[0].detail.contains("placeholder"), "not even the value's start");
+    assert!(fake.stdin.borrow().is_empty(), "the process never started");
+    let right = parse("example", text("\"placeholder-\"").as_bytes()).unwrap();
+    let out = run_steps(&right, &fake, &[1], &mut |_| {}).unwrap();
+    assert!(out[0].ok, "{out:?}");
+    assert_eq!(fake.stdin.borrow().as_slice(), [VALUE.as_bytes().to_vec()]);
+    // Also on ps_script; never on launch_detached; never without secret_stdin.
+    let (_d2, _s, ps) = script_setup("ps-stdin-prefix", "secret_stdin = \"EXAMPLE_TOKEN\"\nrequire_prefix = [\"AC\"]\n");
+    assert!(parse("example", ps.as_bytes()).unwrap().steps[0].step.describe().contains("(only if it starts with AC)"));
+    let (_d3, _s3, bare) = script_setup("ps-bare-prefix", "require_prefix = [\"AC\"]\n");
+    assert!(parse("example", bare.as_bytes()).unwrap_err().contains("can't have require_prefix without secret_stdin"));
+    let ld = format!("[allow]\nfolders = ['{f}']\ncommands = [\"x.cmd\"]\n[[step]]\ntype = \"launch_detached\"\ncommand = \"x.cmd\"\nfolder = '{f}'\nrequire_prefix = [\"x\"]\n");
+    assert!(parse("example", ld.as_bytes()).unwrap_err().contains("can't have require_prefix"));
+}
+
+#[test]
 fn redact_blanks_the_secret_strips_controls_and_keeps_the_end() {
     assert_eq!(redact(format!("a{VALUE}b\r\nc\u{7}d\te").as_bytes(), Some(VALUE)), "a[secret]b\ncd\te");
     assert_eq!(redact(b"x", Some("")), "x");
