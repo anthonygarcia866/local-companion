@@ -645,6 +645,7 @@ mod tests {
   "dictationLevels": { "ms-teams.exe": "verbatim" },
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
   "keepAlive": { "on": true, "consented": true, "folders": ["C:\\path\\to\\example-project"], "desktopApp": true },
+  "remote": { "on": true, "consented": true, "killed": false, "publicKey": "abababababababababababababababababababababababababababababababab" },
   "cloudConsent": { "live": "on", "polish": "off", "autoCheck": "" }
 }"##;
 
@@ -1155,6 +1156,7 @@ mod tests {
                 "dictationLevels",
                 "phone",
                 "keepAlive",
+                "remote",
                 "cloudConsent",
             ]
         );
