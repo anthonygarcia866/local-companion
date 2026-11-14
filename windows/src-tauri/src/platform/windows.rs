@@ -336,32 +336,108 @@ fn shell_open_args(file: ::windows::core::PCWSTR, verb: ::windows::core::PCWSTR)
 /// `cmd.exe /d /s /c`, so `npm`-style .cmd launchers work, in `folder`, no
 /// window, output thrown away. Killed with its children after `timeout`.
 /// The exit code, or Err("timed out after N s" / "couldn't start").
-pub fn run_command_line(command: &str, folder: &std::path::Path, timeout: std::time::Duration) -> Result<i32, String> {
+pub fn run_command_line(command: &str, folder: &std::path::Path, timeout: std::time::Duration, input: Option<&[u8]>) -> Result<i32, String> {
     use std::os::windows::process::CommandExt;
-    use std::process::Stdio;
     let mut c = Command::new("cmd.exe");
-    c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder);
     // cmd would otherwise look for the program in `folder` first, so a
     // planted npm.cmd there would run instead of the real one.
     c.env("NoDefaultCurrentDirectoryInExePath", "1");
+    wait_process(c, timeout, input, false).map(|(code, _)| code)
+}
+
+/// The most output a runbook's ps_script step keeps (its last bytes).
+pub const OUTPUT_CAP: usize = 64 * 1024;
+
+/// A runbook's `ps_script` step: Windows PowerShell 5.1 from System32 (never
+/// one on PATH or in `folder`), `-NoProfile -ExecutionPolicy Bypass -File
+/// <script> <args>`, no shell. Exit code and its output (stdout + stderr,
+/// the last OUTPUT_CAP bytes) for the caller to redact and keep off the logs.
+pub fn run_ps_script(script: &std::path::Path, args: &[String], folder: &std::path::Path, timeout: std::time::Duration, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), String> {
+    let root = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    let ps = root.join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    let mut c = Command::new(ps);
+    c.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(script).args(args).current_dir(folder);
+    c.env("NoDefaultCurrentDirectoryInExePath", "1");
+    wait_process(c, timeout, input, true)
+}
+
+/// Runs `c` with no console, tied to Glim's job: `input` (then closed) or
+/// nothing on stdin; output captured or thrown away; killed with its whole
+/// tree after `timeout`. The copy of `input` is zeroed once written.
+fn wait_process(mut c: Command, timeout: std::time::Duration, input: Option<&[u8]>, capture: bool) -> Result<(i32, Vec<u8>), String> {
+    use std::io::{Read, Write};
+    use std::process::Stdio;
+    use std::sync::{mpsc, Arc, Mutex};
+    c.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
+    if capture {
+        c.stdout(Stdio::piped()).stderr(Stdio::piped());
+    } else {
+        c.stdout(Stdio::null()).stderr(Stdio::null());
+    }
     no_console(&mut c);
     let mut child = c.spawn().map_err(|_| "couldn't start".to_string())?;
     let _ = kill_with_glim(&child);
+    if let (Some(bytes), Some(mut stdin)) = (input, child.stdin.take()) {
+        let mut owned = bytes.to_vec();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(&owned);
+            drop(stdin);
+            owned.iter_mut().for_each(|b| *b = 0);
+        });
+    }
+    let out = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let mut readers = 0;
+    let pipes: Vec<Box<dyn Read + Send>> = [child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>), child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)].into_iter().flatten().collect();
+    for mut pipe in pipes {
+        readers += 1;
+        let (out, tx) = (out.clone(), done_tx.clone());
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = pipe.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                let mut o = out.lock().unwrap_or_else(|e| e.into_inner());
+                o.extend_from_slice(&buf[..n]);
+                if o.len() > 2 * OUTPUT_CAP {
+                    let cut = o.len() - OUTPUT_CAP;
+                    o.drain(..cut);
+                }
+            }
+            let _ = tx.send(());
+        });
+    }
+    drop(done_tx);
     let until = std::time::Instant::now() + timeout;
-    loop {
+    let code = loop {
         match child.try_wait() {
-            Ok(Some(status)) => return Ok(status.code().unwrap_or(-1)),
+            Ok(Some(status)) => break Ok(status.code().unwrap_or(-1)),
             Ok(None) if std::time::Instant::now() >= until => {
                 // The whole tree: cmd.exe's children too.
                 let _ = no_console(Command::new("taskkill.exe").args(["/T", "/F", "/PID", &child.id().to_string()]).stdout(Stdio::null()).stderr(Stdio::null())).status();
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("timed out after {} s", timeout.as_secs()));
+                break Err(format!("timed out after {} s", timeout.as_secs()));
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-            Err(_) => return Err("couldn't wait for it".into()),
+            Err(_) => break Err("couldn't wait for it".into()),
+        }
+    };
+    // A grandchild can keep a pipe open: wait at most 2 s for the readers.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    for _ in 0..readers {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if done_rx.recv_timeout(left).is_err() {
+            break;
         }
     }
+    let mut o = std::mem::take(&mut *out.lock().unwrap_or_else(|e| e.into_inner()));
+    if o.len() > OUTPUT_CAP {
+        o.drain(..o.len() - OUTPUT_CAP);
+    }
+    code.map(|c| (c, o))
 }
 
 /// Kills a process and everything it started (taskkill /T /F).

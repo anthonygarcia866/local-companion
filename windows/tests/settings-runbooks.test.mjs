@@ -128,3 +128,22 @@ test("the last update shows its line and each step's time; none, no section", as
   await tick();
   assert.equal(role(none, "div", "runbooks-update"), undefined);
 });
+
+test("a ps_script runbook lists its scripts on the approval card and shows its last output", async () => {
+  const b = book({
+    steps: [{ kind: "ps_script", text: "Run PowerShell script C:\\example\\tools\\check.ps1 (SHA-256 0123456789ab…) in C:\\example\\project (stops after 120 s)", ask: false }],
+    scripts: ["C:\\example\\tools\\check.ps1"],
+    lastOutput: "2026-11-13 22:00:00 step 1/1 exit code 0\nall good, token [secret]",
+  });
+  replies.set("runbooks_list", list([b]));
+  replies.set("runbook_take_request", null);
+  const el = runbooksSection();
+  await tick();
+  const out = el.find("details").find((x) => x.getAttribute("data-role") === "runbook-output");
+  assert.ok(out, "the output box");
+  assert.match(out.textContent, /all good, token \[secret\]/);
+  role(el, "button", "runbook-run").fire("click");
+  const card = role(el, "div", "runbook-approval");
+  assert.match(card.textContent, /May run these PowerShell scripts \(as they are now\): C:\\example\\tools\\check\.ps1/);
+  assert.match(card.textContent, /SHA-256 0123456789ab/);
+});

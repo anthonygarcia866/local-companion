@@ -2,15 +2,26 @@
 //
 // A runbook is a TOML file the owner puts in %APPDATA%\Glim\runbooks\
 // (never in the repo: examples/runbook.example.toml has placeholders only).
-// Its steps run in order and stop at the first failure. Only five kinds:
+// Its steps run in order and stop at the first failure. Only six kinds:
 //
 // - `env_secret`: a saved secret (secrets.rs) written as KEY=value into a
 //   file under an allowlisted folder, only when git says that file is
 //   ignored and not tracked (env_file.rs); the old file's backup goes in
 //   %LOCALAPPDATA%\Glim\backups\<runbook>\, never in a repository.
+//   `require_prefix = [...]`: the value must start with one of them, or
+//   nothing is written (the refusal names neither the value nor a prefix).
 // - `start_app`: an allowlisted .exe/.lnk or protocol, no arguments, no shell.
 // - `run`: an exact allowlisted command line in an allowlisted folder, with
 //   a timeout; the exit code is logged, the output is thrown away.
+// - `ps_script`: an allowlisted .ps1 ([allow] scripts) through System32's
+//   Windows PowerShell (-NoProfile -ExecutionPolicy Bypass -File <script>
+//   <fixed args>), with a timeout. The script's SHA-256 is part of the
+//   approved hash, so a changed script means approving again (and it is
+//   hashed again just before it runs). The exit code is logged; the output
+//   never is: its last few KB, with any stdin secret blanked out, go to
+//   %LOCALAPPDATA%\Glim\runbooks-output\<runbook>.txt for Settings.
+// - `secret_stdin = "<name>"` on run / ps_script: that saved secret is
+//   written to the process's stdin and nowhere else (never argv, env or a log).
 // - `check`: a file exists / a port on this PC answers / a URL on this PC
 //   returns 200. Read only.
 // - `launch_detached`: an exact allowlisted command line in an allowlisted
@@ -71,6 +82,11 @@ pub fn backups_dir() -> PathBuf {
     crate::settings::local_dir().join("backups")
 }
 
+/// %LOCALAPPDATA%\Glim\runbooks-output: each runbook's last ps_script output (redacted).
+pub fn outputs_dir() -> PathBuf {
+    crate::settings::local_dir().join("runbooks-output")
+}
+
 pub fn audit_path() -> PathBuf {
     crate::settings::local_dir().join("runbooks.log")
 }
@@ -97,6 +113,8 @@ struct RawAllow {
     apps: Vec<String>,
     #[serde(default)]
     commands: Vec<String>,
+    #[serde(default)]
+    scripts: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -115,6 +133,10 @@ struct RawStep {
     port: Option<u16>,
     url: Option<String>,
     wait_s: Option<u64>,
+    script: Option<String>,
+    args: Option<Vec<String>>,
+    secret_stdin: Option<String>,
+    require_prefix: Option<Vec<String>>,
     #[serde(default)]
     ask: bool,
 }
@@ -137,9 +159,10 @@ pub enum Check {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
-    EnvSecret { secret: String, file: PathBuf, key: String },
+    EnvSecret { secret: String, file: PathBuf, key: String, require_prefix: Vec<String> },
     StartApp { app: App },
-    Run { command: String, folder: PathBuf, timeout_s: u64 },
+    Run { command: String, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String> },
+    PsScript { script: PathBuf, sha256: String, args: Vec<String>, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String> },
     Check { check: Check, wait_s: u64 },
     LaunchDetached { command: String, folder: PathBuf },
 }
@@ -150,6 +173,7 @@ impl Step {
             Step::EnvSecret { .. } => "env_secret",
             Step::StartApp { .. } => "start_app",
             Step::Run { .. } => "run",
+            Step::PsScript { .. } => "ps_script",
             Step::Check { .. } => "check",
             Step::LaunchDetached { .. } => "launch_detached",
         }
@@ -159,10 +183,17 @@ impl Step {
     /// a secret's value.
     pub fn describe(&self) -> String {
         match self {
-            Step::EnvSecret { secret, file, key } => format!("Write secret {secret} as {key}=… into {}", show(file)),
+            Step::EnvSecret { secret, file, key, require_prefix } => {
+                let only = if require_prefix.is_empty() { String::new() } else { format!(" (only if it starts with {})", require_prefix.join(" or ")) };
+                format!("Write secret {secret} as {key}=… into {}{only}", show(file))
+            }
             Step::StartApp { app: App::Path(p) } => format!("Start {p}"),
             Step::StartApp { app: App::Protocol(p) } => format!("Open {p}"),
-            Step::Run { command, folder, timeout_s } => format!("Run `{command}` in {} (stops after {timeout_s} s)", show(folder)),
+            Step::Run { command, folder, timeout_s, stdin_secret } => format!("Run `{command}` in {} (stops after {timeout_s} s){}", show(folder), stdin_note(stdin_secret)),
+            Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret } => {
+                let a = if args.is_empty() { String::new() } else { format!(" with arguments {}", args.iter().map(|x| format!("`{x}`")).collect::<Vec<_>>().join(" ")) };
+                format!("Run PowerShell script {} (SHA-256 {}…){a} in {} (stops after {timeout_s} s){}", show(script), &sha256[..12], show(folder), stdin_note(stdin_secret))
+            }
             Step::Check { check, wait_s } => {
                 let what = match check {
                     Check::FileExists(p) => format!("Check that {} exists", show(p)),
@@ -174,6 +205,10 @@ impl Step {
             Step::LaunchDetached { command, folder } => format!("Start `{command}` in {} and don't wait (it keeps running after Glim stops)", show(folder)),
         }
     }
+}
+
+fn stdin_note(secret: &Option<String>) -> String {
+    secret.as_ref().map(|n| format!("; secret {n} goes to its input only")).unwrap_or_default()
 }
 
 /// A path as the owner typed it (no `\\?\` prefix).
@@ -193,6 +228,8 @@ pub struct Allow {
     pub folders: Vec<PathBuf>,
     pub apps: Vec<App>,
     pub commands: Vec<String>,
+    /// Canonical paths of the .ps1 files ps_script may run.
+    pub scripts: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -311,6 +348,73 @@ fn command_entry(raw: &str) -> Result<String, String> {
     Ok(raw.to_string())
 }
 
+pub const MAX_SCRIPT_BYTES: u64 = 1024 * 1024;
+pub const MAX_ARGS: usize = 16;
+
+/// An [allow] scripts entry: a full local path to an existing .ps1 file
+/// (not a link), as its canonical path.
+fn script_entry(raw: &str) -> Result<PathBuf, String> {
+    if !raw.to_ascii_lowercase().ends_with(".ps1") {
+        return Err(format!("script {raw:?} must be a .ps1 file"));
+    }
+    let p = full_local(raw)?;
+    let meta = std::fs::symlink_metadata(&p).map_err(|_| format!("script {raw:?} doesn't exist"))?;
+    if !meta.is_file() {
+        return Err(format!("script {raw:?} is a link or a folder"));
+    }
+    if meta.len() > MAX_SCRIPT_BYTES {
+        return Err(format!("script {raw:?} is over 1 MB"));
+    }
+    std::fs::canonicalize(&p).map_err(|_| format!("script {raw:?} doesn't exist"))
+}
+
+/// SHA-256 of a script's bytes, hex.
+pub fn script_sha(path: &Path) -> Result<String, String> {
+    let meta = std::fs::symlink_metadata(path).map_err(|_| format!("script {} is gone", show(path)))?;
+    if !meta.is_file() || meta.len() > MAX_SCRIPT_BYTES {
+        return Err(format!("script {} is a link, a folder or over 1 MB", show(path)));
+    }
+    std::fs::read(path).map(|b| sha256_hex(&b)).map_err(|e| format!("couldn't read script {}: {e}", show(path)))
+}
+
+/// A ps_script's fixed arguments: at most 16, each one line of at most 200
+/// characters, no quotes.
+fn script_args(raw: &[String]) -> Result<Vec<String>, String> {
+    if raw.len() > MAX_ARGS {
+        return Err(format!("at most {MAX_ARGS} args"));
+    }
+    for a in raw {
+        if a.is_empty() || a.len() > 200 || a.chars().any(|c| c.is_control() || c == '"') {
+            return Err(format!("arg {a:?} must be 1-200 characters on one line, without \""));
+        }
+    }
+    Ok(raw.to_vec())
+}
+
+fn secret_name(raw: &Option<String>, what: &str) -> Result<Option<String>, String> {
+    match raw {
+        None => Ok(None),
+        Some(n) => {
+            secrets::check_name(n).map_err(|_| format!("{what} {n:?} is not a usable secret name"))?;
+            Ok(Some(n.clone()))
+        }
+    }
+}
+
+/// env_secret's require_prefix: 1-8 prefixes, each 1-32 printable characters.
+fn prefixes(raw: &Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let Some(list) = raw else { return Ok(vec![]) };
+    if list.is_empty() || list.len() > 8 {
+        return Err("require_prefix needs 1 to 8 prefixes".into());
+    }
+    for x in list {
+        if x.is_empty() || x.len() > 32 || x.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(format!("prefix {x:?} must be 1-32 characters without spaces"));
+        }
+    }
+    Ok(list.clone())
+}
+
 fn inside(path: &Path, folders: &[PathBuf]) -> bool {
     folders.iter().any(|f| path.starts_with(f))
 }
@@ -346,7 +450,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
     let need = |v: &Option<String>, f: &str| v.clone().filter(|x| !x.trim().is_empty()).ok_or_else(|| format!("a {} step needs {f}", s.kind));
     match s.kind.as_str() {
         "env_secret" => {
-            none_of(s, &[("app", s.app.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
+            none_of(s, &[("app", s.app.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("secret_stdin", s.secret_stdin.is_some())])?;
             let secret = need(&s.secret, "secret")?;
             secrets::check_name(&secret).map_err(|_| format!("secret {secret:?} is not a usable secret name"))?;
             let key = need(&s.key, "key")?;
@@ -354,10 +458,11 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
                 return Err(format!("key {key:?} must be letters, digits and _ (not starting with a digit)"));
             }
             let file = env_target(&need(&s.file, "file")?, &allow.folders)?;
-            Ok(Step::EnvSecret { secret, file, key })
+            let require_prefix = prefixes(&s.require_prefix)?;
+            Ok(Step::EnvSecret { secret, file, key, require_prefix })
         }
         "start_app" => {
-            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("secret_stdin", s.secret_stdin.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
             let raw = need(&s.app, "app")?;
             let app = app_entry(&raw)?;
             let listed = allow.apps.iter().any(|a| match (a, &app) {
@@ -371,7 +476,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             Ok(Step::StartApp { app })
         }
         "run" | "launch_detached" => {
-            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
             let command = command_entry(&need(&s.command, "command")?)?;
             if !allow.commands.contains(&command) {
                 return Err(format!("command {command:?} is not exactly in [allow] commands"));
@@ -385,16 +490,41 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
                 if s.timeout_s.is_some() {
                     return Err("a launch_detached step can't have timeout_s (Glim doesn't wait for it)".into());
                 }
+                if s.secret_stdin.is_some() {
+                    return Err("a launch_detached step can't have secret_stdin".into());
+                }
                 return Ok(Step::LaunchDetached { command, folder });
             }
             let timeout_s = s.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
             if !(1..=MAX_TIMEOUT_S).contains(&timeout_s) {
                 return Err(format!("timeout_s must be 1 to {MAX_TIMEOUT_S}"));
             }
-            Ok(Step::Run { command, folder, timeout_s })
+            let stdin_secret = secret_name(&s.secret_stdin, "secret_stdin")?;
+            Ok(Step::Run { command, folder, timeout_s, stdin_secret })
+        }
+        "ps_script" => {
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
+            let raw = need(&s.script, "script")?;
+            let script = script_entry(&raw)?;
+            if !allow.scripts.iter().any(|a| a == &script) {
+                return Err(format!("script {raw:?} is not in [allow] scripts"));
+            }
+            let sha256 = script_sha(&script)?;
+            let args = script_args(s.args.as_deref().unwrap_or(&[]))?;
+            let raw_folder = need(&s.folder, "folder")?;
+            let folder = std::fs::canonicalize(full_local(&raw_folder)?).map_err(|_| format!("folder {raw_folder:?} doesn't exist"))?;
+            if !folder.is_dir() || !inside(&folder, &allow.folders) {
+                return Err(format!("folder {raw_folder:?} is not in or under [allow] folders"));
+            }
+            let timeout_s = s.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
+            if !(1..=MAX_TIMEOUT_S).contains(&timeout_s) {
+                return Err(format!("timeout_s must be 1 to {MAX_TIMEOUT_S}"));
+            }
+            let stdin_secret = secret_name(&s.secret_stdin, "secret_stdin")?;
+            Ok(Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret })
         }
         "check" => {
-            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some())])?;
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("secret_stdin", s.secret_stdin.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
             let set = [s.file_exists.is_some(), s.port.is_some(), s.url.is_some()].iter().filter(|x| **x).count();
             if set != 1 {
                 return Err("a check step needs exactly one of file_exists, port, url".into());
@@ -421,7 +551,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             Ok(Step::Check { check, wait_s })
         }
         "" => Err("a step needs a type".into()),
-        other => Err(format!("unknown step type {other:?} (only env_secret, start_app, run, check, launch_detached)")),
+        other => Err(format!("unknown step type {other:?} (only env_secret, start_app, run, ps_script, check, launch_detached)")),
     }
 }
 
@@ -442,7 +572,8 @@ pub fn parse(name: &str, bytes: &[u8]) -> Result<Runbook, String> {
     let folders = raw.allow.folders.iter().map(|f| allowed_folder(f)).collect::<Result<Vec<_>, _>>()?;
     let apps = raw.allow.apps.iter().map(|a| app_entry(a)).collect::<Result<Vec<_>, _>>()?;
     let commands = raw.allow.commands.iter().map(|c| command_entry(c)).collect::<Result<Vec<_>, _>>()?;
-    let allow = Allow { folders, apps, commands };
+    let scripts = raw.allow.scripts.iter().map(|c| script_entry(c)).collect::<Result<Vec<_>, _>>()?;
+    let allow = Allow { folders, apps, commands, scripts };
     let mut steps = Vec::new();
     for (i, s) in raw.step.iter().enumerate() {
         let st = step(s, &allow).map_err(|e| format!("step {}: {e}", i + 1))?;
@@ -451,7 +582,30 @@ pub fn parse(name: &str, bytes: &[u8]) -> Result<Runbook, String> {
         }
         steps.push(BookStep { step: st, ask: s.ask });
     }
-    Ok(Runbook { name: name.to_string(), description: raw.description.chars().take(200).collect(), allow, steps, hash: sha256_hex(bytes) })
+    let hash = book_hash(bytes, &steps);
+    Ok(Runbook { name: name.to_string(), description: raw.description.chars().take(200).collect(), allow, steps, hash })
+}
+
+/// What approval covers: the file's bytes, plus each ps_script's path and
+/// SHA-256 (a runbook without scripts keeps the plain file hash, so its
+/// approval stays valid).
+pub fn book_hash(bytes: &[u8], steps: &[BookStep]) -> String {
+    let scripts: Vec<String> = steps
+        .iter()
+        .filter_map(|s| match &s.step {
+            Step::PsScript { script, sha256, .. } => Some(format!("script {} {sha256}\n", show(script))),
+            _ => None,
+        })
+        .collect();
+    if scripts.is_empty() {
+        return sha256_hex(bytes);
+    }
+    let mut all = bytes.to_vec();
+    all.extend_from_slice(b"\n--glim-scripts--\n");
+    for x in scripts {
+        all.extend_from_slice(x.as_bytes());
+    }
+    sha256_hex(&all)
 }
 
 /// The runbook files there are, by name (file stem), sorted.
@@ -674,7 +828,11 @@ pub trait World {
     fn backups(&self, runbook: &str) -> PathBuf;
     fn start_app(&self, app: &App) -> bool;
     /// Exit code, or Err("timeout" / "couldn't start").
-    fn run(&self, command: &str, folder: &Path, timeout: Duration) -> Result<i32, String>;
+    fn run(&self, command: &str, folder: &Path, timeout: Duration, input: Option<&[u8]>) -> Result<i32, String>;
+    /// Exit code and output (for redact + save_output only, never a log).
+    fn ps_script(&self, script: &Path, args: &[String], folder: &Path, timeout: Duration, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), String>;
+    /// Keeps a ps_script's last output (already redacted) for Settings.
+    fn save_output(&self, runbook: &str, text: &str);
     /// Starts it in a console of its own, outside Glim's lifetime; doesn't wait.
     fn launch_detached(&self, command: &str, folder: &Path) -> Result<(), String>;
     fn port_answers(&self, port: u16) -> bool;
@@ -692,7 +850,7 @@ pub fn run_steps(book: &Runbook, world: &dyn World, confirmed: &[usize], progres
     let total = book.steps.len();
     let mut out = Vec::new();
     for (i, s) in book.steps.iter().enumerate() {
-        let (ok, detail) = match one(&book.name, &s.step, world) {
+        let (ok, detail) = match one(&book.name, i + 1, total, &s.step, world) {
             Ok(d) => (true, d),
             Err(d) => (false, d),
         };
@@ -706,20 +864,74 @@ pub fn run_steps(book: &Runbook, world: &dyn World, confirmed: &[usize], progres
     Ok(out)
 }
 
-fn one(runbook: &str, step: &Step, world: &dyn World) -> Result<String, String> {
+fn needed_secret(world: &dyn World, name: &str) -> Result<secrets::SecretValue, String> {
+    world.secret(name)?.ok_or_else(|| format!("no secret called {name} (Settings → Secrets → Add a secret)"))
+}
+
+/// The output Settings may show: text, the secret (if one went to stdin)
+/// blanked out, no control characters but new lines and tabs, the last
+/// OUTPUT_SHOWN characters.
+pub const OUTPUT_SHOWN: usize = 4000;
+
+pub fn redact(output: &[u8], secret: Option<&str>) -> String {
+    let mut text = String::from_utf8_lossy(output).replace("\r\n", "\n");
+    if let Some(v) = secret.filter(|v| !v.is_empty()) {
+        text = text.replace(v, "[secret]");
+    }
+    let clean: String = text.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).collect();
+    let n = clean.chars().count();
+    if n <= OUTPUT_SHOWN {
+        clean
+    } else {
+        format!("…{}", clean.chars().skip(n - OUTPUT_SHOWN).collect::<String>())
+    }
+}
+
+fn one(runbook: &str, index: usize, total: usize, step: &Step, world: &dyn World) -> Result<String, String> {
     match step {
-        Step::EnvSecret { secret, file, key } => {
-            let value = world.secret(secret)?.ok_or_else(|| format!("no secret called {secret} (Settings → Secrets → Add a secret)"))?;
+        Step::EnvSecret { secret, file, key, require_prefix } => {
+            let value = needed_secret(world, secret)?;
+            if !require_prefix.is_empty() && !require_prefix.iter().any(|p| value.reveal().starts_with(p.as_str())) {
+                return Err(format!("secret {secret} doesn't start with an allowed prefix: nothing written"));
+            }
             env_file::write_secret(file, key, &value, &world.backups(runbook)).map(|()| "written".to_string())
         }
         Step::StartApp { app } => {
             if world.start_app(app) { Ok("started".into()) } else { Err("Windows couldn't start it".into()) }
         }
-        Step::Run { command, folder, timeout_s } => match world.run(command, folder, Duration::from_secs(*timeout_s)) {
-            Ok(0) => Ok("exit code 0".into()),
-            Ok(code) => Err(format!("exit code {code}")),
-            Err(e) => Err(e),
-        },
+        Step::Run { command, folder, timeout_s, stdin_secret } => {
+            let value = match stdin_secret {
+                Some(n) => Some(needed_secret(world, n)?),
+                None => None,
+            };
+            match world.run(command, folder, Duration::from_secs(*timeout_s), value.as_ref().map(|v| v.reveal().as_bytes())) {
+                Ok(0) => Ok("exit code 0".into()),
+                Ok(code) => Err(format!("exit code {code}")),
+                Err(e) => Err(e),
+            }
+        }
+        Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret } => {
+            // Hashed again just before it runs: approval covered these bytes.
+            if script_sha(script)? != *sha256 {
+                return Err("the script changed since the runbook was approved: approve it again".into());
+            }
+            let value = match stdin_secret {
+                Some(n) => Some(needed_secret(world, n)?),
+                None => None,
+            };
+            let r = world.ps_script(script, args, folder, Duration::from_secs(*timeout_s), value.as_ref().map(|v| v.reveal().as_bytes()));
+            let secret = value.as_ref().map(|v| v.reveal());
+            match r {
+                Ok((code, out)) => {
+                    world.save_output(runbook, &format!("step {index}/{total} exit code {code}\n{}", redact(&out, secret)));
+                    if code == 0 { Ok("exit code 0".into()) } else { Err(format!("exit code {code}")) }
+                }
+                Err(e) => {
+                    world.save_output(runbook, &format!("step {index}/{total}: {e}"));
+                    Err(e)
+                }
+            }
+        }
         Step::LaunchDetached { command, folder } => world.launch_detached(command, folder).map(|()| "started, not waited for".to_string()),
         Step::Check { check, wait_s } => {
             let until = Instant::now() + Duration::from_secs(*wait_s);
@@ -868,8 +1080,21 @@ impl World for RealWorld {
         }
     }
 
-    fn run(&self, command: &str, folder: &Path, timeout: Duration) -> Result<i32, String> {
-        crate::platform::run_command_line(command, folder, timeout)
+    fn run(&self, command: &str, folder: &Path, timeout: Duration, input: Option<&[u8]>) -> Result<i32, String> {
+        crate::platform::run_command_line(command, folder, timeout, input)
+    }
+
+    fn ps_script(&self, script: &Path, args: &[String], folder: &Path, timeout: Duration, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), String> {
+        crate::platform::run_ps_script(script, args, folder, timeout, input)
+    }
+
+    fn save_output(&self, runbook: &str, text: &str) {
+        let d = outputs_dir();
+        let _ = std::fs::create_dir_all(&d);
+        let _ = crate::platform::ensure_private_dir(&d);
+        let t = crate::platform::local_time();
+        let stamp = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second);
+        let _ = std::fs::write(d.join(format!("{runbook}.txt")), format!("{stamp} {text}"));
     }
 
     fn launch_detached(&self, command: &str, folder: &Path) -> Result<(), String> {
@@ -944,10 +1169,21 @@ pub struct BookView {
     pub folders: Vec<String>,
     pub apps: Vec<String>,
     pub commands: Vec<String>,
+    pub scripts: Vec<String>,
+    /// The last ps_script output (redacted, truncated), "" for none.
+    pub last_output: String,
+}
+
+fn last_output(name: &str) -> String {
+    let p = outputs_dir().join(format!("{name}.txt"));
+    match std::fs::symlink_metadata(&p) {
+        Ok(m) if m.is_file() && m.len() <= 64 * 1024 => std::fs::read_to_string(&p).unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 pub fn view(name: &str, here: &Here) -> BookView {
-    let empty = |state, error: String| BookView { name: name.into(), description: String::new(), state, error, hash: String::new(), steps: vec![], folders: vec![], apps: vec![], commands: vec![] };
+    let empty = |state, error: String| BookView { name: name.into(), description: String::new(), state, error, hash: String::new(), steps: vec![], folders: vec![], apps: vec![], commands: vec![], scripts: vec![], last_output: String::new() };
     match load_from(&here.dir, name) {
         Err(e) => empty(State::Invalid, e),
         Ok((_, Err(e))) => empty(State::Invalid, e),
@@ -961,6 +1197,8 @@ pub fn view(name: &str, here: &Here) -> BookView {
             folders: b.allow.folders.iter().map(|f| show(f)).collect(),
             apps: b.allow.apps.iter().map(|a| match a { App::Path(p) | App::Protocol(p) => p.clone() }).collect(),
             commands: b.allow.commands.clone(),
+            scripts: b.allow.scripts.iter().map(|x| show(x)).collect(),
+            last_output: last_output(&b.name),
         },
     }
 }

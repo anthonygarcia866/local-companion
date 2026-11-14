@@ -47,6 +47,11 @@ struct Fake {
     /// Stands in for %LOCALAPPDATA%\Glim\backups.
     backups: PathBuf,
     started: RefCell<Vec<String>>,
+    /// What each run / ps_script got on stdin.
+    stdin: RefCell<Vec<Vec<u8>>>,
+    /// What ps_script printed (the fake echoes `printed` + its stdin).
+    printed: String,
+    saved: RefCell<Vec<String>>,
     exit: i32,
     port: bool,
     status: u16,
@@ -54,7 +59,7 @@ struct Fake {
 
 impl Default for Fake {
     fn default() -> Self {
-        Fake { store: MemoryStore::default(), backups: scratch("backups"), started: RefCell::new(vec![]), exit: 0, port: true, status: 200 }
+        Fake { store: MemoryStore::default(), backups: scratch("backups"), started: RefCell::new(vec![]), stdin: RefCell::new(vec![]), printed: String::new(), saved: RefCell::new(vec![]), exit: 0, port: true, status: 200 }
     }
 }
 
@@ -69,8 +74,19 @@ impl World for Fake {
         self.started.borrow_mut().push(format!("{app:?}"));
         true
     }
-    fn run(&self, _command: &str, _folder: &Path, _timeout: Duration) -> Result<i32, String> {
+    fn run(&self, _command: &str, _folder: &Path, _timeout: Duration, input: Option<&[u8]>) -> Result<i32, String> {
+        self.stdin.borrow_mut().push(input.unwrap_or_default().to_vec());
         Ok(self.exit)
+    }
+    fn ps_script(&self, script: &Path, args: &[String], _folder: &Path, _timeout: Duration, input: Option<&[u8]>) -> Result<(i32, Vec<u8>), String> {
+        self.started.borrow_mut().push(format!("ps {} {}", script.file_name().unwrap().to_string_lossy(), args.join(" ")));
+        self.stdin.borrow_mut().push(input.unwrap_or_default().to_vec());
+        let mut out = self.printed.clone().into_bytes();
+        out.extend_from_slice(input.unwrap_or_default());
+        Ok((self.exit, out))
+    }
+    fn save_output(&self, runbook: &str, text: &str) {
+        self.saved.borrow_mut().push(format!("{runbook}: {text}"));
     }
     fn launch_detached(&self, command: &str, _folder: &Path) -> Result<(), String> {
         self.started.borrow_mut().push(format!("detached {command}"));
@@ -218,6 +234,211 @@ fn launch_detached_starts_and_does_not_wait() {
     assert!(out.iter().all(|o| o.ok));
     assert_eq!(out[1].detail, "started, not waited for");
     assert_eq!(w.started.borrow().as_slice(), ["detached example-updater.cmd"]);
+}
+
+// ── ps_script, require_prefix, secret_stdin (round 2, part B) ───────────────
+
+/// A folder with an allowed example.ps1 and a runbook text that runs it.
+fn script_setup(tag: &str, extra: &str) -> (PathBuf, PathBuf, String) {
+    let d = repo(tag);
+    let script = d.join("example.ps1");
+    std::fs::write(&script, "exit 0\r\n").unwrap();
+    let text = format!(
+        "[allow]\nfolders = ['{f}']\nscripts = ['{s}']\n[[step]]\ntype = \"ps_script\"\nscript = '{s}'\nargs = [\"-Mode\", \"check\"]\nfolder = '{f}'\ntimeout_s = 60\n{extra}",
+        f = p(&d),
+        s = p(&script)
+    );
+    (d, script, text)
+}
+
+#[test]
+fn ps_script_is_an_allowlisted_ps1_whose_hash_is_part_of_the_approval() {
+    let (_d, script, text) = script_setup("ps-parse", "");
+    let b = parse("example", text.as_bytes()).unwrap();
+    assert_eq!(b.steps[0].step.kind(), "ps_script");
+    let line = b.steps[0].step.describe();
+    let sha = sha256_hex(b"exit 0\r\n");
+    assert!(line.contains("example.ps1") && line.contains(&sha[..12]) && line.contains("`-Mode` `check`"), "{line}");
+    // The approved hash covers the script, not just the file.
+    assert_ne!(b.hash, sha256_hex(text.as_bytes()));
+    // A changed script = a different hash = approve again.
+    std::fs::write(&script, "exit 1\r\n").unwrap();
+    let b2 = parse("example", text.as_bytes()).unwrap();
+    assert_ne!(b.hash, b2.hash);
+    let books = scratch("ps-approve");
+    let path = books.join("approved.json");
+    let vault = MemoryVault::default();
+    approve(&b2, &b2.hash, &path, &vault, 1).unwrap();
+    std::fs::write(&script, "exit 2\r\n").unwrap();
+    let b3 = parse("example", text.as_bytes()).unwrap();
+    assert_eq!(state(&b3, &read_approvals(&path), approval_key(&vault, false).unwrap().as_deref()), State::Changed);
+}
+
+#[test]
+fn a_runbook_without_scripts_keeps_its_plain_file_hash() {
+    let d = repo("plain-hash");
+    let text = env_book(&d, ".env.local");
+    assert_eq!(parse("example", text.as_bytes()).unwrap().hash, sha256_hex(text.as_bytes()));
+}
+
+#[test]
+fn bad_ps_script_steps_are_refused() {
+    let (d, script, _) = script_setup("ps-bad", "");
+    let (f, sc) = (p(&d), p(&script));
+    let other = d.join("other.ps1");
+    std::fs::write(&other, "exit 0").unwrap();
+    let o = p(&other);
+    let txt = d.join("notes.txt");
+    std::fs::write(&txt, "x").unwrap();
+    let cases: Vec<(String, &str)> = vec![
+        (format!("[allow]\nfolders = ['{f}']\nscripts = ['{sc}']\n[[step]]\ntype = \"ps_script\"\nscript = '{o}'\nfolder = '{f}'\n"), "not in [allow] scripts"),
+        (format!("[allow]\nscripts = ['{}']\n[[step]]\ntype = \"check\"\nport = 1\n", p(&txt)), "must be a .ps1"),
+        (format!("[allow]\nscripts = ['{f}\\missing.ps1']\n[[step]]\ntype = \"check\"\nport = 1\n"), "doesn't exist"),
+        (format!("[allow]\nfolders = ['{f}']\nscripts = ['{sc}']\n[[step]]\ntype = \"ps_script\"\nscript = '{sc}'\nfolder = '{f}'\nargs = ['a\"b']\n"), "without"),
+        (format!("[allow]\nfolders = ['{f}']\nscripts = ['{sc}']\n[[step]]\ntype = \"ps_script\"\nscript = '{sc}'\nfolder = '{f}'\ncommand = \"x\"\n"), "can't have command"),
+        (format!("[allow]\nfolders = ['{f}']\nscripts = ['{sc}']\n[[step]]\ntype = \"ps_script\"\nscript = '{sc}'\nfolder = '{f}'\nsecret_stdin = \"bad name\"\n"), "not a usable secret name"),
+        (format!("[allow]\nscripts = ['{sc}']\n[[step]]\ntype = \"ps_script\"\nscript = '{sc}'\nfolder = '{f}'\n"), "not in or under [allow] folders"),
+        (format!("[allow]\nfolders = ['{f}']\ncommands = [\"npm test\"]\n[[step]]\ntype = \"run\"\ncommand = \"npm test\"\nfolder = '{f}'\nrequire_prefix = [\"x\"]\n"), "can't have require_prefix"),
+        (format!("[allow]\nfolders = ['{f}']\ncommands = [\"x.cmd\"]\n[[step]]\ntype = \"launch_detached\"\ncommand = \"x.cmd\"\nfolder = '{f}'\nsecret_stdin = \"EXAMPLE_TOKEN\"\n"), "can't have secret_stdin"),
+        (format!("[allow]\nfolders = ['{f}']\n[[step]]\ntype = \"env_secret\"\nsecret = \"X\"\nfile = '{f}\\.env.local'\nkey = \"K\"\nrequire_prefix = []\n"), "1 to 8 prefixes"),
+        (format!("[allow]\nfolders = ['{f}']\n[[step]]\ntype = \"env_secret\"\nsecret = \"X\"\nfile = '{f}\\.env.local'\nkey = \"K\"\nrequire_prefix = [\"a b\"]\n"), "without spaces"),
+        (format!("[allow]\nfolders = ['{f}']\n[[step]]\ntype = \"env_secret\"\nsecret = \"X\"\nfile = '{f}\\.env.local'\nkey = \"K\"\nsecret_stdin = \"X\"\n"), "can't have secret_stdin"),
+    ];
+    for (text, want) in cases {
+        let e = parse("example", text.as_bytes()).unwrap_err();
+        assert!(e.contains(want), "{want:?} not in {e:?} for {text}");
+    }
+}
+
+#[test]
+fn ps_script_runs_with_its_args_and_keeps_its_output_off_the_log() {
+    let (_d, _script, text) = script_setup("ps-run", "secret_stdin = \"EXAMPLE_TOKEN\"\n");
+    let (books, approvals, key) = approved_dir_hashed("ps-run-books", &text);
+    let mut fake = Fake::default();
+    fake.store.write("EXAMPLE_TOKEN", VALUE).unwrap();
+    fake.printed = "deploy ok; token was ".into();
+    let mut audit = Vec::new();
+    let mut shown = Vec::new();
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Cli, &[], &fake, &mut |l| audit.push(l), &mut |o| shown.push(cli::step_line(o))).unwrap();
+    assert!(r.iter().all(|o| o.ok), "{r:?}");
+    assert_eq!(fake.started.borrow().as_slice(), ["ps example.ps1 -Mode check"]);
+    // The secret went to stdin, and only there.
+    assert_eq!(fake.stdin.borrow().as_slice(), [VALUE.as_bytes().to_vec()]);
+    // Output is saved for Settings with the secret blanked; never in the audit or progress.
+    let saved = fake.saved.borrow().join("\n");
+    assert!(saved.contains("deploy ok; token was [secret]") && saved.contains("step 1/1 exit code 0"), "{saved}");
+    for line in audit.iter().chain(shown.iter()).chain(std::iter::once(&saved)) {
+        assert!(!line.contains("SENTINEL"), "the value leaked: {line}");
+    }
+    assert!(!audit.join("\n").contains("deploy ok"), "output in the audit log");
+}
+
+/// Approves a runbook by the hash parse computes (it covers scripts too).
+fn approved_dir_hashed(tag: &str, text: &str) -> (PathBuf, Approvals, Vec<u8>) {
+    let books = scratch(tag);
+    book(&books, "example", text);
+    let vault = MemoryVault::default();
+    let (_, b) = load_from(&books, "example").unwrap();
+    let b = b.unwrap();
+    let path = books.join("approved.json");
+    approve(&b, &b.hash, &path, &vault, 1).unwrap();
+    (books, read_approvals(&path), approval_key(&vault, false).unwrap().unwrap())
+}
+
+#[test]
+fn a_script_changed_after_loading_is_not_run() {
+    let (_d, script, text) = script_setup("ps-swap", "");
+    let b = parse("example", text.as_bytes()).unwrap();
+    std::fs::write(&script, "Remove-Item -Recurse C:\\example\r\n").unwrap();
+    let fake = Fake::default();
+    let out = run_steps(&b, &fake, &[], &mut |_| {}).unwrap();
+    assert!(!out[0].ok && out[0].detail.contains("script changed"), "{out:?}");
+    assert!(fake.started.borrow().is_empty(), "nothing ran");
+}
+
+#[test]
+fn a_failing_script_fails_the_step_with_its_exit_code() {
+    let (_d, _s, text) = script_setup("ps-fail", "");
+    let b = parse("example", text.as_bytes()).unwrap();
+    let fake = Fake { exit: 3, ..Fake::default() };
+    let out = run_steps(&b, &fake, &[], &mut |_| {}).unwrap();
+    assert_eq!((out[0].ok, out[0].detail.as_str()), (false, "exit code 3"));
+    assert!(fake.saved.borrow()[0].contains("exit code 3"));
+}
+
+#[test]
+fn run_with_secret_stdin_sends_the_value_to_stdin_only() {
+    let d = repo("run-stdin");
+    let f = p(&d);
+    let text = format!("[allow]\nfolders = ['{f}']\ncommands = [\"example-cli secret put EXAMPLE_KEY\"]\n[[step]]\ntype = \"run\"\ncommand = \"example-cli secret put EXAMPLE_KEY\"\nfolder = '{f}'\nsecret_stdin = \"EXAMPLE_TOKEN\"\nask = true\n");
+    let b = parse("example", text.as_bytes()).unwrap();
+    let line = b.steps[0].step.describe();
+    assert!(line.contains("secret EXAMPLE_TOKEN goes to its input only") && !line.contains("SENTINEL"), "{line}");
+    let fake = Fake::default();
+    // Missing: the step fails by name, nothing runs.
+    let out = run_steps(&b, &fake, &[1], &mut |_| {}).unwrap();
+    assert!(!out[0].ok && out[0].detail.contains("no secret called EXAMPLE_TOKEN"));
+    assert!(fake.stdin.borrow().is_empty());
+    fake.store.write("EXAMPLE_TOKEN", VALUE).unwrap();
+    let out = run_steps(&b, &fake, &[1], &mut |_| {}).unwrap();
+    assert!(out[0].ok, "{out:?}");
+    assert_eq!(fake.stdin.borrow().as_slice(), [VALUE.as_bytes().to_vec()]);
+    // Without secret_stdin, stdin gets nothing.
+    let plain = text.replace("secret_stdin = \"EXAMPLE_TOKEN\"\n", "");
+    let fake2 = Fake::default();
+    run_steps(&parse("example", plain.as_bytes()).unwrap(), &fake2, &[1], &mut |_| {}).unwrap();
+    assert_eq!(fake2.stdin.borrow().as_slice(), [Vec::<u8>::new()]);
+}
+
+#[test]
+fn require_prefix_refuses_without_revealing_the_value_or_writing() {
+    let d = repo("prefix");
+    let env = d.join(".env.local");
+    let f = p(&d);
+    let book_text = |prefixes: &str| format!("[allow]\nfolders = ['{f}']\n[[step]]\ntype = \"env_secret\"\nsecret = \"EXAMPLE_TOKEN\"\nfile = '{}'\nkey = \"EXAMPLE_KEY\"\nrequire_prefix = [{prefixes}]\n", p(&env));
+    let fake = Fake::default();
+    fake.store.write("EXAMPLE_TOKEN", VALUE).unwrap();
+    let wrong = parse("example", book_text("\"sk_test_\", \"rk_test_\"").as_bytes()).unwrap();
+    assert!(wrong.steps[0].step.describe().contains("only if it starts with sk_test_ or rk_test_"));
+    let out = run_steps(&wrong, &fake, &[], &mut |_| {}).unwrap();
+    assert!(!out[0].ok);
+    assert_eq!(out[0].detail, "secret EXAMPLE_TOKEN doesn't start with an allowed prefix: nothing written");
+    assert!(!out[0].detail.contains("placeholder"), "not even the value's start");
+    assert!(!env.exists(), "nothing written");
+    let right = parse("example", book_text("\"sk_test_\", \"placeholder-\"").as_bytes()).unwrap();
+    let out = run_steps(&right, &fake, &[], &mut |_| {}).unwrap();
+    assert!(out[0].ok, "{out:?}");
+    assert!(std::fs::read_to_string(&env).unwrap().contains(&format!("EXAMPLE_KEY={VALUE}")));
+}
+
+#[test]
+fn redact_blanks_the_secret_strips_controls_and_keeps_the_end() {
+    assert_eq!(redact(format!("a{VALUE}b\r\nc\u{7}d\te").as_bytes(), Some(VALUE)), "a[secret]b\ncd\te");
+    assert_eq!(redact(b"x", Some("")), "x");
+    let long = "y".repeat(OUTPUT_SHOWN + 50) + "END";
+    let r = redact(long.as_bytes(), None);
+    assert!(r.starts_with('…') && r.ends_with("END") && r.chars().count() == OUTPUT_SHOWN + 1);
+}
+
+/// The real thing on Windows: System32's PowerShell runs the script with
+/// its args, the secret arrives on stdin, output and exit code come back;
+/// and cmd.exe gets stdin too.
+#[cfg(windows)]
+#[test]
+fn real_powershell_and_cmd_get_args_and_stdin() {
+    let d = scratch("real-ps");
+    let script = d.join("echo.ps1");
+    std::fs::write(&script, "param([string]$Mode)\r\n$in = [Console]::In.ReadToEnd()\r\nWrite-Output \"mode=$Mode got=$in\"\r\nexit 3\r\n").unwrap();
+    let (code, out) = RealWorld.ps_script(&script, &["-Mode".into(), "check".into()], &d, Duration::from_secs(60), Some(VALUE.as_bytes())).unwrap();
+    let text = String::from_utf8_lossy(&out);
+    assert_eq!(code, 3, "{text}");
+    assert!(text.contains(&format!("mode=check got={VALUE}")), "{text}");
+    assert_eq!(redact(&out, Some(VALUE)).trim(), "mode=check got=[secret]");
+    // cmd: findstr exits 0 only if stdin's line starts with the value's start.
+    assert_eq!(RealWorld.run("findstr /b placeholder-SENTINEL", &d, Duration::from_secs(30), Some(VALUE.as_bytes())).unwrap(), 0);
+    assert_eq!(RealWorld.run("findstr /b nope", &d, Duration::from_secs(30), Some(VALUE.as_bytes())).unwrap(), 1);
+    // No stdin: findstr reads an empty input and finds nothing.
+    assert_eq!(RealWorld.run("findstr /b placeholder", &d, Duration::from_secs(30), None).unwrap(), 1);
 }
 
 // ── Approval ──────────────────────────────────────────────────────────────────
@@ -511,6 +732,9 @@ fn the_example_runbook_is_valid_and_has_placeholders_only() {
     let text = include_str!("../../../../examples/runbook.example.toml");
     let raw: RawBook = toml::from_str(text).unwrap();
     assert_eq!(raw.step.iter().map(|s| s.kind.as_str()).collect::<Vec<_>>(), ["env_secret", "check"]);
+    for kind in ["env_secret", "start_app", "run", "ps_script", "check", "launch_detached", "require_prefix", "secret_stdin"] {
+        assert!(text.contains(kind), "the example doesn't show {kind}");
+    }
     for line in text.lines().filter(|l| l.contains(":\\")) {
         assert!(line.contains(r"C:\path\to\"), "not a placeholder path: {line}");
     }
