@@ -185,8 +185,8 @@ test("a change to the draft just made: the new text on the card, Update draft by
 
 test("Settings → Email drafts: the sender's address is checked and stored; remembered names are forgotten through Rust", () => {
   assert.equal(DEFAULT_SETTINGS.draftFrom, "");
-  for (const ok of ["a@b.co", "anthony@example.com"]) assert.ok(looksLikeAddress(ok), ok);
-  for (const bad of ["", "anthony", "a@b", "a b@c.com", "a@b.com."]) assert.ok(!looksLikeAddress(bad), bad);
+  for (const ok of ["a@b.co", "owner@example.com"]) assert.ok(looksLikeAddress(ok), ok);
+  for (const bad of ["", "owner", "a@b", "a b@c.com", "a@b.com."]) assert.ok(!looksLikeAddress(bad), bad);
   const settings = { ...DEFAULT_SETTINGS, draftRecipients: { maria: "mokafor@example.com" } };
   let saves = 0;
   let redraw = null;
@@ -197,9 +197,9 @@ test("Settings → Email drafts: the sender's address is checked and stored; rem
   from.fire("change");
   assert.equal(settings.draftFrom, "");
   assert.match(role("draft-from-why").textContent, /doesn't look like an email address/);
-  from.value = " anthony@example.com ";
+  from.value = " owner@example.com ";
   from.fire("change");
-  assert.equal(settings.draftFrom, "anthony@example.com");
+  assert.equal(settings.draftFrom, "owner@example.com");
   assert.equal(saves, 1);
   assert.match(group.textContent, /maria → mokafor@example\.com/);
   const n = sent("draft_forget").length;

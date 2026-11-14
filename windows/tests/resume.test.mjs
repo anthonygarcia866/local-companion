@@ -27,10 +27,10 @@ function card(cards) {
 }
 
 test("one row per repo in Rust's order (newest first), at most three, saying where it stopped", () => {
-  const { v } = card([repo("local-companion", { hasQuestions: true, branch: "ai-check" }), repo("dale-cuts"), repo("crm"), repo("old")]);
+  const { v } = card([repo("local-companion", { hasQuestions: true, branch: "ai-check" }), repo("harbor-tiles"), repo("crm"), repo("old")]);
   const rows = v.el.find(".resume-row");
   assert.equal(rows.length, RESUME_ROWS);
-  assert.deepEqual(rows.map((r) => r.getAttribute("data-repo")), ["local-companion", "dale-cuts", "crm"]);
+  assert.deepEqual(rows.map((r) => r.getAttribute("data-repo")), ["local-companion", "harbor-tiles", "crm"]);
   assert.ok(rows[0].textContent.includes("local-companion: the next step"));
   assert.ok(rows[0].textContent.includes("Branch ai-check · Has open questions"));
   assert.ok(v.el.textContent.includes("Pick up where you left off"));
@@ -48,8 +48,8 @@ test("nothing opens until a row's button is clicked, and then only by the repo's
 });
 
 test("the notes, the withheld line, an empty list, and Close", () => {
-  assert.equal(openNote("dale-cuts", true), "Opening Claude Code in dale-cuts…");
-  assert.equal(openNote("dale-cuts", false), "Couldn't open Claude Code in dale-cuts. Is it installed?");
+  assert.equal(openNote("harbor-tiles", true), "Opening Claude Code in harbor-tiles…");
+  assert.equal(openNote("harbor-tiles", false), "Couldn't open Claude Code in harbor-tiles. Is it installed?");
   let { v } = card([repo("x", { withheld: ["in_progress"] })]);
   assert.ok(v.el.textContent.includes("Part of it is withheld"));
   ({ v } = card([]));
@@ -101,8 +101,8 @@ test("the card's triggers (decided 2026-10-15): the tray item, voice resume_work
 test("voice's repo goes first; the rest keep their order; an unknown name changes nothing", async () => {
   const { withFirst } = await import("../src/views/resume.ts");
   const c = (repo) => ({ repo, goal: null, inProgress: null, branch: null, lastCommit: null, hasQuestions: false, withheld: [], updated: 0 });
-  const cards = ["local-companion", "dalebooking-crm", "dale-cuts", "listingheart"].map(c);
-  assert.deepEqual(withFirst(cards, "dale-cuts").map((x) => x.repo), ["dale-cuts", "local-companion", "dalebooking-crm", "listingheart"]);
+  const cards = ["local-companion", "harbor-crm", "harbor-tiles", "maple-notes"].map(c);
+  assert.deepEqual(withFirst(cards, "harbor-tiles").map((x) => x.repo), ["harbor-tiles", "local-companion", "harbor-crm", "maple-notes"]);
   assert.equal(withFirst(cards, "local-companion"), cards, "already first");
   assert.equal(withFirst(cards, "nope"), cards);
   assert.equal(withFirst(cards, null), cards);

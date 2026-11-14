@@ -588,7 +588,7 @@ fn name_word_counts(text: &str, names: &NameSet) -> std::collections::HashMap<St
 }
 
 /// Whether every known name word in `before` is in `after` at least as
-/// often, spelled the same (any case: a dictated "dale" may become "Dale").
+/// often, spelled the same (any case: a dictated "bayfield" may become "Bayfield").
 /// Names the shield masked come back through their placeholders; this
 /// catches one it didn't (a contact it didn't know yet, a lowercase word).
 pub fn names_kept_with(before: &str, after: &str, names: &NameSet) -> bool {

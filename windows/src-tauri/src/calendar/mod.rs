@@ -281,7 +281,7 @@ mod tests {
             "https://teams.live.com/meet/9876543210",
             "https://us02web.zoom.us/j/81234567890?pwd=abc",
             "https://zoom.us/j/123",
-            "https://acme.zoom.us/my/anthony",
+            "https://acme.zoom.us/my/sample",
         ] {
             assert!(meeting_link(ok), "{ok}");
         }
@@ -308,7 +308,7 @@ mod tests {
         }
         // Found in the location first, then the body; text around it ignored.
         let body = "Join on your computer\r\n<https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0?context=a>\r\nMeeting ID: 123";
-        assert_eq!(join_link(&["Room 4B", body]).as_deref(), Some("https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0?context=a"));
+        assert_eq!(join_link(&["Room 4D", body]).as_deref(), Some("https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0?context=a"));
         assert_eq!(join_link(&["https://us02web.zoom.us/j/811?pwd=x.", body]).as_deref(), Some("https://us02web.zoom.us/j/811?pwd=x"));
         assert_eq!(join_link(&["see https://example.com/agenda and http://zoom.us/j/1"]), None);
         assert_eq!(join_link(&[""]), None);

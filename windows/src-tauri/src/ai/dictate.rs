@@ -446,7 +446,7 @@ pub async fn revise(base: &Url, key: &ApiKey, model: &str, current: &DraftText, 
 pub async fn clean_up(base: &Url, key: &ApiKey, model: &str, transcript: &str, cx: &Context<'_>) -> (Result<Cleanup, CleanupFailed>, Option<Usage>) {
     let (request, question) = cx.asked.map_or(("", ""), |a| (a.request.as_str(), a.question.as_str()));
     // Dictation: phones and units in their typed form first, so the
-    // placeholder stands for "unit 4B", not "unit four B" (shield/normalize.rs).
+    // placeholder stands for "unit 4D", not "unit four D" (shield/normalize.rs).
     // The never-send filter sees the transcript as said, before the typed
     // form or any placeholder exists (mask_texts checks the typed form too).
     if crate::shield::never_send::reason(transcript).is_some() {
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn ask_glim_offers_every_tool_but_dictate() {
         let (url, got) = serve_capture("200 OK", "Content-Type: application/json\r\n", answer("open_app", json!({ "app": "outlook" })));
-        let repos = ["dale-cuts".to_string()];
+        let repos = ["harbor-tiles".to_string()];
         let c = Context { mode: Mode::Ask, app: "OUTLOOK.EXE", today: "2026-10-14", repos: &repos, own_apps: &[], asked: None, remembered: "" };
         let (r, usage) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", "open outlook", &c));
         assert_eq!(r, Ok(Cleanup::Open("outlook")));
@@ -565,7 +565,7 @@ mod tests {
         assert!(!names(&body).iter().any(|n| n == "send_email"), "sending is never a tool");
         assert_eq!(body["system"], SYSTEM_ASK);
         let content = body["messages"][0]["content"].as_str().unwrap();
-        assert!(content.contains("Known repos: dale-cuts\n") && content.contains("App in front: OUTLOOK.EXE") && content.ends_with("<transcript>\nopen outlook\n</transcript>"));
+        assert!(content.contains("Known repos: harbor-tiles\n") && content.contains("App in front: OUTLOOK.EXE") && content.ends_with("<transcript>\nopen outlook\n</transcript>"));
         assert!(!content.contains("Glim asked"));
     }
 
@@ -651,7 +651,7 @@ mod tests {
         }
         assert_eq!(p("resume_work", json!({})), Ok(Cleanup::Resume(None)));
         assert_eq!(p("resume_work", json!({ "repo": "  " })), Ok(Cleanup::Resume(None)));
-        assert_eq!(p("resume_work", json!({ "repo": "dale-cuts" })), Ok(Cleanup::Resume(Some("dale-cuts".into()))));
+        assert_eq!(p("resume_work", json!({ "repo": "harbor-tiles" })), Ok(Cleanup::Resume(Some("harbor-tiles".into()))));
         assert_eq!(p("clarify", json!({ "question": "Which draft?" })), Ok(Cleanup::Clarify("Which draft?".into())));
         for (name, input) in [("send_email", json!({})), ("clarify", json!({}))] {
             assert_eq!(p(name, input), Err(CleanupFailed::Outage("bad-answer".into())), "{name}");
@@ -944,12 +944,12 @@ mod tests {
         // After "scratch that", the corrected-away value may go.
         let fixed = "call me at 555 123 4567 scratch that email me about unit 7D";
         // Said as words, the same: Claude sees placeholders, the field gets digits.
-        let words = "call me at five five five one two three four five six seven about unit four B";
+        let words = "call me at five five five one two three four five six seven about unit four D";
         let (url, got) = serve_capture("200 OK", "", answer("dictate", json!({ "text": "Call me at [PHONE1] about unit [UNIT1]." })));
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", words, &cx(Mode::Dictate)));
-        assert_eq!(r, Ok(Cleanup::Dictate("Call me at 555-123-4567 about unit 4B.".into())));
+        assert_eq!(r, Ok(Cleanup::Dictate("Call me at 555-123-4567 about unit 4D.".into())));
         let content = sent_body(&got)["messages"][0]["content"].as_str().unwrap().to_string();
-        assert!(content.contains("call me at [PHONE1] about unit [UNIT1]") && !content.contains("five") && !content.contains("4B"), "{content}");
+        assert!(content.contains("call me at [PHONE1] about unit [UNIT1]") && !content.contains("five") && !content.contains("4D"), "{content}");
         let (url, _got) = serve_capture("200 OK", "", answer("dictate", json!({ "text": "Email me about unit [UNIT1]." })));
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", fixed, &cx(Mode::Dictate)));
         assert_eq!(r, Ok(Cleanup::Dictate("Email me about unit 7D.".into())));
@@ -973,7 +973,7 @@ mod tests {
         use crate::voice::draft::{self, Contact, FakeOutlook, Found, Outlook};
         let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::shield::set_address_book(vec!["Lopez, Maria (Leasing)".into(), "Nguyen, Sam".into()]);
-        let said = "draft an email to Maria Lopez saying the lease for unit 4B is ready";
+        let said = "draft an email to Maria Lopez saying the lease for unit 4D is ready";
         let reply = answer("draft_email", json!({ "to": ["[PERSON1]"], "subject": "Lease ready", "body": "The lease for unit [UNIT1] is ready." }));
         let (url, got) = serve_capture("200 OK", "", reply);
         let (r, _) = block_on(clean_up(&Url::parse(&url).unwrap(), &key(), "m", said, &cx(Mode::Ask)));
@@ -983,7 +983,7 @@ mod tests {
         assert!(!content.contains("Maria") && !content.contains("Lopez"), "{content}");
         let Ok(Cleanup::Draft(spoken)) = r else { panic!("{r:?}") };
         assert_eq!(spoken.to, ["Maria Lopez"], "the real name, before resolution");
-        assert_eq!(spoken.body, "The lease for unit 4B is ready.");
+        assert_eq!(spoken.body, "The lease for unit 4D is ready.");
         // Resolved against the (fake) address book, as the card does.
         let outlook = FakeOutlook {
             book: vec![Contact { name: "Maria Lopez".into(), address: "maria.lopez@example.com".into() }, Contact { name: "Sam Nguyen".into(), address: "sam@example.com".into() }],

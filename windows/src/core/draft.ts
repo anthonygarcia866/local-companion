@@ -3,7 +3,7 @@
 // the card and Outlook; it sends the card on "draft-email" whenever it
 // changes. The island sends back only the card's id, indexes and a search's
 // text. Glim never sends the email: Create draft saves it in Outlook's Drafts
-// and opens it there, and Anthony sends it himself.
+// and opens it there, and the owner sends it themselves.
 
 import type { PresenceKind } from "../island/presence";
 

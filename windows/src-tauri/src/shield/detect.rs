@@ -1,6 +1,6 @@
 // What the shield swaps out, found on this PC with plain rules (no model):
 // emails (written, or spoken as "name at example dot com"), phone numbers,
-// street addresses ("123 Main St", "PO Box 12"), unit numbers ("Unit 4B",
+// street addresses ("123 Main St", "PO Box 12"), unit numbers ("Unit 4D",
 // "Apt 12", "Suite 200", "#204"; only the number goes) and people's names
 // from the shield's name list. Each finder returns byte spans; `find` keeps
 // the first of overlapping ones in the order email, address, phone, unit,

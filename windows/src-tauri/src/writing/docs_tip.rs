@@ -1,7 +1,7 @@
 // Google Docs is not supported yet (Decision D, 2026-10-17): Docs draws its
 // pages on a canvas and types into a hidden helper field, so UI Automation
 // never gives Glim the document's text, even with screen reader support on
-// (Anthony's tests 2026-10-14 and 2026-10-16; docs/capture-results.md, "Google
+// (the owner's tests 2026-10-14 and 2026-10-16; docs/capture-results.md, "Google
 // Docs"). Glim reads nothing in a Docs document (capture::uia::read skips it)
 // and shows a one-time notice, "Glim can't read Google Docs yet", once a Docs
 // document has had the focus for AFTER. "Got it" stores that it was dismissed
