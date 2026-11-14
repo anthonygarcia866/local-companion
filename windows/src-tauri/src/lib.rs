@@ -40,6 +40,7 @@ mod tray;
 mod webview_drop;
 mod webview_health;
 mod relaunch;
+mod remote;
 mod runbooks;
 mod update_result;
 #[cfg(windows)]
@@ -129,6 +130,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.draft_recipients = current.draft_recipients.clone();
         // Settings → Remote's list is Rust's (keepalive_* commands).
         settings.keep_alive = current.keep_alive.clone();
+        // Remote tasks (remote/) are Rust's too (remote_* commands).
+        settings.remote = current.remote.clone();
         // Whether My names was seeded is Rust's (shield::address_book).
         settings.own_names_seeded |= current.own_names_seeded;
         // The day the calendar's morning summary was last shown is Rust's.
@@ -746,6 +749,77 @@ fn keepalive_remove(app: AppHandle, shared: State<Shared>, folder: String) -> Ke
 fn keepalive_desktop(app: AppHandle, shared: State<Shared>, on: bool) -> KeepAliveStatus {
     update_settings(&app, &shared, |s| s.keep_alive.desktop_app = on);
     keepalive_now(&shared)
+}
+
+/// Settings → Remote → Remote tasks (remote/, owner 2026-11-14): the
+/// switch, the signer key's fingerprint (never more of it), the kill switch
+/// and the activity list. No transport is wired yet: nothing receives tasks.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteStatus {
+    on: bool,
+    consented: bool,
+    killed: bool,
+    fingerprint: String,
+    activity: Vec<remote::Activity>,
+}
+
+fn remote_now(shared: &Shared) -> RemoteStatus {
+    let s = shared.settings.lock().unwrap().remote.clone();
+    let mut activity = remote::with(|g| g.activity.clone());
+    activity.reverse();
+    RemoteStatus { on: s.on, consented: s.consented, killed: s.killed, fingerprint: remote::fingerprint(&s.public_key), activity }
+}
+
+#[tauri::command]
+fn remote_status(shared: State<Shared>) -> RemoteStatus {
+    remote_now(&shared)
+}
+
+/// The channel's switch: off by default; on needs the consent card's
+/// "Turn on" once (`consent`).
+#[tauri::command]
+fn remote_set(app: AppHandle, shared: State<Shared>, on: bool, consent: bool) -> Result<RemoteStatus, String> {
+    let consented = shared.settings.lock().unwrap().remote.consented || consent;
+    if on && !consented {
+        return Err(i18n::t("Answer the card first."));
+    }
+    update_settings(&app, &shared, |s| {
+        s.remote.consented = consented;
+        s.remote.on = on;
+    });
+    log::line(if on { "remote: channel on" } else { "remote: channel off" });
+    Ok(remote_now(&shared))
+}
+
+/// The signer's public key, pasted (64 hex characters); "" removes it.
+#[tauri::command]
+fn remote_key(app: AppHandle, shared: State<Shared>, key: String) -> Result<RemoteStatus, String> {
+    let key = if key.trim().is_empty() { String::new() } else { remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))? };
+    let set = !key.is_empty();
+    update_settings(&app, &shared, |s| s.remote.public_key = key);
+    log::line(if set { "remote: signer key saved" } else { "remote: signer key removed" });
+    Ok(remote_now(&shared))
+}
+
+/// The kill switch (Settings, and the tray's "Stop remote tasks"): refuses
+/// every task until switched back here.
+#[tauri::command]
+fn remote_kill(app: AppHandle, shared: State<Shared>, killed: bool) -> RemoteStatus {
+    set_remote_killed(&app, &shared, killed);
+    remote_now(&shared)
+}
+
+fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
+    update_settings(app, shared, |s| s.remote.killed = killed);
+    remote::with(|g| g.note_kill(remote::now_s(), killed));
+    log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
+}
+
+/// The tray's one click.
+pub(crate) fn remote_kill_from_tray(app: &AppHandle) {
+    let shared = app.state::<Shared>();
+    set_remote_killed(app, &shared, true);
 }
 
 /// Settings → Runbooks: the folder, each runbook (its steps with secret
@@ -1828,6 +1902,10 @@ pub fn run() {
             keepalive_add,
             keepalive_remove,
             keepalive_desktop,
+            remote_status,
+            remote_set,
+            remote_key,
+            remote_kill,
             runbooks_list,
             runbook_approve,
             runbook_take_request,

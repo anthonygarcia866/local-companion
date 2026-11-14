@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { remoteSection, entryState, clock } = await import("../src/settings/remote.ts");
+const { remoteSection, remoteTasks, entryState, clock, activityLine } = await import("../src/settings/remote.ts");
 const { sent, replies } = await import("./tauri.mjs");
 
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -77,4 +77,67 @@ test("three stops in an hour are shown", async () => {
   const el = remoteSection(toggle);
   await tick();
   assert.match(el.find("div").map((d) => d.textContent).join(" | "), /Stopped 3 times in the last hour/);
+});
+
+// ── Remote tasks (remote courier core, 2026-11-14): no transport yet ─────────
+
+const rstatus = (over = {}) => ({ on: false, consented: false, killed: false, fingerprint: "", activity: [], ...over });
+
+test("remote tasks: off by default, the card first, only Turn on turns it on", async () => {
+  replies.set("remote_status", rstatus());
+  const el = remoteTasks(toggle);
+  await tick();
+  const n = sent("remote_set").length;
+  role(el, "button", "switch").fire("click");
+  assert.ok(role(el, "div", "remote-tasks-consent"), "the card");
+  assert.equal(sent("remote_set").length, n, "nothing before the answer");
+  role(el, "button", "remote-tasks-no").fire("click");
+  assert.equal(sent("remote_set").length, n, "Not now keeps it off");
+  role(el, "button", "switch").fire("click");
+  replies.set("remote_set", rstatus({ on: true, consented: true }));
+  role(el, "button", "remote-tasks-yes").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_set").slice(n), [{ on: true, consent: true }]);
+});
+
+test("remote tasks: the key goes to Rust, only its fingerprint comes back", async () => {
+  replies.set("remote_status", rstatus());
+  const el = remoteTasks(toggle);
+  await tick();
+  const key = "ab".repeat(32);
+  role(el, "input", "remote-key").value = key;
+  replies.set("remote_key", rstatus({ fingerprint: "3F2A 91C0 0000 1111 2222 3333 4444 5555" }));
+  role(el, "button", "remote-key-save").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_key").at(-1), { key });
+  const text = el.find("div").map((d) => d.textContent).join(" | ");
+  assert.match(text, /Fingerprint: 3F2A 91C0/);
+  assert.ok(!text.includes(key), "the key itself is never shown");
+});
+
+test("remote tasks: the kill switch is one click, and Allow again undoes it", async () => {
+  replies.set("remote_status", rstatus({ on: true, consented: true }));
+  const el = remoteTasks(toggle);
+  await tick();
+  replies.set("remote_kill", rstatus({ on: true, consented: true, killed: true }));
+  role(el, "button", "remote-kill").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_kill").at(-1), { killed: true });
+  assert.ok(role(el, "div", "remote-killed"));
+  replies.set("remote_kill", rstatus({ on: true, consented: true }));
+  role(el, "button", "remote-allow").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_kill").at(-1), { killed: false });
+});
+
+test("remote activity: times, outcomes and kinds or reasons, newest first", async () => {
+  const at = new Date(2026, 10, 14, 9, 7).getTime() / 1000;
+  assert.equal(activityLine({ at, ok: true, kind: "session-status", reason: "", id: "x" }), "09:07 Accepted: session-status");
+  assert.equal(activityLine({ at, ok: false, kind: "", reason: "expired", id: "" }), "09:07 Refused: expired");
+  assert.equal(activityLine({ at, ok: false, kind: "kill-switch", reason: "", id: "" }), "09:07 Stop remote tasks");
+  replies.set("remote_status", rstatus({ activity: [{ at, ok: false, kind: "", reason: "bad-signature", id: "" }, { at, ok: true, kind: "runbook", reason: "", id: "y" }] }));
+  const el = remoteTasks(toggle);
+  await tick();
+  const lines = el.find("div").filter((d) => d.getAttribute("data-role") === "remote-activity-line").map((d) => d.textContent);
+  assert.deepEqual(lines, ["09:07 Refused: bad-signature", "09:07 Accepted: runbook"]);
 });
