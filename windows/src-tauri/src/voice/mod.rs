@@ -1,6 +1,6 @@
 // Voice 1.5b: push-to-talk dictation (docs/voice-actions-plan.md §1, §4).
 //
-// Hold Ctrl+Alt+Shift+V (Anthony, 2026-10-14: registered globally, Word's
+// Hold Ctrl+Alt+Shift+V (the owner, 2026-10-14: registered globally, Word's
 // InsertAutoText on that key is given up), speak, let go: the microphone
 // records into memory only (mic.rs), whisper.cpp's server on 127.0.0.1
 // transcribes it (whisper.rs; the audio is POSTed from memory, never written
@@ -9,7 +9,7 @@
 //
 // This file holds the rules, pure and tested: what happens with a transcript
 // and the clean-up's answer (`decide`), the cautious no-Claude rule for a
-// spoken command (`starts_like_command`, §4.1, the list confirmed by Anthony
+// spoken command (`starts_like_command`, §4.1, the list confirmed by the owner
 // 2026-10-14), and the in-memory WAV and multipart encoding.
 //
 // Transcripts are captured text: never logged (only phases, durations,
@@ -107,7 +107,7 @@ pub fn app_label(app: &str) -> &'static str {
 
 /// Leading filler dropped before the command check (§4.1).
 const FILLER: [&str; 7] = ["hey glim", "hi glim", "ok glim", "okay", "um", "uh", "so"];
-/// The command words (§4.1, confirmed as-is by Anthony 2026-10-14).
+/// The command words (§4.1, confirmed as-is by the owner 2026-10-14).
 pub const COMMAND_WORDS: [&str; 10] = ["open", "pick up", "resume", "where was i", "draft", "email", "send", "reply", "delete", "go to"];
 
 fn words(s: &str) -> String {
@@ -427,7 +427,7 @@ pub fn heard_code(mode: Mode, cleanup_failure: &str, field_at_press: bool) -> St
 }
 
 /// The repo Claude named, as one of the repos Glim reads (`known`, folder
-/// names): letters and digits compared, any case ("dale cuts" is "dale-cuts").
+/// names): letters and digits compared, any case ("harbor tiles" is "harbor-tiles").
 /// None when it names none of them: the card then shows them all.
 pub fn match_repo(said: &str, known: &[String]) -> Option<String> {
     let norm = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
@@ -768,15 +768,15 @@ See you".into(), cleaned: false });
         for field in [true, false] {
             for mode in [Mode::Ask, Mode::Answer] {
                 assert_eq!(decide(mode, "pick up from yesterday", Ok(Cleanup::Resume(None)), field), Decision::Resume { repo: None });
-                assert_eq!(decide(mode, "where was I on dale cuts", Ok(Cleanup::Resume(Some("dale-cuts".into()))), field), Decision::Resume { repo: Some("dale-cuts".into()) });
+                assert_eq!(decide(mode, "where was I on harbor tiles", Ok(Cleanup::Resume(Some("harbor-tiles".into()))), field), Decision::Resume { repo: Some("harbor-tiles".into()) });
             }
         }
         // A card number still stops everything.
         assert_eq!(decide(Mode::Ask, "resume 4111 1111 1111 1111", Ok(Cleanup::Resume(None)), true), Decision::Sensitive);
-        let known = vec!["dale-cuts".to_string(), "local-companion".to_string(), "dalebooking-crm".to_string()];
-        assert_eq!(match_repo("dale cuts", &known).as_deref(), Some("dale-cuts"));
+        let known = vec!["harbor-tiles".to_string(), "local-companion".to_string(), "harbor-crm".to_string()];
+        assert_eq!(match_repo("harbor tiles", &known).as_deref(), Some("harbor-tiles"));
         assert_eq!(match_repo("Local Companion", &known).as_deref(), Some("local-companion"));
-        assert_eq!(match_repo("dale", &known), None, "no partial matches");
+        assert_eq!(match_repo("harbor", &known), None, "no partial matches");
         assert_eq!(match_repo("../secret", &known), None);
         assert_eq!(match_repo("", &known), None);
     }
@@ -942,7 +942,7 @@ See you".into(), cleaned: false });
     #[test]
     fn commands_are_recognised_after_filler_in_any_case() {
         for t in [
-            "open Outlook", "Pick up where I left off", "resume the local companion project", "Where was I on dale cuts?",
+            "open Outlook", "Pick up where I left off", "resume the local companion project", "Where was I on harbor tiles?",
             "draft an email to Maria", "Email the HOA board", "send it", "Reply to Sarah", "delete the last sentence",
             "Go to the next paragraph", "Hey Glim, open Outlook", "um, send the invoice", "Okay. Delete that.", "OPEN",
         ] {
@@ -956,7 +956,7 @@ See you".into(), cleaned: false });
         }
     }
 
-    /// The two sentences the router hijacked in Anthony's 2026-10-16 test,
+    /// The two sentences the router hijacked in the owner's 2026-10-16 test,
     /// dictated with V: typed as cleaned, never a card, whatever else.
     pub(crate) const HIJACKED: [&str; 2] = [
         "This is a test of Glim dictation in my own voice",
@@ -1042,7 +1042,7 @@ See you".into(), cleaned: false });
         assert_eq!(level(&[]), 0.0);
         assert_eq!(level(&[0; 160]), 0.0);
         assert_eq!(level(&[32000; 160]), 1.0);
-        assert_eq!(prompt_from(" Glim, HOA ,\nOkafor;; dale-cuts "), "Glim, HOA, Okafor, dale-cuts");
+        assert_eq!(prompt_from(" Glim, HOA ,\nOkafor;; harbor-tiles "), "Glim, HOA, Okafor, harbor-tiles");
         assert!(prompt_from(&"word, ".repeat(200)).chars().count() <= 400);
     }
 

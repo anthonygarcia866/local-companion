@@ -559,7 +559,7 @@ export function aiAutoRow(host: WritingHost): HTMLElement {
 
 /**
  * Settings → Writing → "Show the mini lantern next to the text field" (1e,
- * docs/phase1-plan.md §7a.6): off by default until Anthony's live tests pass.
+ * docs/phase1-plan.md §7a.6): off by default until the owner's live tests pass.
  */
 export function bubbleRow(host: WritingHost): HTMLElement {
   const on = host.settings().writingBubble === true;

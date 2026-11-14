@@ -372,11 +372,11 @@ mod tests {
     #[test]
     fn an_email_ramble_becomes_polished_with_context_and_every_detail() {
         let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let said = "so yeah the walkthrough for unit four B is thursday at 3:30 and um tell Zorvath to bring the keys";
+        let said = "so yeah the walkthrough for unit four D is thursday at 3:30 and um tell Zorvath to bring the keys";
         let polished = "The walkthrough for unit [UNIT1] is on Thursday at 3:30. Please ask Zorvath to bring the keys.";
         let (url, got) = serve_capture("200 OK", "", answer(polished));
         let (r, usage) = block_on(polish(&Url::parse(&url).unwrap(), &key(), "claude-haiku-5-5", said, &EMAIL));
-        assert_eq!(r, Ok(Cleanup::Dictate("The walkthrough for unit 4B is on Thursday at 3:30. Please ask Zorvath to bring the keys.".into())));
+        assert_eq!(r, Ok(Cleanup::Dictate("The walkthrough for unit 4D is on Thursday at 3:30. Please ask Zorvath to bring the keys.".into())));
         assert!(usage.is_some());
         let content = sent(&got);
         assert!(content.contains("App in front: OUTLOOK.EXE (email) (an email)"), "{content}");
@@ -384,7 +384,7 @@ mod tests {
         assert!(content.contains("<replying_to>\nFrom: Dana\nSent: Monday\nCan you confirm the walkthrough time?\n</replying_to>"), "{content}");
         assert!(content.contains("<before>\nHi Dana,\n</before>"), "{content}");
         assert!(content.contains("unit [UNIT1] is thursday"), "{content}");
-        assert!(!content.contains("4B") && !content.contains("four B"), "{content}");
+        assert!(!content.contains("4D") && !content.contains("four D"), "{content}");
         for must in ["greeting and a sign-off only if they said them", "short and natural", "clear prose", "Never invent facts", "keep every concrete detail"] {
             assert!(SYSTEM.contains(must), "{must}");
         }
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn a_dropped_number_name_or_date_falls_back() {
         let _lock = crate::shield::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let said = "the walkthrough for unit four B is thursday at 3:30, tell Zorvath";
+        let said = "the walkthrough for unit four D is thursday at 3:30, tell Zorvath";
         for lost in [
             "The walkthrough for unit [UNIT1] is on Thursday. Please tell Zorvath.",
             "The walkthrough is on Thursday at 3:30. Please tell Zorvath.",

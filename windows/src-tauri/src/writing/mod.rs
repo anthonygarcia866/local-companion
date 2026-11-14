@@ -1027,7 +1027,7 @@ fn suggestion(chars: &[char], offset: usize, f: &Finding) -> Suggestion {
 mod tests {
     use super::*;
 
-    const FIELD: &str = "Hi Sam,\nWe recieved the payment.\nBest regards,\nAnthony";
+    const FIELD: &str = "Hi Sam,\nWe recieved the payment.\nBest regards,\nMerrick";
 
     fn run(session: &mut Session, steps: &[(bool, Option<&str>, Option<usize>, u64)]) -> Vec<usize> {
         let t0 = Instant::now();
@@ -1153,7 +1153,7 @@ mod tests {
         assert_eq!(emitted, vec![1, 0]);
         // A caret in the signature: nothing to check, nothing shown.
         let mut s = Session::default();
-        let caret = Some(FIELD.find("Anthony").unwrap());
+        let caret = Some(FIELD.find("Merrick").unwrap());
         assert!(run(&mut s, &[(true, Some(FIELD), caret, 0), (true, Some(FIELD), caret, 1500)]).is_empty());
     }
 
@@ -1231,7 +1231,7 @@ mod tests {
         const THREE: &str = "Hi Sam,
 We recieved the payment tomorow, posible.
 Best regards,
-Anthony";
+Merrick";
         let mut s = Session::default();
         let t0 = Instant::now();
         feed(&mut s, true, Some(THREE), Some(12), FixMode::Apply, false, t0);
@@ -1305,7 +1305,7 @@ Anthony";
         let text = "Hi Sam,
 Thanks for the update on the lease.
 Best regards,
-Anthony";
+Merrick";
         let (mut s, t) = in_field(FixMode::Apply, text);
         assert!(s.kept.is_none(), "no suggestions, nothing kept for a fix");
         // Caret at 3: the greeting line is a paragraph of its own.
@@ -1416,7 +1416,7 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
             assert!(feed(&mut s, true, Some(FIELD), Some(12), FixMode::Apply, false, t + Duration::from_millis(ms)).is_none());
         }
         // Changed text: checked again.
-        let edited = "Hi Sam,\nWe recieved the payments.\nBest regards,\nAnthony";
+        let edited = "Hi Sam,\nWe recieved the payments.\nBest regards,\nMerrick";
         feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(6));
         let back = feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_secs(7)).unwrap();
         assert_eq!(back.items.len(), 1);
@@ -1442,7 +1442,7 @@ Line two.", true), ("Card 4111 1111 1111 1111 attached.", false)] {
         let other = format!("Hi Sam,
 They {} it twice.
 Best regards,
-Anthony", word.to_uppercase());
+Merrick", word.to_uppercase());
         feed(&mut s, false, Some(&other), Some(12), FixMode::Apply, false, t + Duration::from_secs(2));
         let again = feed(&mut s, true, Some(&other), Some(12), FixMode::Apply, false, t + Duration::from_secs(3));
         assert!(again.is_none_or(|l| l.items.iter().all(|i| i.problem.to_lowercase() != word.to_lowercase())));
@@ -1496,7 +1496,7 @@ Anthony", word.to_uppercase());
         feed(&mut s, true, Some(FIELD), Some(2), FixMode::Apply, false, t + Duration::from_millis(300));
         assert!(s.kept.is_none(), "another paragraph");
         let (mut s, _, t) = checked();
-        let edited = "Hi Sam,\nWe recieved the payment!\nBest regards,\nAnthony";
+        let edited = "Hi Sam,\nWe recieved the payment!\nBest regards,\nMerrick";
         feed(&mut s, true, Some(edited), Some(12), FixMode::Apply, false, t + Duration::from_millis(300));
         assert!(s.kept.is_none(), "edited");
     }
@@ -1563,7 +1563,7 @@ Anthony", word.to_uppercase());
         let (mut s, _, t) = checked();
         s.after_fix();
         assert!(s.kept.is_none());
-        let fixed = "Hi Sam,\nWe received the payment.\nBest regards,\nAnthony";
+        let fixed = "Hi Sam,\nWe received the payment.\nBest regards,\nMerrick";
         let got = feed(&mut s, true, Some(fixed), Some(12), FixMode::Apply, false, t + Duration::from_millis(10)).unwrap();
         assert!(got.items.is_empty());
     }
