@@ -8785,6 +8785,50 @@
    "pt-BR": "Responda o cartão primeiro.",
    "ru": "Сначала ответьте на карточку.",
    "id": "Jawab kartunya dulu."
+  },
+  "Updated to {commit}: self-test {selftest}": {
+   "zh-Hans": "已更新到 {commit}：自检 {selftest}",
+   "hi": "{commit} पर अपडेट हुआ: सेल्फ़-टेस्ट {selftest}",
+   "es": "Actualizado a {commit}: autoprueba {selftest}",
+   "ar": "تم التحديث إلى {commit}: الفحص الذاتي {selftest}",
+   "fr": "Mis à jour vers {commit} : autotest {selftest}",
+   "bn": "{commit}-এ আপডেট হয়েছে: সেলফ-টেস্ট {selftest}",
+   "pt-BR": "Atualizado para {commit}: autoteste {selftest}",
+   "ru": "Обновлено до {commit}: самопроверка {selftest}",
+   "id": "Diperbarui ke {commit}: uji mandiri {selftest}"
+  },
+  "Update to {commit} failed at {step}: {error}": {
+   "zh-Hans": "更新到 {commit} 失败于 {step}：{error}",
+   "hi": "{commit} पर अपडेट {step} पर विफल: {error}",
+   "es": "La actualización a {commit} falló en {step}: {error}",
+   "ar": "فشل التحديث إلى {commit} عند {step}: {error}",
+   "fr": "La mise à jour vers {commit} a échoué à {step} : {error}",
+   "bn": "{commit}-এ আপডেট {step} ধাপে ব্যর্থ: {error}",
+   "pt-BR": "A atualização para {commit} falhou em {step}: {error}",
+   "ru": "Обновление до {commit} не удалось на шаге {step}: {error}",
+   "id": "Pembaruan ke {commit} gagal di {step}: {error}"
+  },
+  "Last update": {
+   "zh-Hans": "上次更新",
+   "hi": "पिछला अपडेट",
+   "es": "Última actualización",
+   "ar": "آخر تحديث",
+   "fr": "Dernière mise à jour",
+   "bn": "শেষ আপডেট",
+   "pt-BR": "Última atualização",
+   "ru": "Последнее обновление",
+   "id": "Pembaruan terakhir"
+  },
+  "total": {
+   "zh-Hans": "合计",
+   "hi": "कुल",
+   "es": "total",
+   "ar": "الإجمالي",
+   "fr": "total",
+   "bn": "মোট",
+   "pt-BR": "total",
+   "ru": "всего",
+   "id": "total"
   }
  }
 }

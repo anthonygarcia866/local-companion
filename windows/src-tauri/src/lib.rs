@@ -41,6 +41,7 @@ mod webview_drop;
 mod webview_health;
 mod relaunch;
 mod runbooks;
+mod update_result;
 #[cfg(windows)]
 mod bubble_window;
 #[cfg(windows)]
@@ -755,11 +756,24 @@ struct RunbooksView {
     folder: String,
     books: Vec<runbooks::BookView>,
     runs: Vec<runbooks::RunView>,
+    /// The last update's result (update_result.rs), if an updater left one.
+    update: Option<update_result::UpdateResult>,
 }
 
 #[tauri::command]
 fn runbooks_list() -> RunbooksView {
-    RunbooksView { folder: runbooks::show(&runbooks::dir()), books: runbooks::views(), runs: runbooks::recent() }
+    RunbooksView { folder: runbooks::show(&runbooks::dir()), books: runbooks::views(), runs: runbooks::recent(), update: update_result::last() }
+}
+
+/// The island, once at startup: the last update's result if it is new
+/// (update_result.rs; each run shows once, never one older than a day).
+#[tauri::command]
+fn update_notice_take() -> Option<update_result::UpdateResult> {
+    let r = update_result::take_notice();
+    if let Some(u) = &r {
+        log::line(format!("update notice: {} {}", u.commit, if u.ok { "ok" } else { "failed" }));
+    }
+    r
 }
 
 /// "Approve runbook" on the card: only the version the page showed (`hash`).
@@ -1818,6 +1832,7 @@ pub fn run() {
             runbook_approve,
             runbook_take_request,
             runbook_run,
+            update_notice_take,
             secrets_list,
             secrets_save,
             secrets_delete,

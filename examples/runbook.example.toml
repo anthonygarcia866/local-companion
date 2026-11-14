@@ -6,8 +6,8 @@
 # run shows every step and asks you to approve it; any later change to the
 # file means approving it again.
 #
-# Steps run in order and stop at the first failure. Only four step types:
-# env_secret, start_app, run, check. Use single-quoted TOML strings for
+# Steps run in order and stop at the first failure. Only five step types:
+# env_secret, start_app, run, check, launch_detached. Use single-quoted TOML strings for
 # Windows paths so backslashes stay as they are.
 
 description = "Example: put a token into a project's .env.local and check it"
@@ -56,3 +56,12 @@ file_exists = 'C:\path\to\example-project\.env.local'
 # type = "check"
 # port = 5173
 # wait_s = 30
+
+# Starts an exact command from [allow] commands in an allowed folder, in a
+# console of its own, and doesn't wait for it: it keeps running after Glim
+# stops (for an updater script that stops Glim, rebuilds it and starts it
+# again). It must be the runbook's last step and takes no timeout_s.
+# [[step]]
+# type = "launch_detached"
+# command = 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\path\to\example-tools\example-updater.ps1'
+# folder = 'C:\path\to\example-tools'

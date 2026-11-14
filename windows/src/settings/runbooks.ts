@@ -14,6 +14,7 @@
 import { Bridge, onEvent, type RunbookView, type RunbooksView, type RunbookOutcome } from "../core/bridge";
 import { h, clear } from "../views/dom";
 import { t } from "../i18n/i18n";
+import { updateLine, updateTimings } from "../core/update-notice";
 
 /** What the page shows about one runbook right now. */
 interface Live {
@@ -190,6 +191,14 @@ export function runbooksSection(): HTMLElement {
       listBox.append(box);
     }
     clear(runsBox);
+    // The last update (update_result.rs): its line and each step's time.
+    if (view.update) {
+      runsBox.append(h("h3", { text: t("Last update") }));
+      runsBox.append(h("div", { class: "pill-row", "data-role": "runbooks-update" },
+        h("span", { class: "name", text: updateLine(view.update) }),
+      ));
+      runsBox.append(h("div", { class: "hint", "data-role": "runbooks-update-timings", text: `${view.update.finishedAt.slice(0, 16).replace("T", " ")} · ${updateTimings(view.update)}` }));
+    }
     runsBox.append(h("h3", { text: t("Last runs") }));
     if (view.runs.length === 0) runsBox.append(h("div", { class: "hint", text: t("No runs yet.") }));
     for (const r of view.runs) {

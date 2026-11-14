@@ -259,6 +259,11 @@ pub fn run_command_line(_command: &str, _folder: &std::path::Path, _timeout: std
     Err("couldn't start".into())
 }
 
+/// Runbooks' launch_detached is Windows-only for now.
+pub fn launch_detached(_command: &str, _folder: &std::path::Path) -> Result<(), String> {
+    Err("couldn't start".into())
+}
+
 /// Keep-alive is Windows-only for now.
 pub fn kill_tree(_pid: u32) {}
 

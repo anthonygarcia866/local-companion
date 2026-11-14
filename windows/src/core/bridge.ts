@@ -2,6 +2,7 @@
 // page is opened in a plain browser, so the island can be iterated on with
 // `npm run dev` alone.
 
+import type { UpdateResult } from "./update-notice";
 import type { ResumeCard } from "../views/resume";
 import type { LearnView } from "./learn";
 
@@ -194,6 +195,8 @@ export const Bridge = {
   runbookRun: (name: string, hash: string, confirmed: number[], voice: boolean) => callOrThrow<null>("runbook_run", { name, hash, confirmed, voice }),
   /** A runbook asked for by voice before the page listened. */
   runbookTakeRequest: () => call<string | null>("runbook_take_request"),
+  /** The last update's result, once per update (null when none is new). */
+  updateNoticeTake: () => call<UpdateResult | null>("update_notice_take"),
   /** Settings → Secrets: names and saved dates, never a value. */
   secretsList: () => call<SecretInfo[]>("secrets_list"),
   /** Adds or replaces a secret; the value goes to Rust once and never comes back. */
@@ -463,6 +466,8 @@ export interface RunbooksView {
   folder: string;
   books: RunbookView[];
   runs: RunbookRun[];
+  /** The last update's result (update_result.rs), if an updater left one. */
+  update?: UpdateResult | null;
 }
 
 export interface RunbookOutcome {

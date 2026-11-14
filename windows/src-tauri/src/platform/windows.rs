@@ -370,6 +370,29 @@ pub fn kill_tree(pid: u32) {
     let _ = no_console(Command::new("taskkill.exe").args(["/T", "/F", "/PID", &pid.to_string()]).stdout(Stdio::null()).stderr(Stdio::null())).status();
 }
 
+/// A runbook's `launch_detached` step: `command` through cmd.exe in a
+/// console of its own, NOT tied to Glim (no kill-with-Glim job, broken away
+/// from any job Glim itself runs in), never waited for. It is what lets an
+/// updater that Glim starts stop Glim and keep going.
+pub fn launch_detached(command: &str, folder: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    let spawn = |flags: u32| {
+        let mut c = Command::new("cmd.exe");
+        c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder);
+        // Never a program from `folder` itself (as run_command_line).
+        c.env("NoDefaultCurrentDirectoryInExePath", "1");
+        c.creation_flags(flags).spawn()
+    };
+    let base = CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP;
+    // A job that forbids breaking away refuses the flag: then start it inside
+    // that job (it still outlives Glim, which only kills what it put in its own jobs).
+    // The Child is dropped unwaited: dropping it neither waits nor kills.
+    spawn(base | CREATE_BREAKAWAY_FROM_JOB).or_else(|_| spawn(base)).map(|_| ()).map_err(|e| format!("couldn't start: {e}"))
+}
+
 /// The keep-alive switch (keepalive.rs): its FIXED command line through
 /// `cmd /d /s /c` in `folder`, with `env` added, in a console of its own
 /// (Windows Terminal hosts it when it is the default terminal, as on Windows

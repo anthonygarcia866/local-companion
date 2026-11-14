@@ -111,3 +111,20 @@ test("an invalid runbook can't run and says why", async () => {
   assert.notEqual(role(el, "button", "runbook-run").getAttribute("disabled"), null);
   assert.match(all(el), /unknown step type/);
 });
+
+test("the last update shows its line and each step's time; none, no section", async () => {
+  const update = {
+    runId: "r1", commit: "1a2b3c4d", ok: true, selftest: "6/6", failedStep: "", error: "", finishedAt: "2026-11-13T22:10:00", totalMs: 610_000,
+    steps: [{ name: "pack", ok: true, ms: 500_000, detail: "CARGO_BUILD_JOBS=2" }, { name: "install", ok: true, ms: 12_000, detail: "installer exit 0" }],
+  };
+  replies.set("runbooks_list", { ...list([book()]), update });
+  replies.set("runbook_take_request", null);
+  const el = runbooksSection();
+  await tick();
+  assert.equal(role(el, "div", "runbooks-update").textContent, "Updated to 1a2b3c4d: self-test 6/6");
+  assert.equal(role(el, "div", "runbooks-update-timings").textContent, "2026-11-13 22:10 · pack 8 min 20 s · install 12 s · total 10 min 10 s");
+  replies.set("runbooks_list", list([book()]));
+  const none = runbooksSection();
+  await tick();
+  assert.equal(role(none, "div", "runbooks-update"), undefined);
+});
