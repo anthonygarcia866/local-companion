@@ -165,6 +165,32 @@ jobs:
           $env:GLIM_WHISPER_DIR = "$env:RUNNER_TEMP/whisper"
           cargo test --workspace --locked voice::e2e_tests -- --ignored --nocapture
 
+      # Dictation quality test set (owner 2026-11-14; tests/data/
+      # dictation-quality.json, src/voice/quality_tests.rs): ~50 made-up
+      # rambles x 2-3 SAPI voices -> whisper -> polished dictation ->
+      # automatic checklist scoring (names/numbers/dates kept, nothing
+      # invented, length, register), summary table in the job summary.
+      # Canned (a local mechanical stand-in, $0) on pull requests and pushes;
+      # LIVE only on the weekly schedule and manual runs with the
+      # GLIM_VOICE_API_KEY secret, plus a Sonnet judge score (1-5), the whole
+      # run capped at about $0.05. No secret: it runs canned and says so.
+      - name: Dictation quality clips (Windows SAPI)
+        shell: pwsh
+        run: ./scripts/quality-clips.ps1 -Out "$env:RUNNER_TEMP/quality-clips"
+
+      - name: Dictation quality
+        shell: pwsh
+        env:
+          GLIM_VOICE_API_KEY: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && secrets.GLIM_VOICE_API_KEY || '' }}
+        run: |
+          if (('${{ github.event_name }}' -in @('schedule', 'workflow_dispatch')) -and -not $env:GLIM_VOICE_API_KEY) {
+            "::notice title=Dictation quality::GLIM_VOICE_API_KEY is not set: the live run and the judge are skipped, canned answers only"
+            "_Live dictation quality skipped: no GLIM_VOICE_API_KEY secret._" >> $env:GITHUB_STEP_SUMMARY
+          }
+          $env:GLIM_QUALITY_CLIPS = "$env:RUNNER_TEMP/quality-clips"
+          $env:GLIM_WHISPER_DIR = "$env:RUNNER_TEMP/whisper"
+          cargo test --workspace --locked voice::quality_tests -- --ignored --nocapture
+
       # Tests must never create or change the user's data folders: Rust tests
       # get a scratch folder each (platform::data_base), the island tests touch
       # no files. A fresh runner has neither folder, so any here came from a test.

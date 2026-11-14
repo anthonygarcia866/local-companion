@@ -496,6 +496,44 @@ pub(crate) mod tests {
         (url, rx)
     }
 
+    /// Like `serve_capture`, but the answer (a 200 JSON body) is made from
+    /// the request's body: a stand-in that answers what it was asked
+    /// (voice::quality_tests' canned clean-up). One connection.
+    pub(crate) fn serve_answering(answer: impl FnOnce(&[u8]) -> Vec<u8> + Send + 'static) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut conn, _) = listener.accept().unwrap();
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8192];
+            let mut body_at = None;
+            loop {
+                let n = conn.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+                if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let text = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                    let len = text.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                    if got.len() >= end + 4 + len {
+                        body_at = Some((end + 4, len));
+                        break;
+                    }
+                }
+            }
+            let body = match body_at {
+                Some((at, len)) => answer(&got[at..at + len]),
+                None => Vec::new(),
+            };
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = conn.write_all(head.as_bytes());
+            let _ = conn.write_all(&body);
+        });
+        url
+    }
+
     fn block_on<T>(f: impl std::future::Future<Output = T>) -> T {
         tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
     }

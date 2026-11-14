@@ -1,0 +1,712 @@
+{
+ "about": "Dictation quality test set (owner 2026-11-14). Made-up people, places, amounts and dates only. Each case is spoken by 2-3 Windows SAPI voices, transcribed by whisper and polished by Glim; the checklist is scored by voice::quality_tests.",
+ "checklist": {
+  "keep": "every listed name, number, date and time appears in the typed text (numbers compared by their digits; 0-10 may be written as words)",
+  "absent": "words that a filler or a spoken correction removed must not appear (as whole words)",
+  "invented": "no number the transcript doesn't have, no capitalized name the transcript doesn't have",
+  "length": "between 40% and 130% of the transcript's words (chat: at most 60 words)",
+  "register": "email: sentences ending in punctuation, a greeting only if one was said; chat: no 'Dear'/'Best regards'/'Sincerely'; documents: no greeting or sign-off"
+ },
+ "cases": [
+  {
+   "id": "e01",
+   "kind": "email",
+   "said": "hi Brannoch um just confirming the walkthrough for unit four D is on Thursday at three thirty, uh, and Zorvath will bring the keys. thanks",
+   "words": "Brannoch, Zorvath",
+   "keep": [
+    "Brannoch",
+    "4D",
+    "Thursday",
+    "3:30",
+    "Zorvath"
+   ],
+   "absent": [
+    "um",
+    "uh"
+   ],
+   "replying_to": "Can you confirm the walkthrough time?"
+  },
+  {
+   "id": "e02",
+   "kind": "email",
+   "said": "hey Teskaly so the invoice came to one thousand two hundred fifty dollars and it's due on November eighteenth, let me know if that works",
+   "words": "Teskaly",
+   "keep": [
+    "Teskaly",
+    "1250",
+    "November",
+    "18"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e03",
+   "kind": "email",
+   "said": "hello Morvane, the painters can start Monday, actually no, Tuesday morning at eight, and they'll need about three days",
+   "words": "Morvane",
+   "keep": [
+    "Morvane",
+    "Tuesday",
+    "8"
+   ],
+   "absent": [
+    "Monday"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e04",
+   "kind": "email",
+   "said": "um hi Ilsabet, I wanted to follow up on the lease renewal, the new rent would be two thousand one hundred a month starting January first",
+   "words": "Ilsabet",
+   "keep": [
+    "Ilsabet",
+    "2100",
+    "January",
+    "1"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e05",
+   "kind": "email",
+   "said": "so yeah Corvyn, the plumber said the leak is under the kitchen sink and the repair is three hundred forty dollars, he can come Friday at ten",
+   "words": "Corvyn",
+   "keep": [
+    "Corvyn",
+    "340",
+    "Friday",
+    "10"
+   ],
+   "absent": [],
+   "replying_to": "Any update on the leak?"
+  },
+  {
+   "id": "e06",
+   "kind": "email",
+   "said": "hi Pellow, quick note, the board meeting moved to Wednesday the twelfth at six thirty in the clubhouse",
+   "words": "Pellow",
+   "keep": [
+    "Pellow",
+    "Wednesday",
+    "12",
+    "6:30",
+    "clubhouse"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e07",
+   "kind": "email",
+   "said": "hey Ardisane, uh, can you send me the signed form by Thursday, scratch that, by Wednesday at noon",
+   "words": "Ardisane",
+   "keep": [
+    "Ardisane",
+    "Wednesday",
+    "noon"
+   ],
+   "absent": [
+    "Thursday",
+    "uh"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e08",
+   "kind": "email",
+   "said": "hello Velmont, thanks for the quick reply, the deposit of five hundred dollars was received on October thirtieth",
+   "words": "Velmont",
+   "keep": [
+    "Velmont",
+    "500",
+    "October",
+    "30"
+   ],
+   "absent": [],
+   "replying_to": "Did you get the deposit?"
+  },
+  {
+   "id": "e09",
+   "kind": "email",
+   "said": "hi Oriane, the gate code is changing next Monday, I'll send the new one separately, also the pool closes at nine",
+   "words": "Oriane",
+   "keep": [
+    "Oriane",
+    "Monday",
+    "9"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e10",
+   "kind": "email",
+   "said": "um so Kestrel, the inspection report is attached, well, I'll attach it, there were two items, the smoke detector and the dryer vent",
+   "words": "Kestrel",
+   "keep": [
+    "Kestrel",
+    "smoke detector",
+    "dryer vent"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e11",
+   "kind": "email",
+   "said": "hi Tobin, I can meet at four, actually five, at the front office on Tuesday",
+   "words": "Tobin",
+   "keep": [
+    "Tobin",
+    "5",
+    "Tuesday",
+    "front office"
+   ],
+   "absent": [],
+   "replying_to": "When can you meet?"
+  },
+  {
+   "id": "e12",
+   "kind": "email",
+   "said": "hey Marrow, just a reminder the landscaping crew comes every other Friday and the next visit is the twenty second",
+   "words": "Marrow",
+   "keep": [
+    "Marrow",
+    "Friday",
+    "22"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e13",
+   "kind": "email",
+   "said": "hello Quillane, the estimate from the roofer is eight thousand four hundred dollars and he can start in two weeks, uh, let me know",
+   "words": "Quillane",
+   "keep": [
+    "Quillane",
+    "8400"
+   ],
+   "absent": [
+    "uh"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e14",
+   "kind": "email",
+   "said": "hi Delphine Arrow, we have the move out inspection on the fifteenth at eleven thirty, please leave the keys in the lockbox",
+   "words": "Delphine Arrow",
+   "keep": [
+    "Delphine",
+    "Arrow",
+    "15",
+    "11:30",
+    "lockbox"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e15",
+   "kind": "email",
+   "said": "um hey Brisco, the parking permit for space forty one is ready, you can pick it up any weekday before five",
+   "words": "Brisco",
+   "keep": [
+    "Brisco",
+    "41",
+    "5"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e16",
+   "kind": "email",
+   "said": "hi Saffra, sorry for the delay, the refund of one hundred twenty dollars went out yesterday by check",
+   "words": "Saffra",
+   "keep": [
+    "Saffra",
+    "120",
+    "yesterday",
+    "check"
+   ],
+   "absent": [],
+   "replying_to": "Where is my refund?"
+  },
+  {
+   "id": "e17",
+   "kind": "email",
+   "said": "hello team, the fire alarm test is Saturday from nine to noon, no need to leave the building, thanks, Jessamy",
+   "words": "Jessamy",
+   "keep": [
+    "Saturday",
+    "9",
+    "noon",
+    "Jessamy"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e18",
+   "kind": "email",
+   "said": "hey Corliss, so the HVAC filter delivery is set for the third, there are twelve boxes, can you sign for them",
+   "words": "Corliss",
+   "keep": [
+    "Corliss",
+    "HVAC",
+    "3",
+    "12"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e19",
+   "kind": "email",
+   "said": "hi Wendeth, the late fee is fifty dollars after the fifth, um, but I can waive it this month since the portal was down",
+   "words": "Wendeth",
+   "keep": [
+    "Wendeth",
+    "50",
+    "5",
+    "waive"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": "Can the late fee be waived?"
+  },
+  {
+   "id": "e20",
+   "kind": "email",
+   "said": "hello Garrow, I'll be out of the office Thursday and Friday, for anything urgent call the main line, back Monday",
+   "words": "Garrow",
+   "keep": [
+    "Garrow",
+    "Thursday",
+    "Friday",
+    "Monday"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c01",
+   "kind": "chat",
+   "said": "yeah sounds good I can do Friday at noon",
+   "words": "",
+   "keep": [
+    "Friday",
+    "noon"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c02",
+   "kind": "chat",
+   "said": "um running ten minutes late, be there by two fifteen",
+   "words": "",
+   "keep": [
+    "10",
+    "2:15"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "c03",
+   "kind": "chat",
+   "said": "can you ask Zorvath to bring the ladder tomorrow",
+   "words": "Zorvath",
+   "keep": [
+    "Zorvath",
+    "ladder",
+    "tomorrow"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c04",
+   "kind": "chat",
+   "said": "ok so the meeting is at three, actually three thirty, in room twelve",
+   "words": "",
+   "keep": [
+    "3:30",
+    "12"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c05",
+   "kind": "chat",
+   "said": "thanks Pellow, got it",
+   "words": "Pellow",
+   "keep": [
+    "Pellow"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c06",
+   "kind": "chat",
+   "said": "did the package for unit two oh four come yet",
+   "words": "",
+   "keep": [
+    "204"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c07",
+   "kind": "chat",
+   "said": "uh I'll send the numbers after lunch, it's around four hundred fifty",
+   "words": "",
+   "keep": [
+    "450",
+    "lunch"
+   ],
+   "absent": [
+    "uh"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "c08",
+   "kind": "chat",
+   "said": "Teskaly is covering the desk today until six",
+   "words": "Teskaly",
+   "keep": [
+    "Teskaly",
+    "today",
+    "6"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c09",
+   "kind": "chat",
+   "said": "sure, Monday works, scratch that, Tuesday works better",
+   "words": "",
+   "keep": [
+    "Tuesday"
+   ],
+   "absent": [
+    "Monday"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "c10",
+   "kind": "chat",
+   "said": "the elevator is fixed, tech left at eleven",
+   "words": "",
+   "keep": [
+    "elevator",
+    "11"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c11",
+   "kind": "chat",
+   "said": "um can we push the call to four",
+   "words": "",
+   "keep": [
+    "4"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "c12",
+   "kind": "chat",
+   "said": "Morvane said yes to the twenty fifth",
+   "words": "Morvane",
+   "keep": [
+    "Morvane",
+    "25"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c13",
+   "kind": "chat",
+   "said": "heading out now, back in thirty minutes",
+   "words": "",
+   "keep": [
+    "30"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c14",
+   "kind": "chat",
+   "said": "lol ok I'll grab coffee for everyone, it's like six people right",
+   "words": "",
+   "keep": [
+    "coffee",
+    "6"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "c15",
+   "kind": "chat",
+   "said": "Corvyn's flight lands at seven forty, I'll pick him up",
+   "words": "Corvyn",
+   "keep": [
+    "Corvyn",
+    "7:40"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d01",
+   "kind": "documents",
+   "said": "meeting notes, attendees Brannoch, Teskaly and Quillane, first item the budget is twelve thousand for the quarter, second item the roof repair starts March third",
+   "words": "Brannoch, Teskaly, Quillane",
+   "keep": [
+    "Brannoch",
+    "Teskaly",
+    "Quillane",
+    "12000",
+    "March",
+    "3"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d02",
+   "kind": "documents",
+   "said": "to do list, new line, call the elevator company, new line, order forty light bulbs, new line, update the move in checklist",
+   "words": "",
+   "keep": [
+    "elevator",
+    "40",
+    "light bulbs",
+    "checklist"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d03",
+   "kind": "documents",
+   "said": "um the annual inspection found three issues, a cracked window in unit nine B, a loose railing on the second floor, and a broken lock on the mailroom door",
+   "words": "",
+   "keep": [
+    "3",
+    "9B",
+    "railing",
+    "mailroom"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "d04",
+   "kind": "documents",
+   "said": "policy update, starting December first, quiet hours are ten p m to seven a m every day",
+   "words": "",
+   "keep": [
+    "December",
+    "1",
+    "10",
+    "7"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d05",
+   "kind": "documents",
+   "said": "the parking lot will be repaved on the fourteenth and fifteenth, all cars must be moved by six a m, uh, towing starts at seven",
+   "words": "",
+   "keep": [
+    "14",
+    "15",
+    "6",
+    "7",
+    "towing"
+   ],
+   "absent": [
+    "uh"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "d06",
+   "kind": "documents",
+   "said": "summary of the call with Velmont, he agreed to a payment plan of three hundred dollars a month for four months starting next Friday",
+   "words": "Velmont",
+   "keep": [
+    "Velmont",
+    "300",
+    "4",
+    "Friday"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d07",
+   "kind": "documents",
+   "said": "vendor list, Ardisane Roofing, Pellow Plumbing, and Garrow Electric, all insured through next June",
+   "words": "Ardisane, Pellow, Garrow",
+   "keep": [
+    "Ardisane",
+    "Pellow",
+    "Garrow",
+    "June"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d08",
+   "kind": "documents",
+   "said": "incident report, on Sunday at about nine fifteen p m a water heater failed in unit three twelve, maintenance shut off the water by nine forty",
+   "words": "",
+   "keep": [
+    "Sunday",
+    "9:15",
+    "312",
+    "9:40"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d09",
+   "kind": "documents",
+   "said": "the pool will open May twenty fourth, hours are ten to eight, guests are limited to two per unit",
+   "words": "",
+   "keep": [
+    "May",
+    "24",
+    "10",
+    "8",
+    "2"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "d10",
+   "kind": "documents",
+   "said": "um so the key points from training, always log work orders the same day, photos before and after, and close the ticket within forty eight hours",
+   "words": "",
+   "keep": [
+    "work orders",
+    "photos",
+    "48"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e21",
+   "kind": "email",
+   "said": "hi Saffra and Tobin, the welcome packet is ready, move in is Saturday the ninth at ten, see you then",
+   "words": "Saffra, Tobin",
+   "keep": [
+    "Saffra",
+    "Tobin",
+    "Saturday",
+    "9",
+    "10"
+   ],
+   "absent": [],
+   "replying_to": ""
+  },
+  {
+   "id": "e22",
+   "kind": "email",
+   "said": "hello Kestrel, um the pest control visit is the seventeenth between eight and noon, please keep pets inside",
+   "words": "Kestrel",
+   "keep": [
+    "Kestrel",
+    "17",
+    "8",
+    "noon",
+    "pets"
+   ],
+   "absent": [
+    "um"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e23",
+   "kind": "email",
+   "said": "hey Delphine, the balance is now zero, thanks for the payment of seven hundred seventy five dollars",
+   "words": "Delphine",
+   "keep": [
+    "Delphine",
+    "0",
+    "775"
+   ],
+   "absent": [],
+   "replying_to": "Is my balance cleared?"
+  },
+  {
+   "id": "e24",
+   "kind": "email",
+   "said": "hi Brisco, the window replacement quote is two thousand nine hundred, uh, actually two thousand seven hundred after the discount",
+   "words": "Brisco",
+   "keep": [
+    "Brisco",
+    "2700"
+   ],
+   "absent": [
+    "2900",
+    "uh"
+   ],
+   "replying_to": ""
+  },
+  {
+   "id": "e25",
+   "kind": "email",
+   "said": "hello Wendeth, please note the office will close early on the twenty fourth at two p m for the holiday",
+   "words": "Wendeth",
+   "keep": [
+    "Wendeth",
+    "24",
+    "2"
+   ],
+   "absent": [],
+   "replying_to": ""
+  }
+ ]
+}
