@@ -60,6 +60,9 @@ test("a polished fallback says so; verbatim needs no card or badge", () => {
   assert.equal(voiceText(typed(true, "polish-detail")).title, "Typed in Outlook");
   assert.equal(needsCard(typed(true, "polish-borrowed")), true);
   assert.match(voiceText(typed(true, "polish-borrowed")).note, /added words you didn't say/);
+  // Safety round: wording copied from the email replied to reads the same.
+  assert.equal(needsCard(typed(true, "polish-quoted")), true);
+  assert.match(voiceText(typed(true, "polish-quoted")).note, /added words you didn't say/);
   assert.equal(needsCard(typed(false, "verbatim")), false);
   assert.equal(rawBadge(typed(false, "verbatim")), false);
   assert.equal(needsCard(typed(false, "timeout")), true, "an unplanned raw result still shows");
