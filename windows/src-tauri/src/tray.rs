@@ -1,6 +1,7 @@
 // Notification-area icon: Open, Weekly recap, Pick up where you left off
 // (the resume card, decided 2026-10-15), Settings, Pause (Resume while
-// paused, 1d), Quit Glim.
+// paused, 1d), Stop remote tasks (the remote kill switch, 2026-11-14), Quit
+// Glim.
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -11,12 +12,15 @@ use crate::island::WINDOW_LABEL;
 
 /// The menu's items, id and English label, in order. The labels are shown in
 /// the interface language (i18n.rs) and follow it when it changes.
-const ITEMS: [(&str, &str); 6] = [
+const ITEMS: [(&str, &str); 7] = [
     ("open", n_("Open Glim")),
     ("recap", n_("Weekly recap")),
     ("resume", n_("Pick up where you left off")),
     ("settings", n_("Settings…")),
     ("pause", PAUSE),
+    // The remote courier's kill switch (remote/): one click refuses every
+    // remote task until it is switched back in Settings → Remote.
+    ("remote-kill", n_("Stop remote tasks")),
     ("quit", n_("Quit Glim")),
 ];
 
@@ -28,11 +32,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     for (id, label) in ITEMS {
         items.push((label, MenuItem::with_id(app, id, t(label), true, None::<&str>)?));
     }
-    let [open, recap, resume, settings, pause, quit] = [0, 1, 2, 3, 4, 5].map(|i| &items[i].1);
+    let [open, recap, resume, settings, pause, remote_kill, quit] = [0, 1, 2, 3, 4, 5, 6].map(|i| &items[i].1);
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(app, &[open, recap, resume, &sep1, settings, pause, &sep2, quit])?;
+    let menu = Menu::with_items(app, &[open, recap, resume, &sep1, settings, pause, remote_kill, &sep2, quit])?;
     app.manage(Items(items));
 
     let mut builder = TrayIconBuilder::with_id("glim")
@@ -48,6 +52,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             "settings" => crate::show_settings_window(app, "tray"),
             // Pause is Rust's (pause.rs): the island hears the result.
             "pause" => crate::pause::toggle(app),
+            "remote-kill" => crate::remote_kill_from_tray(app),
             id => {
                 // The way back from Hidden (and Ember): opening Glim, or the
                 // resume card, from the tray brings the pill back first.

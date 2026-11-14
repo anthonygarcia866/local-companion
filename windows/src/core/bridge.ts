@@ -187,6 +187,12 @@ export const Bridge = {
   keepAliveAdd: (folder: string) => callOrThrow<KeepAliveStatus>("keepalive_add", { folder }),
   keepAliveRemove: (folder: string) => callOrThrow<KeepAliveStatus>("keepalive_remove", { folder }),
   keepAliveDesktop: (on: boolean) => callOrThrow<KeepAliveStatus>("keepalive_desktop", { on }),
+  /** Settings → Remote → Remote tasks (remote/): no transport is wired yet. */
+  remoteStatus: () => call<RemoteStatus>("remote_status"),
+  remoteSet: (on: boolean, consent: boolean) => callOrThrow<RemoteStatus>("remote_set", { on, consent }),
+  /** The signer's public key (64 hex characters); "" removes it. */
+  remoteKey: (key: string) => callOrThrow<RemoteStatus>("remote_key", { key }),
+  remoteKill: (killed: boolean) => callOrThrow<RemoteStatus>("remote_kill", { killed }),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
   runbooksList: () => call<RunbooksView>("runbooks_list"),
   /** "Approve runbook": only the version shown (`hash`). */
@@ -430,6 +436,29 @@ export interface KeepAliveEntry {
 export interface KeepAliveStatus {
   settings: KeepAliveSettings;
   entries: KeepAliveEntry[];
+}
+
+/** One line of the Remote activity list: no payloads. */
+export interface RemoteActivity {
+  /** Seconds since 1970. */
+  at: number;
+  ok: boolean;
+  /** The command's kind when accepted, "kill-switch", "allowed-again" or "". */
+  kind: string;
+  /** The rejection's code ("expired", "bad-signature" …) or "". */
+  reason: string;
+  id: string;
+}
+
+/** Settings → Remote → Remote tasks: never more of the key than its fingerprint. */
+export interface RemoteStatus {
+  on: boolean;
+  consented: boolean;
+  killed: boolean;
+  /** "" when no key is saved. */
+  fingerprint: string;
+  /** Newest first. */
+  activity: RemoteActivity[];
 }
 
 /** One runbook step as Rust describes it (secret names only). */

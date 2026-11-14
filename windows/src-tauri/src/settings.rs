@@ -183,6 +183,8 @@ pub struct Settings {
     pub phone: PhoneSettings,
     /// Settings → Remote (keepalive.rs): Rust's; a page's save never changes it.
     pub keep_alive: crate::keepalive::KeepAliveSettings,
+    /// Settings → Remote → Remote tasks (remote/): Rust's, like keep_alive.
+    pub remote: crate::remote::RemoteSettings,
     /// Ask first (owner, 2026-11-04; consent.rs): the answer for each cloud
     /// feature that sends by itself. Empty until asked.
     pub cloud_consent: CloudConsent,
@@ -320,6 +322,7 @@ impl Default for Settings {
             dictation_levels: BTreeMap::new(),
             phone: PhoneSettings::default(),
             keep_alive: crate::keepalive::KeepAliveSettings::default(),
+            remote: crate::remote::RemoteSettings::default(),
             cloud_consent: CloudConsent::default(),
         }
     }
