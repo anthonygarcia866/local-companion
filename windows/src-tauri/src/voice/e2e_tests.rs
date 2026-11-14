@@ -645,7 +645,7 @@ fn voice_without_a_mic() {
         let t = r.say("polish-email", Mode::Dictate, Some(tool("dictate", json!({ "text": polished })))).await;
         println!("    whisper: {t:?}");
         let sent = fx.with(|r| r.last_sent.clone());
-        assert!(sent.contains("[UNIT1]") && sent.contains("<replying_to>") && sent.contains("<before>"), "masked, with its context: {sent:?}");
+        assert!(sent.contains("[UNIT1]") && sent.contains("<quoted_material source=\"message_replied_to\">") && sent.contains("<before>"), "masked, with its context: {sent:?}");
         let typed = fx.actions_since(n);
         println!("    typed: {typed:?}");
         assert_eq!(typed.len(), 1, "{typed:?}");
