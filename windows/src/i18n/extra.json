@@ -8829,6 +8829,28 @@
    "pt-BR": "total",
    "ru": "всего",
    "id": "total"
+  },
+  "May run these PowerShell scripts (as they are now):": {
+   "zh-Hans": "可以运行这些 PowerShell 脚本（以当前内容为准）：",
+   "hi": "ये PowerShell स्क्रिप्ट चला सकता है (जैसी वे अभी हैं):",
+   "es": "Puede ejecutar estos scripts de PowerShell (tal como están ahora):",
+   "ar": "يمكنه تشغيل سكربتات PowerShell هذه (كما هي الآن):",
+   "fr": "Peut exécuter ces scripts PowerShell (tels qu'ils sont maintenant) :",
+   "bn": "এই PowerShell স্ক্রিপ্টগুলো চালাতে পারে (এখন যেমন আছে):",
+   "pt-BR": "Pode executar estes scripts do PowerShell (como estão agora):",
+   "ru": "Может запускать эти скрипты PowerShell (в текущем виде):",
+   "id": "Boleh menjalankan skrip PowerShell ini (seperti sekarang):"
+  },
+  "Last script output": {
+   "zh-Hans": "上次脚本输出",
+   "hi": "पिछला स्क्रिप्ट आउटपुट",
+   "es": "Última salida del script",
+   "ar": "آخر مخرجات السكربت",
+   "fr": "Dernière sortie du script",
+   "bn": "শেষ স্ক্রিপ্ট আউটপুট",
+   "pt-BR": "Última saída do script",
+   "ru": "Последний вывод скрипта",
+   "id": "Keluaran skrip terakhir"
   }
  }
 }

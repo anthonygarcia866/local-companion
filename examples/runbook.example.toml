@@ -6,8 +6,8 @@
 # run shows every step and asks you to approve it; any later change to the
 # file means approving it again.
 #
-# Steps run in order and stop at the first failure. Only five step types:
-# env_secret, start_app, run, check, launch_detached. Use single-quoted TOML strings for
+# Steps run in order and stop at the first failure. Only six step types:
+# env_secret, start_app, run, ps_script, check, launch_detached. Use single-quoted TOML strings for
 # Windows paths so backslashes stay as they are.
 
 description = "Example: put a token into a project's .env.local and check it"
@@ -20,6 +20,9 @@ folders = ['C:\path\to\example-project']
 apps = ['C:\path\to\ExampleApp.exe', 'example-app:']
 # Exact command lines run may use: one command, no & | < > ^ % !
 commands = ['npm run dev']
+# PowerShell scripts ps_script may run: full paths to .ps1 files. The
+# script's SHA-256 is part of the approval: editing it means approving again.
+# scripts = ['C:\path\to\example-tools\example-check.ps1']
 
 # Writes the secret saved in Settings -> Secrets as EXAMPLE_TOKEN into the
 # file as EXAMPLE_KEY=<value>. Refused unless git ignores the file and doesn't
@@ -30,6 +33,9 @@ type = "env_secret"
 secret = "EXAMPLE_TOKEN"
 file = 'C:\path\to\example-project\.env.local'
 key = "EXAMPLE_KEY"
+# Optional: refuse (and write nothing) unless the value starts with one of
+# these. The refusal never shows the value or which prefix it had.
+# require_prefix = ["example_test_", "example_restricted_test_"]
 
 # Read-only checks: exactly one of file_exists, port (on 127.0.0.1) or url
 # (on this PC). wait_s retries every second, up to that many seconds.
@@ -56,6 +62,26 @@ file_exists = 'C:\path\to\example-project\.env.local'
 # type = "check"
 # port = 5173
 # wait_s = 30
+
+# Hands a saved secret to a command on its stdin only (never its command
+# line, environment or a log): for tools that read a secret from input.
+# [[step]]
+# type = "run"
+# command = "example-cli secret put EXAMPLE_KEY"
+# folder = 'C:\path\to\example-project'
+# secret_stdin = "EXAMPLE_TOKEN"
+# ask = true
+
+# Runs an allowlisted .ps1 with Windows PowerShell (-NoProfile
+# -ExecutionPolicy Bypass -File <script> <args>) and a timeout. The exit code
+# is logged; the output isn't: its last few KB (any secret_stdin value blanked
+# out) show in Settings -> Runbooks only. secret_stdin works here too.
+# [[step]]
+# type = "ps_script"
+# script = 'C:\path\to\example-tools\example-check.ps1'
+# args = ["-Mode", "check"]
+# folder = 'C:\path\to\example-project'
+# timeout_s = 120
 
 # Starts an exact command from [allow] commands in an allowed folder, in a
 # console of its own, and doesn't wait for it: it keeps running after Glim

@@ -255,7 +255,14 @@ pub fn open_protocol(_link: &str) -> bool {
 }
 
 /// Runbooks are Windows-only for now.
-pub fn run_command_line(_command: &str, _folder: &std::path::Path, _timeout: std::time::Duration) -> Result<i32, String> {
+pub fn run_command_line(_command: &str, _folder: &std::path::Path, _timeout: std::time::Duration, _input: Option<&[u8]>) -> Result<i32, String> {
+    Err("couldn't start".into())
+}
+
+/// Runbooks' ps_script is Windows-only.
+pub const OUTPUT_CAP: usize = 64 * 1024;
+
+pub fn run_ps_script(_script: &std::path::Path, _args: &[String], _folder: &std::path::Path, _timeout: std::time::Duration, _input: Option<&[u8]>) -> Result<(i32, Vec<u8>), String> {
     Err("couldn't start".into())
 }
 

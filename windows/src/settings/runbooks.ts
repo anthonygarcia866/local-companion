@@ -146,6 +146,7 @@ export function runbooksSection(): HTMLElement {
       row(t("May write in or run in:"), b.folders);
       row(t("May start:"), b.apps);
       row(t("May run exactly:"), b.commands);
+      row(t("May run these PowerShell scripts (as they are now):"), b.scripts ?? []);
       return h("div", { class: "card", "data-role": "runbook-approval" },
         h("div", { class: "name", text: b.state === "changed" ? t("{name} changed since you approved it. It will now:", { name: b.name }) : t("Approve {name}? It will:", { name: b.name }) }),
         stepList(b),
@@ -188,6 +189,11 @@ export function runbooksSection(): HTMLElement {
       if (b.description) box.append(h("div", { class: "hint", text: b.description }));
       if (l.card) box.append(card(b, l));
       for (const line of l.lines) box.append(h("div", { class: "hint", "data-role": "runbook-line", text: line }));
+      // A ps_script's last output (redacted and truncated in Rust; never in a log).
+      if (b.lastOutput) {
+        const out = h("details", { "data-role": "runbook-output" }, h("summary", { text: t("Last script output") }), h("pre", { class: "hint", text: b.lastOutput }));
+        box.append(out);
+      }
       listBox.append(box);
     }
     clear(runsBox);

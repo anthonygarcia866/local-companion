@@ -449,6 +449,10 @@ export interface RunbookView {
   folders: string[];
   apps: string[];
   commands: string[];
+  /** [allow] scripts (ps_script). */
+  scripts?: string[];
+  /** The last ps_script output: redacted, truncated; "" for none. */
+  lastOutput?: string;
 }
 
 export interface RunbookRun {
