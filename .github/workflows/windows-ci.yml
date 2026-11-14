@@ -1,6 +1,7 @@
 name: Windows CI
 
-# Type-checks and tests the Windows app on every pull request that touches it.
+# Type-checks and tests the Windows app on every pull request that touches it,
+# on pushes to main, weekly, and by hand.
 # Nothing is packed and nothing is published: releases stay in windows.yml,
 # which only runs on tags.
 
@@ -16,6 +17,11 @@ on:
       - 'windows/**'
       - '.github/workflows/windows-ci.yml'
       - 'ci/clippy-baseline.txt'
+  # The only runs where "Voice end to end" talks to the live Claude API (see
+  # that step): weekly on main, and by hand from the Actions tab.
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -132,9 +138,10 @@ jobs:
       # are kept in the repo), whisper.cpp b5454 + base.en (downloaded here,
       # SHA-256 checked) transcribes them through Glim's own code, then the
       # router runs with a fake executor that records actions and opens
-      # nothing. Claude is live only when the GLIM_VOICE_API_KEY secret is set
-      # (capped at about $0.01 a run); otherwise canned answers. The cost goes
-      # to the job summary.
+      # nothing. Claude is live only on the weekly schedule and manual
+      # (workflow_dispatch) runs, and only when the GLIM_VOICE_API_KEY secret
+      # is set (capped at about $0.01 a run). Pull requests and pushes to main
+      # get an empty key, so canned answers. The cost goes to the job summary.
       - name: Voice clips (Windows SAPI)
         shell: pwsh
         run: ./scripts/voice-clips.ps1 -Out "$env:RUNNER_TEMP/voice-clips"
@@ -152,7 +159,7 @@ jobs:
       - name: Voice end to end
         shell: pwsh
         env:
-          GLIM_VOICE_API_KEY: ${{ secrets.GLIM_VOICE_API_KEY }}
+          GLIM_VOICE_API_KEY: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && secrets.GLIM_VOICE_API_KEY || '' }}
         run: |
           $env:GLIM_VOICE_CLIPS = "$env:RUNNER_TEMP/voice-clips"
           $env:GLIM_WHISPER_DIR = "$env:RUNNER_TEMP/whisper"
