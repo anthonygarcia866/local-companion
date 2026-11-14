@@ -29,9 +29,10 @@ pub const MAX_VALUE_BYTES: usize = 2560;
 /// The longest name.
 pub const MAX_NAME_CHARS: usize = 64;
 
-/// Names Glim already uses for its own credentials (ai/key.rs, phone.rs),
+/// Names Glim already uses for its own credentials (ai/key.rs, phone.rs,
+/// runbooks/, remote/courier.rs),
 /// never listed, replaced or deleted from here. Case doesn't matter.
-pub const RESERVED: &[&str] = &["AnthropicApiKey", "PushoverKeys", "RunbookApprovalKey"];
+pub const RESERVED: &[&str] = &["AnthropicApiKey", "PushoverKeys", "RunbookApprovalKey", "RemoteRelayPcToken", "RemotePcSigningKey"];
 
 /// A saved value, as only a runbook step may see it.
 pub struct SecretValue(String);

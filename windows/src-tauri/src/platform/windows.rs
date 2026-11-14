@@ -496,6 +496,24 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
     Ok(child)
 }
 
+/// A remote courier task (remote/exec.rs): `exe` with fixed `args` in
+/// `folder`, no window, `stdin_text` written to its stdin and closed (a
+/// prompt never goes on the command line), output discarded, not waited
+/// for, tied to Glim's life.
+pub fn start_hidden_with_stdin(exe: &std::path::Path, args: &[&str], folder: &std::path::Path, stdin_text: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut c = Command::new(exe);
+    c.args(args).current_dir(folder).env("NoDefaultCurrentDirectoryInExePath", "1");
+    no_console(&mut c).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+    let mut child = c.spawn().map_err(|_| "couldn't start".to_string())?;
+    let _ = kill_with_glim(&child);
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(stdin_text.as_bytes()).map_err(|_| "couldn't start".to_string())?;
+    }
+    Ok(())
+}
+
 /// Whether the Claude desktop app is running: a claude.exe from its install
 /// (WindowsApps or AnthropicClaude), not the Claude Code CLI's claude.exe.
 /// Claude Code's own launcher: on PATH (absolute entries only), else in

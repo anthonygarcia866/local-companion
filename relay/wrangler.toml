@@ -1,0 +1,27 @@
+# The courier relay (docs/remote-courier.md). Generic name, Workers Free
+# plan, SQLite-backed Durable Object. No account id here: wrangler uses its
+# login. Secrets (set with `wrangler secret put`, never in this repo):
+# PC_TOKEN_SHA256 and CLOUD_TOKEN_SHA256, the SHA-256 (hex) of each side's
+# token. Until both are set, every request is refused.
+name = "task-relay"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+preview_urls = false
+logpush = false
+
+# No Workers Logs, no traces: nothing about a request is kept.
+[observability]
+enabled = false
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "Mailbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Mailbox"]

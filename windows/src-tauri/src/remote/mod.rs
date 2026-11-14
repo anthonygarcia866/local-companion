@@ -1,9 +1,9 @@
-// Remote courier, the transport-independent security core (owner,
-// 2026-11-14; roadmap: remote courier Phase 1 = Phase 3 delegation). NOT
-// wired to any transport: nothing in Glim receives a task yet, so nothing
-// here runs outside tests and Settings. docs/remote-courier.md has the
-// formats; this file is the gate every future transport must call
-// (`Gate::accept`) before anything happens.
+// Remote courier (owner 2026-11-14; roadmap: remote courier Phase 1 = Phase
+// 3 delegation). This file is the gate every task passes (`Gate::accept`)
+// before anything happens; courier.rs is the relay connection that feeds it
+// (net::relay, the transport the owner approved 2026-11-14) and signs every
+// result with the PC's own key; exec.rs is what the five commands do.
+// docs/remote-courier.md has the formats and the setup.
 //
 // A task is a signed envelope, `{"v":1,"payload":"<json>","sig":"<hex>"}`:
 // - `sig` is an Ed25519 signature over the exact UTF-8 bytes of `payload`
@@ -33,8 +33,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub mod command;
+pub mod courier;
+pub mod exec;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod courier_tests;
 
 pub use command::Command;
 
@@ -64,6 +68,11 @@ pub struct RemoteSettings {
     pub killed: bool,
     /// The signer's Ed25519 public key, 64 lower-case hex characters ("" none).
     pub public_key: String,
+    /// The relay's address, "https://<name>.<subdomain>.workers.dev" ("" none).
+    pub relay: String,
+    /// The PC's result key (public half, 64 hex) once set up ("" none); the
+    /// private half is only in Credential Manager (courier::PC_KEY_TARGET).
+    pub pc_public_key: String,
 }
 
 /// Why a task was refused: a fixed code, never text from the task.

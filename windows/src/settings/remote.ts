@@ -9,7 +9,10 @@
 // off by default with its own one-time card, the signer's public key
 // (pasted; only its fingerprint is ever shown back), the kill switch (also
 // in the tray) and the Remote activity list (times, outcomes, command kinds
-// or refusal reasons; never a payload). No transport is wired yet.
+// or refusal reasons; never a payload). Since the courier (owner 2026-11-14,
+// remote/courier.rs): the relay's address and the connection's state, and
+// "Set up the relay", which makes both sides' relay tokens and this PC's
+// result key and shows cloud Glim's token exactly once.
 
 import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteStatus } from "../core/bridge";
 import { h, clear } from "../views/dom";
@@ -145,12 +148,30 @@ export function activityLine(a: RemoteActivity): string {
   return `${clock(a.at)} ${a.ok ? t("Accepted: {kind}", { kind: a.kind }) : t("Refused: {reason}", { reason: a.reason })}`;
 }
 
+/** The relay connection's state code, in words. */
+export function connectionText(code: string): string {
+  switch (code) {
+    case "off": return t("Off");
+    case "connecting": return t("Connecting…");
+    case "connected": return t("Connected");
+    case "reconnecting":
+    case "woke-reconnecting": return t("Reconnecting…");
+    case "unauthorized": return t("The relay refused this PC's token.");
+    case "not-set-up": return t("Set up the relay first.");
+    case "no-relay": return t("Add the relay address first.");
+    default: return t("Can't reach the relay ({code}).", { code });
+  }
+}
+
 /** Settings → Remote → Remote tasks (remote/). */
 export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement): HTMLElement {
   const box = h("div", { class: "pill-group", "data-role": "remote-tasks" });
-  let status: RemoteStatus = { on: false, consented: false, killed: false, fingerprint: "", activity: [] };
+  let status: RemoteStatus = { on: false, consented: false, killed: false, fingerprint: "", relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", activity: [] };
   let consenting = false;
   let note = "";
+  let renewing = false;
+  /** Cloud Glim's token, right after setup only; forgotten on "Done". */
+  let cloudToken = "";
 
   async function act(f: () => Promise<RemoteStatus | null>) {
     try {
@@ -165,7 +186,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   function draw() {
     clear(box);
     box.append(h("h3", { text: t("Remote tasks") }));
-    box.append(h("div", { class: "hint", text: t("Lets tasks you sign on your phone reach this PC (not connected yet). Only tasks signed with the key below are accepted, each once and within 10 minutes.") }));
+    box.append(h("div", { class: "hint", text: t("Lets tasks you sign reach this PC through your relay. Only tasks signed with the key below are accepted, each once and within 10 minutes; every answer is signed with this PC's own key.") }));
     const sw = toggle(status.on, (v) => {
       if (v && !status.consented) {
         consenting = true;
@@ -188,7 +209,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       });
       box.append(h("div", { class: "card", "data-role": "remote-tasks-consent" },
         h("div", { class: "name", text: t("Accept remote tasks?") }),
-        h("div", { class: "hint", text: t("Glim will accept tasks signed with your key: a session's status, the end of its transcript, starting or messaging a Claude Code session in an allowed project, and runbooks you approved. At most 5 new sessions and 30 tasks an hour. Stop them any time from the tray or here.") }),
+        h("div", { class: "hint", text: t("Glim will connect to your relay and accept tasks signed with your key: a session's status, the end of its transcript, starting or messaging a Claude Code session in an allowed project, and runbooks you approved. At most 5 new sessions and 30 tasks an hour. Stop them any time from the tray or here.") }),
         h("div", { class: "row" }, yes, no),
       ));
     }
@@ -201,6 +222,62 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     });
     box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, input, save));
     if (status.fingerprint) box.append(h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.fingerprint }) }));
+
+    const relay = h("input", { type: "text", "data-role": "remote-relay", placeholder: "https://name.subdomain.workers.dev", spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
+    relay.value = status.relay;
+    const saveRelay = h("button", { type: "button", "data-role": "remote-relay-save", text: t("Save address") });
+    saveRelay.addEventListener("click", () => {
+      const address = relay.value;
+      void act(() => Bridge.remoteRelay(address));
+    });
+    box.append(h("label", { text: t("Relay address") }), h("div", { class: "row" }, relay, saveRelay));
+    box.append(h("div", { class: "hint", "data-role": "remote-connection", text: t("Relay: {state}", { state: connectionText(status.connection) }) }));
+
+    if (status.pcPublicKey) {
+      box.append(h("label", { text: t("This PC's result key") }), h("div", { class: "path", "data-role": "remote-pc-key", text: status.pcPublicKey }));
+      box.append(h("div", { class: "hint", "data-role": "remote-pc-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.pcFingerprint }) }));
+    }
+    const setup = h("button", { type: "button", "data-role": "remote-setup", text: status.pcPublicKey ? t("Make new tokens and key") : t("Set up the relay") });
+    setup.addEventListener("click", () => {
+      if (status.pcPublicKey) {
+        renewing = true;
+        draw();
+      } else void runSetup();
+    });
+    box.append(h("div", { class: "row" }, setup));
+    if (renewing) {
+      const yes = h("button", { class: "danger", type: "button", "data-role": "remote-renew-yes", text: t("Make new ones") });
+      const no = h("button", { type: "button", "data-role": "remote-renew-no", text: t("Not now") });
+      yes.addEventListener("click", () => {
+        renewing = false;
+        void runSetup();
+      });
+      no.addEventListener("click", () => {
+        renewing = false;
+        draw();
+      });
+      box.append(h("div", { class: "card", "data-role": "remote-renew" },
+        h("div", { class: "name", text: t("Make new relay tokens and a new result key?") }),
+        h("div", { class: "hint", text: t("The old ones stop working at once: you'll put the new ones in cloud Glim's environment and run the relay-tokens runbook again.") }),
+        h("div", { class: "row" }, yes, no),
+      ));
+    }
+    if (cloudToken) {
+      const field = h("input", { type: "text", "data-role": "remote-cloud-token", spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
+      field.value = cloudToken;
+      field.readOnly = true;
+      const copy = h("button", { type: "button", "data-role": "remote-cloud-copy", text: t("Copy") });
+      copy.addEventListener("click", () => void navigator.clipboard?.writeText(field.value));
+      const done = h("button", { class: "primary", type: "button", "data-role": "remote-cloud-done", text: t("Done") });
+      done.addEventListener("click", () => {
+        cloudToken = "";
+        draw();
+      });
+      box.append(h("div", { class: "card", "data-role": "remote-cloud" },
+        h("div", { class: "hint", text: t("Cloud Glim's relay token, shown only this once: put it in cloud Glim's environment as RELAY_CLOUD_TOKEN now.") }),
+        h("div", { class: "row" }, field, copy, done),
+      ));
+    }
 
     if (status.killed) {
       const again = h("button", { type: "button", "data-role": "remote-allow", text: t("Allow again") });
@@ -217,6 +294,18 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     if (status.activity.length === 0) list.append(h("div", { class: "hint", text: t("Nothing yet.") }));
     for (const a of status.activity.slice(0, 20)) list.append(h("div", { class: "hint", "data-role": "remote-activity-line", text: activityLine(a) }));
     box.append(list);
+  }
+
+  async function runSetup() {
+    try {
+      const r = await Bridge.remoteSetup();
+      status = r.status;
+      cloudToken = r.cloudToken;
+      note = "";
+    } catch (e) {
+      note = String(e);
+    }
+    draw();
   }
 
   draw();
