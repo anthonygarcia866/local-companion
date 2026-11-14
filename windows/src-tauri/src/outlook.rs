@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(body_html("Hi Maria,\n\nThe <plumber> & co\ncomes Tuesday."), "<p>Hi Maria,</p><p>The &lt;plumber&gt; &amp; co<br>comes Tuesday.</p>");
         assert_eq!(insert_after_body_tag("<html><BODY lang=en><div>-- sig</div></body></html>", "<p>x</p>"), "<html><BODY lang=en><p>x</p><div>-- sig</div></body></html>");
         assert_eq!(insert_after_body_tag("<div>sig</div>", "<p>x</p>"), "<p>x</p><div>sig</div>");
-        assert!(has_signature("\r\nAnthony\r\n"));
+        assert!(has_signature("\r\nMerrick\r\n"));
         assert!(!has_signature(" \r\n "));
     }
 

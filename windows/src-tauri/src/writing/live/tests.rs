@@ -353,7 +353,7 @@ fn a_paragraph_with_a_key_token_or_password_never_goes_out() {
     }
     for fine in [
         "We received the payment and will deposit it tomorrow.",
-        "The walkthrough is at 10:30 on 2026-11-09, unit 4B.",
+        "The walkthrough is at 10:30 on 2026-11-09, unit 4D.",
         "See https://example.com/docs/getting-started for the steps.",
         "Internationalization and characteristically long words are fine.",
     ] {

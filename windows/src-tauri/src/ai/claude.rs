@@ -392,6 +392,20 @@ pub fn parse_answer(body: &[u8], asked_model: &str) -> Reply {
 
 /// What an answer cost, from its `usage`: priced as the model that answered;
 /// one Settings doesn't list is priced as the model asked for.
+/// Tests outside ai/ (voice::quality_tests' LLM judge, a live CI job only):
+/// `send` and `usage_of`, the same checks and the same choke point.
+#[cfg(test)]
+pub(crate) async fn send_for_test(base: &Url, key: &ApiKey, body: &Value) -> (Result<Vec<u8>, Failure>, Option<Usage>) {
+    match send(base, key, body).await {
+        Ok(bytes) => {
+            let model = body.get("model").and_then(Value::as_str).unwrap_or(DEFAULT_MODEL).to_string();
+            let usage = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| usage_of(&v, &model));
+            (Ok(bytes), usage)
+        }
+        Err(f) => (Err(f), None),
+    }
+}
+
 pub(super) fn usage_of(v: &Value, asked_model: &str) -> Option<Usage> {
     let tokens = |name: &str| v.pointer(&format!("/usage/{name}")).and_then(Value::as_u64).unwrap_or(0);
     // No prompt caching is asked for; any cache tokens are counted as input.

@@ -95,7 +95,7 @@ pub const ACTIONS: &[ActionDef] = &[
     action("pauseToggle", "Ctrl+Alt+Shift+P", true, true),
     // Voice 1.5b: hold to dictate (docs/voice-actions-plan.md §1). Free
     // system-wide when probed (2026-10-14); Word maps it to InsertAutoText,
-    // and Anthony chose to take it anyway (2026-10-14). Handled in Rust.
+    // and the owner chose to take it anyway (2026-10-14). Handled in Rust.
     action("pushToTalk", "Ctrl+Alt+Shift+V", true, true),
     // Decision A (2026-10-16): hold to ask Glim (a request, never typed); V
     // only dictates. Free system-wide when probed and unassigned in Word's key

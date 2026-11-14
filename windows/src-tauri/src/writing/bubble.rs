@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(place(Some(tall), Some(caret_at(300, 1500, 18)), &owner()), Err(NoPlace::OffScreen));
     }
 
-    /// §7a.1 rule 3 (Anthony, 2026-10-13), widened 2026-10-18 to every
+    /// §7a.1 rule 3 (the owner, 2026-10-13), widened 2026-10-18 to every
     /// multi-line field: level with the caret's line.
     #[test]
     fn a_tall_field_keeps_it_level_with_the_caret_line() {
