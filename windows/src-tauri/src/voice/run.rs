@@ -1185,9 +1185,10 @@ async fn clean_up_app(app: &AppHandle, mode: Mode, transcript: &str, asked: Opti
                 };
                 let polish_started = Instant::now();
                 match polish::polish(&base, &api_key, config.model, transcript, &p).await {
-                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" || code == "polish-facts" => {
+                    (Err(CleanupFailed::Outage(code)), u) if code == "polish-detail" || code == "polish-borrowed" || code == "polish-quoted" || code == "polish-facts" => {
                         // It left out a detail, or brought in words the user
-                        // didn't say: Clean instead, and the card says so.
+                        // didn't say (or copied the message replied to,
+                        // ai/quoted.rs): Clean instead, and the card says so.
                         if let Some(u) = &u {
                             crate::log::line(format!("voice: polished not used ({code}), clean instead; polish {} in={} out={} ${:.6} {:.1}s", u.model, u.input_tokens, u.output_tokens, u.cost_nanos as f64 / 1e9, polish_started.elapsed().as_secs_f64()));
                             if let Err(err) = spend::record(&spend::path(), &spend::month_now(), u) {
