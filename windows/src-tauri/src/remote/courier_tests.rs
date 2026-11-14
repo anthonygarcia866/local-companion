@@ -30,7 +30,7 @@ fn seed_pair(seed: &str) -> Ed25519KeyPair {
 const CLOUD_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const PC_SEED: &str = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
 const VECTOR_TASK: &str = r#"{"v":1,"payload":"{\"id\":\"vector-task-0000001\",\"iat\":1763140000,\"exp\":1763140300,\"cmd\":\"session-status\",\"args\":{}}","sig":"3f3122e3715f013f73c6dd9498fbef70e0802e6cd6e2831c736ac8a70b4e343dd5f8fe0cf735f6513243e088f5910da37336ad2396465cc762e648760ceb0803"}"#;
-const VECTOR_RESULT: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"f8f6581ff78ddae585b53f6b1bbf709dd2475b4bf14b9013071daf85f86d1180b19b5c0cccbdf0adc256dc09d54e492ec8d9c871a40614620e3c8be7d1303a05"}"#;
+const VECTOR_RESULT: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"task\":\"f39855e5975f49aac158e7d2bb272fe82a8ce7d07cfc1d5bf9c3cd6239f9792e\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"74c8f2725a5e382a8409de4dd599b745ffe9ba8fc205cba7870e58411b4b9404e3e9ef73a1f37e5494b207d2fae9dc3644f7f3a317a971a0555c6403d5e25409"}"#;
 
 #[test]
 fn the_shared_vectors_a_node_signed_task_verifies_and_glims_result_matches_byte_for_byte() {
@@ -39,7 +39,7 @@ fn the_shared_vectors_a_node_signed_task_verifies_and_glims_result_matches_byte_
     let a = Gate::default().accept(&s, VECTOR_TASK.as_bytes(), 1_763_140_010).unwrap();
     assert_eq!((a.id.as_str(), a.command.kind()), ("vector-task-0000001", "session-status"));
     let pc = seed_pair(PC_SEED);
-    let out = courier::sign_result(&pc, "vector-task-0000001", 1_763_140_003, &Ok(("session-status".into(), "local-companion: idle".into())));
+    let out = courier::sign_result(&pc, "vector-task-0000001", &courier::sha256_hex(VECTOR_TASK), 1_763_140_003, &Ok(("session-status".into(), "local-companion: idle".into())));
     assert_eq!(out, VECTOR_RESULT);
     assert_eq!(hex(pc.public_key().as_ref()), "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c");
 }
@@ -177,8 +177,12 @@ fn a_signed_task_gets_a_signed_result_and_the_pc_token_is_the_bearer() {
         let mut c = accept(&server).await;
         assert_eq!(c.auth, "Bearer pc-token-for-tests");
         c.send(&fresh(&rig.cloud, "task-ok-000000001")).await;
+        let sent = fresh(&rig.cloud, "task-ok-000000001");
         let frame = c.recv(SHORT).await.expect("a result");
         let r = open(&frame, &rig.pc_pub).unwrap();
+        // Bound to the exact envelope it answers.
+        let env: Value = serde_json::from_str(&sent).unwrap();
+        assert_eq!(r["task"].as_str(), Some(courier::sha256_hex(env["env"].as_str().unwrap()).as_str()));
         assert_eq!((r["id"].as_str(), r["ok"].as_bool(), r["kind"].as_str(), r["detail"].as_str()), (Some("task-ok-000000001"), Some(true), Some("session-status"), Some("did session-status")));
         // Tampered on the way, the result no longer verifies (cloud Glim refuses it).
         let bad = frame.replace("did session-status", "did something else");
@@ -299,4 +303,35 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     assert_eq!(super::exec::tail_of(text.as_bytes(), 20), "you: Please fix the build\nclaude: On it.\nclaude: Done: CI is green.");
     assert_eq!(super::exec::tail_of(text.as_bytes(), 1), "claude: Done: CI is green.");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
+}
+
+/// By hand only, against a real relay: the courier as the PC (fake commands,
+/// the [9; 32] test key as the PC key) for RELAY_LIVE_SECS seconds, while
+/// `node relay/courier.mjs send …` plays cloud Glim. Needs RELAY_LIVE_URL,
+/// RELAY_LIVE_PC_TOKEN and RELAY_LIVE_SIGNER_PUB.
+#[test]
+#[ignore = "live relay; run by hand"]
+fn live_relay_round_trip() {
+    let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("set {k}"));
+    let url = crate::net::relay::endpoint(&var("RELAY_LIVE_URL")).unwrap();
+    let token = var("RELAY_LIVE_PC_TOKEN");
+    let secs: u64 = std::env::var("RELAY_LIVE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(60);
+    let pc = Arc::new(Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap());
+    println!("PC result key: {}", hex(pc.public_key().as_ref()));
+    let settings = RemoteSettings { on: true, consented: true, public_key: var("RELAY_LIVE_SIGNER_PUB"), relay: "https://live.example.workers.dev".into(), ..Default::default() };
+    let gate = Arc::new(Mutex::new(Gate::default()));
+    let until = std::time::Instant::now() + Duration::from_secs(secs);
+    let l = Loop {
+        settings: Arc::new(move || settings.clone()),
+        link: Arc::new(move |_s: &RemoteSettings| Ok(Link { url: url.clone(), token: token.clone(), signer: pc.clone() })),
+        accept: Arc::new(move |s: &RemoteSettings, raw: &[u8], now: i64| gate.lock().unwrap().accept(s, raw, now)),
+        exec: Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
+        timing: Timing::default(),
+        backoff_max: Duration::from_secs(5),
+        idle: Duration::from_millis(200),
+        running: Arc::new(move || std::time::Instant::now() < until),
+    };
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(courier::run(l));
+    println!("final state: {}", courier::state());
 }

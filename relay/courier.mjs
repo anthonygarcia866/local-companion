@@ -57,12 +57,17 @@ export function signTask(seedHex, cmd, args, now = Math.floor(Date.now() / 1000)
   return { id, text: JSON.stringify({ v: 1, payload, sig }) };
 }
 
+export function sha256Hex(text) {
+  return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+}
+
 /**
- * The PC's result for task `id`, verified with the PC's public key: the
- * signature, the id it answers and its time. Throws "bad-result-signature"
- * or "bad-result" otherwise.
+ * The PC's result for the task we sent (`id`, envelope `taskText`), verified
+ * with the PC's public key: the signature, the id, the SHA-256 of the exact
+ * envelope it answers (so a refusal of a look-alike the relay made up doesn't
+ * count) and its time. Throws "bad-result-signature" or "bad-result".
  */
-export function verifyResult(pcPublicHex, text, id, now = Math.floor(Date.now() / 1000)) {
+export function verifyResult(pcPublicHex, text, id, taskText, now = Math.floor(Date.now() / 1000)) {
   let env;
   try {
     env = JSON.parse(text);
@@ -73,7 +78,7 @@ export function verifyResult(pcPublicHex, text, id, now = Math.floor(Date.now() 
   const ok = crypto.verify(null, Buffer.from(env.payload, "utf8"), publicKey(pcPublicHex), Buffer.from(env.sig, "hex"));
   if (!ok) throw new Error("bad-result-signature");
   const r = JSON.parse(env.payload);
-  if (r.v !== 1 || r.id !== id || typeof r.at !== "number" || Math.abs(now - r.at) > LIFETIME_S + SKEW_S) throw new Error("bad-result");
+  if (r.v !== 1 || r.id !== id || r.task !== sha256Hex(taskText) || typeof r.at !== "number" || Math.abs(now - r.at) > LIFETIME_S + SKEW_S) throw new Error("bad-result");
   return r;
 }
 
@@ -131,7 +136,7 @@ async function main(argv) {
       if (r.status === 200) {
         let res;
         try {
-          res = verifyResult(pcKey, await r.text(), task.id);
+          res = verifyResult(pcKey, await r.text(), task.id, task.text);
         } catch (e) {
           console.error(e.message);
           return 2;
@@ -149,8 +154,10 @@ async function main(argv) {
 }
 
 if (process.argv[1]?.endsWith("courier.mjs")) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
+  // exitCode, not exit(): exiting with fetch's sockets still open trips a
+  // libuv assertion on Windows.
+  main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {
     console.error(e.message);
-    process.exit(4);
+    process.exitCode = 4;
   });
 }

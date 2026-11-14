@@ -81,12 +81,12 @@ Every task the relay hands over gets one result, accepted or refused:
 
 ```json
 { "v": 1, "payload": "<json string>", "sig": "<128 hex>" }
-payload: { "v": 1, "id": "<the task's id>", "at": 1763140003, "ok": true, "kind": "session-status", "detail": "…", "error": "" }
+payload: { "v": 1, "id": "<the task's id>", "task": "<SHA-256 hex of the exact task envelope answered>", "at": 1763140003, "ok": true, "kind": "session-status", "detail": "…", "error": "" }
 ```
 
 - `sig` is Ed25519 over the payload's exact bytes, made with the **PC result key**. The PC sends it to the relay as `{"t":"result","id":…,"env":"<envelope>"}`. That frame answers and deletes the task.
 - `ok: false` carries a fixed `error` code: a refusal (`bad-signature`, `expired`, `replay`, `rate-limited`, `killed` …) or a failure (`no-folder`, `no-claude`, `busy`, `no-transcript`, `runbook-not-approved`, `runbook-failed-N-of-M` …).
-- **cloud Glim must verify** (`courier.mjs verifyResult`): the signature with `GLIM_PC_PUBLIC_KEY`, the `id` it asked about, and `at` within the task's lifetime. A result failing any of these is refused (exit 2, `bad-result-signature` / `bad-result`).
+- **cloud Glim must verify** (`courier.mjs verifyResult`): the signature with `GLIM_PC_PUBLIC_KEY`, the `id` it asked about, `task` = SHA-256 of the envelope it sent, and `at` within the task's lifetime. The `task` hash matters because the PC signs refusals of envelopes it couldn't verify too: without it, the relay could make up a look-alike with a real task's id and pass off the PC's refusal of it as the answer to the real task. A result failing any of these is refused (exit 2, `bad-result-signature` / `bad-result`).
 - A task delivered twice (after a reconnect) gets the same result again, without running a second time.
 
 Both directions are pinned by shared test vectors: `relay/test/relay.test.mjs` and `remote/courier_tests.rs` check the same bytes, using RFC 8032's published test seeds.

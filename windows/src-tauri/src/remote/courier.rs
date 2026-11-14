@@ -101,13 +101,16 @@ pub fn pc_key_vault() -> impl Vault {
 }
 
 /// A signed result envelope: `{"v":1,"payload":"<json>","sig":"<hex>"}`,
-/// payload `{"v":1,"id","at","ok","kind","detail","error"}`.
-pub fn sign_result(kp: &Ed25519KeyPair, id: &str, at: i64, outcome: &Result<(String, String), String>) -> String {
+/// payload `{"v":1,"id","task","at","ok","kind","detail","error"}`. `task` is
+/// the SHA-256 of the exact envelope answered: a refusal of an envelope the
+/// relay made up (with a real task's id) can't pass for an answer to the
+/// real task, because cloud Glim checks `task` against what it sent.
+pub fn sign_result(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>) -> String {
     let (ok, kind, detail, error) = match outcome {
         Ok((kind, detail)) => (true, kind.as_str(), cap(detail.clone()), ""),
         Err(code) => (false, "", String::new(), code.as_str()),
     };
-    let payload = json!({ "v": 1, "id": id, "at": at, "ok": ok, "kind": kind, "detail": detail, "error": error }).to_string();
+    let payload = json!({ "v": 1, "id": id, "task": task, "at": at, "ok": ok, "kind": kind, "detail": detail, "error": error }).to_string();
     let sig = kp.sign(payload.as_bytes());
     json!({ "v": 1, "payload": payload, "sig": hex(sig.as_ref()) }).to_string()
 }
@@ -173,7 +176,7 @@ impl Courier {
         let Some(id) = peek_id(env) else { return };
         match (self.accept)(settings, env.as_bytes(), now) {
             Err(why) => {
-                let frame = result_frame(&id, &sign_result(&self.signer, &id, now, &Err(why.code().to_string())));
+                let frame = result_frame(&id, &sign_result(&self.signer, &id, &key, now, &Err(why.code().to_string())));
                 Self::remember(&self.answered, key, &frame);
                 let _ = self.tx.send(frame);
             }
@@ -185,7 +188,7 @@ impl Courier {
                     if let Err(code) = &out {
                         crate::log::line(format!("remote: task failed {}", code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect::<String>()));
                     }
-                    let frame = result_frame(&task.id, &sign_result(&signer, &task.id, super::now_s(), &out));
+                    let frame = result_frame(&task.id, &sign_result(&signer, &task.id, &key, super::now_s(), &out));
                     Self::remember(&answered, key, &frame);
                     let _ = tx.send(frame);
                 });

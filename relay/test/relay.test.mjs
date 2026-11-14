@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Relay, MemoryStore, caller, sha256Hex, taskMeta, MAX_PENDING } from "../src/core.js";
-import { keygen, signTask, verifyResult, privateKey } from "../courier.mjs";
+import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf } from "../courier.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 1_800_000_000;
@@ -17,8 +17,8 @@ function sockets() {
   return { list, fn: () => list, add() { const s = { sent: [], send(t) { this.sent.push(t); } }; list.push(s); return s; } };
 }
 
-function signedResult(seed, id, at, extra = {}) {
-  const payload = JSON.stringify({ v: 1, id, at, ok: true, kind: "session-status", detail: "idle", error: "", ...extra });
+function signedResult(seed, id, at, taskText, extra = {}) {
+  const payload = JSON.stringify({ v: 1, id, task: hashOf(taskText), at, ok: true, kind: "session-status", detail: "idle", error: "", ...extra });
   const sig = crypto.sign(null, Buffer.from(payload), privateKey(seed)).toString("hex");
   return JSON.stringify({ v: 1, payload, sig });
 }
@@ -78,27 +78,31 @@ test("a result answers its task once; unknown ids and junk are ignored", () => {
   relay.queue(t.text, NOW);
   assert.equal(relay.takeResult(t.id, NOW).status, 202);
   relay.fromPc("garbage", NOW);
-  relay.fromPc(JSON.stringify({ t: "result", id: "u".repeat(20), env: signedResult(pcKey.seed, "u".repeat(20), NOW) }), NOW);
+  relay.fromPc(JSON.stringify({ t: "result", id: "u".repeat(20), env: signedResult(pcKey.seed, "u".repeat(20), NOW, "x") }), NOW);
   assert.equal(relay.takeResult("u".repeat(20), NOW).status, 404);
-  relay.fromPc(JSON.stringify({ t: "result", id: t.id, env: signedResult(pcKey.seed, t.id, NOW) }), NOW);
+  relay.fromPc(JSON.stringify({ t: "result", id: t.id, env: signedResult(pcKey.seed, t.id, NOW, t.text) }), NOW);
   assert.equal(relay.pendingFrames(NOW).length, 0, "answered = deleted");
   const got = relay.takeResult(t.id, NOW);
   assert.equal(got.status, 200);
-  assert.equal(verifyResult(pcKey.pub, got.raw, t.id, NOW).detail, "idle");
+  assert.equal(verifyResult(pcKey.pub, got.raw, t.id, t.text, NOW).detail, "idle");
   assert.equal(relay.takeResult(t.id, NOW).status, 404, "handed over once");
 });
 
-test("cloud Glim refuses a result with a bad signature, the wrong key or another task's id", () => {
+test("cloud Glim refuses a result with a bad signature, the wrong key, another task's id or another envelope", () => {
   const pcKey = keygen(), other = keygen();
   const id = "a".repeat(24);
-  const good = signedResult(pcKey.seed, id, NOW);
-  assert.equal(verifyResult(pcKey.pub, good, id, NOW).ok, true);
-  assert.throws(() => verifyResult(other.pub, good, id, NOW), /bad-result-signature/);
+  const sent = "the envelope cloud Glim sent";
+  const good = signedResult(pcKey.seed, id, NOW, sent);
+  assert.equal(verifyResult(pcKey.pub, good, id, sent, NOW).ok, true);
+  assert.throws(() => verifyResult(other.pub, good, id, sent, NOW), /bad-result-signature/);
   const env = JSON.parse(good);
   const tampered = JSON.stringify({ ...env, payload: env.payload.replace("idle", "done") });
-  assert.throws(() => verifyResult(pcKey.pub, tampered, id, NOW), /bad-result-signature/);
-  assert.throws(() => verifyResult(pcKey.pub, good, "b".repeat(24), NOW), /bad-result/);
-  assert.throws(() => verifyResult(pcKey.pub, good, id, NOW + 3600), /bad-result/);
+  assert.throws(() => verifyResult(pcKey.pub, tampered, id, sent, NOW), /bad-result-signature/);
+  assert.throws(() => verifyResult(pcKey.pub, good, "b".repeat(24), sent, NOW), /bad-result/);
+  assert.throws(() => verifyResult(pcKey.pub, good, id, sent, NOW + 3600), /bad-result/);
+  // A genuine PC refusal of a look-alike the relay made up with the same id doesn't answer ours.
+  const lookalike = signedResult(pcKey.seed, id, NOW, "a forged envelope with our id");
+  assert.throws(() => verifyResult(pcKey.pub, lookalike, id, sent, NOW), /bad-result/);
 });
 
 // RFC 8032's published test seeds (never real keys). The Rust tests
@@ -108,12 +112,12 @@ export const VECTOR = {
   cloudSeed: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
   pcPub: "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
   task: String.raw`{"v":1,"payload":"{\"id\":\"vector-task-0000001\",\"iat\":1763140000,\"exp\":1763140300,\"cmd\":\"session-status\",\"args\":{}}","sig":"3f3122e3715f013f73c6dd9498fbef70e0802e6cd6e2831c736ac8a70b4e343dd5f8fe0cf735f6513243e088f5910da37336ad2396465cc762e648760ceb0803"}`,
-  result: String.raw`{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"f8f6581ff78ddae585b53f6b1bbf709dd2475b4bf14b9013071daf85f86d1180b19b5c0cccbdf0adc256dc09d54e492ec8d9c871a40614620e3c8be7d1303a05"}`,
+  result: String.raw`{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"task\":\"f39855e5975f49aac158e7d2bb272fe82a8ce7d07cfc1d5bf9c3cd6239f9792e\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"74c8f2725a5e382a8409de4dd599b745ffe9ba8fc205cba7870e58411b4b9404e3e9ef73a1f37e5494b207d2fae9dc3644f7f3a317a971a0555c6403d5e25409"}`,
 };
 
 test("the shared vectors: this side signs what Glim checks and checks what Glim signs", () => {
   assert.equal(signTask(VECTOR.cloudSeed, "session-status", {}, 1763140000, "vector-task-0000001").text, VECTOR.task);
-  const r = verifyResult(VECTOR.pcPub, VECTOR.result, "vector-task-0000001", 1763140010);
+  const r = verifyResult(VECTOR.pcPub, VECTOR.result, "vector-task-0000001", VECTOR.task, 1763140010);
   assert.deepEqual([r.ok, r.kind, r.detail], [true, "session-status", "local-companion: idle"]);
 });
 
