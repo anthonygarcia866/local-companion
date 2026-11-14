@@ -163,6 +163,9 @@ pub enum Mismatch {
     /// longer, or a claim it doesn't make (an attachment, something sent,
     /// an earlier conversation, an apology, a promise; `added::check`).
     Added,
+    /// The answer copied wording from quoted material (text the user
+    /// didn't write, ai/quoted.rs) that isn't in the user's own text.
+    Quoted,
 }
 
 impl Mismatch {
@@ -176,6 +179,7 @@ impl Mismatch {
             Mismatch::Facts => "facts-changed",
             Mismatch::Names => "names-changed",
             Mismatch::Added => "added-content",
+            Mismatch::Quoted => "quoted-copied",
         }
     }
 }
