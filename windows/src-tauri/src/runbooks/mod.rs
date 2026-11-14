@@ -982,7 +982,8 @@ fn fold(s: &str) -> String {
 }
 
 /// "run example", "please run the example runbook" → the runbook it names,
-/// matched on this PC among `names`. None when it names none of them.
+/// matched on this PC among `names` (its words in any order, so "run site
+/// example" also finds example-site). None when it names none of them.
 pub fn voice_match(transcript: &str, names: &[String]) -> Option<String> {
     let lower = transcript.to_lowercase();
     let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.').filter(|w| !w.is_empty()).collect();
@@ -1002,7 +1003,14 @@ pub fn voice_match(transcript: &str, names: &[String]) -> Option<String> {
         return None;
     }
     let said = fold(&rest.join(" "));
-    names.iter().find(|n| fold(n) == said).cloned()
+    // The same words in any order too: "run update glim" ~ glim-update.
+    let words_of = |s: &str| {
+        let mut w: Vec<String> = s.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_ascii_lowercase()).collect();
+        w.sort();
+        w
+    };
+    let said_words = words_of(&rest.join(" "));
+    names.iter().find(|n| fold(n) == said).or_else(|| names.iter().find(|n| words_of(n).len() > 1 && words_of(n) == said_words)).cloned()
 }
 
 /// A runbook asked for by voice, for the Settings page to pick up if it

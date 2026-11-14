@@ -487,6 +487,12 @@ fn voice_matches_run_and_a_runbook_name_on_this_pc() {
     assert_eq!(voice_match("run something else", &names), None);
     assert_eq!(voice_match("deploy", &names), None);
     assert_eq!(voice_match("I want to run deploy", &names), None);
+    // The same words in any order (the owner says "run update Glim" for glim-update).
+    let names = vec!["glim-update".to_string(), "deploy".to_string()];
+    assert_eq!(voice_match("Run update Glim.", &names).as_deref(), Some("glim-update"));
+    assert_eq!(voice_match("run glim update", &names).as_deref(), Some("glim-update"));
+    assert_eq!(voice_match("run update", &names), None, "every word, not some");
+    assert_eq!(voice_match("run update glim now please", &names).as_deref(), Some("glim-update"));
 }
 
 #[test]
