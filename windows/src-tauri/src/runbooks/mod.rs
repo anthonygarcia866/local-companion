@@ -10,6 +10,8 @@
 //   %LOCALAPPDATA%\Glim\backups\<runbook>\, never in a repository.
 //   `require_prefix = [...]`: the value must start with one of them, or
 //   nothing is written (the refusal names neither the value nor a prefix).
+//   The same field works on run / ps_script steps with `secret_stdin`: a
+//   stdin secret without one of the prefixes means the process never starts.
 // - `start_app`: an allowlisted .exe/.lnk or protocol, no arguments, no shell.
 // - `run`: an exact allowlisted command line in an allowlisted folder, with
 //   a timeout; the exit code is logged, the output is thrown away.
@@ -161,8 +163,8 @@ pub enum Check {
 pub enum Step {
     EnvSecret { secret: String, file: PathBuf, key: String, require_prefix: Vec<String> },
     StartApp { app: App },
-    Run { command: String, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String> },
-    PsScript { script: PathBuf, sha256: String, args: Vec<String>, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String> },
+    Run { command: String, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String>, stdin_prefix: Vec<String> },
+    PsScript { script: PathBuf, sha256: String, args: Vec<String>, folder: PathBuf, timeout_s: u64, stdin_secret: Option<String>, stdin_prefix: Vec<String> },
     Check { check: Check, wait_s: u64 },
     LaunchDetached { command: String, folder: PathBuf },
 }
@@ -189,10 +191,10 @@ impl Step {
             }
             Step::StartApp { app: App::Path(p) } => format!("Start {p}"),
             Step::StartApp { app: App::Protocol(p) } => format!("Open {p}"),
-            Step::Run { command, folder, timeout_s, stdin_secret } => format!("Run `{command}` in {} (stops after {timeout_s} s){}", show(folder), stdin_note(stdin_secret)),
-            Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret } => {
+            Step::Run { command, folder, timeout_s, stdin_secret, stdin_prefix } => format!("Run `{command}` in {} (stops after {timeout_s} s){}", show(folder), stdin_note(stdin_secret, stdin_prefix)),
+            Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret, stdin_prefix } => {
                 let a = if args.is_empty() { String::new() } else { format!(" with arguments {}", args.iter().map(|x| format!("`{x}`")).collect::<Vec<_>>().join(" ")) };
-                format!("Run PowerShell script {} (SHA-256 {}…){a} in {} (stops after {timeout_s} s){}", show(script), &sha256[..12], show(folder), stdin_note(stdin_secret))
+                format!("Run PowerShell script {} (SHA-256 {}…){a} in {} (stops after {timeout_s} s){}", show(script), &sha256[..12], show(folder), stdin_note(stdin_secret, stdin_prefix))
             }
             Step::Check { check, wait_s } => {
                 let what = match check {
@@ -207,8 +209,28 @@ impl Step {
     }
 }
 
-fn stdin_note(secret: &Option<String>) -> String {
-    secret.as_ref().map(|n| format!("; secret {n} goes to its input only")).unwrap_or_default()
+fn stdin_note(secret: &Option<String>, prefix: &[String]) -> String {
+    let only = if prefix.is_empty() { String::new() } else { format!(" (only if it starts with {})", prefix.join(" or ")) };
+    secret.as_ref().map(|n| format!("; secret {n} goes to its input only{only}")).unwrap_or_default()
+}
+
+/// `require_prefix` on run / ps_script: only together with `secret_stdin`.
+fn stdin_prefixes(s: &RawStep, kind: &str) -> Result<Vec<String>, String> {
+    if s.require_prefix.is_some() && s.secret_stdin.is_none() {
+        return Err(format!("a {kind} step can't have require_prefix without secret_stdin"));
+    }
+    prefixes(&s.require_prefix)
+}
+
+/// The stdin secret, refused (before anything starts) when it doesn't start
+/// with one of the step's prefixes. The refusal names neither.
+fn stdin_value(world: &dyn World, secret: &Option<String>, prefix: &[String]) -> Result<Option<secrets::SecretValue>, String> {
+    let Some(n) = secret else { return Ok(None) };
+    let value = needed_secret(world, n)?;
+    if !prefix.is_empty() && !prefix.iter().any(|p| value.reveal().starts_with(p.as_str())) {
+        return Err(format!("secret {n} doesn't start with an allowed prefix: nothing started"));
+    }
+    Ok(Some(value))
 }
 
 /// A path as the owner typed it (no `\\?\` prefix).
@@ -476,7 +498,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             Ok(Step::StartApp { app })
         }
         "run" | "launch_detached" => {
-            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some())])?;
             let command = command_entry(&need(&s.command, "command")?)?;
             if !allow.commands.contains(&command) {
                 return Err(format!("command {command:?} is not exactly in [allow] commands"));
@@ -493,6 +515,9 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
                 if s.secret_stdin.is_some() {
                     return Err("a launch_detached step can't have secret_stdin".into());
                 }
+                if s.require_prefix.is_some() {
+                    return Err("a launch_detached step can't have require_prefix".into());
+                }
                 return Ok(Step::LaunchDetached { command, folder });
             }
             let timeout_s = s.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
@@ -500,10 +525,11 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
                 return Err(format!("timeout_s must be 1 to {MAX_TIMEOUT_S}"));
             }
             let stdin_secret = secret_name(&s.secret_stdin, "secret_stdin")?;
-            Ok(Step::Run { command, folder, timeout_s, stdin_secret })
+            let stdin_prefix = stdin_prefixes(s, "run")?;
+            Ok(Step::Run { command, folder, timeout_s, stdin_secret, stdin_prefix })
         }
         "ps_script" => {
-            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
+            none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
             let raw = need(&s.script, "script")?;
             let script = script_entry(&raw)?;
             if !allow.scripts.iter().any(|a| a == &script) {
@@ -521,7 +547,8 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
                 return Err(format!("timeout_s must be 1 to {MAX_TIMEOUT_S}"));
             }
             let stdin_secret = secret_name(&s.secret_stdin, "secret_stdin")?;
-            Ok(Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret })
+            let stdin_prefix = stdin_prefixes(s, "ps_script")?;
+            Ok(Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret, stdin_prefix })
         }
         "check" => {
             none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("command", s.command.is_some()), ("folder", s.folder.is_some()), ("timeout_s", s.timeout_s.is_some()), ("script", s.script.is_some()), ("args", s.args.is_some()), ("secret_stdin", s.secret_stdin.is_some()), ("require_prefix", s.require_prefix.is_some())])?;
@@ -899,26 +926,20 @@ fn one(runbook: &str, index: usize, total: usize, step: &Step, world: &dyn World
         Step::StartApp { app } => {
             if world.start_app(app) { Ok("started".into()) } else { Err("Windows couldn't start it".into()) }
         }
-        Step::Run { command, folder, timeout_s, stdin_secret } => {
-            let value = match stdin_secret {
-                Some(n) => Some(needed_secret(world, n)?),
-                None => None,
-            };
+        Step::Run { command, folder, timeout_s, stdin_secret, stdin_prefix } => {
+            let value = stdin_value(world, stdin_secret, stdin_prefix)?;
             match world.run(command, folder, Duration::from_secs(*timeout_s), value.as_ref().map(|v| v.reveal().as_bytes())) {
                 Ok(0) => Ok("exit code 0".into()),
                 Ok(code) => Err(format!("exit code {code}")),
                 Err(e) => Err(e),
             }
         }
-        Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret } => {
+        Step::PsScript { script, sha256, args, folder, timeout_s, stdin_secret, stdin_prefix } => {
             // Hashed again just before it runs: approval covered these bytes.
             if script_sha(script)? != *sha256 {
                 return Err("the script changed since the runbook was approved: approve it again".into());
             }
-            let value = match stdin_secret {
-                Some(n) => Some(needed_secret(world, n)?),
-                None => None,
-            };
+            let value = stdin_value(world, stdin_secret, stdin_prefix)?;
             let r = world.ps_script(script, args, folder, Duration::from_secs(*timeout_s), value.as_ref().map(|v| v.reveal().as_bytes()));
             let secret = value.as_ref().map(|v| v.reveal());
             match r {
