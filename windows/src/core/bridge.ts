@@ -193,6 +193,10 @@ export const Bridge = {
   /** The signer's public key (64 hex characters); "" removes it. */
   remoteKey: (key: string) => callOrThrow<RemoteStatus>("remote_key", { key }),
   remoteKill: (killed: boolean) => callOrThrow<RemoteStatus>("remote_kill", { killed }),
+  /** The relay's address (https://name.subdomain.workers.dev); "" removes it. */
+  remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
+  /** New relay tokens + PC result key; the cloud token comes back once. */
+  remoteSetup: () => callOrThrow<RemoteSetupAnswer>("remote_setup"),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
   runbooksList: () => call<RunbooksView>("runbooks_list"),
   /** "Approve runbook": only the version shown (`hash`). */
@@ -457,8 +461,21 @@ export interface RemoteStatus {
   killed: boolean;
   /** "" when no key is saved. */
   fingerprint: string;
+  /** "https://name.subdomain.workers.dev", or "". */
+  relay: string;
+  /** A fixed code: off, connecting, connected, reconnecting, unauthorized … */
+  connection: string;
+  /** The PC's result key (public, 64 hex), or "" before setup. */
+  pcPublicKey: string;
+  pcFingerprint: string;
   /** Newest first. */
   activity: RemoteActivity[];
+}
+
+export interface RemoteSetupAnswer {
+  status: RemoteStatus;
+  /** Shown once; Glim doesn't keep it. */
+  cloudToken: string;
 }
 
 /** One runbook step as Rust describes it (secret names only). */

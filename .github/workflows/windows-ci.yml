@@ -111,6 +111,11 @@ jobs:
       - name: Island tests
         run: npm test
 
+      # The remote courier's relay Worker logic and cloud Glim's client
+      # (relay/): tokens, delivery, expiry, signatures both ways.
+      - name: Relay tests
+        run: node --test ../relay/test/relay.test.mjs
+
       # The mascot in a real Chromium (headless Edge): pixels against the
       # approved design, and prefers-reduced-motion emulated.
       - name: Lantern check

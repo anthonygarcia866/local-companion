@@ -752,8 +752,9 @@ fn keepalive_desktop(app: AppHandle, shared: State<Shared>, on: bool) -> KeepAli
 }
 
 /// Settings → Remote → Remote tasks (remote/, owner 2026-11-14): the
-/// switch, the signer key's fingerprint (never more of it), the kill switch
-/// and the activity list. No transport is wired yet: nothing receives tasks.
+/// switch, the signer key's fingerprint (never more of it), the relay
+/// address and the connection's state, the PC's result key (public), the
+/// kill switch and the activity list.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RemoteStatus {
@@ -761,6 +762,11 @@ struct RemoteStatus {
     consented: bool,
     killed: bool,
     fingerprint: String,
+    relay: String,
+    /// A fixed code: off, connecting, connected, reconnecting, unauthorized …
+    connection: String,
+    pc_public_key: String,
+    pc_fingerprint: String,
     activity: Vec<remote::Activity>,
 }
 
@@ -768,7 +774,49 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
     let s = shared.settings.lock().unwrap().remote.clone();
     let mut activity = remote::with(|g| g.activity.clone());
     activity.reverse();
-    RemoteStatus { on: s.on, consented: s.consented, killed: s.killed, fingerprint: remote::fingerprint(&s.public_key), activity }
+    RemoteStatus {
+        on: s.on,
+        consented: s.consented,
+        killed: s.killed,
+        fingerprint: remote::fingerprint(&s.public_key),
+        relay: s.relay.clone(),
+        connection: remote::courier::state().to_string(),
+        pc_fingerprint: remote::fingerprint(&s.pc_public_key),
+        pc_public_key: s.pc_public_key,
+        activity,
+    }
+}
+
+/// The relay's address ("https://<name>.<subdomain>.workers.dev"); "" removes it.
+#[tauri::command]
+fn remote_relay(app: AppHandle, shared: State<Shared>, address: String) -> Result<RemoteStatus, String> {
+    let relay = if address.trim().is_empty() {
+        String::new()
+    } else {
+        let url = net::relay::endpoint(&address).map_err(|_| i18n::t("That isn't a relay address: it looks like https://name.subdomain.workers.dev"))?;
+        format!("https://{}", url.host_str().unwrap_or_default())
+    };
+    update_settings(&app, &shared, |s| s.remote.relay = relay);
+    log::line("remote: relay address saved");
+    Ok(remote_now(&shared))
+}
+
+/// "Set up the relay": new tokens for both sides and a new PC result key.
+/// The cloud token comes back to be shown once; Glim doesn't keep it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteSetupAnswer {
+    status: RemoteStatus,
+    cloud_token: String,
+}
+
+#[tauri::command]
+fn remote_setup(app: AppHandle, shared: State<Shared>) -> Result<RemoteSetupAnswer, String> {
+    let done = remote::courier::setup(&remote::courier::pc_token_vault(), &remote::courier::pc_key_vault(), &secrets::store()).map_err(|_| i18n::t("Couldn't set up the relay keys."))?;
+    let public = done.pc_public_key.clone();
+    update_settings(&app, &shared, |s| s.remote.pc_public_key = public);
+    log::line("remote: relay tokens and PC key made");
+    Ok(RemoteSetupAnswer { status: remote_now(&shared), cloud_token: done.cloud_token })
 }
 
 #[tauri::command]
@@ -1906,6 +1954,8 @@ pub fn run() {
             remote_set,
             remote_key,
             remote_kill,
+            remote_relay,
+            remote_setup,
             runbooks_list,
             runbook_approve,
             runbook_take_request,
@@ -2091,6 +2141,15 @@ pub fn run() {
             // the switch is off (the default) or before its consent card.
             if !selftest {
                 let ka = handle.clone();
+                // The remote courier (remote/courier.rs): connects to the
+                // relay only while Remote tasks are on, consented, not
+                // stopped and set up; idle otherwise.
+                let rc = handle.clone();
+                let rk = handle.clone();
+                remote::courier::start(
+                    std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default()),
+                    Box::new(move || rk.try_state::<Shared>().map(|s| s.settings.lock().unwrap().keep_alive.folders.clone()).unwrap_or_default()),
+                );
                 keepalive::start(
                     move || ka.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default(),
                     move |settings, project| {

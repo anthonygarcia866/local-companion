@@ -15,7 +15,7 @@ fn signer(seed: u8) -> Ed25519KeyPair {
 }
 
 fn settings_for(kp: &Ed25519KeyPair) -> RemoteSettings {
-    RemoteSettings { on: true, consented: true, killed: false, public_key: hex(kp.public_key().as_ref()) }
+    RemoteSettings { on: true, consented: true, killed: false, public_key: hex(kp.public_key().as_ref()), ..Default::default() }
 }
 
 fn envelope(kp: &Ed25519KeyPair, payload: &Value) -> Vec<u8> {
@@ -111,7 +111,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, public_key: String::new() });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, public_key: String::new(), relay: String::new(), pc_public_key: String::new() });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));
@@ -186,9 +186,9 @@ fn keys_and_fingerprints() {
     assert_eq!(fingerprint("nothex"), "");
 }
 
-/// Nothing calls the gate outside tests yet: no transport is wired.
+/// Only remote/ (courier.rs) calls the gate: no other path into it.
 #[test]
-fn no_transport_is_wired_yet() {
+fn only_the_courier_calls_the_gate() {
     let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut stack = vec![src.clone()];
     let mut callers = Vec::new();

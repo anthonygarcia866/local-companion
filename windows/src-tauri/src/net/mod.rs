@@ -13,6 +13,13 @@
 // phone.rs calls (a test checks the source). `request` never reaches it, so no
 // other part of Glim can, Phone on or off (docs/phone-plan.md §4).
 //
+// And one WebSocket (owner 2026-11-14): the remote courier's relay,
+// `wss://<name>.<subdomain>.workers.dev/v1/pc` on 443, the exact host the
+// owner typed in Settings → Remote → Remote tasks, only while remote tasks
+// are on, consented and not stopped. It lives in relay.rs, the only user of
+// the WebSocket crate (the scan below checks), and only remote/courier.rs
+// calls it.
+//
 // Every answer a server sends is read with a ceiling, so a misbehaving local
 // server cannot make the app hold an unbounded amount of memory.
 
@@ -23,6 +30,9 @@ use std::time::Duration;
 pub use reqwest::{Method, RequestBuilder, Response, Url};
 
 use crate::i18n::{t, tf};
+
+/// The courier relay's WebSocket (remote/courier.rs is its only caller).
+pub mod relay;
 
 /// Ceiling for a JSON answer: a chat reply or a model list.
 pub const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -862,7 +872,7 @@ pub(crate) mod tests {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let forbidden = [
             "reqwest", "TcpStream", "TcpListener", "UdpSocket", "tokio::net::Tcp", "tokio::net::Udp",
-            "ToSocketAddrs", "WinHttp", "WinInet", "URLDownloadToFile",
+            "ToSocketAddrs", "WinHttp", "WinInet", "URLDownloadToFile", "tungstenite", "rustls", "webpki_roots",
         ];
         let mut offenders = Vec::new();
         let mut stack = vec![src.clone()];

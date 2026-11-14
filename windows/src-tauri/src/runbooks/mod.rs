@@ -788,6 +788,8 @@ pub enum Trigger {
     Settings,
     Voice,
     Cli,
+    /// A signed remote courier task (remote/exec.rs); asks are refused, as for Cli.
+    Remote,
 }
 
 impl Trigger {
@@ -796,6 +798,7 @@ impl Trigger {
             Trigger::Settings => "settings",
             Trigger::Voice => "voice",
             Trigger::Cli => "cli",
+            Trigger::Remote => "remote",
         }
     }
 }
