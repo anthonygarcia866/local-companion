@@ -72,6 +72,10 @@ impl World for Fake {
     fn run(&self, _command: &str, _folder: &Path, _timeout: Duration) -> Result<i32, String> {
         Ok(self.exit)
     }
+    fn launch_detached(&self, command: &str, _folder: &Path) -> Result<(), String> {
+        self.started.borrow_mut().push(format!("detached {command}"));
+        Ok(())
+    }
     fn port_answers(&self, _port: u16) -> bool {
         self.port
     }
@@ -142,6 +146,78 @@ fn allowlisted_apps_commands_and_checks_parse() {
     assert_eq!(b.steps.iter().map(|s| s.step.kind()).collect::<Vec<_>>(), ["start_app", "run", "check", "check"]);
     assert!(b.steps[1].ask && !b.steps[0].ask);
     assert!(b.steps[1].step.describe().contains("npm run dev"));
+}
+
+fn detached_book(folder: &str, after: &str) -> String {
+    format!("[allow]
+folders = ['{folder}']
+commands = [\"example-updater.cmd\"]
+[[step]]
+type = \"check\"
+port = 1
+[[step]]
+type = \"launch_detached\"
+command = \"example-updater.cmd\"
+folder = '{folder}'
+{after}")
+}
+
+#[test]
+fn launch_detached_is_an_allowlisted_command_as_the_last_step() {
+    let d = repo("detached");
+    let folder = p(&d);
+    let b = parse("example", detached_book(&folder, "").as_bytes()).unwrap();
+    assert_eq!(b.steps[1].step.kind(), "launch_detached");
+    let text = b.steps[1].step.describe();
+    assert!(text.contains("example-updater.cmd") && text.contains("don't wait"), "{text}");
+    let cases: Vec<(String, &str)> = vec![
+        // Not last: Glim doesn't wait for it, so nothing may come after it.
+        (detached_book(&folder, "[[step]]
+type = \"check\"
+port = 1
+"), "must be the last step"),
+        (detached_book(&folder, "timeout_s = 5
+"), "can't have timeout_s"),
+        (detached_book(&folder, "url = \"http://127.0.0.1/\"
+"), "can't have url"),
+        (format!("[allow]
+folders = ['{folder}']
+[[step]]
+type = \"launch_detached\"
+command = \"example-updater.cmd\"
+folder = '{folder}'
+"), "not exactly in [allow] commands"),
+        (format!("[allow]
+commands = [\"example-updater.cmd\"]
+[[step]]
+type = \"launch_detached\"
+command = \"example-updater.cmd\"
+folder = '{folder}'
+"), "not in or under [allow] folders"),
+        (format!("[allow]
+folders = ['{folder}']
+commands = [\"a.cmd & b.cmd\"]
+[[step]]
+type = \"launch_detached\"
+command = \"a.cmd & b.cmd\"
+folder = '{folder}'
+"), "no shell operators"),
+    ];
+    for (text, want) in cases {
+        let e = parse("example", text.as_bytes()).unwrap_err();
+        assert!(e.contains(want), "{want:?} not in {e:?} for {text}");
+    }
+}
+
+#[test]
+fn launch_detached_starts_and_does_not_wait() {
+    let d = repo("detached-run");
+    let b = parse("example", detached_book(&p(&d), "").as_bytes()).unwrap();
+    let w = Fake::default();
+    let out = run_steps(&b, &w, &[], &mut |_| {}).unwrap();
+    assert!(out.iter().all(|o| o.ok));
+    assert_eq!(out[1].detail, "started, not waited for");
+    assert_eq!(w.started.borrow().as_slice(), ["detached example-updater.cmd"]);
 }
 
 // ── Approval ──────────────────────────────────────────────────────────────────
@@ -411,6 +487,12 @@ fn voice_matches_run_and_a_runbook_name_on_this_pc() {
     assert_eq!(voice_match("run something else", &names), None);
     assert_eq!(voice_match("deploy", &names), None);
     assert_eq!(voice_match("I want to run deploy", &names), None);
+    // The same words in any order (the owner says "run update Glim" for glim-update).
+    let names = vec!["glim-update".to_string(), "deploy".to_string()];
+    assert_eq!(voice_match("Run update Glim.", &names).as_deref(), Some("glim-update"));
+    assert_eq!(voice_match("run glim update", &names).as_deref(), Some("glim-update"));
+    assert_eq!(voice_match("run update", &names), None, "every word, not some");
+    assert_eq!(voice_match("run update glim now please", &names).as_deref(), Some("glim-update"));
 }
 
 #[test]

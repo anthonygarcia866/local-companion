@@ -25,6 +25,7 @@ import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
+import { UPDATE_NOTICE_MS, updateLine, updateNoticeShows } from "./core/update-notice";
 import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t } from "./i18n/i18n";
 
 /** Shows the language Settings asks for ("" = the system's, when Glim has it). */
@@ -353,6 +354,18 @@ async function main() {
   }, 20_000);
 
   island.launch();
+
+  // After an update (update_result.rs): its result once, on the note card.
+  window.setTimeout(async () => {
+    const u = await Bridge.updateNoticeTake();
+    if (!u || !updateNoticeShows({ presence: presence.model.kind, paused: State.paused, approval: State.pendingApproval !== null })) return;
+    const line = updateLine(u);
+    State.noteMessage = line;
+    island.alert("note");
+    window.setTimeout(() => {
+      if (State.view === "note" && State.noteMessage === line && State.mode === "expanded") island.collapse();
+    }, UPDATE_NOTICE_MS);
+  }, 3000);
 }
 
 void main();

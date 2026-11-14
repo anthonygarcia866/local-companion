@@ -2,7 +2,7 @@
 //
 // A runbook is a TOML file the owner puts in %APPDATA%\Glim\runbooks\
 // (never in the repo: examples/runbook.example.toml has placeholders only).
-// Its steps run in order and stop at the first failure. Only four kinds:
+// Its steps run in order and stop at the first failure. Only five kinds:
 //
 // - `env_secret`: a saved secret (secrets.rs) written as KEY=value into a
 //   file under an allowlisted folder, only when git says that file is
@@ -13,6 +13,10 @@
 //   a timeout; the exit code is logged, the output is thrown away.
 // - `check`: a file exists / a port on this PC answers / a URL on this PC
 //   returns 200. Read only.
+// - `launch_detached`: an exact allowlisted command line in an allowlisted
+//   folder, started in a console of its own and not waited for; it keeps
+//   running when Glim stops (so an updater Glim starts can stop Glim). Only
+//   as the runbook's last step.
 //
 // Approval: the first run shows every step (secret NAMES only) and needs
 // "Approve runbook". Glim keeps the file's SHA-256 with a MAC whose key is
@@ -137,6 +141,7 @@ pub enum Step {
     StartApp { app: App },
     Run { command: String, folder: PathBuf, timeout_s: u64 },
     Check { check: Check, wait_s: u64 },
+    LaunchDetached { command: String, folder: PathBuf },
 }
 
 impl Step {
@@ -146,6 +151,7 @@ impl Step {
             Step::StartApp { .. } => "start_app",
             Step::Run { .. } => "run",
             Step::Check { .. } => "check",
+            Step::LaunchDetached { .. } => "launch_detached",
         }
     }
 
@@ -165,6 +171,7 @@ impl Step {
                 };
                 if *wait_s > 0 { format!("{what} (waits up to {wait_s} s)") } else { what }
             }
+            Step::LaunchDetached { command, folder } => format!("Start `{command}` in {} and don't wait (it keeps running after Glim stops)", show(folder)),
         }
     }
 }
@@ -363,7 +370,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             }
             Ok(Step::StartApp { app })
         }
-        "run" => {
+        "run" | "launch_detached" => {
             none_of(s, &[("secret", s.secret.is_some()), ("file", s.file.is_some()), ("key", s.key.is_some()), ("app", s.app.is_some()), ("file_exists", s.file_exists.is_some()), ("port", s.port.is_some()), ("url", s.url.is_some()), ("wait_s", s.wait_s.is_some())])?;
             let command = command_entry(&need(&s.command, "command")?)?;
             if !allow.commands.contains(&command) {
@@ -373,6 +380,12 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             let folder = std::fs::canonicalize(full_local(&raw)?).map_err(|_| format!("folder {raw:?} doesn't exist"))?;
             if !folder.is_dir() || !inside(&folder, &allow.folders) {
                 return Err(format!("folder {raw:?} is not in or under [allow] folders"));
+            }
+            if s.kind == "launch_detached" {
+                if s.timeout_s.is_some() {
+                    return Err("a launch_detached step can't have timeout_s (Glim doesn't wait for it)".into());
+                }
+                return Ok(Step::LaunchDetached { command, folder });
             }
             let timeout_s = s.timeout_s.unwrap_or(DEFAULT_TIMEOUT_S);
             if !(1..=MAX_TIMEOUT_S).contains(&timeout_s) {
@@ -408,7 +421,7 @@ fn step(s: &RawStep, allow: &Allow) -> Result<Step, String> {
             Ok(Step::Check { check, wait_s })
         }
         "" => Err("a step needs a type".into()),
-        other => Err(format!("unknown step type {other:?} (only env_secret, start_app, run, check)")),
+        other => Err(format!("unknown step type {other:?} (only env_secret, start_app, run, check, launch_detached)")),
     }
 }
 
@@ -433,6 +446,9 @@ pub fn parse(name: &str, bytes: &[u8]) -> Result<Runbook, String> {
     let mut steps = Vec::new();
     for (i, s) in raw.step.iter().enumerate() {
         let st = step(s, &allow).map_err(|e| format!("step {}: {e}", i + 1))?;
+        if matches!(st, Step::LaunchDetached { .. }) && i + 1 != raw.step.len() {
+            return Err(format!("step {}: a launch_detached step must be the last step (Glim doesn't wait for it)", i + 1));
+        }
         steps.push(BookStep { step: st, ask: s.ask });
     }
     Ok(Runbook { name: name.to_string(), description: raw.description.chars().take(200).collect(), allow, steps, hash: sha256_hex(bytes) })
@@ -659,6 +675,8 @@ pub trait World {
     fn start_app(&self, app: &App) -> bool;
     /// Exit code, or Err("timeout" / "couldn't start").
     fn run(&self, command: &str, folder: &Path, timeout: Duration) -> Result<i32, String>;
+    /// Starts it in a console of its own, outside Glim's lifetime; doesn't wait.
+    fn launch_detached(&self, command: &str, folder: &Path) -> Result<(), String>;
     fn port_answers(&self, port: u16) -> bool;
     fn url_status(&self, url: &str) -> Result<u16, String>;
     fn sleep(&self, d: Duration);
@@ -702,6 +720,7 @@ fn one(runbook: &str, step: &Step, world: &dyn World) -> Result<String, String> 
             Ok(code) => Err(format!("exit code {code}")),
             Err(e) => Err(e),
         },
+        Step::LaunchDetached { command, folder } => world.launch_detached(command, folder).map(|()| "started, not waited for".to_string()),
         Step::Check { check, wait_s } => {
             let until = Instant::now() + Duration::from_secs(*wait_s);
             loop {
@@ -853,6 +872,10 @@ impl World for RealWorld {
         crate::platform::run_command_line(command, folder, timeout)
     }
 
+    fn launch_detached(&self, command: &str, folder: &Path) -> Result<(), String> {
+        crate::platform::launch_detached(command, folder)
+    }
+
     fn port_answers(&self, port: u16) -> bool {
         crate::net::loopback_port_answers(port, Duration::from_secs(2))
     }
@@ -959,7 +982,8 @@ fn fold(s: &str) -> String {
 }
 
 /// "run example", "please run the example runbook" → the runbook it names,
-/// matched on this PC among `names`. None when it names none of them.
+/// matched on this PC among `names` (its words in any order, so "run site
+/// example" also finds example-site). None when it names none of them.
 pub fn voice_match(transcript: &str, names: &[String]) -> Option<String> {
     let lower = transcript.to_lowercase();
     let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != '.').filter(|w| !w.is_empty()).collect();
@@ -979,7 +1003,14 @@ pub fn voice_match(transcript: &str, names: &[String]) -> Option<String> {
         return None;
     }
     let said = fold(&rest.join(" "));
-    names.iter().find(|n| fold(n) == said).cloned()
+    // The same words in any order too: "run update glim" ~ glim-update.
+    let words_of = |s: &str| {
+        let mut w: Vec<String> = s.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_ascii_lowercase()).collect();
+        w.sort();
+        w
+    };
+    let said_words = words_of(&rest.join(" "));
+    names.iter().find(|n| fold(n) == said).or_else(|| names.iter().find(|n| words_of(n).len() > 1 && words_of(n) == said_words)).cloned()
 }
 
 /// A runbook asked for by voice, for the Settings page to pick up if it
