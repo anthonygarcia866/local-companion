@@ -30,6 +30,8 @@ pub mod draft_worker;
 mod live;
 #[cfg(all(test, windows))]
 mod e2e_tests;
+#[cfg(all(test, windows))]
+mod quality_tests;
 
 use serde::Serialize;
 
