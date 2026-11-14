@@ -272,7 +272,7 @@ fn tool(name: &str, input: Value) -> Value {
     })
 }
 
-fn wav_pcm(path: &Path) -> Vec<i16> {
+pub(super) fn wav_pcm(path: &Path) -> Vec<i16> {
     let b = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     assert_eq!(&b[..4], b"RIFF");
     let mut i = 12;
@@ -292,7 +292,7 @@ fn wav_pcm(path: &Path) -> Vec<i16> {
     panic!("no data chunk in {}", path.display());
 }
 
-fn copy_dir(from: &Path, to: &Path) {
+pub(super) fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for e in std::fs::read_dir(from).unwrap() {
         let e = e.unwrap();
