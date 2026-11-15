@@ -9,7 +9,8 @@
 // hides, one per line (Rust adds Outlook's address book and remembered
 // recipients).
 
-import type { PauseBuiltins } from "../core/bridge";
+import { Bridge, onEvent, type PauseBuiltins } from "../core/bridge";
+import { countdown } from "../core/capture-allow";
 import type { Settings } from "../core/state";
 import { addEntry, removeEntry, userApp, userSite, type PauseRefusal } from "../core/pause";
 import { h, clear } from "../views/dom";
@@ -42,6 +43,53 @@ export function shieldNamesFrom(text: string): string[] {
     if (name && !out.some((n) => n.toLowerCase() === name.toLowerCase())) out.push(name);
   }
   return out;
+}
+
+let allowTicker: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * "Allow screenshots for 10 minutes" under the hide switch (only while it's
+ * on): Rust lets Glim be captured, then hides it again by itself
+ * (screen_capture.rs). While allowed: the time left and "Hide again now".
+ */
+export function captureAllowBox(hiding: () => boolean, tickMs = 1000): { el: HTMLElement; redraw: () => void } {
+  const el = h("div", { "data-role": "capture-allow" });
+  let until = 0;
+  let left: HTMLElement | null = null;
+
+  function redraw() {
+    clear(el);
+    left = null;
+    if (!hiding()) return;
+    if (countdown(until, Date.now())) {
+      left = h("span", { class: "hint", "data-role": "capture-allow-left", role: "status", text: t("Screenshots allowed: {time} left", { time: countdown(until, Date.now()) }) });
+      const again = h("button", { type: "button", "data-role": "capture-hide-again", text: t("Hide again now") });
+      again.addEventListener("click", () => void Bridge.captureHideAgain().then((u) => set(u ?? 0)));
+      el.append(h("div", { class: "row" }, left, again));
+    } else {
+      const allow = h("button", { type: "button", "data-role": "capture-allow-button", text: t("Allow screenshots for 10 minutes") });
+      allow.addEventListener("click", () => void Bridge.captureAllow().then((u) => set(u ?? 0)));
+      el.append(h("div", { class: "row" }, allow), h("div", { class: "hint", text: t("Glim hides itself again by itself after 10 minutes, and whenever it restarts.") }));
+    }
+  }
+
+  function set(u: number) {
+    until = u;
+    redraw();
+  }
+
+  redraw();
+  void Bridge.captureStatus().then((u) => set(u ?? 0));
+  void onEvent<number>("capture-allowed", (u) => set(u ?? 0));
+  if (allowTicker) clearInterval(allowTicker);
+  allowTicker = setInterval(() => {
+    if (!until) return;
+    const text = countdown(until, Date.now());
+    if (!text) return set(0);
+    if (left) left.textContent = t("Screenshots allowed: {time} left", { time: text });
+  }, tickMs);
+  (allowTicker as { unref?: () => void }).unref?.();
+  return { el, redraw };
 }
 
 export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLElement {
@@ -100,12 +148,14 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
   const hideLabel = t("Hide Glim in screen shares and recordings");
   const hidden = host.settings().hideFromCapture !== false;
   const hide = h("button", { class: hidden ? "switch on" : "switch", type: "button", "aria-pressed": String(hidden), "data-role": "hide-from-capture", "aria-label": hideLabel }) as HTMLButtonElement;
+  const allowBox = captureAllowBox(() => host.settings().hideFromCapture !== false);
   hide.addEventListener("click", () => {
     const next = !hide.classList.contains("on");
     hide.classList.toggle("on", next);
     hide.setAttribute("aria-pressed", String(next));
     host.settings().hideFromCapture = next;
     void host.save();
+    allowBox.redraw();
   });
 
   const shieldLabel = t("Privacy shield");
@@ -146,6 +196,7 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
     body,
     h("div", { class: "row" }, h("label", { text: hideLabel }), hide),
     h("div", { class: "hint", text: t("Screen shares, recordings and screenshots show what's behind Glim, not its cards.") }),
+    allowBox.el,
     h("div", { class: "hint", text: t("Glim keeps nothing you write: only these settings, the API spend numbers, and your API key in Windows Credential Manager.") }),
     h("div", { class: "hint", text: t("Network: this computer only, plus api.anthropic.com when you ask for a rewrite.") }),
   );

@@ -5,6 +5,7 @@ import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import { DropZoneSession } from "../core/drop-zone";
 import { DEFAULT_LEAD_MIN, glowing, nextEvent, withCalendarGlow } from "../core/calendar";
+import { countdown } from "../core/capture-allow";
 import { CONFIRM_WINDOW_MS, REASON_MS, cardOffScreen, expandedFor, press } from "../core/allow";
 import { ApprovalWait, playSoftChime } from "../core/approval-wait";
 import {
@@ -85,6 +86,7 @@ export class Island {
   /** "❚❚" by the lantern while the writing features are paused (1d). */
   private pauseBadge!: HTMLElement;
   private rawBadge!: HTMLElement;
+  private captureBadge!: HTMLElement;
   private voiceMeter!: HTMLElement;
   private voiceMode!: HTMLElement;
   private wakeStrip!: HTMLElement;
@@ -319,6 +321,8 @@ export class Island {
     this.pauseBadge = h("div", { id: "pause-badge", role: "status", style: "display:none", text: "❚❚" });
     // Push-to-talk typed the raw transcript (plan §4.1): "not cleaned up".
     this.rawBadge = h("div", { id: "voice-raw-badge", role: "status", style: "display:none", text: "~" });
+    // "Allow screenshots for 10 minutes": the time left, at the lantern's top left.
+    this.captureBadge = h("div", { id: "capture-badge", role: "status", style: "display:none" });
     // Push-to-talk's level meter, along the pill's bottom edge (plan §1.2).
     this.voiceMeter = h("div", { id: "voice-meter", "aria-hidden": "true", style: "display:none" });
     // Which voice key is held (Decision A): "Dictating" or "Ask Glim".
@@ -359,6 +363,7 @@ export class Island {
       this.writingBadge,
       this.pauseBadge,
       this.rawBadge,
+      this.captureBadge,
       this.voiceMeter,
       this.voiceMode,
     );
@@ -1279,6 +1284,17 @@ export class Island {
     const meter = meterPercent(State.voice);
     this.voiceMeter.style.display = meter === null || State.mode === "hidden" ? "none" : "";
     if (meter !== null) this.voiceMeter.style.width = `${meter}%`;
+    const left = countdown(State.captureAllowedUntil, Date.now());
+    const capture = this.captureBadge;
+    capture.style.display = left && State.mode !== "hidden" ? "" : "none";
+    if (left) {
+      if (capture.textContent !== left) {
+        capture.textContent = left;
+        capture.setAttribute("aria-label", t("Screenshots allowed: {time} left", { time: left }));
+      }
+      capture.style.left = `${this.botCx.value - wPx * 0.22 - capture.offsetWidth}px`;
+      capture.style.top = `${this.botCy.value + diameter / 2 - LANTERN_DRAWN_BOTTOM * unit}px`;
+    }
     // An upright pill has no room beside the lantern: s-hear and the meter say it.
     const label = modeLabel(State.voice);
     const showLabel = label !== null && State.mode === "compact" && !isVerticalDock(State.dock);
