@@ -832,7 +832,12 @@ fn remote_set(app: AppHandle, shared: State<Shared>, on: bool, consent: bool) ->
     if on && !consented {
         return Err(i18n::t("Answer the card first."));
     }
+    let now = remote::now_s();
     update_settings(&app, &shared, |s| {
+        // Off → on: what was sent while it was off isn't run either.
+        if on && !s.remote.on {
+            s.remote.reopen(now);
+        }
         s.remote.consented = consented;
         s.remote.on = on;
     });
@@ -859,7 +864,14 @@ fn remote_kill(app: AppHandle, shared: State<Shared>, killed: bool) -> RemoteSta
 }
 
 fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
-    update_settings(app, shared, |s| s.remote.killed = killed);
+    let now = remote::now_s();
+    update_settings(app, shared, |s| {
+        s.remote.killed = killed;
+        // "Allow again": tasks issued before now were queued while stopped.
+        if !killed {
+            s.remote.reopen(now);
+        }
+    });
     remote::with(|g| g.note_kill(remote::now_s(), killed));
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
 }

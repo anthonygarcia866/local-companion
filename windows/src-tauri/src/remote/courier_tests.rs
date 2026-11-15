@@ -259,6 +259,43 @@ fn the_kill_switch_drops_the_line_and_nothing_reconnects() {
     });
 }
 
+/// Owner 2026-11-14: a task sent while stopped waits at the relay; after
+/// "Allow again" the relay hands it over on reconnect. It is answered (signed)
+/// as killed and never runs; a task sent after "Allow again" runs.
+#[test]
+fn a_task_queued_while_stopped_is_answered_killed_after_allow_again_and_never_runs() {
+    with_courier(Duration::ZERO, quick(), |server, rig| async move {
+        let mut c = accept(&server).await;
+        rig.settings.lock().unwrap().killed = true;
+        assert_eq!(c.recv(SHORT).await, None, "the courier closed the line");
+        // Sent from the cloud while stopped (it waits at the relay).
+        let sent_at = now_s();
+        let queued = task(&rig.cloud, "task-queued-00001", sent_at, sent_at + 300);
+        // "Allow again", as lib.rs's set_remote_killed does it.
+        {
+            let mut s = rig.settings.lock().unwrap();
+            s.killed = false;
+            s.allowed_since = sent_at + 1;
+        }
+        let mut c2 = accept(&server).await;
+        c2.send(&queued).await;
+        let r = open(&c2.recv(SHORT).await.expect("an answer"), &rig.pc_pub).unwrap();
+        assert_eq!((r["id"].as_str(), r["ok"].as_bool(), r["error"].as_str()), (Some("task-queued-00001"), Some(false), Some("killed")));
+        // Handed over again: the same answer, still not run.
+        c2.send(&queued).await;
+        let again = open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!(again["error"].as_str(), Some("killed"));
+        assert!(rig.runs.lock().unwrap().is_empty(), "never run");
+        // A task sent after Allow again runs.
+        let now = now_s().max(sent_at + 1);
+        c2.send(&task(&rig.cloud, "task-after-allow1", now, now + 299)).await;
+        let r = open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!((r["id"].as_str(), r["ok"].as_bool()), (Some("task-after-allow1"), Some(true)));
+        assert_eq!(rig.runs.lock().unwrap().len(), 1);
+        rig
+    });
+}
+
 #[test]
 fn off_or_not_consented_means_no_connection_at_all() {
     with_courier(Duration::ZERO, quick(), |server, rig| async move {
