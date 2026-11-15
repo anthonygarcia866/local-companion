@@ -7,6 +7,7 @@ pub mod budget;
 pub mod check;
 pub mod claude;
 pub mod dictate;
+pub mod key_rejected;
 pub mod live;
 pub mod polish;
 pub mod quoted;

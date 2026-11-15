@@ -26,6 +26,7 @@ import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
 import { UPDATE_NOTICE_MS, updateLine, updateNoticeShows } from "./core/update-notice";
+import { KEY_REJECTED_MS, keyRejectedLine, showWhenFree } from "./core/key-rejected";
 import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t } from "./i18n/i18n";
 
 /** Shows the language Settings asks for ("" = the system's, when Glim has it). */
@@ -86,6 +87,22 @@ async function main() {
     if (on && State.writingAsk) answerAsk("later", askHost);
     if (on && State.writingDocsTip) closeDocsTip(false, askHost);
     State.notify();
+  });
+
+  // The Claude API refused the key (ai/key_rejected.rs; at most hourly): one clear card.
+  await onEvent<null>("api-key-rejected", () => {
+    const line = keyRejectedLine();
+    showWhenFree(
+      () => State.pendingApproval !== null,
+      () => {
+        State.noteMessage = line;
+        island.alert("note");
+        window.setTimeout(() => {
+          if (State.view === "note" && State.noteMessage === line && State.mode === "expanded") island.collapse();
+        }, KEY_REJECTED_MS);
+      },
+      (f, ms) => window.setTimeout(f, ms),
+    );
   });
 
   await onEvent<string>("tray", (what) => {

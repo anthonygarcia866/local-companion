@@ -2052,6 +2052,13 @@ pub fn run() {
                 autostart::sync(loaded.autostart, false);
             }
             tray::build(&handle)?;
+            // A 401 from the Claude API: one card on the island, at most hourly.
+            {
+                let h = handle.clone();
+                ai::key_rejected::set_notifier(move || {
+                    let _ = h.emit_to(island::WINDOW_LABEL, ai::key_rejected::EVENT, ());
+                });
+            }
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
             // The capture thread (src/capture/): the writing checker in every
