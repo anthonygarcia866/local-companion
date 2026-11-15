@@ -116,10 +116,30 @@ fn words_of(label: &str) -> Vec<String> {
 /// grouped like a card); international phone numbers excepted (see
 /// `is_phone`).
 pub fn contains_sensitive_number(text: &str) -> bool {
-    digit_runs(text)
-        .iter()
-        .any(|run| !is_phone(run) && (has_card(&run.groups) || has_ssn(&run.groups) || card_being_typed(&run.groups)))
-        || has_iban(text)
+    number_rule(text).is_some()
+}
+
+/// `contains_sensitive_number`, naming the rule that matched (owner
+/// 2026-11-14, logged as a name only): "iban", "card", "ssn" or
+/// "card-typed".
+pub fn number_rule(text: &str) -> Option<&'static str> {
+    // The most specific name first: an IBAN's digit groups also look like a
+    // card being typed.
+    if has_iban(text) {
+        return Some("iban");
+    }
+    for run in digit_runs(text).iter().filter(|run| !is_phone(run)) {
+        if has_card(&run.groups) {
+            return Some("card");
+        }
+        if has_ssn(&run.groups) {
+            return Some("ssn");
+        }
+        if card_being_typed(&run.groups) {
+            return Some("card-typed");
+        }
+    }
+    None
 }
 
 /// Readings with this many digits of what may be a card being typed are

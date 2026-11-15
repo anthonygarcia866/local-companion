@@ -16,9 +16,17 @@ async function main() {
   if (boot) State.settings = { ...State.settings, ...boot.settings };
   setLanguage(resolveLanguage(State.settings.language, systemLanguages()));
   const accept = SHORTCUTS.find((d) => d.id === "liveAccept")!;
+  const dismiss = SHORTCUTS.find((d) => d.id === "liveDismiss")!;
+  const review = SHORTCUTS.find((d) => d.id === "liveReview")!;
+  const keysOf = (d: typeof accept) => {
+    const b = effective(d, State.settings.shortcuts);
+    return b.enabled ? b.keys : "";
+  };
   const view = new LiveView({
     expand: (open) => void Bridge.liveExpand(open),
     acceptKeys: () => effective(accept, State.settings.shortcuts).keys,
+    dismissKeys: () => keysOf(dismiss),
+    reviewKeys: () => keysOf(review),
   });
   document.getElementById("live-root")!.append(view.el);
   // Each revision drawn is answered (live_page_ready): Rust reloads or

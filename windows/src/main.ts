@@ -288,9 +288,19 @@ async function main() {
   });
 
   // A live revision on its way (writing/live.rs "sending" / "sent"): the
-  // lantern's data-leaving look, at most 20 s.
+  // lantern's data-leaving look, at most 20 s. "count" and "show" carry the
+  // kept revisions in this field (2026-11-14): the lantern's count.
   let liveTimer: ReturnType<typeof setTimeout> | undefined;
-  await onEvent<{ phase?: string }>("writing-live", (e) => {
+  await onEvent<{ phase?: string; total?: number }>("writing-live", (e) => {
+    if (e?.phase === "count" || e?.phase === "show") {
+      const kept = Math.max(0, e.total ?? 0);
+      if (kept !== State.liveKept) {
+        State.liveKept = kept;
+        State.notify();
+      }
+      if (e.phase === "count") return;
+    }
+    if (e?.phase === "hide" || e?.phase === "note") return;
     const sending = e?.phase === "sending";
     if (sending === State.liveSending) return;
     State.liveSending = sending;
