@@ -88,6 +88,15 @@ async function main() {
     State.notify();
   });
 
+  // "Allow screenshots for 10 minutes" (screen_capture.rs): the island shows the time left.
+  await onEvent<number>("capture-allowed", (until) => {
+    State.captureAllowedUntil = until ?? 0;
+    State.notify();
+  });
+  void Bridge.captureStatus().then((until) => {
+    State.captureAllowedUntil = until ?? 0;
+  });
+
   await onEvent<string>("tray", (what) => {
     switch (what) {
       case "settings":

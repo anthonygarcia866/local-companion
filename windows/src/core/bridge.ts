@@ -189,6 +189,11 @@ export const Bridge = {
   keepAliveDesktop: (on: boolean) => callOrThrow<KeepAliveStatus>("keepalive_desktop", { on }),
   /** Settings → Remote → Remote tasks (remote/): no transport is wired yet. */
   remoteStatus: () => call<RemoteStatus>("remote_status"),
+  /** "Allow screenshots for 10 minutes": answers the end (Unix ms). */
+  captureAllow: () => call<number>("capture_allow"),
+  captureHideAgain: () => call<number>("capture_hide_again"),
+  /** Until when screenshots are allowed (Unix ms), or 0. */
+  captureStatus: () => call<number>("capture_status"),
   remoteSet: (on: boolean, consent: boolean) => callOrThrow<RemoteStatus>("remote_set", { on, consent }),
   /** The signer's public key (64 hex characters); "" removes it. */
   remoteKey: (key: string) => callOrThrow<RemoteStatus>("remote_key", { key }),
