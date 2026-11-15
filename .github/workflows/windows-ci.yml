@@ -1,6 +1,7 @@
 name: Windows CI
 
-# Type-checks and tests the Windows app on every pull request that touches it,
+# Type-checks and tests the Windows app (and the courier relay, relay/) on
+# every pull request that touches them,
 # on pushes to main, weekly, and by hand.
 # Nothing is packed and nothing is published: releases stay in windows.yml,
 # which only runs on tags.
@@ -9,12 +10,14 @@ on:
   pull_request:
     paths:
       - 'windows/**'
+      - 'relay/**'
       - '.github/workflows/windows-ci.yml'
       - 'ci/clippy-baseline.txt'
   push:
     branches: [main]
     paths:
       - 'windows/**'
+      - 'relay/**'
       - '.github/workflows/windows-ci.yml'
       - 'ci/clippy-baseline.txt'
   # The only runs where "Voice end to end" talks to the live Claude API (see
