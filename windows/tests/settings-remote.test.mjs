@@ -141,3 +141,56 @@ test("remote activity: times, outcomes and kinds or reasons, newest first", asyn
   const lines = el.find("div").filter((d) => d.getAttribute("data-role") === "remote-activity-line").map((d) => d.textContent);
   assert.deepEqual(lines, ["09:07 Refused: bad-signature", "09:07 Accepted: runbook"]);
 });
+
+// ── Settings → Remote fixes (owner 2026-11-14) ───────────────────────────────
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const roleText = (el, r) => el.find("div").concat(el.find("span")).filter((d) => d.getAttribute("data-role") === r).map((d) => d.textContent);
+
+test("the Relay: line follows the connection live, without redrawing what's typed", async () => {
+  replies.set("remote_status", rstatus({ on: true, consented: true, relay: "https://a.b.workers.dev", connection: "off" }));
+  const el = remoteTasks(toggle, 5);
+  await tick();
+  assert.deepEqual(roleText(el, "remote-connection"), ["Relay: Off"]);
+  const typed = role(el, "input", "remote-key");
+  typed.value = "half a ke";
+  replies.set("remote_status", rstatus({ on: true, consented: true, relay: "https://a.b.workers.dev", connection: "connected" }));
+  await wait(30);
+  assert.deepEqual(roleText(el, "remote-connection"), ["Relay: Connected"]);
+  assert.equal(role(el, "input", "remote-key"), typed, "the same field: typing isn't interrupted");
+  assert.equal(typed.value, "half a ke");
+  replies.set("remote_status", rstatus({ on: true, consented: true, relay: "https://a.b.workers.dev", connection: "reconnecting" }));
+  await wait(30);
+  assert.deepEqual(roleText(el, "remote-connection"), ["Relay: Reconnecting…"]);
+});
+
+test("Save key and Save address each show Saved, and only when it worked", async () => {
+  replies.set("remote_status", rstatus());
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.deepEqual(roleText(el, "remote-key-saved"), []);
+  role(el, "input", "remote-key").value = "ab".repeat(32);
+  replies.set("remote_key", rstatus({ fingerprint: "3F2A 91C0 0000 1111 2222 3333 4444 5555" }));
+  role(el, "button", "remote-key-save").fire("click");
+  await tick();
+  assert.deepEqual(roleText(el, "remote-key-saved"), ["Saved"]);
+  role(el, "input", "remote-relay").value = "https://a.b.workers.dev";
+  replies.set("remote_relay", rstatus({ relay: "https://a.b.workers.dev" }));
+  role(el, "button", "remote-relay-save").fire("click");
+  await tick();
+  assert.deepEqual(roleText(el, "remote-relay-saved"), ["Saved"]);
+  assert.deepEqual(roleText(el, "remote-key-saved"), [], "one at a time");
+  // A thenable that rejects: invoke() adopts it, as when Rust answers Err.
+  replies.set("remote_relay", { then: (_ok, fail) => fail(new Error("That isn't a relay address")) });
+  role(el, "button", "remote-relay-save").fire("click");
+  await tick();
+  assert.deepEqual(roleText(el, "remote-relay-saved"), [], "a refusal is not Saved");
+});
+
+test("no key saved: no fingerprint line at all", async () => {
+  replies.set("remote_status", rstatus({ fingerprint: "", pcPublicKey: "", pcFingerprint: "" }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.deepEqual(roleText(el, "remote-fingerprint"), []);
+  assert.deepEqual(roleText(el, "remote-pc-fingerprint"), []);
+});

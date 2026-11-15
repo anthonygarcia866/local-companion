@@ -137,9 +137,10 @@ fn from_hex(s: &str) -> Option<Vec<u8>> {
 }
 
 /// What Settings shows for a key: the first 16 bytes of its SHA-256, as
-/// eight groups of four hex characters ("3F2A 91C0 …").
+/// eight groups of four hex characters ("3F2A 91C0 …"). Nothing for no key
+/// (or anything but a 32-byte one): not the hash of nothing ("E3B0 C442 …").
 pub fn fingerprint(public_key_hex: &str) -> String {
-    let Some(bytes) = from_hex(public_key_hex) else { return String::new() };
+    let Some(bytes) = from_hex(public_key_hex).filter(|b| b.len() == 32) else { return String::new() };
     let digest = Sha256::digest(&bytes);
     digest[..16].chunks(2).map(|c| format!("{:02X}{:02X}", c[0], c[1])).collect::<Vec<_>>().join(" ")
 }

@@ -12,6 +12,17 @@
    "ru": "Ключ Claude для Glim отклонён: обновите его в Настройки → Письмо → ИИ (Claude API)",
    "id": "Kunci Claude Glim ditolak: perbarui di Pengaturan → Menulis → AI (Claude API)"
   },
+  "Saved": {
+   "zh-Hans": "已保存",
+   "hi": "सहेजा गया",
+   "es": "Guardado",
+   "ar": "تم الحفظ",
+   "fr": "Enregistré",
+   "bn": "সংরক্ষিত",
+   "pt-BR": "Salvo",
+   "ru": "Сохранено",
+   "id": "Tersimpan"
+  },
   "Reconnecting…": {
    "zh-Hans": "正在重新连接…",
    "hi": "फिर से जुड़ रहा है…",
