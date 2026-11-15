@@ -203,11 +203,12 @@ fn as_meant(w: &str) -> String {
 
 /// Number words, ordinals, days, months, today/tomorrow, am/pm.
 fn word_facts(text: &str, out: &mut Facts) {
-    // (lower-case word, written with a capital, has a digit)
+    // (lower-case word, written with a capital mid-sentence, has a digit):
+    // a sentence's first word has a capital anyway ("May I ask" is no month).
     let mut words: Vec<(String, bool, bool)> = Vec::new();
     for (s, e) in word_spans(text) {
         let w = &text[s..e];
-        let capital = w.chars().next().is_some_and(char::is_uppercase);
+        let capital = w.chars().next().is_some_and(char::is_uppercase) && !starts_sentence(text, s);
         let digit = w.chars().any(|c| c.is_ascii_digit());
         for part in w.split('-').filter(|p| !p.is_empty()) {
             words.push((if digit { part.to_lowercase() } else { as_meant(&part.to_lowercase()) }, capital, digit));
@@ -286,7 +287,7 @@ fn word_facts(text: &str, out: &mut Facts) {
             out.set.insert(w.to_string());
         } else if let Some(m) = month_of(w) {
             let number_near = (k > 0 && is_number(&words[k - 1])) || words.get(k + 1).is_some_and(is_number);
-            if !MONTHS_AMBIGUOUS.contains(&w) || number_near || (words[k].1 && k > 0) {
+            if !MONTHS_AMBIGUOUS.contains(&w) || number_near || words[k].1 {
                 out.set.insert(m.to_string());
             }
         } else if matches!(w, "am" | "pm") && k > 0 && is_number(&words[k - 1]) {
@@ -296,9 +297,60 @@ fn word_facts(text: &str, out: &mut Facts) {
     }
 }
 
+/// Short forms that mean exactly one fact word (owner 2026-11-14: only
+/// EQUIVALENT forms are exempt). Written either way, they are the same fact,
+/// so "Fri" fixed to "Friday" or "tmrw" to "tomorrow" isn't an added date;
+/// "Fri" changed to "Monday" still is. The ones that are also everyday words
+/// ("sat", "sun", "wed", "mon") count only with a capital.
+const SHORT_ALWAYS: [(&str, &str); 19] = [
+    ("tue", "tuesday"), ("tues", "tuesday"), ("weds", "wednesday"), ("thu", "thursday"), ("thur", "thursday"),
+    ("thurs", "thursday"), ("fri", "friday"), ("tmrw", "tomorrow"), ("tmr", "tomorrow"), ("tmw", "tomorrow"),
+    ("tmrow", "tomorrow"), ("2moro", "tomorrow"), ("2morro", "tomorrow"), ("2morrow", "tomorrow"), ("tonite", "tonight"),
+    ("2nite", "tonight"), ("2day", "today"), ("tdy", "today"), ("yday", "yesterday"),
+];
+const SHORT_CAPITAL: [(&str, &str); 4] = [("mon", "monday"), ("wed", "wednesday"), ("sat", "saturday"), ("sun", "sunday")];
+
+/// `text` with each short form above written as its full word (the rest
+/// byte for byte), so both sides of a check read the same fact.
+fn full_forms(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (s, e) in word_spans(text) {
+        let w = &text[s..e];
+        let lower = w.to_lowercase();
+        let capital = w.chars().next().is_some_and(char::is_uppercase);
+        let full = SHORT_ALWAYS
+            .iter()
+            .find(|(short, _)| *short == lower)
+            .or_else(|| SHORT_CAPITAL.iter().find(|(short, _)| capital && *short == lower))
+            .map(|(_, full)| *full);
+        if let Some(full) = full {
+            out.push_str(&text[last..s]);
+            out.push_str(full);
+            last = e;
+        }
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// Whether the word at byte `s` starts a sentence: nothing but spaces and
+/// opening quotes/brackets since the text's start, a line break, or . ! ?
+/// ("…today. May I ask" is the verb, capitalised; not the month).
+fn starts_sentence(text: &str, s: usize) -> bool {
+    for c in text[..s].chars().rev() {
+        match c {
+            '\n' | '\r' | '.' | '!' | '?' | '\u{2022}' => return true,
+            c if c.is_whitespace() || matches!(c, '"' | '\'' | '(' | '[' | '\u{201C}' | '\u{2018}' | '-' | '\u{2013}' | '\u{2014}') => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// The facts in `text`.
 pub fn facts(text: &str) -> Facts {
-    let plain = without_placeholders(text);
+    let plain = full_forms(&without_placeholders(text));
     let mut out = Facts::default();
     digit_facts(&plain, &mut out);
     word_facts(&plain, &mut out);
@@ -317,9 +369,39 @@ pub fn same(before: &str, after: &str) -> bool {
     !a.digits.is_empty() && a.digits == b.digits && words(&a) == words(&b)
 }
 
-/// The log's note for a discarded answer: counts only.
+/// A fact's kind, never its value: number, weekday, month, relative
+/// (today, tomorrow …) or am-pm.
+fn kind(v: &str) -> &'static str {
+    if v.starts_with(|c: char| c.is_ascii_digit()) {
+        "number"
+    } else if DAYS.contains(&v) {
+        "weekday"
+    } else if MONTHS.contains(&v) {
+        "month"
+    } else if matches!(v, "am" | "pm") {
+        "am-pm"
+    } else {
+        "relative"
+    }
+}
+
+/// "number, weekday" for the values only on one side, or "none".
+fn kinds<'a>(only: impl Iterator<Item = &'a String>) -> String {
+    let set: BTreeSet<&str> = only.map(|v| kind(v)).collect();
+    if set.is_empty() { "none".into() } else { set.into_iter().collect::<Vec<_>>().join(", ") }
+}
+
+/// The log's note for a discarded answer: counts and kinds only (which
+/// kind of fact the answer added or dropped), never a value.
 pub fn log_counts(what: &str, before: &str, after: &str) -> String {
-    format!("{what}: numbers/dates changed, discarded (before={} after={})", facts(before).len(), facts(after).len())
+    let (a, b) = (facts(before), facts(after));
+    format!(
+        "{what}: numbers/dates changed, discarded (before={} after={}; added: {}; dropped: {})",
+        a.len(),
+        b.len(),
+        kinds(b.set.difference(&a.set)),
+        kinds(a.set.difference(&b.set)),
+    )
 }
 
 /// `same`, and the log's note (counts only) when not: for the callers that
@@ -381,6 +463,51 @@ mod tests {
         }
     }
 
+    /// 2026-11-14: two of Anthony's Word sentences were discarded with
+    /// "before=0 after=1" though he wrote no date. Only EQUIVALENT forms are
+    /// exempt (owner): a short form and its full word, and "may" the verb
+    /// capitalised at a sentence's start.
+    #[test]
+    fn an_equivalent_form_is_the_same_fact() {
+        for (a, b) in [
+            // The verb "may", capitalised at a sentence's start: no month.
+            ("thanks for the update. may i ask when it ships", "Thanks for the update. May I ask when it ships?"),
+            ("may we move the call", "May we move the call?"),
+            ("Got it!\nmay I call you", "Got it!\nMay I call you?"),
+            // Short forms and their full words.
+            ("can we meet Fri", "Can we meet Friday?"),
+            ("see you thurs", "See you Thursday."),
+            ("we can do it Wed", "We can do it Wednesday."),
+            ("call me tmrw", "Call me tomorrow."),
+            ("I'll send it 2moro", "I'll send it tomorrow."),
+            ("lets talk tonite", "Let's talk tonight."),
+        ] {
+            assert!(same(a, b), "{a} / {b}");
+        }
+    }
+
+    /// The owner's rule stays strict: a genuinely new or changed number,
+    /// date, day, time or amount is still discarded.
+    #[test]
+    fn a_truly_added_or_changed_date_is_still_discarded() {
+        for (a, b) in [
+            // No day written: "by Friday" is new (the owner's own example).
+            ("please send the signed lease", "Please send the signed lease by Friday."),
+            ("please send the signed lease.", "Please send the signed lease. By Friday, please."),
+            // A short form changed to another day.
+            ("can we meet Fri", "Can we meet Monday?"),
+            ("call me tmrw", "Call me today."),
+            // "may" the verb is no month, but a real month added still counts.
+            ("May I ask when it ships", "May I ask when it ships in June?"),
+            // "May" mid-sentence with a capital is still the month.
+            ("the lease starts soon", "The lease starts in May."),
+            // Everyday words are not short forms: "sat" (lower case) stays a verb.
+            ("we sat down to talk", "We sat down on Saturday to talk."),
+        ] {
+            assert!(!same(a, b), "{a} / {b}");
+        }
+    }
+
     #[test]
     fn a_changed_dropped_or_added_value_is_not() {
         for (a, b) in [
@@ -402,7 +529,9 @@ mod tests {
     #[test]
     fn the_log_gets_counts_only() {
         let line = log_counts("live", "Pay $1,850 on Tuesday", "Pay on Wednesday");
-        assert_eq!(line, "live: numbers/dates changed, discarded (before=2 after=1)");
-        assert!(!line.contains("1850") && !line.contains("uesday"));
+        assert_eq!(line, "live: numbers/dates changed, discarded (before=2 after=1; added: weekday; dropped: number, weekday)");
+        assert!(!line.contains("1850") && !line.contains("uesday") && !line.contains("ednesday"));
+        let added = log_counts("live", "send the lease", "Send the lease by Friday.");
+        assert_eq!(added, "live: numbers/dates changed, discarded (before=0 after=1; added: weekday; dropped: none)");
     }
 }

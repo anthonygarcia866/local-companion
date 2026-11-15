@@ -470,6 +470,41 @@ pub(crate) mod tests {
         url
     }
 
+    /// `serve_capture` for several requests in a row: the n-th connection
+    /// gets the n-th body (200 OK), and each request comes back on the channel.
+    pub(crate) fn serve_capture_seq(bodies: Vec<Vec<u8>>) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for body in bodies {
+                let Ok((mut conn, _)) = listener.accept() else { return };
+                let mut got = Vec::new();
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = conn.read(&mut buf).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    got.extend_from_slice(&buf[..n]);
+                    if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let text = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                        let len = text.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                        if got.len() >= end + 4 + len {
+                            break;
+                        }
+                    }
+                }
+                let _ = tx.send(got);
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = conn.write_all(head.as_bytes());
+                let _ = conn.write_all(&body);
+            }
+        });
+        (url, rx)
+    }
+
     pub(crate) fn serve_capture(status: &str, headers: &str, body: Vec<u8>) -> (String, std::sync::mpsc::Receiver<Vec<u8>>) {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
