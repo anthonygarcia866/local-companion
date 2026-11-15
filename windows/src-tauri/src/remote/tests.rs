@@ -184,6 +184,9 @@ fn keys_and_fingerprints() {
     assert_eq!(fp.split(' ').count(), 8);
     assert_ne!(fp, fingerprint(&hex(signer(9).public_key().as_ref())));
     assert_eq!(fingerprint("nothex"), "");
+    // No key saved: no fingerprint (it once showed E3B0…, SHA-256 of nothing).
+    assert_eq!(fingerprint(""), "");
+    assert_eq!(fingerprint("abcd"), "");
 }
 
 /// Only remote/ (courier.rs) calls the gate: no other path into it.

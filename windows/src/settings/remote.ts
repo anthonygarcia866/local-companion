@@ -163,8 +163,14 @@ export function connectionText(code: string): string {
   }
 }
 
+/** How often Remote tasks reads the connection's state again. */
+export const REMOTE_POLL_MS = 2000;
+/** How long "Saved" stays beside Save key / Save address. */
+export const SAVED_MS = 3000;
+let tasksTimer: ReturnType<typeof setInterval> | null = null;
+
 /** Settings → Remote → Remote tasks (remote/). */
-export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement): HTMLElement {
+export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement, pollMs = REMOTE_POLL_MS): HTMLElement {
   const box = h("div", { class: "pill-group", "data-role": "remote-tasks" });
   let status: RemoteStatus = { on: false, consented: false, killed: false, fingerprint: "", relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", activity: [] };
   let consenting = false;
@@ -172,15 +178,65 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   let renewing = false;
   /** Cloud Glim's token, right after setup only; forgotten on "Done". */
   let cloudToken = "";
+  /** What was typed but not saved yet: kept across redraws. */
+  let keyDraft = "";
+  let relayDraft: string | null = null;
+  /** Which Save just worked ("key" / "relay"), shown as "Saved" for a moment. */
+  let saved = "";
+  let savedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Updated in place by the poll, so typing isn't interrupted. */
+  let connectionLine: HTMLElement | null = null;
+  let activityBox: HTMLElement | null = null;
 
-  async function act(f: () => Promise<RemoteStatus | null>) {
+  async function act(f: () => Promise<RemoteStatus | null>, what = "") {
     try {
       status = (await f()) ?? status;
       note = "";
+      if (what) {
+        saved = what;
+        if (what === "key") keyDraft = "";
+        if (what === "relay") relayDraft = null;
+        if (savedTimer) clearTimeout(savedTimer);
+        savedTimer = setTimeout(() => {
+          saved = "";
+          draw();
+        }, SAVED_MS);
+        (savedTimer as { unref?: () => void }).unref?.();
+      }
     } catch (e) {
       note = String(e);
+      saved = "";
     }
     draw();
+  }
+
+  function savedMark(what: string): HTMLElement[] {
+    return saved === what ? [h("span", { class: "hint", "data-role": `remote-${what}-saved`, role: "status", style: "color:#3fb950", text: t("Saved") })] : [];
+  }
+
+  function fillActivity(list: HTMLElement) {
+    clear(list);
+    list.append(h("h3", { text: t("Remote activity") }));
+    if (status.activity.length === 0) list.append(h("div", { class: "hint", text: t("Nothing yet.") }));
+    for (const a of status.activity.slice(0, 20)) list.append(h("div", { class: "hint", "data-role": "remote-activity-line", text: activityLine(a) }));
+  }
+
+  /** The poll: the connection line and activity change in place; anything else redraws (drafts kept). */
+  async function poll() {
+    let next: RemoteStatus | null = null;
+    try {
+      next = await Bridge.remoteStatus();
+    } catch {
+      return;
+    }
+    if (!next) return;
+    const prev = status;
+    status = next;
+    const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
+    const rest = (["on", "consented", "killed", "fingerprint", "relay", "pcPublicKey", "pcFingerprint"] as const).every(same);
+    if (!rest) return draw();
+    if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
+    if (activityBox && !same("activity")) fillActivity(activityBox);
   }
 
   function draw() {
@@ -215,25 +271,29 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     }
 
     const input = h("input", { type: "text", "data-role": "remote-key", placeholder: t("Paste the 64 hex characters"), spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
+    input.value = keyDraft;
+    input.addEventListener("input", () => { keyDraft = input.value; });
     const save = h("button", { type: "button", "data-role": "remote-key-save", text: t("Save key") });
     save.addEventListener("click", () => {
       const key = input.value;
-      void act(() => Bridge.remoteKey(key));
+      void act(() => Bridge.remoteKey(key), "key");
     });
-    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, input, save));
+    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, input, save, ...savedMark("key")));
     if (status.fingerprint) box.append(h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.fingerprint }) }));
 
     const relay = h("input", { type: "text", "data-role": "remote-relay", placeholder: "https://name.subdomain.workers.dev", spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
-    relay.value = status.relay;
+    relay.value = relayDraft ?? status.relay;
+    relay.addEventListener("input", () => { relayDraft = relay.value; });
     const saveRelay = h("button", { type: "button", "data-role": "remote-relay-save", text: t("Save address") });
     saveRelay.addEventListener("click", () => {
       const address = relay.value;
-      void act(() => Bridge.remoteRelay(address));
+      void act(() => Bridge.remoteRelay(address), "relay");
     });
-    box.append(h("label", { text: t("Relay address") }), h("div", { class: "row" }, relay, saveRelay));
-    box.append(h("div", { class: "hint", "data-role": "remote-connection", text: t("Relay: {state}", { state: connectionText(status.connection) }) }));
+    box.append(h("label", { text: t("Relay address") }), h("div", { class: "row" }, relay, saveRelay, ...savedMark("relay")));
+    connectionLine = h("div", { class: "hint", "data-role": "remote-connection", "aria-live": "polite", text: t("Relay: {state}", { state: connectionText(status.connection) }) });
+    box.append(connectionLine);
 
-    if (status.pcPublicKey) {
+    if (status.pcPublicKey && status.pcFingerprint) {
       box.append(h("label", { text: t("This PC's result key") }), h("div", { class: "path", "data-role": "remote-pc-key", text: status.pcPublicKey }));
       box.append(h("div", { class: "hint", "data-role": "remote-pc-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.pcFingerprint }) }));
     }
@@ -290,10 +350,9 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     }
     if (note) box.append(h("div", { class: "hint", "data-role": "remote-tasks-note", style: "color:#f4505e", text: note }));
 
-    const list = h("div", { "data-role": "remote-activity" }, h("h3", { text: t("Remote activity") }));
-    if (status.activity.length === 0) list.append(h("div", { class: "hint", text: t("Nothing yet.") }));
-    for (const a of status.activity.slice(0, 20)) list.append(h("div", { class: "hint", "data-role": "remote-activity-line", text: activityLine(a) }));
-    box.append(list);
+    activityBox = h("div", { "data-role": "remote-activity" });
+    fillActivity(activityBox);
+    box.append(activityBox);
   }
 
   async function runSetup() {
@@ -313,5 +372,11 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     status = (await Bridge.remoteStatus()) ?? status;
     draw();
   })();
+  // The connection changes on its own (connects, drops, the PC wakes): read
+  // it again every 2 s while this page is open.
+  if (tasksTimer) clearInterval(tasksTimer);
+  tasksTimer = setInterval(() => void poll(), pollMs);
+  // Never what keeps a process alive (Node runs this page's tests).
+  (tasksTimer as { unref?: () => void }).unref?.();
   return box;
 }
