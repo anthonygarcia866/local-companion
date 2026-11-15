@@ -44,17 +44,36 @@ const BUSY_S: u64 = 30;
 const TAIL_BYTES: u64 = 512 * 1024;
 
 /// The Claude Code transcript folder name for a project folder: every
-/// character but ASCII letters and digits becomes '-'.
+/// character but ASCII letters and digits becomes '-'
+/// (`C:\Users\sam\local-companion` → `C--Users-sam-local-companion`).
+/// A canonicalized path's verbatim prefix is dropped first (2026-11-14:
+/// `runbooks::allowed_folder` canonicalizes, and `\\?\C:\…` made
+/// `----C--…`, so session-status found no session at all).
 pub fn project_slug(folder: &Path) -> String {
-    folder.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+    let raw = folder.to_string_lossy();
+    let plain = if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        raw.into_owned()
+    };
+    plain.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+}
+
+/// The project folders under `dir`/projects named `slug`, ignoring ASCII
+/// case (Windows paths are; a session started from `c:\…` has `c--…`).
+fn project_dirs(dir: &Path, slug: &str) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(dir.join("projects")) else { return Vec::new() };
+    rd.flatten().filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(slug)).map(|e| e.path()).collect()
 }
 
 /// The newest transcript among `config_dirs`' projects/<slug>/*.jsonl.
 pub fn latest_transcript(config_dirs: &[PathBuf], folder: &Path) -> Option<(PathBuf, SystemTime)> {
     let slug = project_slug(folder);
     let mut best: Option<(PathBuf, SystemTime)> = None;
-    for dir in config_dirs {
-        let Ok(rd) = std::fs::read_dir(dir.join("projects").join(&slug)) else { continue };
+    for project in config_dirs.iter().flat_map(|dir| project_dirs(dir, &slug)) {
+        let Ok(rd) = std::fs::read_dir(&project) else { continue };
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().is_none_or(|x| x != "jsonl") {
