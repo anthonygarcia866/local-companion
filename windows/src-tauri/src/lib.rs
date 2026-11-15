@@ -859,7 +859,14 @@ fn remote_kill(app: AppHandle, shared: State<Shared>, killed: bool) -> RemoteSta
 }
 
 fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
-    update_settings(app, shared, |s| s.remote.killed = killed);
+    let now = remote::now_s();
+    update_settings(app, shared, |s| {
+        s.remote.killed = killed;
+        // "Allow again": tasks issued before now were queued while stopped.
+        if !killed {
+            s.remote.allowed_since = now;
+        }
+    });
     remote::with(|g| g.note_kill(remote::now_s(), killed));
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
 }

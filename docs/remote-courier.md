@@ -64,7 +64,7 @@ Envelope, as carried:
 
 ### Checks, in order (`remote::Gate::accept`)
 
-1. **Kill switch**: tray "Stop remote tasks" or Settings. While it's on, everything is refused and the connection is closed within ¼ s; nothing reconnects until "Allow again".
+1. **Kill switch**: tray "Stop remote tasks" or Settings. While it's on, everything is refused and the connection is closed within ¼ s; nothing reconnects until "Allow again". A task sent while stopped waits at the relay and is handed over when the PC reconnects: Glim refuses every task **issued before "Allow again"** (its `iat` before `remote.allowedSince` in settings.json) with a signed `killed` result, so it is acknowledged and never runs (owner 2026-11-14). No clock-skew allowance on this check: a task from a cloud clock running behind, sent right after "Allow again", is refused too; just send it again.
 2. **Channel on**: off by default, and it needs its one-time consent card first.
 3. **A signer key is saved.**
 4. **Envelope**: size, JSON, `v` = 1.
