@@ -865,6 +865,26 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
 }
 
 /// The tray's one click.
+/// "Allow screenshots for 10 minutes" (Settings → Privacy, the tray):
+/// screen_capture.rs. Answers the time (Unix ms) it lasts until.
+#[tauri::command]
+fn capture_allow(app: AppHandle) -> u64 {
+    screen_capture::allow_for_a_while(&app)
+}
+
+/// "Hide again now": ends the allow window early.
+#[tauri::command]
+fn capture_hide_again(app: AppHandle) -> u64 {
+    screen_capture::end(&app, "settings");
+    0
+}
+
+/// Until when screenshots are allowed (Unix ms), or 0.
+#[tauri::command]
+fn capture_status() -> u64 {
+    screen_capture::allowed_until()
+}
+
 pub(crate) fn remote_kill_from_tray(app: &AppHandle) {
     let shared = app.state::<Shared>();
     set_remote_killed(app, &shared, true);
@@ -1954,6 +1974,9 @@ pub fn run() {
             remote_set,
             remote_key,
             remote_kill,
+            capture_allow,
+            capture_hide_again,
+            capture_status,
             remote_relay,
             remote_setup,
             runbooks_list,

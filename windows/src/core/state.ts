@@ -398,6 +398,8 @@ class AppState {
 
   isPinned = false;
   paused = false;
+  /** Screenshots allowed until (Unix ms), 0 = Glim hidden from capture as set (screen_capture.rs). */
+  captureAllowedUntil = 0;
 
   uploadProgress = 0;
   uploadDuration = 2.4;

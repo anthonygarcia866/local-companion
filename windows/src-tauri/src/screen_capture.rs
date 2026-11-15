@@ -11,30 +11,116 @@
 // the scripts use, WebView2 needs it) comes back black; PrintWindow without
 // it still drew that plain window, and a screen copy was black.
 //
+// "Allow screenshots for 10 minutes" (owner 2026-11-14; tray + Settings →
+// Privacy): lets Glim's windows be captured for ALLOW_FOR, with a countdown
+// on the island, then hides them again by itself. It lives only in memory
+// (never in Glim's saved settings), so a restart, a crash or a crash recovery always
+// comes back hidden; the setting itself never changes.
+//
 // The log says on/off and counts only.
 
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 /// The test-only override: "1" lets every Glim window be captured.
 pub const OVERRIDE_VAR: &str = "GLIM_CAPTURABLE";
 
+/// How long "Allow screenshots" lasts.
+pub const ALLOW_FOR: Duration = Duration::from_secs(10 * 60);
+
+/// The event every window hears: the time (Unix ms) screenshots are allowed
+/// until, or 0 once Glim hides again.
+pub const EVENT: &str = "capture-allowed";
+
 /// Whether Glim's windows are kept out of capture: the setting, unless the
-/// override is set to 1.
-pub fn wanted(setting: bool, override_var: Option<&str>) -> bool {
-    setting && override_var.map(str::trim) != Some("1")
+/// override is set to 1 or screenshots are allowed for a while.
+pub fn wanted(setting: bool, override_var: Option<&str>, allowed: bool) -> bool {
+    setting && !allowed && override_var.map(str::trim) != Some("1")
 }
 
-/// Why, in the log: "on", "off (setting)", "off (GLIM_CAPTURABLE)".
-fn reason(setting: bool, override_var: Option<&str>) -> &'static str {
-    if wanted(setting, override_var) {
+/// Why, in the log: "on", "off (setting)", "off (GLIM_CAPTURABLE)",
+/// "off (allowed for 10 minutes)".
+fn reason(setting: bool, override_var: Option<&str>, allowed: bool) -> &'static str {
+    if wanted(setting, override_var, allowed) {
         "on"
-    } else if setting {
+    } else if !setting {
+        "off (setting)"
+    } else if override_var.map(str::trim) == Some("1") {
         "off (GLIM_CAPTURABLE)"
     } else {
-        "off (setting)"
+        "off (allowed for 10 minutes)"
     }
+}
+
+/// The allow window: (until, Unix ms; generation). Memory only, on purpose.
+static ALLOWED: Mutex<(u64, u64)> = Mutex::new((0, 0));
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// The allow window's end, if it is still open at `now`.
+fn open_until(until: u64, now: u64) -> u64 {
+    if until > now { until } else { 0 }
+}
+
+/// Screenshots allowed until (Unix ms), or 0.
+pub fn allowed_until() -> u64 {
+    open_until(ALLOWED.lock().unwrap().0, now_ms())
+}
+
+fn allowed() -> bool {
+    allowed_until() > 0
+}
+
+/// Opens (or restarts) the allow window: every window capturable now, hidden
+/// again by itself after ALLOW_FOR, checked by the wall clock each second so
+/// a PC that slept through the end hides at once when it wakes.
+pub fn allow_for_a_while(app: &AppHandle) -> u64 {
+    let until = now_ms() + ALLOW_FOR.as_millis() as u64;
+    let generation = {
+        let mut a = ALLOWED.lock().unwrap();
+        a.1 += 1;
+        a.0 = until;
+        a.1
+    };
+    crate::log::line("capture-exclude: screenshots allowed for 10 minutes");
+    changed(app);
+    let app = app.clone();
+    let _ = std::thread::Builder::new().name("capture-allow".into()).spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let (until, current) = *ALLOWED.lock().unwrap();
+        if current != generation {
+            return;
+        }
+        if now_ms() >= until {
+            end(&app, "time's up");
+            return;
+        }
+    });
+    until
+}
+
+/// Hides again now ("Hide again" in the tray or Settings, or time's up).
+pub fn end(app: &AppHandle, why: &str) {
+    {
+        let mut a = ALLOWED.lock().unwrap();
+        if a.0 == 0 {
+            return;
+        }
+        a.0 = 0;
+        a.1 += 1;
+    }
+    crate::log::line(format!("capture-exclude: hidden again ({why})"));
+    changed(app);
+}
+
+fn changed(app: &AppHandle) {
+    apply(app);
+    let _ = app.emit(EVENT, allowed_until());
+    crate::tray::retitle(app);
 }
 
 /// What was logged last, so a save that changes nothing logs nothing, and
@@ -51,18 +137,18 @@ fn override_var() -> Option<String> {
 
 /// Whether Glim's windows should be kept out of capture right now.
 pub fn wanted_now(app: &AppHandle) -> bool {
-    wanted(setting(app), override_var().as_deref())
+    wanted(setting(app), override_var().as_deref(), allowed())
 }
 
 /// Every Glim window as the setting says: at launch, once its windows
-/// exist, and after each settings save.
+/// exist, after each settings save, and when the allow window opens or ends.
 pub fn apply(app: &AppHandle) {
-    let (setting, var) = (setting(app), override_var());
-    let want = wanted(setting, var.as_deref());
+    let (setting, var, allowed) = (setting(app), override_var(), allowed());
+    let want = wanted(setting, var.as_deref(), allowed);
     let windows = app.webview_windows();
     let refused = windows.values().filter(|win| !crate::platform::set_capture_excluded(win, want)).count();
     windows.values().for_each(note_visible);
-    note(reason(setting, var.as_deref()), windows.len(), want && refused > 0);
+    note(reason(setting, var.as_deref(), allowed), windows.len(), want && refused > 0);
 }
 
 /// Right after Glim shows a window. A hidden window is never touched
@@ -74,7 +160,7 @@ pub fn after_show(app: &AppHandle, win: &WebviewWindow) {
 
 /// A window built after launch (the mini lantern, the desktop lantern).
 pub fn apply_to(app: &AppHandle, win: &WebviewWindow) {
-    let want = wanted(setting(app), override_var().as_deref());
+    let want = wanted_now(app);
     if !crate::platform::set_capture_excluded(win, want) && want {
         note("on", 1, true);
     }
@@ -107,23 +193,54 @@ mod tests {
 
     #[test]
     fn the_setting_decides_unless_the_test_override_is_one() {
-        assert!(wanted(true, None));
-        assert!(!wanted(false, None));
-        assert!(!wanted(true, Some("1")));
-        assert!(!wanted(true, Some(" 1 ")));
-        assert!(!wanted(false, Some("1")));
+        assert!(wanted(true, None, false));
+        assert!(!wanted(false, None, false));
+        assert!(!wanted(true, Some("1"), false));
+        assert!(!wanted(true, Some(" 1 "), false));
+        assert!(!wanted(false, Some("1"), false));
         // Anything but 1 leaves the setting in charge.
         for other in ["", "0", "true", "yes", "2"] {
-            assert!(wanted(true, Some(other)), "{other:?}");
+            assert!(wanted(true, Some(other), false), "{other:?}");
         }
     }
 
     #[test]
+    fn allowing_screenshots_lets_capture_through_only_while_the_window_is_open() {
+        assert!(!wanted(true, None, true));
+        assert!(!wanted(false, None, true));
+        assert_eq!(open_until(1_000, 999), 1_000);
+        assert_eq!(open_until(1_000, 1_000), 0, "ends exactly on time");
+        assert_eq!(open_until(1_000, 5_000), 0, "a PC that slept past the end is hidden at once");
+        assert_eq!(open_until(0, 0), 0);
+        assert_eq!(ALLOW_FOR, Duration::from_secs(600));
+    }
+
+    /// A restart or crash must come back hidden: the allow window is never
+    /// written anywhere (no settings field, no file), and nothing at launch
+    /// opens it.
+    #[test]
+    fn the_allow_window_is_memory_only() {
+        let code = include_str!("screen_capture.rs").replace("\r\n", "\n");
+        let code = code.split("#[cfg(test)]").next().unwrap();
+        for disk in ["std::fs", "fs::write", "settings.json", "update_settings", "hide_from_capture ="] {
+            assert!(!code.contains(disk), "{disk}");
+        }
+        let settings = include_str!("settings.rs");
+        assert!(!settings.contains("capture_allowed") && !settings.contains("captureAllowed"));
+        let lib = include_str!("lib.rs").replace("\r\n", "\n");
+        let setup = &lib[lib.find(".setup(move |app|").unwrap()..];
+        let setup = &setup[..setup.find("\n        })\n").unwrap_or(setup.len())];
+        assert!(!setup.contains("allow_for_a_while"), "never opened at launch");
+        assert_eq!(*ALLOWED.lock().unwrap(), (0, 0), "starts closed");
+    }
+
+    #[test]
     fn the_log_says_why_and_never_more() {
-        assert_eq!(reason(true, None), "on");
-        assert_eq!(reason(true, Some("1")), "off (GLIM_CAPTURABLE)");
-        assert_eq!(reason(false, None), "off (setting)");
-        assert_eq!(reason(false, Some("1")), "off (setting)");
+        assert_eq!(reason(true, None, false), "on");
+        assert_eq!(reason(true, Some("1"), false), "off (GLIM_CAPTURABLE)");
+        assert_eq!(reason(false, None, false), "off (setting)");
+        assert_eq!(reason(false, Some("1"), false), "off (setting)");
+        assert_eq!(reason(true, None, true), "off (allowed for 10 minutes)");
     }
 
     /// 2026-10-27: SetWindowDisplayAffinity on the hidden Settings window left a
