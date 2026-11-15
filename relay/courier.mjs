@@ -23,6 +23,11 @@
 //                          Unset = requests go out without that header.
 //   GLIM_TASK_SIGNING_KEY  the 64-hex private seed from keygen
 //   GLIM_PC_PUBLIC_KEY     the PC's result key (64 hex), from Glim's Settings
+//   NODE_USE_ENV_PROXY=1   REQUIRED in a claude.ai/code cloud session: Node's
+//                          built-in fetch ignores the agent proxy's
+//                          HTTPS_PROXY without it, so requests skip the
+//                          proxy and the network secret is never added
+//                          (a 401, or no route to the relay at all).
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -132,7 +137,7 @@ export async function call(route, init = {}, env = process.env, fetchFn = fetch)
   const headers = { ...authHeaders(env), ...(init.headers || {}) };
   const r = await fetchFn(base + route, { ...init, headers });
   if (r.status === 401 && !headers.authorization) {
-    console.error("relay: 401 and no token was sent from here: check the network secret (the relay's exact host, path /v1/), or set RELAY_CLOUD_TOKEN");
+    console.error("relay: 401 and no token was sent from here: check the network secret (the relay's exact host, path /v1/) and that NODE_USE_ENV_PROXY=1 is set, or set RELAY_CLOUD_TOKEN");
   }
   return r;
 }

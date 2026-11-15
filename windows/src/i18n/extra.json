@@ -12,6 +12,39 @@
    "ru": "Закрыто, чтобы освободить память: {apps}",
    "id": "Ditutup untuk mengosongkan memori: {apps}"
   },
+  "Go through kept live revisions": {
+   "zh-Hans": "逐条查看保留的实时修改",
+   "hi": "रखे गए लाइव संशोधन एक-एक करके देखें",
+   "es": "Revisar las revisiones en vivo guardadas",
+   "ar": "تصفّح المراجعات الحية المحفوظة",
+   "fr": "Parcourir les révisions en direct gardées",
+   "bn": "রাখা লাইভ সংশোধনগুলো একে একে দেখুন",
+   "pt-BR": "Percorrer as revisões ao vivo guardadas",
+   "ru": "Просмотреть сохранённые живые правки",
+   "id": "Telusuri revisi langsung yang disimpan"
+  },
+  "{position} of {total}: {accept} to apply, {dismiss} to skip": {
+   "zh-Hans": "第 {position} 条，共 {total} 条：按 {accept} 应用，按 {dismiss} 跳过",
+   "hi": "{total} में से {position}: लागू करने के लिए {accept}, छोड़ने के लिए {dismiss}",
+   "es": "{position} de {total}: {accept} para aplicar, {dismiss} para omitir",
+   "ar": "{position} من {total}: {accept} للتطبيق، {dismiss} للتخطي",
+   "fr": "{position} sur {total} : {accept} pour appliquer, {dismiss} pour passer",
+   "bn": "{total}-এর মধ্যে {position}: প্রয়োগ করতে {accept}, বাদ দিতে {dismiss}",
+   "pt-BR": "{position} de {total}: {accept} para aplicar, {dismiss} para pular",
+   "ru": "{position} из {total}: {accept}, чтобы применить, {dismiss}, чтобы пропустить",
+   "id": "{position} dari {total}: {accept} untuk menerapkan, {dismiss} untuk melewati"
+  },
+  "More kept: {keys} to go through them": {
+   "zh-Hans": "还有保留的修改：按 {keys} 逐条查看",
+   "hi": "और भी रखे गए हैं: देखने के लिए {keys}",
+   "es": "Hay más guardadas: {keys} para revisarlas",
+   "ar": "توجد مراجعات محفوظة أخرى: {keys} لتصفحها",
+   "fr": "D'autres sont gardées : {keys} pour les parcourir",
+   "bn": "আরও রাখা আছে: দেখতে {keys}",
+   "pt-BR": "Há mais guardadas: {keys} para percorrê-las",
+   "ru": "Есть ещё сохранённые: {keys}, чтобы просмотреть",
+   "id": "Ada lagi yang disimpan: {keys} untuk menelusurinya"
+  },
   "Glim's Claude key was rejected: update it in Settings → Writing → AI (Claude API)": {
    "zh-Hans": "Glim 的 Claude 密钥被拒绝：请在 设置 → 写作 → AI (Claude API) 中更新",
    "hi": "Glim की Claude कुंजी अस्वीकार कर दी गई: इसे सेटिंग्स → लेखन → AI (Claude API) में अपडेट करें",

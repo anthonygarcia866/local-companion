@@ -111,7 +111,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, public_key: String::new(), relay: String::new(), pc_public_key: String::new() });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), relay: String::new(), pc_public_key: String::new() });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));
@@ -210,4 +210,41 @@ fn only_the_courier_calls_the_gate() {
     // tokio/std listeners' accept() live in net/ (excluded by name below).
     callers.retain(|p| !p.contains("net"));
     assert!(callers.is_empty(), "{callers:?}");
+}
+
+/// Owner 2026-11-14 (kill-switch test from the cloud): a task sent while
+/// stopped waits at the relay and is handed over on reconnect after "Allow
+/// again". It must be refused as killed, its id noted, and never run; one
+/// issued after "Allow again" goes through.
+#[test]
+fn a_task_queued_while_stopped_is_refused_after_allow_again() {
+    let kp = signer(7);
+    let allowed_at = NOW;
+    let s = RemoteSettings { allowed_since: allowed_at, ..settings_for(&kp) };
+    let mut g = Gate::default();
+    let queued = envelope(&kp, &json!({ "id": id(40), "iat": allowed_at - 30, "exp": allowed_at + 270, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &queued, allowed_at + 2), Err(Rejection::Killed));
+    let last = g.activity.last().unwrap();
+    assert_eq!((last.ok, last.reason.as_str(), last.id.as_str()), (false, "killed", id(40).as_str()));
+    // Issued one second before Allow again: still queued while stopped.
+    let edge = envelope(&kp, &json!({ "id": id(41), "iat": allowed_at - 1, "exp": allowed_at + 299, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &edge, allowed_at + 2), Err(Rejection::Killed));
+    // Issued at or after Allow again: accepted.
+    let fresh = envelope(&kp, &json!({ "id": id(42), "iat": allowed_at, "exp": allowed_at + 300, "cmd": "session-status", "args": {} }));
+    assert!(g.accept(&s, &fresh, allowed_at + 2).is_ok());
+    // Never switched off and on: allowed_since 0 changes nothing.
+    let mut g = Gate::default();
+    assert!(g.accept(&settings_for(&kp), &queued, allowed_at + 2).is_ok());
+}
+
+/// A bad signature is still refused as such (the queued-task check comes
+/// only after the signature verified, so its id is never kept).
+#[test]
+fn a_forged_queued_task_is_a_bad_signature_not_killed() {
+    let kp = signer(7);
+    let s = RemoteSettings { allowed_since: NOW, ..settings_for(&kp) };
+    let mut g = Gate::default();
+    let forged = envelope(&signer(9), &json!({ "id": id(43), "iat": NOW - 30, "exp": NOW + 270, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &forged, NOW + 2), Err(Rejection::BadSignature));
+    assert_eq!(g.activity.last().unwrap().id, "");
 }

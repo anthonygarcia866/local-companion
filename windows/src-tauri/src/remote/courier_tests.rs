@@ -259,6 +259,43 @@ fn the_kill_switch_drops_the_line_and_nothing_reconnects() {
     });
 }
 
+/// Owner 2026-11-14: a task sent while stopped waits at the relay; after
+/// "Allow again" the relay hands it over on reconnect. It is answered (signed)
+/// as killed and never runs; a task sent after "Allow again" runs.
+#[test]
+fn a_task_queued_while_stopped_is_answered_killed_after_allow_again_and_never_runs() {
+    with_courier(Duration::ZERO, quick(), |server, rig| async move {
+        let mut c = accept(&server).await;
+        rig.settings.lock().unwrap().killed = true;
+        assert_eq!(c.recv(SHORT).await, None, "the courier closed the line");
+        // Sent from the cloud while stopped (it waits at the relay).
+        let sent_at = now_s();
+        let queued = task(&rig.cloud, "task-queued-00001", sent_at, sent_at + 300);
+        // "Allow again", as lib.rs's set_remote_killed does it.
+        {
+            let mut s = rig.settings.lock().unwrap();
+            s.killed = false;
+            s.allowed_since = sent_at + 1;
+        }
+        let mut c2 = accept(&server).await;
+        c2.send(&queued).await;
+        let r = open(&c2.recv(SHORT).await.expect("an answer"), &rig.pc_pub).unwrap();
+        assert_eq!((r["id"].as_str(), r["ok"].as_bool(), r["error"].as_str()), (Some("task-queued-00001"), Some(false), Some("killed")));
+        // Handed over again: the same answer, still not run.
+        c2.send(&queued).await;
+        let again = open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!(again["error"].as_str(), Some("killed"));
+        assert!(rig.runs.lock().unwrap().is_empty(), "never run");
+        // A task sent after Allow again runs.
+        let now = now_s().max(sent_at + 1);
+        c2.send(&task(&rig.cloud, "task-after-allow1", now, now + 299)).await;
+        let r = open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!((r["id"].as_str(), r["ok"].as_bool()), (Some("task-after-allow1"), Some(true)));
+        assert_eq!(rig.runs.lock().unwrap().len(), 1);
+        rig
+    });
+}
+
 #[test]
 fn off_or_not_consented_means_no_connection_at_all() {
     with_courier(Duration::ZERO, quick(), |server, rig| async move {
@@ -303,6 +340,38 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     assert_eq!(super::exec::tail_of(text.as_bytes(), 20), "you: Please fix the build\nclaude: On it.\nclaude: Done: CI is green.");
     assert_eq!(super::exec::tail_of(text.as_bytes(), 1), "claude: Done: CI is green.");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
+    // The folder as runbooks::allowed_folder hands it over: canonicalized,
+    // with Windows' verbatim prefix (2026-11-14: session-status said "no
+    // Claude Code session yet" because of it). Same name as above.
+    assert_eq!(super::exec::project_slug(std::path::Path::new(r"\\?\C:\Users\x\local-companion")), "C--Users-x-local-companion");
+    assert_eq!(super::exec::project_slug(std::path::Path::new(r"\\?\UNC\server\share\repo")), "--server-share-repo");
+    // Dots and spaces are dashes too, like Claude Code's own folder names.
+    assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\.claude2 notes")), "C--Users-x--claude2-notes");
+}
+
+/// session-status's lookup from a real folder, canonicalized the way
+/// runbooks::allowed_folder hands it over (`\\?\C:\…` on Windows), against
+/// project folders named the way Claude Code names them (from the plain
+/// path): found in either config folder, the newest one wins, and a folder
+/// name in another case still counts. Empty transcripts: no content.
+#[test]
+fn session_status_finds_the_transcript_folder_of_a_canonicalized_repo() {
+    let root = std::env::temp_dir().join(format!("glim-slug-test-{}-{}", std::process::id(), now_s()));
+    let repo = root.join("local-companion");
+    std::fs::create_dir_all(&repo).unwrap();
+    let canon = std::fs::canonicalize(&repo).unwrap();
+    let plain = canon.to_string_lossy().trim_start_matches(r"\\?\").to_string();
+    let name: String = plain.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    let (one, two) = (root.join(".claude"), root.join(".claude2"));
+    std::fs::create_dir_all(one.join("projects").join(&name)).unwrap();
+    std::fs::create_dir_all(two.join("projects").join(name.to_ascii_lowercase())).unwrap();
+    std::fs::write(one.join("projects").join(&name).join("older.jsonl"), b"").unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    std::fs::write(two.join("projects").join(name.to_ascii_lowercase()).join("newer.jsonl"), b"").unwrap();
+    let found = super::exec::latest_transcript(&[one.clone(), two.clone()], &canon).map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string());
+    assert_eq!(found.as_deref(), Some("newer.jsonl"), "slug {} from {}", super::exec::project_slug(&canon), canon.display());
+    assert_eq!(super::exec::latest_transcript(&[one], &canon).map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string()).as_deref(), Some("older.jsonl"));
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// By hand only, against a real relay: the courier as the PC (fake commands,

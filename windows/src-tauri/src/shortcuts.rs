@@ -107,6 +107,12 @@ pub const ACTIONS: &[ActionDef] = &[
     // 2026-11-03. Handled in Rust (the capture thread types it).
     action("liveAccept", "Ctrl+Alt+Shift+Enter", true, true),
     action("liveDismiss", "Ctrl+Alt+Shift+Backspace", true, true),
+    // Kept live suggestions (owner, 2026-11-14): step through them; while
+    // one is on show this way, the accept key applies it and the dismiss
+    // key skips it, each moving on to the next. Free system-wide
+    // (RegisterHotKey) and unassigned in Word's key table (FindKey 2013;
+    // the control, V, reads InsertAutoText), checked 2026-11-14.
+    action("liveReview", "Ctrl+Alt+Shift+BracketRight", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -330,11 +336,18 @@ pub fn on_push_to_talk(f: impl Fn(bool) + Send + Sync + 'static) {
     let _ = PUSH_TO_TALK.set(Box::new(f));
 }
 
-/// What the live-revision keys run (set up in lib.rs): true to apply, false
-/// to dismiss.
-static LIVE_KEY: std::sync::OnceLock<Box<dyn Fn(bool) + Send + Sync>> = std::sync::OnceLock::new();
+/// The live-revision keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveKey {
+    Accept,
+    Dismiss,
+    Review,
+}
 
-pub fn on_live_key(f: impl Fn(bool) + Send + Sync + 'static) {
+/// What the live-revision keys run (set up in lib.rs).
+static LIVE_KEY: std::sync::OnceLock<Box<dyn Fn(LiveKey) + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn on_live_key(f: impl Fn(LiveKey) + Send + Sync + 'static) {
     let _ = LIVE_KEY.set(Box::new(f));
 }
 
@@ -353,9 +366,15 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
         }
         return;
     }
-    if action == "liveAccept" || action == "liveDismiss" {
+    let live = match action {
+        "liveAccept" => Some(LiveKey::Accept),
+        "liveDismiss" => Some(LiveKey::Dismiss),
+        "liveReview" => Some(LiveKey::Review),
+        _ => None,
+    };
+    if let Some(key) = live {
         if let Some(f) = LIVE_KEY.get() {
-            f(action == "liveAccept");
+            f(key);
         }
         return;
     }
@@ -488,7 +507,7 @@ mod tests {
         "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
     ];
     /// Glim's own actions, after the Mac ones.
-    const GLIM_IDS: [&str; 9] = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim", "liveAccept", "liveDismiss"];
+    const GLIM_IDS: [&str; 10] = ["cycleVisibility", "rewrite", "denyApproval", "allowApproval", "pauseToggle", "pushToTalk", "askGlim", "liveAccept", "liveDismiss", "liveReview"];
 
     fn never(_: &Shortcut) -> Option<String> {
         None

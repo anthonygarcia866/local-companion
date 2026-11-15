@@ -48,6 +48,11 @@ pub struct CaptureMeta {
     /// Skipped as payment or ID data: by the field's labels, or because the
     /// reading held a card number, an SSN or an IBAN (the two look the same).
     pub sensitive: bool,
+    /// Which rule withheld it (owner 2026-11-14, for the 5-minute counts
+    /// line): "field-label", "card", "card-typed", "ssn" or "iban". A rule
+    /// name only, never what matched; not in the dev panel's JSON.
+    #[serde(skip)]
+    pub sensitive_rule: SensitiveRule,
     /// Skipped because the app or the site is on the pause list.
     pub paused: bool,
     /// On a web chat app (writing::apps::CHAT_SITES): suggestions view-only.
@@ -55,6 +60,24 @@ pub struct CaptureMeta {
     pub char_count: usize,
     /// Caret position in characters from the start, when the pattern gives it.
     pub caret: Option<usize>,
+}
+
+/// Which rule withheld a reading. Its Debug shows nothing, so a dropped
+/// reading still looks exactly like a field skipped by its labels anywhere
+/// but the 5-minute counts line, which asks for the name (`name`).
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct SensitiveRule(pub &'static str);
+
+impl SensitiveRule {
+    pub fn name(self) -> &'static str {
+        self.0
+    }
+}
+
+impl std::fmt::Debug for SensitiveRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("_")
+    }
 }
 
 /// One reading of the focused field, for the live debug panel only.
@@ -220,6 +243,7 @@ pub fn withheld(app: String, control_type: String, paused: bool) -> Capture {
         control_type,
         pattern: (if paused { SKIPPED_PAUSED } else { SKIPPED_SENSITIVE }).into(),
         sensitive: !paused,
+        sensitive_rule: SensitiveRule(if paused { "" } else { "field-label" }),
         paused,
         ..Default::default()
     };
@@ -275,8 +299,10 @@ pub fn finish_reading(meta: CaptureMeta, window_title: String, text: Option<Stri
 /// `finish_reading`, keeping the text for the writing checker unless it was
 /// dropped.
 pub fn finish(meta: CaptureMeta, window_title: String, text: Option<String>, caret: Option<usize>) -> Reading {
-    if text.as_deref().is_some_and(sensitive::contains_sensitive_number) {
-        return withheld(meta.app, meta.control_type, false).into();
+    if let Some(rule) = text.as_deref().and_then(sensitive::number_rule) {
+        let mut reading: Reading = withheld(meta.app, meta.control_type, false).into();
+        reading.capture.meta.sensitive_rule = SensitiveRule(rule);
+        return reading;
     }
     let mut meta = meta;
     meta.readable = text.is_some();
@@ -371,6 +397,7 @@ mod tests {
                 password: false,
                 read_only: false,
                 sensitive: false,
+                sensitive_rule: SensitiveRule::default(),
                 paused: false,
                 chat_site: false,
                 char_count: SECRET.chars().count(),
@@ -587,6 +614,22 @@ mod tests {
         let dropped = finish_reading(chrome_meta(), "t".into(), Some("4111111111111111".into()), Some(3));
         let by_label = withheld("chrome.exe".into(), "Edit".into(), false);
         assert_eq!(everything_sent(&dropped), everything_sent(&by_label));
+    }
+
+    /// Owner 2026-11-14: the 5-minute counts line names the rule (its name
+    /// only); nothing else that leaves capture does.
+    #[test]
+    fn a_withheld_reading_names_its_rule_for_the_counts_line_only() {
+        let rule = |text: &str| finish(chrome_meta(), "t".into(), Some(text.into()), Some(3)).capture.meta.sensitive_rule.name();
+        assert_eq!(rule("Card 4111 1111 1111 1111 please"), "card");
+        assert_eq!(rule("SSN 123-45-6789 on file"), "ssn");
+        assert_eq!(rule("Typing 411111111111 now"), "card-typed");
+        assert_eq!(rule("Wire to DE89 3704 0044 0532 0130 00 today"), "iban");
+        assert_eq!(rule("Nothing sensitive here"), "");
+        assert_eq!(withheld("chrome.exe".into(), "Edit".into(), false).meta.sensitive_rule.name(), "field-label");
+        assert_eq!(withheld("chrome.exe".into(), "Edit".into(), true).meta.sensitive_rule.name(), "", "paused, not sensitive");
+        let c = finish(chrome_meta(), "t".into(), Some("SSN 123-45-6789 on file".into()), Some(3)).capture;
+        assert!(!everything_sent(&c).contains("ssn"), "{}", everything_sent(&c));
     }
 
     #[test]

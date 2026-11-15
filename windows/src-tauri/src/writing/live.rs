@@ -43,6 +43,11 @@ const REMEMBERED: usize = 256;
 const APPLIED_KEPT: usize = 64;
 /// A version sent this long ago may be revised again (owner, 2026-11-11).
 pub const SENT_FOR: Duration = Duration::from_secs(30 * 60);
+/// Kept suggestions (owner, 2026-11-14, Grammarly-style): how many, all
+/// fields together, and for how long. One goes earlier when its paragraph
+/// changes or its window closes.
+pub const KEPT_MAX: usize = 20;
+pub const KEPT_FOR: Duration = Duration::from_secs(30 * 60);
 
 /// Settings → Writing → Live revisions.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -115,6 +120,25 @@ pub(super) struct LiveState {
     window: isize,
     /// Capture gave this reading's field id (`live_field`).
     ids: bool,
+    /// Suggestions kept after their preview went (owner, 2026-11-14: the
+    /// owner types in flow and previews hide on typing, so they were never
+    /// seen). Oldest first; one is dropped once its field no longer holds
+    /// its paragraph exactly as it was sent (`live_prune`), its window
+    /// closes, or after KEPT_FOR. Memory only, like the shown one.
+    kept: VecDeque<KeptLive>,
+    /// The review key put a kept suggestion on show: the accept and dismiss
+    /// keys accept or skip it and move on to the next.
+    reviewing: bool,
+    /// The count last told to the island (kept suggestions in this field).
+    told: Option<usize>,
+}
+
+/// A kept suggestion: what was shown, and the field it belongs to.
+#[derive(Clone)]
+struct KeptLive {
+    shown: Shown,
+    field: u64,
+    window: isize,
 }
 
 /// A paragraph Glim put in: the field it went into and its text's hash.
@@ -212,12 +236,17 @@ pub struct LiveEvent {
     pub app: String,
     /// "hide": why ("typing", "field", "dismissed", "timeout", "applied" …).
     pub why: &'static str,
+    /// "count": the kept suggestions in this field; "show": the same count,
+    /// with `position` (1-based) when the review key put this one on show
+    /// (0: a fresh one).
+    pub total: usize,
+    pub position: usize,
 }
 
 impl std::fmt::Debug for LiveEvent {
     /// Never the text.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LiveEvent").field("phase", &self.phase).field("id", &self.id).field("ops", &self.ops.len()).field("why", &self.why).finish()
+        f.debug_struct("LiveEvent").field("phase", &self.phase).field("id", &self.id).field("ops", &self.ops.len()).field("why", &self.why).field("total", &self.total).field("position", &self.position).finish()
     }
 }
 
@@ -265,16 +294,107 @@ impl Session {
             None => self.live.edited = None,
             _ => {}
         }
+        let moved = self.live.seen != Some((start, key));
         self.live.seen = Some((start, key));
-        if self.live.shown.as_ref().is_some_and(|s| s.key != key) {
+        // A kept one under review is another paragraph's: it goes only once
+        // the user types or moves on (its own paragraph changing drops it,
+        // `live_prune`).
+        if self.live.shown.as_ref().is_some_and(|s| s.key != key) && (!self.live.reviewing || moved) {
             self.live_hide("typing");
         }
+    }
+
+    /// Each reading with the field's whole text: a kept suggestion of this
+    /// field whose paragraph the field no longer holds exactly as it was
+    /// sent goes (owner, 2026-11-14: stale only if THAT paragraph changed),
+    /// and so does it if it is on show.
+    pub(super) fn live_prune(&mut self, text: &str) {
+        let field = self.live.field;
+        let mut gone: Vec<u64> = Vec::new();
+        self.live.kept.retain(|k| {
+            let keep = k.field != field || crate::writing::text::holds_paragraph(text, &k.shown.paragraph);
+            if !keep {
+                gone.push(k.shown.id);
+            }
+            keep
+        });
+        if self.live.reviewing && self.live.shown.as_ref().is_some_and(|s| gone.contains(&s.id)) {
+            self.live_hide("changed");
+        }
+    }
+
+    /// Kept suggestions in the field being read.
+    pub fn live_kept_here(&self) -> usize {
+        let field = self.live.field;
+        self.live.kept.iter().filter(|k| k.field == field).count()
+    }
+
+    /// The island's count (kept suggestions in this field), when it changed
+    /// since it was last told.
+    pub fn live_count(&mut self) -> Option<LiveEvent> {
+        let n = self.live_kept_here();
+        if self.live.told == Some(n) {
+            return None;
+        }
+        self.live.told = Some(n);
+        Some(LiveEvent { phase: "count", total: n, ..Default::default() })
+    }
+
+    /// Whether the review key put the one on show.
+    pub fn live_reviewing(&self) -> bool {
+        self.live.reviewing && self.live.shown.is_some()
+    }
+
+    /// The review key (owner, 2026-11-14): the next kept suggestion of this
+    /// field goes on show (oldest first; after the one on show, round
+    /// again). None when there is none.
+    pub fn live_review(&mut self, now: Instant) -> Option<LiveEvent> {
+        let field = self.live.field;
+        let here: Vec<usize> = (0..self.live.kept.len()).filter(|&i| self.live.kept[i].field == field).collect();
+        if here.is_empty() {
+            return None;
+        }
+        let on_show = self.live.shown.as_ref().map(|s| s.id);
+        let at = on_show.and_then(|id| here.iter().position(|&i| self.live.kept[i].shown.id == id));
+        let pick = match at {
+            Some(p) if self.live.reviewing => (p + 1) % here.len(),
+            _ => 0,
+        };
+        let mut shown = self.live.kept[here[pick]].shown.clone();
+        shown.at = now;
+        let event = LiveEvent { phase: "show", id: shown.id, ops: word_diff(&shown.paragraph, &shown.revised), app: shown.app.clone(), why: "", total: here.len(), position: pick + 1 };
+        self.live.hidden = None;
+        self.live.shown = Some(shown);
+        self.live.reviewing = true;
+        Some(event)
+    }
+
+    /// The one on show is no longer wanted (dismissed, skipped, applied or
+    /// found changed): it isn't kept either.
+    pub fn live_forget_shown(&mut self) {
+        if let Some(id) = self.live.shown.as_ref().map(|s| s.id) {
+            self.live.kept.retain(|k| k.shown.id != id);
+        }
+    }
+
+    /// Skip while reviewing (the dismiss key), or what follows an accept:
+    /// the one on show goes for good and the next kept one comes up, from
+    /// the oldest; None (and the preview goes, `why`) when none is left.
+    pub fn live_next(&mut self, now: Instant, why: &'static str) -> Option<LiveEvent> {
+        self.live_forget_shown();
+        self.live.reviewing = false;
+        let next = self.live_review(now);
+        if next.is_none() {
+            self.live_hide(why);
+        }
+        next
     }
 
     /// Glim put `text` in as the paragraph (accepted, or Use this): its next
     /// reading is not an edit of the user's.
     pub fn live_applied(&mut self, text: &str) {
         self.live_mark_ours(text);
+        self.live_forget_shown();
         self.live_hide("applied");
     }
 
@@ -336,17 +456,24 @@ impl Session {
         };
         self.live.sent.retain(|s| now.saturating_duration_since(s.at) < SENT_FOR && open(s.window));
         self.live.applied.retain(|a| open(a.window));
+        self.live.kept.retain(|k| now.saturating_duration_since(k.shown.at) < KEPT_FOR && open(k.window));
     }
 
     /// The field changed, or nothing may be read: everything live goes.
+    /// Kept suggestions stay through a field change (each belongs to its
+    /// own field); paused or the settings changed, they go too.
     pub(super) fn live_reset(&mut self, why: &'static str) {
         self.live.seen = None;
         self.live.edited = None;
         self.live_hide(why);
+        if why != "field" {
+            self.live.kept.clear();
+        }
     }
 
     /// The shown revision goes (the island is told once, `live_hidden`).
     pub fn live_hide(&mut self, why: &'static str) {
+        self.live.reviewing = false;
         if let Some(s) = self.live.shown.take() {
             self.live.hidden = Some((s.id, why));
         }
@@ -476,8 +603,16 @@ impl Session {
         }
         let ops = word_diff(&c.text, revised);
         let shown = Shown { id, key: c.key, paragraph: c.text.clone(), start: c.start, revised: revised.to_string(), app: c.app.clone(), mode: c.mode, at: now };
-        let event = LiveEvent { phase: "show", id, ops, app: c.app.clone(), why: "" };
+        // Kept too (owner, 2026-11-14): one per paragraph version in a field.
+        let field = self.live.field;
+        self.live.kept.retain(|k| !(k.field == field && k.shown.key == shown.key));
+        if self.live.kept.len() == KEPT_MAX {
+            self.live.kept.pop_front();
+        }
+        self.live.kept.push_back(KeptLive { shown: shown.clone(), field, window: self.live.window });
+        let event = LiveEvent { phase: "show", id, ops, app: c.app.clone(), why: "", total: self.live_kept_here(), position: 0 };
         self.live.hidden = None;
+        self.live.reviewing = false;
         self.live.shown = Some(shown);
         Outcome::Shown(event)
     }
@@ -597,6 +732,15 @@ pub fn island_rect(island: Rect, monitors: &[Monitor], expanded: bool) -> Option
 }
 
 impl Session {
+    /// Whether the field as last read still holds `s`'s paragraph as it was
+    /// sent: the caret's paragraph, or (a kept one under review) one the
+    /// last whole reading of this field still held (`live_prune`).
+    fn live_still_there(&self, s: &Shown) -> bool {
+        let here = self.current.as_ref().is_some_and(|c| c.key == s.key && c.text == s.paragraph);
+        let field = self.live.field;
+        here || (self.live.reviewing && self.live.kept.iter().any(|k| k.field == field && k.shown.id == s.id))
+    }
+
     /// A shown revision past SHOW_FOR goes ("timeout").
     pub fn live_expire(&mut self, now: Instant) {
         if self.live.shown.as_ref().is_some_and(|s| now.duration_since(s.at) >= SHOW_FOR) {
@@ -613,7 +757,9 @@ impl Session {
         use super::Outcome;
         let s = self.live.shown.as_ref().ok_or(Outcome::Changed)?;
         // The field as last read must still hold that version.
-        self.current.as_ref().filter(|c| c.key == s.key && c.text == s.paragraph).ok_or(Outcome::Changed)?;
+        if !self.live_still_there(s) {
+            return Err(Outcome::Changed);
+        }
         match s.mode {
             FixMode::Apply => {}
             FixMode::Away => return Err(Outcome::Away),
@@ -630,7 +776,9 @@ impl Session {
     pub fn live_copy(&self) -> Result<String, super::Outcome> {
         use super::Outcome;
         let s = self.live.shown.as_ref().ok_or(Outcome::Changed)?;
-        self.current.as_ref().filter(|c| c.key == s.key && c.text == s.paragraph).ok_or(Outcome::Changed)?;
+        if !self.live_still_there(s) {
+            return Err(Outcome::Changed);
+        }
         if crate::capture::sensitive::contains_sensitive_number(&s.revised) {
             return Err(Outcome::Blocked);
         }

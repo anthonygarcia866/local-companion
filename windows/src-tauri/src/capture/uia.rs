@@ -95,12 +95,16 @@ pub enum Request {
     /// Live revisions (writing/live.rs): a paused paragraph to send.
     Live(crate::writing::live::LiveSource),
     /// Its answer: how long it took from sending, and the pause before.
-    LiveDone { id: u64, reply: crate::ai::claude::Reply, elapsed: std::time::Duration, paused_for: std::time::Duration },
+    /// `rule`: the never-send rule that blocked it, if one did (its name).
+    LiveDone { id: u64, reply: crate::ai::claude::Reply, elapsed: std::time::Duration, paused_for: std::time::Duration, rule: Option<&'static str> },
     /// The accept key (Ctrl+Alt+Shift+Enter): the shown revision replaces
     /// its paragraph, re-checked word for word (writing::apply).
     LiveAccept,
-    /// The dismiss key (Ctrl+Alt+Shift+Backspace).
+    /// The dismiss key (Ctrl+Alt+Shift+Backspace); while reviewing, skip.
     LiveDismiss,
+    /// The review key (Ctrl+Alt+Shift+], owner 2026-11-14): the next kept
+    /// suggestion of this field on show.
+    LiveReview,
     /// Just look again now (Pause changed).
     Wake,
 }
@@ -481,13 +485,14 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                                 crate::writing::live_stats::with(|s| s.result(std::time::Instant::now(), "sent"));
                                 send_live(&crate::writing::live::LiveEvent { phase: "sending", id: src.id, ..Default::default() });
                                 let rules: Vec<String> = crate::memory::with(|m| (m.relevant_rules(&src.paragraph).into_iter().take(crate::ai::live::MAX_RULES).cloned().collect(), false));
+                                let rule = crate::ai::live::never_send_rule(&src.paragraph, &src.before, &rules);
                                 tauri::async_runtime::spawn(async move {
                                     let started = std::time::Instant::now();
                                     let reply = match crate::net::Url::parse(&claude::api_base()) {
                                         Ok(base) => crate::ai::live::revise(&base, &api_key, &src.paragraph, &src.before, src.chat, &rules).await,
                                         Err(_) => claude::Reply { result: Err(claude::Failure::Network), usage: None },
                                     };
-                                    request(Request::LiveDone { id: src.id, reply, elapsed: started.elapsed(), paused_for: src.paused_for });
+                                    request(Request::LiveDone { id: src.id, reply, elapsed: started.elapsed(), paused_for: src.paused_for, rule });
                                 });
                             }
                             (Err(code), _) => {
@@ -501,7 +506,7 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             (Ok(()), _) => writer.live_failed(src.id),
                         }
                     }
-                    Request::LiveDone { id, reply, elapsed, paused_for } => {
+                    Request::LiveDone { id, reply, elapsed, paused_for, rule } => {
                         use crate::ai::spend;
                         send_live(&crate::writing::live::LiveEvent { phase: "sent", id, ..Default::default() });
                         if let Some(usage) = &reply.usage {
@@ -531,7 +536,11 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             (None, Some(app_name)) => s.shown(std::time::Instant::now(), &clock_now(), app_name),
                             (None, None) => {}
                         });
-                        crate::log::line(crate::ai::live::log_line(&reply, word, elapsed, paused_for + elapsed));
+                        let mut line = crate::ai::live::log_line(&reply, word, elapsed, paused_for + elapsed);
+                        if let (Err(crate::ai::claude::Failure::Sensitive), Some(rule)) = (&reply.result, rule) {
+                            line.push_str(&format!(" rule={rule}"));
+                        }
+                        crate::log::line(line);
                         if let Some(crate::writing::live::Outcome::Shown(event)) = &outcome {
                             crate::ai::budget::note_live(elapsed.as_millis() as u64, reply.usage.as_ref().map_or(0, |u| u.cost_nanos));
                             send_live(event);
@@ -543,11 +552,33 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             crate::live_window::apply(app, event, placed.map(|(at, _)| at));
                         }
                     }
-                    Request::LiveDismiss => writer.live_hide("dismissed"),
+                    Request::LiveDismiss => {
+                        // Reviewing: skip (gone for good) and the next one;
+                        // else the one on show is dismissed and not kept.
+                        if writer.live_reviewing() {
+                            if let Some(next) = writer.live_next(std::time::Instant::now(), "dismissed") {
+                                send_live(&next);
+                                crate::live_window::apply(app, &next, live_place(&live_rects));
+                            }
+                            crate::log::line("live: review skip");
+                        } else {
+                            writer.live_forget_shown();
+                            writer.live_hide("dismissed");
+                        }
+                    }
+                    Request::LiveReview => match writer.live_review(std::time::Instant::now()) {
+                        Some(event) => {
+                            crate::log::line(format!("live: review {} of {}", event.position, event.total));
+                            send_live(&event);
+                            crate::live_window::apply(app, &event, live_place(&live_rects));
+                        }
+                        None => crate::log::line("live: review (none kept here)"),
+                    },
                     Request::LiveAccept => {
                         use crate::writing::live::LiveEvent;
                         let shown = writer.live_shown().map(|s| (s.id, s.app.clone()));
                         let revised = writer.live_shown().map(|s| s.revised.clone());
+                        let reviewing = writer.live_reviewing();
                         if let Some((id, app_name)) = shown {
                         let outcome = match writer.live_job() {
                             Ok(_) if crate::writing::paused() => Outcome::Paused,
@@ -578,7 +609,25 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                             writer.live_applied(revised.as_deref().unwrap_or_default());
                             writer.after_fix();
                             fix_field = None;
+                            // Reviewing: the next kept one comes up.
+                            if reviewing {
+                                if let Some(next) = writer.live_review(std::time::Instant::now()) {
+                                    send_live(&next);
+                                    crate::live_window::apply(app, &next, live_place(&live_rects));
+                                }
+                            }
+                        } else if outcome == Outcome::Changed && reviewing {
+                            // Its paragraph isn't there as it was: not kept,
+                            // and the next one comes up (none: the preview goes).
+                            if let Some(next) = writer.live_next(std::time::Instant::now(), "changed") {
+                                send_live(&next);
+                                crate::live_window::apply(app, &next, live_place(&live_rects));
+                            }
                         } else {
+                            // Changed: not kept either (the note says so).
+                            if outcome == Outcome::Changed {
+                                writer.live_forget_shown();
+                            }
                             let why = match outcome {
                                 Outcome::Changed => "changed",
                                 Outcome::Copied => "copied",
@@ -767,6 +816,8 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
             // paragraph's length for too-short (owner 2026-11-14); never text.
             let detail = match why {
                 Some("app-not-allowed") => Some(capture.meta.app.clone()),
+                // Which rule withheld it, by name (owner 2026-11-14).
+                Some("sensitive") if !capture.meta.sensitive_rule.name().is_empty() => Some(capture.meta.sensitive_rule.name().to_string()),
                 Some("too-short") => writer.live_size(),
                 _ => None,
             };
@@ -818,6 +869,10 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
         }
         if let Some(hidden) = writer.live_hidden() {
             send_live(&hidden);
+        }
+        // The lantern's count of kept suggestions in this field.
+        if let Some(count) = writer.live_count() {
+            send_live(&count);
         }
         // A kept paragraph always belongs to the field just read (moving
         // anywhere else drops it).
