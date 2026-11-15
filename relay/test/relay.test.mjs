@@ -7,7 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Relay, MemoryStore, caller, sha256Hex, taskMeta, MAX_PENDING } from "../src/core.js";
-import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf } from "../courier.mjs";
+import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
+import os from "node:os";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 1_800_000_000;
@@ -130,4 +131,75 @@ test("the relay code never logs", () => {
   assert.match(toml, /\[observability\]\s*\nenabled = false/);
   assert.match(toml, /new_sqlite_classes/);
   assert.match(toml, /^name = "task-relay"$/m);
+});
+
+// cloud Glim's two ways to authenticate: a claude.ai/code network secret (the
+// agent proxy adds the header; the session has no RELAY_CLOUD_TOKEN), or the
+// env var as a fallback.
+function stubRelay(pc) {
+  const seen = [];
+  let queued = null;
+  const fetchFn = async (url, init) => {
+    seen.push({ url, auth: (init.headers || {}).authorization });
+    if (url.endsWith("/v1/tasks")) {
+      queued = init.body;
+      return new Response(JSON.stringify({ delivered: true }), { status: 202 });
+    }
+    if (url.includes("/v1/results/")) {
+      const id = JSON.parse(JSON.parse(queued).payload).id;
+      return new Response(signedResult(pc.seed, id, Math.floor(Date.now() / 1000), queued), { status: 200 });
+    }
+    return new Response(JSON.stringify({ pc: true, pending: 0 }), { status: 200 });
+  };
+  return { seen, fetchFn };
+}
+
+const BASE = { RELAY_URL: "https://task-relay.example-sub.workers.dev" };
+
+test("no RELAY_CLOUD_TOKEN: requests go without an Authorization header, and send still works", async () => {
+  assert.deepEqual(authHeaders({}), {});
+  assert.deepEqual(authHeaders({ RELAY_CLOUD_TOKEN: "  " }), {});
+  const signer = keygen();
+  const pc = keygen();
+  const { seen, fetchFn } = stubRelay(pc);
+  const env = { ...BASE, GLIM_TASK_SIGNING_KEY: signer.seed, GLIM_PC_PUBLIC_KEY: pc.pub };
+  assert.equal(await main(["send", "session-status", "--wait", "5"], env, fetchFn), 0);
+  assert.equal(await main(["status"], env, fetchFn), 0);
+  assert.ok(seen.length >= 3);
+  for (const s of seen) assert.equal(s.auth, undefined, s.url);
+});
+
+test("RELAY_CLOUD_TOKEN set: every request carries it as a bearer token", async () => {
+  const token = "c".repeat(64);
+  assert.deepEqual(authHeaders({ RELAY_CLOUD_TOKEN: token }), { authorization: `Bearer ${token}` });
+  const signer = keygen();
+  const pc = keygen();
+  const { seen, fetchFn } = stubRelay(pc);
+  const env = { ...BASE, RELAY_CLOUD_TOKEN: token, GLIM_TASK_SIGNING_KEY: signer.seed, GLIM_PC_PUBLIC_KEY: pc.pub };
+  assert.equal(await main(["send", "session-status", "--wait", "5"], env, fetchFn), 0);
+  for (const s of seen) assert.equal(s.auth, `Bearer ${token}`, s.url);
+});
+
+test("setup errors exit 4 without a stack: bad RELAY_URL, missing keys", async () => {
+  const never = async () => assert.fail("no request expected");
+  assert.equal(await main(["status"], { RELAY_URL: "https://evil.example.com" }, never), 4);
+  assert.equal(await main(["send", "session-status"], { ...BASE }, never), 4);
+});
+
+test("keygen: default file under LOCALAPPDATA/Glim, never a synced folder", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "courier-"));
+  const env = { LOCALAPPDATA: tmp, USERPROFILE: String.raw`C:\Users\someone` };
+  assert.equal(defaultKeyFile(env), path.join(tmp, "Glim", "task-signing-key.txt"));
+  assert.equal(keyFileProblem(String.raw`C:\Users\someone\Desktop\k.txt`, env) !== null, true);
+  assert.equal(keyFileProblem(String.raw`C:\Users\someone\Documents\x\k.txt`, env) !== null, true);
+  assert.equal(keyFileProblem(String.raw`C:\Users\someone\OneDrive - Org\k.txt`, env) !== null, true);
+  assert.equal(keyFileProblem(String.raw`D:\OneDrive\k.txt`, env) !== null, true);
+  assert.equal(keyFileProblem(String.raw`C:\Users\someone\DesktopNotes\k.txt`, env), null);
+  assert.equal(keyFileProblem(path.join(tmp, "Glim", "k.txt"), env), null);
+  assert.equal(await main(["keygen"], env), 0);
+  const seed = fs.readFileSync(defaultKeyFile(env), "utf8").trim();
+  assert.match(seed, /^[0-9a-f]{64}$/);
+  assert.equal(await main(["keygen"], env), 4, "refuses to overwrite");
+  assert.equal(await main(["keygen", String.raw`C:\Users\someone\Desktop\k.txt`], env), 4);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
