@@ -81,6 +81,16 @@ pub struct RemoteSettings {
     pub pc_public_key: String,
 }
 
+impl RemoteSettings {
+    /// The channel opens again (the kill switch's "Allow again", or Remote
+    /// tasks switched back on): tasks issued before `now` waited at the relay
+    /// while it was shut and are refused as killed (owner 2026-11-14). Every
+    /// path that re-opens the channel calls this.
+    pub fn reopen(&mut self, now: i64) {
+        self.allowed_since = now;
+    }
+}
+
 /// Why a task was refused: a fixed code, never text from the task.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rejection {
