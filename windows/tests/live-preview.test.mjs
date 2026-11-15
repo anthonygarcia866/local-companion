@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { LiveView, truncate, noteText, MAX_CHARS } = await import("../src/live/view.ts");
+const { LiveView, truncate, noteText, hintText, MAX_CHARS } = await import("../src/live/view.ts");
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 const OPS = [
@@ -20,7 +20,7 @@ const OPS = [
 
 function view() {
   const calls = [];
-  const v = new LiveView({ expand: (open) => calls.push(open), acceptKeys: () => "Ctrl+Alt+Shift+Enter" });
+  const v = new LiveView({ expand: (open) => calls.push(open), acceptKeys: () => "Ctrl+Alt+Shift+Enter", dismissKeys: () => "Ctrl+Alt+Shift+Backspace", reviewKeys: () => "Ctrl+Alt+Shift+]" });
   return { v, calls };
 }
 
@@ -77,4 +77,16 @@ test("the window is built like the mini lantern's and only listens", () => {
   assert.deepEqual(cap.permissions, ["core:event:allow-listen", "core:event:allow-unlisten"]);
   const rs = read("src-tauri/src/live_window.rs");
   assert.ok(rs.includes(".focusable(false)") && rs.includes("make_non_activating"));
+});
+
+test("kept revisions: the hint says where it is in a review and how to go through the rest", () => {
+  const keys = { accept: "Ctrl+Alt+Shift+Enter", dismiss: "Ctrl+Alt+Shift+Backspace", review: "Ctrl+Alt+Shift+]" };
+  assert.equal(hintText({}, keys), "Ctrl+Alt+Shift+Enter to apply");
+  assert.equal(hintText({ total: 1, position: 0 }, keys), "Ctrl+Alt+Shift+Enter to apply", "only this one: nothing to go through");
+  assert.equal(hintText({ total: 3, position: 0 }, keys), "Ctrl+Alt+Shift+Enter to apply · More kept: Ctrl+Alt+Shift+] to go through them");
+  assert.equal(hintText({ total: 3, position: 0 }, { ...keys, review: "" }), "Ctrl+Alt+Shift+Enter to apply", "the review key switched off");
+  assert.equal(hintText({ total: 3, position: 2 }, keys), "2 of 3: Ctrl+Alt+Shift+Enter to apply, Ctrl+Alt+Shift+Backspace to skip");
+  const { v } = view();
+  v.on({ phase: "show", id: 7, ops: OPS, app: "Outlook", why: "", total: 2, position: 1 });
+  assert.equal(v.el.find("div").find((d) => d.getAttribute("data-role") === "live-hint").textContent, "1 of 2: Ctrl+Alt+Shift+Enter to apply, Ctrl+Alt+Shift+Backspace to skip");
 });

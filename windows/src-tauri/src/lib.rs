@@ -2137,8 +2137,12 @@ pub fn run() {
             shortcuts::on_pause_toggle(move || pause::toggle(&pause_handle));
             // The live revision's keys (2026-11-03): the capture thread types it.
             #[cfg(windows)]
-            shortcuts::on_live_key(|accept| {
-                capture::uia::request(if accept { capture::uia::Request::LiveAccept } else { capture::uia::Request::LiveDismiss });
+            shortcuts::on_live_key(|key| {
+                capture::uia::request(match key {
+                    shortcuts::LiveKey::Accept => capture::uia::Request::LiveAccept,
+                    shortcuts::LiveKey::Dismiss => capture::uia::Request::LiveDismiss,
+                    shortcuts::LiveKey::Review => capture::uia::Request::LiveReview,
+                });
             });
             // And push-to-talk (voice 1.5b): Rust polls the key for its release.
             #[cfg(windows)]

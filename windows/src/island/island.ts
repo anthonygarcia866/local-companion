@@ -1309,7 +1309,8 @@ export class Island {
       el.style.setProperty("--mic-level", (State.voice?.level ?? 0).toFixed(2));
       this.lantern.show(voice);
     } else {
-      const writing = State.writing.length;
+      // The checker's suggestions and the kept live revisions (2026-11-14).
+      const writing = State.writing.length + State.liveKept;
       // "Check writing in [app]?" (1d) lights s-suggest too, with no count.
       const suggest = writing + (State.writingAsk ? 1 : 0) + (State.writingDocsTip ? 1 : 0) + (State.consentAsk ? 1 : 0);
       // The calendar glance: the next event is minutes away (a resting lantern glows).

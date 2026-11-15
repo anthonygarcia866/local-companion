@@ -446,6 +446,8 @@ class AppState {
   consentAsk: CloudFeature | null = null;
   /** A live revision is on its way to Claude (the lantern's data-leaving look). */
   liveSending = false;
+  /** Live revisions kept in the field being read (2026-11-14): on the lantern's count. */
+  liveKept = 0;
   /** Push-to-talk dictation (core/voice.ts): where it is; null for nothing going on. */
   voice: VoiceState | null = null;
   /** The "Draft email" card (core/draft.ts); null for none. */

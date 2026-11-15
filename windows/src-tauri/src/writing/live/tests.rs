@@ -583,3 +583,162 @@ fn the_caret_still_wins_and_keeps_its_island_fallback() {
     assert_eq!(preview_place(Some(Rect::new(110, 40, 880, 80)), None, field, &monitors, false), None);
     assert_eq!((Placement::Caret.code(), Placement::Field.code(), Placement::Island.code()), ("caret", "field", "island"));
 }
+
+// ── Kept suggestions and the review key (owner, 2026-11-14) ───────────────
+
+const NEXT: &str = "The second paragraph is being typed right now";
+
+/// TYPED shown, then the user moves on to a second paragraph below it.
+fn moved_on() -> (Session, Instant, u64) {
+    let (mut s, now) = typed(1600);
+    let src = shown(&mut s, now);
+    see(&mut s, true, Some(&format!("{TYPED}\n{NEXT}")), now + ms(300));
+    (s, now + ms(300), src.id)
+}
+
+#[test]
+fn a_suggestion_is_kept_when_the_owner_moves_on_and_can_be_reviewed() {
+    let (mut s, now, id) = moved_on();
+    // The preview went with the typing, the suggestion stayed.
+    assert_eq!(s.live_hidden().unwrap().why, "typing");
+    assert!(s.live_shown().is_none());
+    assert_eq!(s.live_kept_here(), 1);
+    let count = s.live_count().unwrap();
+    assert_eq!((count.phase, count.total), ("count", 1));
+    assert!(s.live_count().is_none(), "told once");
+    // The review key brings it back: 1 of 1, and accepting targets that paragraph.
+    let e = s.live_review(now).unwrap();
+    assert_eq!((e.phase, e.id, e.position, e.total), ("show", id, 1, 1));
+    assert!(e.ops.iter().any(|o| o.kind == "add" && o.text.contains("received")));
+    assert!(s.live_reviewing());
+    let job = s.live_job().unwrap();
+    assert_eq!((job.paragraph.as_str(), job.replacement.as_str()), (TYPED, FIXED));
+    // A reading with the caret still in the second paragraph keeps it on show.
+    see(&mut s, true, Some(&format!("{TYPED}\n{NEXT}")), now + ms(300));
+    assert!(s.live_shown().is_some());
+    // Typing on hides the preview; the suggestion is still kept.
+    see(&mut s, true, Some(&format!("{TYPED}\n{NEXT} and")), now + ms(600));
+    assert!(s.live_shown().is_none());
+    assert_eq!(s.live_kept_here(), 1);
+}
+
+#[test]
+fn a_kept_suggestion_goes_only_when_its_own_paragraph_changes() {
+    let (mut s, now, _) = moved_on();
+    // A third paragraph, the second one edited: the first one's suggestion stays.
+    see(&mut s, true, Some(&format!("{TYPED}\n{NEXT} today\nAnd a third")), now + ms(300));
+    assert_eq!(s.live_kept_here(), 1);
+    // The first paragraph edited (a word typed on): gone, and the count says 0.
+    see(&mut s, true, Some(&format!("{TYPED} Thanks\n{NEXT} today\nAnd a third")), now + ms(600));
+    assert_eq!(s.live_kept_here(), 0);
+    assert!(s.live_review(now + ms(700)).is_none());
+}
+
+#[test]
+fn a_reviewed_one_whose_paragraph_changed_is_refused_and_hidden() {
+    let (mut s, now, id) = moved_on();
+    let _ = s.live_hidden();
+    s.live_review(now).unwrap();
+    see(&mut s, true, Some(&format!("We got the payment.\n{NEXT}")), now + ms(300));
+    assert_eq!(s.live_hidden().map(|h| (h.id, h.why)), Some((id, "changed")));
+    assert_eq!(s.live_job().unwrap_err(), crate::writing::Outcome::Changed);
+}
+
+#[test]
+fn skipping_while_reviewing_moves_on_and_forgets_it() {
+    // Two kept: the first paragraph's, then the second's.
+    let (mut s, now, first) = moved_on();
+    let second_fixed = "The second paragraph is being typed right now, ok.";
+    // A word typed on the second paragraph, then a pause.
+    let mut at = now;
+    for _ in 0..7 {
+        at += ms(300);
+        see(&mut s, true, Some(&format!("{TYPED}\n{NEXT} ok")), at);
+    }
+    let src = s.live_take(at, &cfg(), "Notepad.exe", false).expect("second paragraph due");
+    assert!(matches!(s.live_answer(src.id, second_fixed, at), Outcome::Shown(ref e) if e.total == 2));
+    let e = s.live_review(at).unwrap();
+    assert_eq!((e.id, e.position, e.total), (first, 1, 2));
+    let e = s.live_review(at).unwrap();
+    assert_eq!((e.id, e.position, e.total), (src.id, 2, 2), "the key steps on");
+    let e = s.live_review(at).unwrap();
+    assert_eq!(e.id, first, "and round again");
+    // Skip: the first goes for good, the second comes up.
+    let e = s.live_next(at, "dismissed").unwrap();
+    assert_eq!((e.id, e.position, e.total), (src.id, 1, 1));
+    assert_eq!(s.live_kept_here(), 1);
+    // Skip the last: nothing left, the preview goes.
+    assert!(s.live_next(at, "dismissed").is_none());
+    assert_eq!(s.live_hidden().unwrap().why, "dismissed");
+    assert_eq!(s.live_kept_here(), 0);
+}
+
+#[test]
+fn an_applied_or_dismissed_one_is_not_kept() {
+    let (mut s, now) = typed(1600);
+    shown(&mut s, now);
+    s.live_forget_shown();
+    s.live_hide("dismissed");
+    assert_eq!(s.live_kept_here(), 0);
+    let (mut s, now) = typed(1600);
+    shown(&mut s, now);
+    s.live_applied(FIXED);
+    assert_eq!(s.live_kept_here(), 0);
+}
+
+#[test]
+fn kept_ones_last_thirty_minutes_and_go_with_their_window() {
+    let t0 = Instant::now();
+    let mut s = Session::default();
+    see_in(&mut s, 11, false, Some(FIRST), t0);
+    see_in(&mut s, 11, true, Some(TYPED), t0 + ms(100));
+    see_in(&mut s, 11, true, Some(TYPED), t0 + ms(1700));
+    let src = s.live_take(t0 + ms(1700), &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, t0 + ms(1700)), Outcome::Shown(_)));
+    // Another field in the same window and back: still kept (not the other field's).
+    see_in(&mut s, 22, false, Some("The subject line of the email"), t0 + ms(2000));
+    assert_eq!(s.live_kept_here(), 0, "field 22 has none");
+    see_in(&mut s, 11, false, Some(TYPED), t0 + ms(2500));
+    assert_eq!(s.live_kept_here(), 1);
+    s.live_forget(t0 + KEPT_FOR - ms(1), |_| true);
+    assert_eq!(s.live_kept_here(), 1);
+    s.live_forget(t0 + KEPT_FOR + ms(1700), |_| true);
+    assert_eq!(s.live_kept_here(), 0, "30 minutes");
+    // A closed window takes its kept ones.
+    let t1 = t0 + KEPT_FOR + ms(5000);
+    see_in(&mut s, 33, false, Some(FIRST), t1);
+    see_in(&mut s, 33, true, Some(TYPED), t1 + ms(100));
+    see_in(&mut s, 33, true, Some(TYPED), t1 + ms(1700));
+    let src = s.live_take(t1 + ms(1700), &cfg(), "Notepad.exe", false).unwrap();
+    assert!(matches!(s.live_answer(src.id, FIXED, t1 + ms(1700)), Outcome::Shown(_)));
+    s.live_forget(t1 + ms(2000), |w| w != 33);
+    assert_eq!(s.live_kept_here(), 0);
+}
+
+#[test]
+fn pausing_glim_drops_the_kept_ones_a_field_change_does_not() {
+    let (mut s, now, _) = moved_on();
+    s.live_reset("field");
+    assert_eq!(s.live.kept.len(), 1);
+    let r = Observed { same: true, text: None, caret: None, rules: Rules::Full, mode: FixMode::Apply, app: "Notepad", paused: true, sensitive: false, live_only: false };
+    s.observe_in(&r, now, |_| {});
+    assert!(s.live.kept.is_empty());
+}
+
+#[test]
+fn at_most_kept_max_are_kept() {
+    let mut s = Session::default();
+    let t0 = Instant::now();
+    for i in 0..(KEPT_MAX + 3) {
+        let at = t0 + ms(10_000 * i as u64);
+        let first = format!("Paragraph number {i} has a typo in it");
+        let typed = format!("{first} here");
+        see(&mut s, false, Some(&first), at);
+        see(&mut s, true, Some(&typed), at + ms(100));
+        see(&mut s, true, Some(&typed), at + ms(1700));
+        let src = s.live_take(at + ms(1700), &cfg(), "Notepad.exe", false).unwrap();
+        let fixed = format!("{first} here.");
+        assert!(matches!(s.live_answer(src.id, &fixed, at + ms(1700)), Outcome::Shown(_)));
+    }
+    assert_eq!(s.live.kept.len(), KEPT_MAX);
+}
