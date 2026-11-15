@@ -38,6 +38,7 @@ export const SHORTCUT_TEXT = {
   askGlim: N_("Hold to ask Glim"),
   liveAccept: N_("Apply the live revision"),
   liveDismiss: N_("Dismiss the live revision"),
+  liveReview: N_("Go through kept live revisions"),
   island: {
     nextPrev: N_("Next or previous pill"),
     byNumber: N_("Go to pill 1 to 9"),
@@ -72,7 +73,8 @@ export type ShortcutId =
   | "pushToTalk"
   | "askGlim"
   | "liveAccept"
-  | "liveDismiss";
+  | "liveDismiss"
+  | "liveReview";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -120,6 +122,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   // Live revisions (2026-11-03): apply / dismiss the revision shown above the paragraph. Rust runs them.
   def("liveAccept", "Ctrl+Alt+Shift+Enter", true, true),
   def("liveDismiss", "Ctrl+Alt+Shift+Backspace", true, true),
+  // Kept live revisions (2026-11-14): one by one; the accept key applies, the dismiss key skips. Rust runs it.
+  def("liveReview", "Ctrl+Alt+Shift+BracketRight", true, true),
 ];
 
 export interface Binding {

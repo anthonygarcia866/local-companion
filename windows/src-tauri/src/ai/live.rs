@@ -161,6 +161,14 @@ fn add_usage(a: Option<claude::Usage>, b: Option<claude::Usage>) -> Option<claud
     }
 }
 
+/// Which never-send rule (shield::never_send) would block this request
+/// (owner 2026-11-14: a "sensitive" result names its rule in glim.log, the
+/// rule's name only): the same texts `revise` checks.
+pub fn never_send_rule(paragraph: &str, before: &str, rules: &[String]) -> Option<&'static str> {
+    let rules = rules.iter().take(MAX_RULES).map(String::as_str);
+    [paragraph, before].into_iter().chain(rules).find_map(crate::shield::never_send::reason).map(|r| r.code())
+}
+
 /// The log's line: codes, numbers, timings and cost; never text.
 /// `outcome` is writing::live's word for what became of it.
 pub fn log_line(reply: &Reply, outcome: &str, sent_to_answer: Duration, pause_to_answer: Duration) -> String {

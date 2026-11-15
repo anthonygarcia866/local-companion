@@ -517,6 +517,8 @@ impl Session {
             self.refresh(&mut emit);
             return;
         };
+        // Live revisions' kept suggestions: one whose paragraph changed goes.
+        self.live_prune(text);
         // A field that is checked but has nothing to check here (a blank
         // paragraph, the caret in the signature or the quote): nothing shown.
         let Some(paragraph) = paragraph_to_check(text, r.caret) else {

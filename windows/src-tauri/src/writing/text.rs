@@ -40,6 +40,21 @@ pub fn quoted_reply(field: &str) -> String {
     String::new()
 }
 
+/// Whether `field` still holds `paragraph` exactly as it was read (live
+/// revisions' kept suggestions, owner 2026-11-14): somewhere with a line
+/// break or the field's edge on both sides, so a paragraph typed on ("…it."
+/// → "…it!") no longer counts. A paragraph as long as the caret window
+/// (`paragraph_to_check` cuts a long one to whole words around the caret)
+/// may also sit between spaces.
+pub fn holds_paragraph(field: &str, paragraph: &str) -> bool {
+    if paragraph.is_empty() {
+        return false;
+    }
+    let cut = paragraph.chars().count() >= AFTER_CARET;
+    let edge = |c: Option<char>| c.is_none_or(|c| is_break(c) || (cut && c.is_whitespace()));
+    field.match_indices(paragraph).any(|(at, _)| edge(field[..at].chars().next_back()) && edge(field[at + paragraph.len()..].chars().next()))
+}
+
 /// The paragraph the caret is in, inside the user's own text. None when the
 /// caret is in the signature or the quoted part, or the paragraph is blank.
 /// Without a caret (ValuePattern fields), the end of the user's own text.
@@ -242,6 +257,22 @@ mod tests {
         let p = paragraph_to_check(&field, Some(750)).unwrap();
         assert!(p.text.starts_with("word") && p.text.trim_end().ends_with("word"), "{:?}", &p.text[..20]);
         assert!(p.text.chars().count() <= BEFORE_CARET + AFTER_CARET);
+    }
+
+    #[test]
+    fn a_paragraph_is_held_only_whole_and_unchanged() {
+        let field = "Hi Sam,\r\nThe lease starts Monday.\r\nSee you then.";
+        assert!(holds_paragraph(field, "The lease starts Monday."));
+        assert!(holds_paragraph(field, "Hi Sam,"));
+        assert!(holds_paragraph(field, "See you then."));
+        assert!(!holds_paragraph(field, "The lease starts"), "only part of a paragraph");
+        assert!(!holds_paragraph("The lease starts Monday!", "The lease starts Monday"), "typed on");
+        assert!(!holds_paragraph("Note: The lease starts Monday.", "The lease starts Monday."));
+        assert!(!holds_paragraph(field, ""));
+        // A long paragraph read as a window around the caret: spaces count as edges.
+        let long = "word ".repeat(60);
+        let window = long.trim().to_string();
+        assert!(holds_paragraph(&format!("Before {window} after"), &window));
     }
 
     #[test]
