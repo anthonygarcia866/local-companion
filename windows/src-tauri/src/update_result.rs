@@ -48,6 +48,10 @@ pub struct UpdateResult {
     pub finished_at: String,
     pub total_ms: u64,
     pub steps: Vec<StepResult>,
+    /// Apps the updater closed to free memory (their labels only, owner
+    /// 2026-11-14: it closes nothing while the owner is active), for the
+    /// island's notice.
+    pub closed: Vec<String>,
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -69,6 +73,11 @@ pub fn parse(bytes: &[u8]) -> Option<UpdateResult> {
     r.error = clip(&r.error, 200);
     r.finished_at = clip(&r.finished_at, 40);
     r.steps.truncate(30);
+    r.closed.truncate(20);
+    for c in &mut r.closed {
+        *c = clip(c, 40);
+    }
+    r.closed.retain(|c| !c.trim().is_empty());
     for s in &mut r.steps {
         s.name = clip(&s.name, 40);
         s.detail = clip(&s.detail, 200);
@@ -132,6 +141,17 @@ mod tests {
         let r = parse(format!("\u{feff}{OK}").as_bytes()).unwrap();
         assert_eq!((r.commit.as_str(), r.ok, r.selftest.as_str(), r.total_ms), ("1a2b3c4d", true, "6/6", 600000));
         assert_eq!(r.steps[0].name, "pack");
+    }
+
+    #[test]
+    fn the_apps_it_closed_come_through_clipped_and_an_older_file_has_none() {
+        let r = parse(OK.replace(r#""steps""#, r#""closed":["Slack","","Spotify\u0007"],"steps""#).as_bytes()).unwrap();
+        assert_eq!(r.closed, ["Slack", "Spotify"]);
+        assert!(parse(OK.as_bytes()).unwrap().closed.is_empty(), "written before the field existed");
+        let many: Vec<String> = (0..50).map(|i| format!("\"{}\"", "A".repeat(i + 1))).collect();
+        let r = parse(OK.replace(r#""steps""#, &format!(r#""closed":[{}],"steps""#, many.join(","))).as_bytes()).unwrap();
+        assert_eq!(r.closed.len(), 20);
+        assert!(r.closed.iter().all(|c| c.chars().count() <= 40));
     }
 
     #[test]
