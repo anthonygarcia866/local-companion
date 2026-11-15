@@ -20,6 +20,21 @@ export interface LivePreviewEvent {
   app: string;
   /** "hide": why; "note": the outcome code (changed, copied, blocked …). */
   why: string;
+  /** Kept revisions in this field (2026-11-14), this one included. */
+  total?: number;
+  /** 1-based when the review key put this one on show; 0 for a fresh one. */
+  position?: number;
+}
+
+/** The preview's key hint: apply; while reviewing, where it is and skip;
+ *  with others kept, how to go through them. */
+export function hintText(e: Pick<LivePreviewEvent, "total" | "position">, keys: { accept: string; dismiss: string; review: string }): string {
+  const total = e.total ?? 0;
+  const position = e.position ?? 0;
+  if (position > 0) return t("{position} of {total}: {accept} to apply, {dismiss} to skip", { position, total, accept: keys.accept, dismiss: keys.dismiss });
+  const apply = t("{keys} to apply", { keys: keys.accept });
+  if (total > 1 && keys.review) return `${apply} · ${t("More kept: {keys} to go through them", { keys: keys.review })}`;
+  return apply;
 }
 
 /** About three lines of the preview at its width (440 px, 13 px text). */
@@ -60,6 +75,9 @@ export interface LiveHost {
   expand(open: boolean): void;
   /** The accept key as the user has it ("Ctrl+Alt+Shift+Enter"). */
   acceptKeys(): string;
+  /** The dismiss and review keys as the user has them ("" when off). */
+  dismissKeys(): string;
+  reviewKeys(): string;
 }
 
 export class LiveView {
@@ -109,7 +127,8 @@ export class LiveView {
       });
       text.append(more);
     }
-    this.el.append(text, h("div", { class: "live-hint", "data-role": "live-hint", text: t("{keys} to apply", { keys: this.host.acceptKeys() }) }));
+    const keys = { accept: this.host.acceptKeys(), dismiss: this.host.dismissKeys(), review: this.host.reviewKeys() };
+    this.el.append(text, h("div", { class: "live-hint", "data-role": "live-hint", text: hintText(e, keys) }));
     this.el.classList.remove("is-hidden");
   }
 }

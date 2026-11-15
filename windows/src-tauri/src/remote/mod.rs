@@ -21,7 +21,9 @@
 //   (local-companion to start).
 // - The channel is OFF by default and needs its one-time consent card; the
 //   kill switch (tray + Settings, one click) refuses everything until it is
-//   switched back in Settings.
+//   switched back in Settings. A task issued before that "Allow again" (one
+//   queued at the relay while stopped, handed over on reconnect) is refused
+//   as killed too, never run (owner 2026-11-14).
 // - Every decision goes to the "Remote activity" list (Settings) and
 //   glim.log: time, outcome, the command kind or the rejection's reason
 //   code. Never a payload, an argument, a signature or a key; for a task
@@ -66,6 +68,10 @@ pub struct RemoteSettings {
     pub consented: bool,
     /// The kill switch: everything is refused until it is switched back.
     pub killed: bool,
+    /// When the kill switch was last switched back ("Allow again"), Unix
+    /// seconds (0: never). A task issued before it was queued while stopped:
+    /// refused as killed, never run (owner 2026-11-14).
+    pub allowed_since: i64,
     /// The signer's Ed25519 public key, 64 lower-case hex characters ("" none).
     pub public_key: String,
     /// The relay's address, "https://<name>.<subdomain>.workers.dev" ("" none).
@@ -73,6 +79,16 @@ pub struct RemoteSettings {
     /// The PC's result key (public half, 64 hex) once set up ("" none); the
     /// private half is only in Credential Manager (courier::PC_KEY_TARGET).
     pub pc_public_key: String,
+}
+
+impl RemoteSettings {
+    /// The channel opens again (the kill switch's "Allow again", or Remote
+    /// tasks switched back on): tasks issued before `now` waited at the relay
+    /// while it was shut and are refused as killed (owner 2026-11-14). Every
+    /// path that re-opens the channel calls this.
+    pub fn reopen(&mut self, now: i64) {
+        self.allowed_since = now;
+    }
 }
 
 /// Why a task was refused: a fixed code, never text from the task.
@@ -282,6 +298,13 @@ impl Gate {
             return Err((Rejection::BadId, None));
         }
         let id = Some(p.id.clone());
+        // Queued while the kill switch was on: the relay hands such tasks
+        // over when the PC reconnects after "Allow again". Answered as
+        // killed, never run. No clock-skew allowance here: a fresh task from
+        // a clock running behind is refused and simply sent again.
+        if p.iat < s.allowed_since {
+            return Err((Rejection::Killed, id));
+        }
         if p.exp - p.iat > MAX_LIFETIME_S || p.exp < p.iat {
             return Err((Rejection::TooLong, id));
         }
