@@ -15,12 +15,12 @@ cloud Glim ──POST /v1/tasks (cloud token)──▶  relay (Worker + DO)  ◀
 
 | Secret / key | Made by | Kept | Never |
 |---|---|---|---|
-| Task-signing key (Ed25519 private) | `node relay/courier.mjs keygen <file>` | cloud Glim's environment, `GLIM_TASK_SIGNING_KEY` | on the PC (Glim stores only its public key), in the repo or chat |
+| Task-signing key (Ed25519 private) | `node relay/courier.mjs keygen` (writes `%LOCALAPPDATA%\Glim\task-signing-key.txt`, never a OneDrive-synced folder such as Desktop or Documents; delete it after copying) | cloud Glim's environment, `GLIM_TASK_SIGNING_KEY` | on the PC once copied (Glim stores only its public key), in the repo or chat |
 | Task-signing public key | the same | Glim: Settings → Remote → Remote tasks (fingerprint shown) | n/a (public) |
 | PC result key (Ed25519 private) | Glim, "Set up the relay" | Credential Manager `Glim/RemotePcSigningKey` (PKCS#8) | in a file, a log, the page or the network |
 | PC result public key | the same | Settings (shown with its fingerprint); cloud Glim's `GLIM_PC_PUBLIC_KEY` | n/a (public) |
 | PC relay token (32 random bytes, hex) | the same | Credential Manager `Glim/RemoteRelayPcToken`; only sent as the WebSocket upgrade's `Authorization: Bearer` | in a URL, a log or the page |
-| Cloud relay token (32 random bytes, hex) | the same | shown **once** in Settings, then only in cloud Glim's environment, `RELAY_CLOUD_TOKEN`; Glim forgets it | on the PC after that, in the repo or chat |
+| Cloud relay token (32 random bytes, hex) | the same | shown **once** in Settings, then only in a claude.ai/code **network secret** (recommended, see below) or, as a fallback, cloud Glim's environment variable `RELAY_CLOUD_TOKEN`; Glim forgets it | on the PC after that, in the repo or chat |
 | Token hashes (SHA-256 hex) | the same | Settings → Secrets `REMOTE_PC_TOKEN_SHA256`, `REMOTE_CLOUD_TOKEN_SHA256` → Worker secrets `PC_TOKEN_SHA256`, `CLOUD_TOKEN_SHA256` (an approved runbook pipes them to `wrangler secret put` on stdin) | n/a (a hash of 32 random bytes reveals nothing) |
 
 The relay holds only the two hashes: it tells the PC and cloud Glim apart, and each token works only on its own side's routes. A stolen cloud token can queue tasks, but every task still needs the task-signing key. A stolen PC token can read the queue, but it can't produce results cloud Glim accepts without the PC result key.
@@ -103,7 +103,8 @@ The exact owner steps are in HANDOFF (local). In order:
 
 1. Glim: Settings → Remote → Remote tasks → **Set up the relay**. Copy the cloud token shown once. Copy the PC result key.
 2. Run the local runbook `relay-tokens` (approve it in Settings → Runbooks first). It pipes the two hashes to `wrangler secret put PC_TOKEN_SHA256 / CLOUD_TOKEN_SHA256` on stdin.
-3. Make the task-signing key: `node relay/courier.mjs keygen <file outside the repo>`. Paste the printed public key in Glim (Signer's public key → Save key).
-4. In cloud Glim's environment settings, set `RELAY_URL`, `RELAY_CLOUD_TOKEN`, `GLIM_TASK_SIGNING_KEY` (the file's contents, then delete the file) and `GLIM_PC_PUBLIC_KEY`. Its network access must allow the relay's `*.workers.dev` host.
-5. Glim: Relay address → Save address; Accept remote tasks → on (consent card). The state should read Connected.
-6. From cloud Glim: `node relay/courier.mjs send session-status` should print a verified result. Then test the kill switch: tray → Stop remote tasks. The next `send` exits 3 (no result), and Remote activity shows the stop.
+3. Make the task-signing key: `node relay/courier.mjs keygen`. It writes the seed to `%LOCALAPPDATA%\Glim\task-signing-key.txt` (it refuses OneDrive, Desktop and Documents, which OneDrive may sync, and an existing file). Paste the printed public key in Glim (Signer's public key → Save key).
+4. Give cloud Glim the cloud token, preferably as a **network secret** in the claude.ai/code environment: host = the relay's **exact** host (`task-relay.<subdomain>.workers.dev`, never `*.workers.dev`, which would hand the token to every Worker on Cloudflare), path `/v1/`, header `Authorization: Bearer <token>`. The agent proxy adds the header on the way out, so the session never holds the token. `courier.mjs` then sends no Authorization header of its own (`RELAY_CLOUD_TOKEN` unset). Fallback: the environment variable `RELAY_CLOUD_TOKEN`; when set, `courier.mjs` sends it as the bearer token. A 401 with no token sent from the session prints a hint to check the network secret.
+5. In cloud Glim's environment variables, set `RELAY_URL`, `GLIM_TASK_SIGNING_KEY` (the key file's contents; then **delete** `%LOCALAPPDATA%\Glim\task-signing-key.txt`) and `GLIM_PC_PUBLIC_KEY`. Its network access must allow the relay's exact host.
+6. Glim: Relay address → Save address; Accept remote tasks → on (consent card). The state should read Connected.
+7. From cloud Glim: `node relay/courier.mjs send session-status` should print a verified result. Then test the kill switch: tray → Stop remote tasks. The next `send` exits 3 (no result), and Remote activity shows the stop.
