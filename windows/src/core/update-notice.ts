@@ -24,16 +24,22 @@ export interface UpdateResult {
   finishedAt: string;
   totalMs: number;
   steps: UpdateStep[];
+  /** Apps the updater closed to free memory (labels; 2026-11-14). Missing in older files. */
+  closed?: string[];
 }
 
 /** The island's closes by itself after this long. */
 export const UPDATE_NOTICE_MS = 12_000;
 
-/** One line: the commit and the self-test, or the step that failed and why. */
+/** One line: the commit and the self-test, or the step that failed and why;
+ *  then the apps it closed to free memory, if any. */
 export function updateLine(u: UpdateResult): string {
   const commit = u.commit || "?";
-  if (u.ok) return t("Updated to {commit}: self-test {selftest}", { commit, selftest: u.selftest || "?" });
-  return t("Update to {commit} failed at {step}: {error}", { commit, step: u.failedStep || "?", error: u.error || "?" });
+  const line = u.ok
+    ? t("Updated to {commit}: self-test {selftest}", { commit, selftest: u.selftest || "?" })
+    : t("Update to {commit} failed at {step}: {error}", { commit, step: u.failedStep || "?", error: u.error || "?" });
+  const closed = (u.closed ?? []).filter((c) => c.trim());
+  return closed.length ? `${line}. ${t("Closed to free memory: {apps}", { apps: closed.join(", ") })}` : line;
 }
 
 /** "pack 8 min 20 s · install 12 s …": each step's time, for Settings. */

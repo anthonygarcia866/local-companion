@@ -28,3 +28,10 @@ test("the island shows it only on the pill with no approval waiting", () => {
   assert.equal(updateNoticeShows({ presence: "pill", paused: false, approval: true }), false);
   assert.equal(updateNoticeShows({ presence: "hidden", paused: false, approval: false }), false);
 });
+
+test("the apps it closed to free memory follow the line; none, nothing added", () => {
+  assert.equal(updateLine({ ...base, closed: ["Slack", "Spotify"] }), "Updated to 1a2b3c4d: self-test 6/6. Closed to free memory: Slack, Spotify");
+  assert.equal(updateLine({ ...base, closed: [] }), "Updated to 1a2b3c4d: self-test 6/6");
+  assert.equal(updateLine({ ...base, closed: [" "] }), "Updated to 1a2b3c4d: self-test 6/6");
+  assert.equal(updateLine({ ...base, ok: false, failedStep: "pack", error: "npm run pack exited 1", closed: ["Slack"] }), "Update to 1a2b3c4d failed at pack: npm run pack exited 1. Closed to free memory: Slack");
+});
