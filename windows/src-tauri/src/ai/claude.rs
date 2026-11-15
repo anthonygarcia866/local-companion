@@ -350,6 +350,10 @@ pub(super) async fn send(base: &Url, key: &ApiKey, body: &Value) -> Result<Vec<u
             .ok()
             .and_then(|v| v.pointer("/error/type").and_then(Value::as_str).map(error_kind))
             .unwrap_or_else(|| "unknown".into());
+        // The key was refused: one card on the island, at most hourly.
+        if status == 401 {
+            super::key_rejected::on_401();
+        }
         return Err(Failure::Api { status, kind, retry_after });
     }
     net::read_capped(response, net::MAX_BODY).await.map_err(|_| Failure::Network)
@@ -539,6 +543,7 @@ mod tests {
         let (reply, _) = against("401 Unauthorized", "", err("authentication_error"), PARAGRAPH);
         assert_eq!(reply.result, Err(Failure::Api { status: 401, kind: "authentication_error".into(), retry_after: None }));
         assert!(reply.usage.is_none());
+        assert!(super::super::key_rejected::last_shown().is_some(), "a real 401 reached the card's throttle");
         let (reply, _) = against("429 Too Many Requests", "retry-after: 30\r\n", err("rate_limit_error"), PARAGRAPH);
         assert_eq!(reply.result, Err(Failure::Api { status: 429, kind: "rate_limit_error".into(), retry_after: Some(30) }));
         let (reply, _) = against("529 Overloaded", "", err("overloaded_error"), PARAGRAPH);
