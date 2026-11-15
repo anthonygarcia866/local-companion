@@ -409,6 +409,13 @@ impl Session {
     /// sensitive, or a paragraph the user edited and paused on that is under
     /// MIN_WORDS words or looks like it holds a credential. None otherwise
     /// (nothing edited, still typing, on its way: not skips).
+    /// The paragraph being read, as the log may say it: "3w/14c" (words /
+    /// characters). Never its text.
+    pub fn live_size(&self) -> Option<String> {
+        let c = self.current.as_ref()?;
+        Some(format!("{}w/{}c", c.text.split_whitespace().count(), c.text.chars().count()))
+    }
+
     pub fn live_why_not(&self, now: Instant, cfg: &Config, exe: &str) -> Option<&'static str> {
         if !cfg.on {
             return Some("live-off");

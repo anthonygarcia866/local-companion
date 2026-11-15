@@ -3,7 +3,10 @@
 // last hour, why they didn't run, per reason (Settings → Writing → Live
 // revisions status), and the same counts in a log line every 5 minutes.
 // Never text: reasons and outcomes are fixed codes, apps are their short
-// names (as the log already says them).
+// names (as the log already says them). The log line also says, per skip,
+// which app it was in ("app-not-allowed 3 (WindowsTerminal.exe 2,
+// explorer.exe 1)") and how long the paragraph was ("too-short 2 (3w/14c 1,
+// 4w/21c 1)": words/characters, owner 2026-11-14); never its text.
 //
 // A skip is counted once per stay: the same reason again in the same field
 // is the same skip (the capture loop reads about three times a second).
@@ -20,6 +23,8 @@ pub const LOG_EVERY: Duration = Duration::from_secs(300);
 pub const WINDOW: Duration = Duration::from_secs(3600);
 /// Events kept at most (an hour of the busiest typing is far fewer).
 const KEEP: usize = 4096;
+/// At most this many details per reason in the log line.
+const MAX_DETAILS: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -33,7 +38,8 @@ enum Kind {
 
 #[derive(Default)]
 pub struct Stats {
-    events: VecDeque<(Instant, Kind, String)>,
+    /// (when, kind, reason or outcome, its detail for the log: an app, a length).
+    events: VecDeque<(Instant, Kind, String, Option<String>)>,
     /// The last revision shown: when (a clock time), the app, and its Instant.
     last_shown: Option<(Instant, String, String)>,
     /// The reason last counted in this stay, so it's counted once.
@@ -55,20 +61,26 @@ pub struct Status {
 }
 
 impl Stats {
-    fn push(&mut self, at: Instant, kind: Kind, what: &str) {
+    fn push(&mut self, at: Instant, kind: Kind, what: &str, detail: Option<String>) {
         if self.events.len() == KEEP {
             self.events.pop_front();
         }
-        self.events.push_back((at, kind, what.to_string()));
+        self.events.push_back((at, kind, what.to_string(), detail));
     }
 
     /// Live revisions didn't run here because of `reason` (counted once per stay).
     pub fn skip(&mut self, at: Instant, reason: &str) {
+        self.skip_with(at, reason, None);
+    }
+
+    /// `skip`, with what the log says about it: the app's exe, or the
+    /// paragraph's length ("3w/14c"). Never text.
+    pub fn skip_with(&mut self, at: Instant, reason: &str, detail: Option<String>) {
         if self.streak.as_deref() == Some(reason) {
             return;
         }
         self.streak = Some(reason.to_string());
-        self.push(at, Kind::Skip, reason);
+        self.push(at, Kind::Skip, reason, detail);
     }
 
     /// Another field, or a request went out: the next skip counts again.
@@ -79,12 +91,12 @@ impl Stats {
     /// A request went out ("sent"), or what came of it ("unchanged", "failed" …).
     pub fn result(&mut self, at: Instant, what: &str) {
         self.streak = None;
-        self.push(at, Kind::Result, what);
+        self.push(at, Kind::Result, what, None);
     }
 
     /// A shown revision's preview went by `how` ("caret", "field", "island").
     pub fn placed(&mut self, at: Instant, how: &str) {
-        self.push(at, Kind::Placed, how);
+        self.push(at, Kind::Placed, how, None);
     }
 
     /// A revision was shown, at clock time `clock` ("08:33"), in `app`.
@@ -95,7 +107,7 @@ impl Stats {
 
     fn counts(&self, now: Instant, within: Duration, kind: Kind) -> Vec<(String, u32)> {
         let mut map: BTreeMap<&str, u32> = BTreeMap::new();
-        for (at, k, what) in &self.events {
+        for (at, k, what, _) in &self.events {
             if *k == kind && now.saturating_duration_since(*at) < within {
                 *map.entry(what.as_str()).or_default() += 1;
             }
@@ -114,16 +126,37 @@ impl Stats {
     }
 
     /// The log's line for the last `within`: counts only.
+    /// One skip reason's details over `within`, most first: "(WindowsTerminal.exe 2, explorer.exe 1)", or "".
+    fn details(&self, now: Instant, within: Duration, reason: &str) -> String {
+        let mut map: BTreeMap<&str, u32> = BTreeMap::new();
+        for (at, k, what, detail) in &self.events {
+            if *k == Kind::Skip && what == reason && now.saturating_duration_since(*at) < within {
+                if let Some(d) = detail {
+                    *map.entry(d.as_str()).or_default() += 1;
+                }
+            }
+        }
+        if map.is_empty() {
+            return String::new();
+        }
+        let mut v: Vec<(&str, u32)> = map.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        let shown: Vec<String> = v.iter().take(MAX_DETAILS).map(|(d, n)| format!("{d} {n}")).collect();
+        let more = if v.len() > MAX_DETAILS { format!(", +{} more", v.len() - MAX_DETAILS) } else { String::new() };
+        format!(" ({}{more})", shown.join(", "))
+    }
+
     pub fn log_line(&self, now: Instant, within: Duration) -> String {
         let join = |v: Vec<(String, u32)>| v.iter().map(|(w, n)| format!("{w} {n}")).collect::<Vec<_>>().join(", ");
+        let skips = |v: Vec<(String, u32)>| v.iter().map(|(w, n)| format!("{w} {n}{}", self.details(now, within, w))).collect::<Vec<_>>().join(", ");
         let (results, skipped) = (self.counts(now, within, Kind::Result), self.counts(now, within, Kind::Skip));
         let placed = self.counts(now, within, Kind::Placed);
         let mins = within.as_secs() / 60;
         let mut line = match (results.is_empty(), skipped.is_empty()) {
             (true, true) => format!("live: last {mins} min: nothing"),
             (false, true) => format!("live: last {mins} min: {}", join(results)),
-            (true, false) => format!("live: last {mins} min: skipped: {}", join(skipped)),
-            (false, false) => format!("live: last {mins} min: {}; skipped: {}", join(results), join(skipped)),
+            (true, false) => format!("live: last {mins} min: skipped: {}", skips(skipped)),
+            (false, false) => format!("live: last {mins} min: {}; skipped: {}", join(results), skips(skipped)),
         };
         if !placed.is_empty() {
             line.push_str(&format!("; placed: {}", join(placed)));
@@ -165,6 +198,33 @@ mod tests {
         st.skip(t0 + s(12), "too-short");
         st.skip(t0 + s(13), "too-short");
         assert_eq!(st.status(t0 + s(20)).skipped, vec![("password".to_string(), 2), ("too-short".to_string(), 1)]);
+    }
+
+    /// 2026-11-14: "app-not-allowed 3, too-short 3" didn't say which app or
+    /// how short. The log line now does: the exe, and words/characters.
+    #[test]
+    fn the_log_line_names_the_app_and_the_paragraph_length_never_text() {
+        let t0 = Instant::now();
+        let mut st = Stats::default();
+        st.skip_with(t0, "app-not-allowed", Some("WindowsTerminal.exe".into()));
+        st.fresh();
+        st.skip_with(t0 + s(1), "app-not-allowed", Some("WindowsTerminal.exe".into()));
+        st.fresh();
+        st.skip_with(t0 + s(2), "app-not-allowed", Some("explorer.exe".into()));
+        st.fresh();
+        st.skip_with(t0 + s(3), "too-short", Some("3w/14c".into()));
+        st.fresh();
+        st.skip_with(t0 + s(4), "too-short", Some("4w/21c".into()));
+        st.fresh();
+        st.skip(t0 + s(5), "password");
+        st.result(t0 + s(6), "sent");
+        st.result(t0 + s(7), "facts-retry-passed");
+        assert_eq!(
+            st.log_line(t0 + s(10), LOG_EVERY),
+            "live: last 5 min: facts-retry-passed 1, sent 1; skipped: app-not-allowed 3 (WindowsTerminal.exe 2, explorer.exe 1), too-short 2 (3w/14c 1, 4w/21c 1), password 1"
+        );
+        // Settings' counts stay as they were: reasons only.
+        assert_eq!(st.status(t0 + s(10)).skipped[0], ("app-not-allowed".to_string(), 3));
     }
 
     #[test]

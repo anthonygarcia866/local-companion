@@ -763,12 +763,19 @@ fn run(app: &AppHandle, dev: bool) -> WinResult<()> {
                     is_editable(&edit_signals(&element, control))
                 })
             };
+            // What the log says with it: the app for app-not-allowed, the
+            // paragraph's length for too-short (owner 2026-11-14); never text.
+            let detail = match why {
+                Some("app-not-allowed") => Some(capture.meta.app.clone()),
+                Some("too-short") => writer.live_size(),
+                _ => None,
+            };
             crate::writing::live_stats::with(|s| {
                 if !same {
                     s.fresh();
                 }
                 if let Some(why) = why {
-                    s.skip(now, why);
+                    s.skip_with(now, why, detail);
                 }
             });
         }

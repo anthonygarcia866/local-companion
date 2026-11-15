@@ -6,8 +6,12 @@
 // words is dropped (writing/live.rs decides; this file asks and answers).
 //
 // Privacy: as the rewrite (claude.rs `send`): only through net::request,
-// the never-send filter on the whole body, nothing logged here (the caller
-// logs `log_line`: codes, numbers, timings and cost). The paragraph, the
+// the never-send filter on the whole body, nothing logged here but the one
+// facts retry's outcome ("live: facts retry passed|discarded"; the caller
+// logs `log_line`: codes, numbers, timings and cost). An answer that changed
+// a number or date is asked for ONCE more, with FACTS_RETRY_NOTE added to the
+// system prompt; that answer is shown if it passes every check, else nothing
+// (owner 2026-11-14; never a second retry). The paragraph, the
 // context and the rules are masked with one map; the answer must give back
 // every placeholder of the paragraph (shield::Check::Whole).
 
@@ -93,33 +97,68 @@ pub async fn revise(base: &Url, key: &ApiKey, paragraph: &str, before: &str, cha
         Ok(m) => m,
         Err(m) => return Reply { result: Err(if m == crate::shield::Mismatch::Sensitive { Failure::Sensitive } else { Failure::Shield(m) }), usage: None },
     };
-    let body = request_body(&masked_texts[0], &masked_texts[1], chat, &masked_texts[2..]);
-    let mut reply = match claude::send(base, key, &body).await {
-        Ok(bytes) => claude::parse_answer(&bytes, MODEL),
-        Err(f) => return Reply { result: Err(f), usage: None },
-    };
-    // Every placeholder of the paragraph back; one only in the context may
-    // be left out.
-    // And every number and date of the paragraph kept, none added (shield::facts).
-    // Wording copied from the quoted paragraph before: discarded.
-    if let Ok(text) = &reply.result {
-        if super::quoted::copied(&masked_texts[0], text, &[&masked_texts[1]]) {
-            reply.result = Err(Failure::Shield(crate::shield::Mismatch::Quoted));
-        }
-    }
-    if let Ok(text) = &reply.result {
-        reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield).and_then(|back| {
-            if !crate::shield::facts::check("live", paragraph, &back) {
-                Err(Failure::Shield(crate::shield::Mismatch::Facts))
-            } else if !crate::shield::names::kept("live", paragraph, &back) {
-                // Every known name of the paragraph back, spelled the same.
-                Err(Failure::Shield(crate::shield::Mismatch::Names))
-            } else {
-                Ok(crate::shield::signature::rejoin(&back, tail))
+    let mut body = request_body(&masked_texts[0], &masked_texts[1], chat, &masked_texts[2..]);
+    let mut spent: Option<claude::Usage> = None;
+    // At most two requests for one paragraph version: the answer, and ONE
+    // retry when that answer changed a number or date (owner 2026-11-14).
+    for attempt in 0..2 {
+        let mut reply = match claude::send(base, key, &body).await {
+            Ok(bytes) => claude::parse_answer(&bytes, MODEL),
+            Err(f) => return Reply { result: Err(f), usage: spent },
+        };
+        // Every placeholder of the paragraph back; one only in the context may
+        // be left out.
+        // And every number and date of the paragraph kept, none added (shield::facts).
+        // Wording copied from the quoted paragraph before: discarded.
+        if let Ok(text) = &reply.result {
+            if super::quoted::copied(&masked_texts[0], text, &[&masked_texts[1]]) {
+                reply.result = Err(Failure::Shield(crate::shield::Mismatch::Quoted));
             }
-        });
+        }
+        if let Ok(text) = &reply.result {
+            reply.result = crate::shield::unmask_keeping(text, &masked, &masked_texts[0]).map_err(Failure::Shield).and_then(|back| {
+                if !crate::shield::facts::check("live", paragraph, &back) {
+                    Err(Failure::Shield(crate::shield::Mismatch::Facts))
+                } else if !crate::shield::names::kept("live", paragraph, &back) {
+                    // Every known name of the paragraph back, spelled the same.
+                    Err(Failure::Shield(crate::shield::Mismatch::Names))
+                } else {
+                    Ok(crate::shield::signature::rejoin(&back, tail))
+                }
+            });
+        }
+        reply.usage = add_usage(spent.take(), reply.usage.take());
+        let facts_changed = matches!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Facts)));
+        if attempt == 1 {
+            let outcome = if reply.result.is_ok() { "passed" } else { "discarded" };
+            crate::log::line(format!("live: facts retry {outcome}"));
+            crate::writing::live_stats::with(|s| s.result(std::time::Instant::now(), if reply.result.is_ok() { "facts-retry-passed" } else { "facts-retry-discarded" }));
+            return reply;
+        }
+        if !facts_changed {
+            return reply;
+        }
+        // The same request, once more, with the facts rule said outright.
+        body["system"] = json!(format!("{SYSTEM} {FACTS_RETRY_NOTE}"));
+        spent = reply.usage;
     }
-    reply
+    unreachable!("the loop returns on its second attempt")
+}
+
+/// The one retry's extra system line (owner's words, 2026-11-14).
+pub const FACTS_RETRY_NOTE: &str = "Do not add, remove or change any numbers, dates, days, times or amounts.";
+
+/// Two requests' tokens and cost, as one.
+fn add_usage(a: Option<claude::Usage>, b: Option<claude::Usage>) -> Option<claude::Usage> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(claude::Usage {
+            model: b.model,
+            input_tokens: a.input_tokens + b.input_tokens,
+            output_tokens: a.output_tokens + b.output_tokens,
+            cost_nanos: a.cost_nanos + b.cost_nanos,
+        }),
+        (a, b) => b.or(a),
+    }
 }
 
 /// The log's line: codes, numbers, timings and cost; never text.
@@ -258,5 +297,46 @@ mod tests {
         let line = log_line(&reply, "shown", Duration::from_millis(900), Duration::from_millis(2400));
         assert_eq!(line, "live: shown claude-haiku-5-5 in=180 out=30 $0.000033 0.90s (pause+2.40s)");
         assert!(!line.contains("Secret"));
+    }
+
+    // ── The one facts retry (owner 2026-11-14) ──────────────────────────────
+
+    #[test]
+    fn an_answer_that_adds_a_date_is_retried_once_with_the_facts_line_and_shown_if_it_passes() {
+        let (url, got) = crate::net::tests::serve_capture_seq(vec![
+            answer("Please send the signed lease by Friday."),
+            answer("Please send the signed lease."),
+        ]);
+        let reply = block_on(revise(&Url::parse(&url).unwrap(), &key(), "please send the signed lese", "", false, &[]));
+        assert_eq!(reply.result.as_deref(), Ok("Please send the signed lease."));
+        let (first, second) = (sent(&got), sent(&got));
+        assert!(!first["system"].as_str().unwrap().contains(FACTS_RETRY_NOTE), "the first ask is the plain one");
+        assert!(second["system"].as_str().unwrap().ends_with(FACTS_RETRY_NOTE), "the retry says the facts rule outright");
+        assert_eq!(first["messages"], second["messages"], "the same paragraph, the same context");
+        let u = reply.usage.unwrap();
+        assert_eq!((u.input_tokens, u.output_tokens), (360, 60), "both requests are counted");
+    }
+
+    #[test]
+    fn a_retry_that_still_changes_a_fact_shows_nothing_and_there_is_never_a_second() {
+        let (url, got) = crate::net::tests::serve_capture_seq(vec![
+            answer("Please send the signed lease by Friday."),
+            answer("Please send the signed lease by Monday."),
+            answer("Please send the signed lease."),
+        ]);
+        let reply = block_on(revise(&Url::parse(&url).unwrap(), &key(), "please send the signed lese", "", false, &[]));
+        assert_eq!(reply.result, Err(Failure::Shield(crate::shield::Mismatch::Facts)));
+        let _ = (sent(&got), sent(&got));
+        assert!(got.recv_timeout(Duration::from_millis(500)).is_err(), "two requests at most per paragraph version");
+    }
+
+    #[test]
+    fn an_answer_that_keeps_the_facts_is_never_retried() {
+        let (url, got) = crate::net::tests::serve_capture_seq(vec![answer("Can we meet Friday?"), answer("unused")]);
+        // "Fri" fixed to "Friday" is the same day: no retry (equivalent forms).
+        let reply = block_on(revise(&Url::parse(&url).unwrap(), &key(), "can we meet Fri", "", false, &[]));
+        assert_eq!(reply.result.as_deref(), Ok("Can we meet Friday?"));
+        let _ = sent(&got);
+        assert!(got.recv_timeout(Duration::from_millis(500)).is_err());
     }
 }
