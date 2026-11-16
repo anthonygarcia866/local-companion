@@ -15,23 +15,24 @@ cloud Glim ──POST /v1/tasks (cloud token)──▶  relay (Worker + DO)  ◀
 
 | Secret / key | Made by | Kept | Never |
 |---|---|---|---|
-| Task-signing key (Ed25519 private) | `node relay/courier.mjs keygen` (writes `%LOCALAPPDATA%\Glim\task-signing-key.txt`, never a OneDrive-synced folder such as Desktop or Documents; delete it after copying) | cloud Glim's environment, `GLIM_TASK_SIGNING_KEY` | on the PC once copied (Glim stores only its public key), in the repo or chat |
-| Task-signing public key | the same | Glim: Settings → Remote → Remote tasks (fingerprint shown) | n/a (public) |
+| Task-signing key (Ed25519 private), one per cloud client | `node relay/courier.mjs keygen` (writes `%LOCALAPPDATA%\Glim\task-signing-key.txt`, never a OneDrive-synced folder such as Desktop or Documents; delete it after copying) | that client's cloud environment, `GLIM_TASK_SIGNING_KEY` | on the PC once copied (Glim stores only its public key), in the repo or chat |
+| Task-signing public key | the same | Glim: Settings → Remote → Remote tasks → Cloud clients (fingerprint shown) | n/a (public) |
 | PC result key (Ed25519 private) | Glim, "Set up the relay" | Credential Manager `Glim/RemotePcSigningKey` (PKCS#8) | in a file, a log, the page or the network |
 | PC result public key | the same | Settings (shown with its fingerprint); cloud Glim's `GLIM_PC_PUBLIC_KEY` | n/a (public) |
 | PC relay token (32 random bytes, hex) | the same | Credential Manager `Glim/RemoteRelayPcToken`; only sent as the WebSocket upgrade's `Authorization: Bearer` | in a URL, a log or the page |
-| Cloud relay token (32 random bytes, hex) | the same | shown **once** in Settings, then only in a claude.ai/code **network secret** (recommended, see below) or, as a fallback, cloud Glim's environment variable `RELAY_CLOUD_TOKEN`; Glim forgets it | on the PC after that, in the repo or chat |
-| Token hashes (SHA-256 hex) | the same | Settings → Secrets `REMOTE_PC_TOKEN_SHA256`, `REMOTE_CLOUD_TOKEN_SHA256` → Worker secrets `PC_TOKEN_SHA256`, `CLOUD_TOKEN_SHA256` (an approved runbook pipes them to `wrangler secret put` on stdin) | n/a (a hash of 32 random bytes reveals nothing) |
+| Cloud relay token (32 random bytes, hex), one per cloud client | Glim, **Add cloud client** (account-1's is the one "Set up the relay" made before 2026-11-15) | shown **once** in Settings, then only in that client's claude.ai/code **network secret** (recommended, see below) or, as a fallback, its environment variable `RELAY_CLOUD_TOKEN`; Glim forgets it | on the PC after that, in the repo or chat |
+| Token hashes (SHA-256 hex) | Glim | Settings → Secrets `REMOTE_PC_TOKEN_SHA256` → Worker secret `PC_TOKEN_SHA256`; `REMOTE_CLOUD_CLIENTS` (the list `account-1=legacy,account-2=<hash>`, rewritten on every Add and Remove) → Worker secret `CLOUD_CLIENTS`; account-1's own hash stays the Worker secret `CLOUD_TOKEN_SHA256` from before clients (`legacy`). The approved `relay-tokens` runbook pipes them to `wrangler secret put` on stdin | n/a (a hash of 32 random bytes reveals nothing) |
 
-The relay holds only the two hashes: it tells the PC and cloud Glim apart, and each token works only on its own side's routes. A stolen cloud token can queue tasks, but every task still needs the task-signing key. A stolen PC token can read the queue, but it can't produce results cloud Glim accepts without the PC result key.
+The relay holds only hashes: it tells the PC and each cloud client apart, and each token works only on its own side's routes. A stolen cloud token can queue tasks, but every task still needs **that client's** task-signing key. A stolen PC token can read the queue, but it can't produce results cloud Glim accepts without the PC result key.
 
 ## The relay (`relay/`)
 
 - Worker `task-relay` on `*.workers.dev`, Workers Free plan, one SQLite-backed Durable Object (`Mailbox`). There are no cron triggers: purging uses a DO alarm, which doesn't count against the account's cron ceiling.
 - `GET /v1/pc` (PC token): a hibernatable WebSocket. On connect, every pending task arrives at once; new ones arrive as they're queued. A new connection replaces the old one. The relay answers `{"t":"ping"}` with `{"t":"pong"}` without waking up.
+- Cloud clients (owner 2026-11-15): one per Claude account (`account-1`, `account-2` …), each with its own relay token and task-signing key, each revocable on its own. `CLOUD_CLIENTS` lists them; without it, `CLOUD_TOKEN_SHA256` alone is `account-1` (`relay/src/core.js` `cloudClients`). The relay stamps every task it hands the PC with the client whose token queued it (`{"t":"task","env":…,"client":"account-2"}`; the Worker sets it, never the caller), and a client sees only its own results and pending count.
 - `POST /v1/tasks` (cloud token): one envelope, ≤ 16 KB. It is refused when malformed, expired, valid for more than 10 minutes, a duplicate id, or when 50 are already pending.
 - `GET /v1/results/<id>?wait=1-25` (cloud token): hands the PC's signed result over **once**, then deletes it. 202 = still pending, 404 = unknown or gone.
-- `GET /v1/status` (cloud token): `{"pc": connected?, "pending": n}`.
+- `GET /v1/status` (cloud token): `{"pc": connected?, "pending": n}` (n = that client's own tasks).
 - What is stored: a task until its result arrives or its expiry (+60 s); a result until it's fetched or the task's expiry. Nothing else. No `console.*` (a test checks), and Workers Logs/observability are off in `wrangler.toml`. The relay checks neither signature; the two ends do.
 
 ## Task (cloud Glim → the Glim app)
@@ -67,14 +68,14 @@ Envelope, as carried:
 
 1. **Kill switch**: tray "Stop remote tasks" or Settings. While it's on, everything is refused and the connection is closed within ¼ s; nothing reconnects until "Allow again". A task sent while stopped waits at the relay and is handed over when the PC reconnects: Glim refuses every task **issued before "Allow again"** (or before Remote tasks was switched back on; its `iat` before `remote.allowedSince` in settings.json) with a signed `killed` result, so it is acknowledged and never runs (owner 2026-11-14). No clock-skew allowance on this check: a task from a cloud clock running behind, sent right after "Allow again", is refused too; just send it again.
 2. **Channel on**: off by default, and it needs its one-time consent card first.
-3. **A signer key is saved.**
+3. **The client is known**: the relay's client name is on Settings' Cloud clients list (else `unknown-client`), and at least one client exists (else `no-key`).
 4. **Envelope**: size, JSON, `v` = 1.
-5. **Ed25519 signature** with the saved public key.
+5. **Ed25519 signature** with **that client's** public key. One that verifies only with another client's key is refused as `wrong-client`; one that verifies with none, `bad-signature`.
 6. **Payload**: id shape, lifetime, not yet valid, expired, then replay.
 7. **Command and arguments**, including the repo allowlist.
-8. **Rate limits**, per rolling hour: 5 `start-session`, 3 `keepalive-restart`, 30 commands in all.
+8. **Rate limits**, per rolling hour: per client 5 `start-session` and 30 commands; on this PC, all clients together, 8 `start-session`, 50 commands and 3 `keepalive-restart`.
 
-Every decision goes to Settings → Remote → **Remote activity** and glim.log: the time, accepted or refused, the command kind or the refusal code. The id appears only once the signature has verified. Never a payload, an argument, a signature, a token or a key.
+Every decision goes to Settings → Remote → **Remote activity** and glim.log: the time, the client, accepted or refused, the command kind or the refusal code. The id appears only once the signature has verified. Never a payload, an argument, a signature, a token or a key.
 
 ## Staying connected (owner, 2026-11-15)
 
@@ -112,10 +113,22 @@ Both directions are pinned by shared test vectors: `relay/test/relay.test.mjs` a
 
 The exact owner steps are in HANDOFF (local). In order:
 
-1. Glim: Settings → Remote → Remote tasks → **Set up the relay**. Copy the cloud token shown once. Copy the PC result key.
-2. Run the local runbook `relay-tokens` (approve it in Settings → Runbooks first). It pipes the two hashes to `wrangler secret put PC_TOKEN_SHA256 / CLOUD_TOKEN_SHA256` on stdin.
-3. Make the task-signing key: `node relay/courier.mjs keygen`. It writes the seed to `%LOCALAPPDATA%\Glim\task-signing-key.txt` (it refuses OneDrive, Desktop and Documents, which OneDrive may sync, and an existing file). Paste the printed public key in Glim (Signer's public key → Save key).
+1. Glim: Settings → Remote → Remote tasks → **Set up the relay**. Copy the PC result key.
+2. Make the task-signing key: `node relay/courier.mjs keygen`. It writes the seed to `%LOCALAPPDATA%\Glim\task-signing-key.txt` (it refuses OneDrive, Desktop and Documents, which OneDrive may sync, and an existing file). In Glim, Cloud clients: name (`account-1`, filled in) + the printed public key → **Add cloud client**. Copy the cloud token shown once.
+3. Run the local runbook `relay-tokens` (approve it in Settings → Runbooks first). It pipes the hashes to `wrangler secret put PC_TOKEN_SHA256 / CLOUD_CLIENTS` on stdin.
 4. Give cloud Glim the cloud token, preferably as a **network secret** in the claude.ai/code environment: host = the relay's **exact** host (`task-relay.<subdomain>.workers.dev`, never `*.workers.dev`, which would hand the token to every Worker on Cloudflare), path `/v1/`, header `Authorization: Bearer <token>`. The agent proxy adds the header on the way out, so the session never holds the token. `courier.mjs` then sends no Authorization header of its own (`RELAY_CLOUD_TOKEN` unset). Fallback: the environment variable `RELAY_CLOUD_TOKEN`; when set, `courier.mjs` sends it as the bearer token. A 401 with no token sent from the session prints a hint to check the network secret.
 5. In cloud Glim's environment variables, set `RELAY_URL`, `GLIM_TASK_SIGNING_KEY` (the key file's contents; then **delete** `%LOCALAPPDATA%\Glim\task-signing-key.txt`), `GLIM_PC_PUBLIC_KEY` and **`NODE_USE_ENV_PROXY=1`**. Without that last one, Node's built-in `fetch` ignores the agent proxy (`HTTPS_PROXY`), so requests skip the proxy and the network secret is never added: a 401, or no route to the relay at all (owner, 2026-11-14: the cloud runs worked only once it was set). Its network access must allow the relay's exact host.
 6. Glim: Relay address → Save address; Accept remote tasks → on (consent card). The state should read Connected.
 7. From cloud Glim: `node relay/courier.mjs send session-status` should print a verified result. Then test the kill switch: tray → Stop remote tasks. The next `send` exits 3 (no result), and Remote activity shows the stop.
+
+### Another Claude account (a second cloud client)
+
+Each Claude account's cloud sessions get their own client: their own relay token and task-signing key, so one can be revoked without touching the other, and each is rate-limited on its own.
+
+1. On the PC: `node relay/courier.mjs keygen <file>` (a new file, not the first account's; same folder rules), note the printed public key.
+2. Glim: Settings → Remote → Remote tasks → Cloud clients: name `account-2` (filled in) + that public key → **Add cloud client**. Copy the token shown once.
+3. Run the `relay-tokens` runbook: the relay now takes both tokens.
+4. In the second account's claude.ai/code: a new environment for this repo with the same `RELAY_URL`, `GLIM_PC_PUBLIC_KEY` and `NODE_USE_ENV_PROXY=1` as the first, **its own** `GLIM_TASK_SIGNING_KEY` (step 1's file; then delete the file) and **its own** network secret (the token from step 2; exact relay host, path `/v1/`, `Authorization: Bearer <token>`).
+5. From a session there: `node relay/courier.mjs status`, then `send session-status`. Remote activity shows `account-2 · Accepted: session-status`.
+
+**Remove** in Cloud clients refuses that client's tasks at once; run `relay-tokens` again so the relay stops taking its token as well. The other clients keep working.

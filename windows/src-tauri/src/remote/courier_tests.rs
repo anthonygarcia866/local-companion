@@ -45,26 +45,40 @@ fn the_shared_vectors_a_node_signed_task_verifies_and_glims_result_matches_byte_
 }
 
 #[test]
-fn setup_keeps_the_pc_token_and_key_in_the_vault_only_hashes_as_secrets_and_never_the_cloud_token() {
+fn setup_keeps_the_pc_token_and_key_in_the_vault_and_only_the_hash_as_a_secret() {
     let token = crate::ai::key::MemoryVault::default();
     let key = crate::ai::key::MemoryVault::default();
     let store = crate::secrets::MemoryStore::default();
     let done = courier::setup(&token, &key, &store).unwrap();
     let pc = crate::ai::key::Vault::read(&token).unwrap().unwrap();
-    assert_eq!((pc.len(), done.cloud_token.len()), (64, 64));
-    assert_ne!(pc, done.cloud_token);
+    assert_eq!(pc.len(), 64);
     let signer = courier::load_signer(&key).unwrap();
     assert_eq!(hex(signer.public_key().as_ref()), done.pc_public_key);
     // Straight from the test store (only runbooks may reveal a value; a test scans).
-    let hash = |n: &str| store.0.borrow().iter().find(|(k, _)| k.ends_with(n)).map(|(_, (v, _))| v.clone()).unwrap();
-    assert_eq!(hash(courier::PC_TOKEN_HASH_SECRET), courier::sha256_hex(&pc));
-    assert_eq!(hash(courier::CLOUD_TOKEN_HASH_SECRET), courier::sha256_hex(&done.cloud_token));
-    let everything = format!("{:?}{:?}{:?}", crate::ai::key::Vault::read(&key), crate::secrets::list(&store), pc);
-    assert!(!everything.contains(&done.cloud_token));
-    // A second setup replaces all of it.
+    let hash = |n: &str| store.0.borrow().iter().find(|(k, _)| k.ends_with(n)).map(|(_, (v, _))| v.clone());
+    assert_eq!(hash(courier::PC_TOKEN_HASH_SECRET), Some(courier::sha256_hex(&pc)));
+    // Cloud tokens are each client's own: setup leaves them alone.
+    assert_eq!(hash(courier::CLOUD_TOKEN_HASH_SECRET), None);
+    // A second setup replaces the PC's token and key.
     let again = courier::setup(&token, &key, &store).unwrap();
-    assert_ne!(again.cloud_token, done.cloud_token);
     assert_ne!(again.pc_public_key, done.pc_public_key);
+    assert_ne!(crate::ai::key::Vault::read(&token).unwrap().unwrap(), pc);
+}
+
+#[test]
+fn a_new_cloud_client_token_is_random_and_only_its_hash_reaches_the_relay_list() {
+    let (t1, h1) = courier::new_cloud_token().unwrap();
+    let (t2, _) = courier::new_cloud_token().unwrap();
+    assert_eq!((t1.len(), h1.len()), (64, 64));
+    assert_ne!(t1, t2);
+    assert_eq!(h1, courier::sha256_hex(&t1));
+    let mut s = RemoteSettings { public_key: "ab".repeat(32), ..Default::default() };
+    s.add_client(super::CloudClient { name: "account-2".into(), public_key: "cd".repeat(32), token_sha256: h1.clone(), added: 5 }).unwrap();
+    let store = crate::secrets::MemoryStore::default();
+    courier::save_client_list(&s, &store).unwrap();
+    let list = store.0.borrow().iter().find(|(k, _)| k.ends_with(courier::CLOUD_CLIENTS_SECRET)).map(|(_, (v, _))| v.clone()).unwrap();
+    assert_eq!(list, format!("account-1=legacy,account-2={h1}"));
+    assert!(!list.contains(&t1));
 }
 
 struct Fake {
@@ -135,7 +149,7 @@ fn rig_loop(url: &str, delay: Duration, timing: Timing) -> (Rig, Loop) {
     let l = Loop {
         settings: Arc::new(move || s2.lock().unwrap().clone()),
         link: Arc::new(move |_s: &RemoteSettings| Ok(Link { url: url.clone(), token: "pc-token-for-tests".into(), signer: signer.clone() })),
-        accept: Arc::new(move |s: &RemoteSettings, raw: &[u8], now: i64| gate.lock().unwrap().accept(s, raw, now)),
+        accept: Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| gate.lock().unwrap().accept_from(s, client, raw, now)),
         exec: Arc::new(Fake { delay, runs: runs.clone() }),
         timing,
         backoff_max: Duration::from_millis(50),
@@ -190,6 +204,46 @@ fn a_signed_task_gets_a_signed_result_and_the_pc_token_is_the_bearer() {
         // Nor with another key.
         let other = Ed25519KeyPair::from_seed_unchecked(&[3; 32]).unwrap();
         assert_eq!(open(&frame, other.public_key().as_ref()).err(), Some("bad-result-signature"));
+        rig
+    });
+}
+
+/// A task frame the relay stamped with `client`.
+fn from_client(kp: &Ed25519KeyPair, id: &str, client: &str) -> String {
+    let mut f: Value = serde_json::from_str(&fresh(kp, id)).unwrap();
+    f["client"] = json!(client);
+    f.to_string()
+}
+
+#[test]
+fn two_cloud_clients_work_at_the_same_time_each_with_its_own_key_and_removing_one_leaves_the_other() {
+    with_courier(Duration::from_millis(200), quick(), |server, rig| async move {
+        let second = Ed25519KeyPair::from_seed_unchecked(&[11; 32]).unwrap();
+        rig.settings.lock().unwrap().add_client(super::CloudClient { name: "account-2".into(), public_key: hex(second.public_key().as_ref()), token_sha256: "ab".repeat(32), added: 1 }).unwrap();
+        let mut c = accept(&server).await;
+        // Both at once: each runs (the exec is slow, so they overlap).
+        c.send(&from_client(&rig.cloud, "two-clients-a-0001", "account-1")).await;
+        c.send(&from_client(&second, "two-clients-b-0001", "account-2")).await;
+        let mut got = Vec::new();
+        for _ in 0..2 {
+            let r = open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+            got.push((r["id"].as_str().unwrap().to_string(), r["ok"].as_bool().unwrap()));
+        }
+        got.sort();
+        assert_eq!(got, vec![("two-clients-a-0001".to_string(), true), ("two-clients-b-0001".to_string(), true)]);
+        // Signed with the other client's key: refused, never run.
+        c.send(&from_client(&rig.cloud, "two-clients-x-0001", "account-2")).await;
+        let r = open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!((r["ok"].as_bool(), r["error"].as_str()), (Some(false), Some("wrong-client")));
+        // account-1 removed: its tasks are refused, account-2's still run.
+        assert!(rig.settings.lock().unwrap().remove_client("account-1"));
+        c.send(&from_client(&rig.cloud, "two-clients-a-0002", "account-1")).await;
+        let r = open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!((r["ok"].as_bool(), r["error"].as_str()), (Some(false), Some("unknown-client")));
+        c.send(&from_client(&second, "two-clients-b-0002", "account-2")).await;
+        let r = open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!(r["ok"].as_bool(), Some(true));
+        assert_eq!(rig.runs.lock().unwrap().len(), 3);
         rig
     });
 }
@@ -418,7 +472,7 @@ fn a_frame_that_is_not_a_task_is_ignored() {
     let c = Courier::new(
         Arc::new(Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap()),
         Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
-        Arc::new(|_: &RemoteSettings, _: &[u8], _: i64| Err(Rejection::Off)),
+        Arc::new(|_: &RemoteSettings, _: &str, _: &[u8], _: i64| Err(Rejection::Off)),
         tx,
         Arc::default(),
     );
@@ -494,7 +548,7 @@ fn live_relay_round_trip() {
     let l = Loop {
         settings: Arc::new(move || settings.clone()),
         link: Arc::new(move |_s: &RemoteSettings| Ok(Link { url: url.clone(), token: token.clone(), signer: pc.clone() })),
-        accept: Arc::new(move |s: &RemoteSettings, raw: &[u8], now: i64| gate.lock().unwrap().accept(s, raw, now)),
+        accept: Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| gate.lock().unwrap().accept_from(s, client, raw, now)),
         exec: Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
         timing: Timing::default(),
         backoff_max: Duration::from_secs(5),

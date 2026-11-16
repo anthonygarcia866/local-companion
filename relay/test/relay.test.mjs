@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Relay, MemoryStore, caller, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS } from "../src/core.js";
+import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS } from "../src/core.js";
 import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
 import os from "node:os";
 
@@ -27,12 +27,59 @@ function signedResult(seed, id, at, taskText, extra = {}) {
 test("tokens: each side only with its own, nobody without both hashes", async () => {
   const pc = "p".repeat(43), cloud = "c".repeat(43);
   const env = { PC_TOKEN_SHA256: await sha256Hex(pc), CLOUD_TOKEN_SHA256: await sha256Hex(cloud) };
-  assert.equal(await caller(`Bearer ${pc}`, env), "pc");
-  assert.equal(await caller(`Bearer ${cloud}`, env), "cloud");
+  assert.deepEqual(await caller(`Bearer ${pc}`, env), { role: "pc" });
+  // The single cloud token from before clients is account-1.
+  assert.deepEqual(await caller(`Bearer ${cloud}`, env), { role: "cloud", client: "account-1" });
   assert.equal(await caller(`Bearer ${"x".repeat(43)}`, env), null);
   assert.equal(await caller(pc, env), null);
   assert.equal(await caller(`Bearer ${pc}`, { PC_TOKEN_SHA256: env.PC_TOKEN_SHA256 }), null);
   assert.equal(await caller(`Bearer ${pc}`, { PC_TOKEN_SHA256: env.PC_TOKEN_SHA256, CLOUD_TOKEN_SHA256: env.PC_TOKEN_SHA256 }), null);
+});
+
+test("cloud clients: two named tokens, each revocable on its own; the old token stays account-1", async () => {
+  const pc = "p".repeat(43), one = "1".repeat(43), two = "2".repeat(43);
+  const [hp, h1, h2] = [await sha256Hex(pc), await sha256Hex(one), await sha256Hex(two)];
+  // The list names the old single token "legacy": nothing to re-enter.
+  const both = { PC_TOKEN_SHA256: hp, CLOUD_TOKEN_SHA256: h1, CLOUD_CLIENTS: `account-1=legacy,account-2=${h2}` };
+  assert.deepEqual(await caller(`Bearer ${one}`, both), { role: "cloud", client: "account-1" });
+  assert.deepEqual(await caller(`Bearer ${two}`, both), { role: "cloud", client: "account-2" });
+  assert.deepEqual(await caller(`Bearer ${pc}`, both), { role: "pc" });
+  // account-1 removed: its token stops, account-2's keeps working.
+  const onlyTwo = { ...both, CLOUD_CLIENTS: `account-2=${h2}` };
+  assert.equal(await caller(`Bearer ${one}`, onlyTwo), null);
+  assert.deepEqual(await caller(`Bearer ${two}`, onlyTwo), { role: "cloud", client: "account-2" });
+  // And the other way round.
+  const onlyOne = { ...both, CLOUD_CLIENTS: "account-1=legacy" };
+  assert.equal(await caller(`Bearer ${two}`, onlyOne), null);
+  assert.deepEqual(await caller(`Bearer ${one}`, onlyOne), { role: "cloud", client: "account-1" });
+  // "none": nobody, not even the old token.
+  assert.equal(await caller(`Bearer ${one}`, { ...both, CLOUD_CLIENTS: "none" }), null);
+  // Junk entries are skipped; a hash two names share, or the PC's, counts for neither.
+  assert.deepEqual([...cloudClients({ ...both, CLOUD_CLIENTS: `Bad Name=${h2},x=nothex,account-2=${h2}=extra,ok=${h2}` }).keys()], ["ok"]);
+  assert.deepEqual([...cloudClients({ ...both, CLOUD_CLIENTS: `a=${h2},b=${h2}` }).keys()], []);
+  assert.deepEqual([...cloudClients({ ...both, CLOUD_CLIENTS: `a=${hp},b=${h2}` }).keys()], ["b"]);
+});
+
+test("two clients at once: each task is stamped with its client, each sees only its own results and count", () => {
+  const k1 = keygen(), k2 = keygen(), pcKey = keygen();
+  const s = sockets();
+  const pc = s.add();
+  const relay = new Relay(new MemoryStore(), s.fn);
+  const a = signTask(k1.seed, "session-status", {}, NOW);
+  const b = signTask(k2.seed, "session-status", {}, NOW);
+  assert.equal(relay.queue(a.text, NOW, "account-1").body.delivered, true);
+  assert.equal(relay.queue(b.text, NOW, "account-2").body.delivered, true);
+  assert.deepEqual(pc.sent.map((f) => [JSON.parse(f).env, JSON.parse(f).client]), [[a.text, "account-1"], [b.text, "account-2"]]);
+  assert.deepEqual(relay.pendingFrames(NOW).map((f) => JSON.parse(f).client), ["account-1", "account-2"]);
+  assert.equal(relay.status(NOW, "account-1").pending, 1);
+  assert.equal(relay.status(NOW, "account-2").pending, 1);
+  // account-2 can't see or take account-1's task or result.
+  assert.equal(relay.takeResult(a.id, NOW, "account-2").status, 404);
+  relay.fromPc(JSON.stringify({ t: "result", id: a.id, env: signedResult(pcKey.seed, a.id, NOW, a.text) }), NOW);
+  assert.equal(relay.takeResult(a.id, NOW, "account-2").status, 404);
+  assert.equal(relay.takeResult(a.id, NOW, "account-1").status, 200);
+  assert.equal(relay.status(NOW, "account-2").pending, 1);
+  assert.equal(relay.takeResult(b.id, NOW, "account-2").status, 202);
 });
 
 test("a queued task goes to the connected PC at once, and to a later one on connect", () => {
@@ -232,4 +279,12 @@ test("index.js: pings are auto-answered (no wake-up) and the socket's last ping 
   const src = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
   assert.ok(src.includes("setWebSocketAutoResponse") && src.includes("getWebSocketAutoResponseTimestamp"));
   assert.ok(src.includes("serializeAttachment({ since: Date.now() })"));
+});
+
+test("index.js: the client name the Durable Object sees is the Worker's, never the caller's", () => {
+  const src = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
+  assert.ok(src.includes("forwarded.headers.delete(CLIENT_HEADER)"));
+  assert.ok(src.includes('if (who.role === "cloud") forwarded.headers.set(CLIENT_HEADER, who.client)'));
+  assert.ok(src.includes("return stub.fetch(forwarded)"));
+  assert.ok(src.includes("ADD COLUMN client"));
 });

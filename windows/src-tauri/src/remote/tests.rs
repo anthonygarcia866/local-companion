@@ -111,7 +111,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), relay: String::new(), pc_public_key: String::new() });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new() });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));
@@ -284,5 +284,131 @@ fn an_older_gate_file_still_keeps_its_seen_ids() {
     let kp = signer(7);
     let mut g = Gate::load(path.clone());
     assert_eq!(g.accept(&settings_for(&kp), &envelope(&kp, &task(&id(600), "session-status", json!({}))), NOW), Err(Rejection::Replay));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn client(name: &str, kp: &Ed25519KeyPair) -> CloudClient {
+    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "ab".repeat(32), added: NOW }
+}
+
+#[test]
+fn the_old_single_key_is_account_1_and_keeps_working_without_re_entering_anything() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    assert_eq!(s.clients(), vec![CloudClient { name: "account-1".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "legacy".into(), added: 0 }]);
+    assert_eq!(s.relay_list(), "account-1=legacy");
+    let mut g = Gate::default();
+    let a = g.accept_from(&s, "account-1", &envelope(&kp, &task(&id(400), "session-status", json!({}))), NOW).unwrap();
+    assert_eq!(a.client, "account-1");
+    assert_eq!(g.activity[0].client, "account-1");
+    // Adding account-2 keeps account-1 as it was.
+    let mut s2 = s.clone();
+    s2.add_client(client("account-2", &signer(8))).unwrap();
+    assert_eq!(s2.clients().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["account-1", "account-2"]);
+    assert_eq!(s2.relay_list(), format!("account-1=legacy,account-2={}", "ab".repeat(32)));
+    assert!(g.accept_from(&s2, "account-1", &envelope(&kp, &task(&id(401), "session-status", json!({}))), NOW).is_ok());
+}
+
+#[test]
+fn each_task_must_be_signed_by_the_key_of_the_client_whose_token_queued_it() {
+    let (k1, k2) = (signer(7), signer(8));
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    s.add_client(client("account-1", &k1)).unwrap();
+    s.add_client(client("account-2", &k2)).unwrap();
+    let mut g = Gate::default();
+    assert_eq!(g.accept_from(&s, "account-2", &envelope(&k2, &task(&id(410), "session-status", json!({}))), NOW).unwrap().client, "account-2");
+    // account-1's key, queued with account-2's token (and the other way).
+    assert_eq!(g.accept_from(&s, "account-2", &envelope(&k1, &task(&id(411), "session-status", json!({}))), NOW), Err(Rejection::WrongClient));
+    assert_eq!(g.accept_from(&s, "account-1", &envelope(&k2, &task(&id(412), "session-status", json!({}))), NOW), Err(Rejection::WrongClient));
+    // A stranger's key: a plain bad signature. A name nobody added: unknown.
+    assert_eq!(g.accept_from(&s, "account-1", &envelope(&signer(9), &task(&id(413), "session-status", json!({}))), NOW), Err(Rejection::BadSignature));
+    assert_eq!(g.accept_from(&s, "account-3", &envelope(&k1, &task(&id(414), "session-status", json!({}))), NOW), Err(Rejection::UnknownClient));
+    assert_eq!(g.accept_from(&s, "Bad Name!", &envelope(&k1, &task(&id(415), "session-status", json!({}))), NOW), Err(Rejection::UnknownClient));
+    // A refused id was never kept: the right client can still send it.
+    assert!(g.accept_from(&s, "account-1", &envelope(&k1, &task(&id(411), "session-status", json!({}))), NOW).is_ok());
+    // Names in the activity list are checked ones only.
+    assert!(g.activity.iter().all(|a| a.client.is_empty() || a.client.starts_with("account-")));
+    // Removing one leaves the other working.
+    assert!(s.remove_client("account-1"));
+    assert_eq!(g.accept_from(&s, "account-1", &envelope(&k1, &task(&id(416), "session-status", json!({}))), NOW), Err(Rejection::UnknownClient));
+    assert!(g.accept_from(&s, "account-2", &envelope(&k2, &task(&id(417), "session-status", json!({}))), NOW).is_ok());
+    assert!(!s.remove_client("account-1"));
+    s.remove_client("account-2");
+    assert_eq!(s.relay_list(), "none");
+}
+
+#[test]
+fn clients_are_refused_with_a_taken_name_or_key_a_bad_name_or_past_ten() {
+    let mut s = RemoteSettings::default();
+    s.add_client(client("account-1", &signer(1))).unwrap();
+    assert_eq!(s.add_client(client("account-1", &signer(2))), Err("name-taken"));
+    assert_eq!(s.add_client(client("account-2", &signer(1))), Err("key-taken"));
+    for i in 2..=MAX_CLIENTS {
+        s.add_client(client(&format!("account-{i}"), &signer(i as u8))).unwrap();
+    }
+    assert_eq!(s.add_client(client("account-99", &signer(99))), Err("too-many"));
+    assert_eq!(parse_client_name("  Account-2 "), Ok("account-2".into()));
+    let long = "x".repeat(33);
+    for bad in ["", "-x", "has space", "a_b", long.as_str()] {
+        assert!(parse_client_name(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn rate_limits_are_per_client_with_a_cap_for_the_whole_pc() {
+    let (k1, k2, k3) = (signer(7), signer(8), signer(9));
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    for (n, k) in [("account-1", &k1), ("account-2", &k2), ("account-3", &k3)] {
+        s.add_client(client(n, k)).unwrap();
+    }
+    let mut g = Gate::default();
+    let mut n = 500;
+    let mut send = |g: &mut Gate, who: &str, k: &Ed25519KeyPair, cmd: &str, args: Value| {
+        n += 1;
+        g.accept_from(&s, who, &envelope(k, &task(&id(n), cmd, args)), NOW)
+    };
+    let start = || json!({ "repo": "local-companion" });
+    // account-1: 5 start-session, then its 6th is refused...
+    for _ in 0..MAX_START_PER_HOUR {
+        send(&mut g, "account-1", &k1, "start-session", start()).unwrap();
+    }
+    assert_eq!(send(&mut g, "account-1", &k1, "start-session", start()), Err(Rejection::RateLimited));
+    // ...while account-2 still may: up to the PC's 8 in all.
+    for _ in 0..(MAX_START_PER_HOUR_PC - MAX_START_PER_HOUR) {
+        send(&mut g, "account-2", &k2, "start-session", start()).unwrap();
+    }
+    assert_eq!(send(&mut g, "account-2", &k2, "start-session", start()), Err(Rejection::RateLimited));
+    // Commands: 30 per client (account-1 has 5 already).
+    for _ in 0..(MAX_COMMANDS_PER_HOUR - MAX_START_PER_HOUR) {
+        send(&mut g, "account-1", &k1, "session-status", json!({})).unwrap();
+    }
+    assert_eq!(send(&mut g, "account-1", &k1, "session-status", json!({})), Err(Rejection::RateLimited));
+    // 30 + 3 so far: account-2 gets the PC's remaining 17 of 50 (under its own 30)...
+    let mut more = 0;
+    while send(&mut g, "account-2", &k2, "session-status", json!({})).is_ok() {
+        more += 1;
+    }
+    assert_eq!(more, MAX_COMMANDS_PER_HOUR_PC - MAX_COMMANDS_PER_HOUR - (MAX_START_PER_HOUR_PC - MAX_START_PER_HOUR));
+    // ...and account-3, with none of its own yet, is held by the PC-wide cap.
+    assert_eq!(send(&mut g, "account-3", &k3, "session-status", json!({})), Err(Rejection::RateLimited));
+    // An hour later, all clear.
+    assert!(g.accept_from(&s, "account-3", &envelope(&k3, &json!({ "id": id(999), "iat": NOW + 3595, "exp": NOW + 3700, "cmd": "session-status", "args": {} })), NOW + 3601).is_ok());
+}
+
+#[test]
+fn an_old_state_file_keeps_its_counts_as_account_1() {
+    let dir = std::env::temp_dir().join(format!("glim-remote-clients-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("remote-state.json");
+    let recent: Vec<(i64, bool)> = (0..MAX_COMMANDS_PER_HOUR as i64).map(|i| (NOW - i, false)).collect();
+    std::fs::write(&path, serde_json::to_vec(&json!({ "seen": { "old-task-id-000001": NOW + 100 }, "recent": recent, "activity": [] })).unwrap()).unwrap();
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::load(path.clone());
+    assert_eq!(g.accept_from(&s, "account-1", &envelope(&kp, &task("old-task-id-000001", "session-status", json!({}))), NOW), Err(Rejection::Replay));
+    assert_eq!(g.accept_from(&s, "account-1", &envelope(&kp, &task(&id(600), "session-status", json!({}))), NOW), Err(Rejection::RateLimited));
+    // Saved in the new form, it loads the same.
+    let mut again = Gate::load(path.clone());
+    assert_eq!(again.accept_from(&s, "account-1", &envelope(&kp, &task(&id(601), "session-status", json!({}))), NOW), Err(Rejection::RateLimited));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -195,13 +195,14 @@ export const Bridge = {
   /** Until when screenshots are allowed (Unix ms), or 0. */
   captureStatus: () => call<number>("capture_status"),
   remoteSet: (on: boolean, consent: boolean) => callOrThrow<RemoteStatus>("remote_set", { on, consent }),
-  /** The signer's public key (64 hex characters); "" removes it. */
-  remoteKey: (key: string) => callOrThrow<RemoteStatus>("remote_key", { key }),
+  /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
+  remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
+  remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
   remoteKill: (killed: boolean) => callOrThrow<RemoteStatus>("remote_kill", { killed }),
   /** The relay's address (https://name.subdomain.workers.dev); "" removes it. */
   remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
-  /** New relay tokens + PC result key; the cloud token comes back once. */
-  remoteSetup: () => callOrThrow<RemoteSetupAnswer>("remote_setup"),
+  /** A new PC relay token + result key (cloud tokens are each client's own). */
+  remoteSetup: () => callOrThrow<RemoteStatus>("remote_setup"),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
   runbooksList: () => call<RunbooksView>("runbooks_list"),
   /** "Approve runbook": only the version shown (`hash`). */
@@ -457,6 +458,16 @@ export interface RemoteActivity {
   /** The rejection's code ("expired", "bad-signature" …) or "". */
   reason: string;
   id: string;
+  /** The cloud client that sent it ("account-2" ...), or "". */
+  client: string;
+}
+
+/** One cloud client: never more of its key than the fingerprint. */
+export interface RemoteClient {
+  name: string;
+  fingerprint: string;
+  /** Seconds since 1970; 0 = from before cloud clients. */
+  added: number;
 }
 
 /** Settings → Remote → Remote tasks: never more of the key than its fingerprint. */
@@ -464,8 +475,8 @@ export interface RemoteStatus {
   on: boolean;
   consented: boolean;
   killed: boolean;
-  /** "" when no key is saved. */
-  fingerprint: string;
+  /** One per Claude account. */
+  clients: RemoteClient[];
   /** "https://name.subdomain.workers.dev", or "". */
   relay: string;
   /** A fixed code: off, connecting, connected, reconnecting, unauthorized … */
@@ -477,9 +488,9 @@ export interface RemoteStatus {
   activity: RemoteActivity[];
 }
 
-export interface RemoteSetupAnswer {
+export interface RemoteClientAnswer {
   status: RemoteStatus;
-  /** Shown once; Glim doesn't keep it. */
+  /** The new client's relay token: shown once; Glim doesn't keep it. */
   cloudToken: string;
 }
 

@@ -11,10 +11,13 @@
 // in the tray) and the Remote activity list (times, outcomes, command kinds
 // or refusal reasons; never a payload). Since the courier (owner 2026-11-14,
 // remote/courier.rs): the relay's address and the connection's state, and
-// "Set up the relay", which makes both sides' relay tokens and this PC's
-// result key and shows cloud Glim's token exactly once.
+// "Set up the relay", which makes this PC's relay token and result key.
+// Cloud clients (owner 2026-11-15): one per Claude account, each with its
+// name, its signer's fingerprint and the date it was added; "Add cloud
+// client" takes the client's PUBLIC key and makes its own relay token,
+// shown exactly once; "Remove" refuses its tasks at once.
 
-import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteStatus } from "../core/bridge";
+import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus } from "../core/bridge";
 import { h, clear } from "../views/dom";
 import { t } from "../i18n/i18n";
 
@@ -141,11 +144,23 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
   return section;
 }
 
-/** One activity line: "14:05 Accepted: session-status" / "14:06 Refused: expired". */
+/** One activity line: "14:05 account-2 · Accepted: session-status" / "14:06 Refused: expired". */
 export function activityLine(a: RemoteActivity): string {
   if (a.kind === "kill-switch") return `${clock(a.at)} ${t("Stop remote tasks")}`;
   if (a.kind === "allowed-again") return `${clock(a.at)} ${t("Allow again")}`;
-  return `${clock(a.at)} ${a.ok ? t("Accepted: {kind}", { kind: a.kind }) : t("Refused: {reason}", { reason: a.reason })}`;
+  const who = a.client ? `${a.client} · ` : "";
+  return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind: a.kind }) : t("Refused: {reason}", { reason: a.reason })}`;
+}
+
+/** The first free "account-N" (account-1, account-2 ...). */
+export function nextClientName(clients: RemoteClient[]): string {
+  for (let n = 1; ; n++) if (!clients.some((c) => c.name === `account-${n}`)) return `account-${n}`;
+}
+
+/** "Added Nov 15, 2026", or the first setup's for the client from before clients. */
+export function addedText(c: RemoteClient): string {
+  if (!c.added) return t("Added with the first setup");
+  return t("Added {date}", { date: new Date(c.added * 1000).toLocaleDateString() });
 }
 
 /** The relay connection's state code, in words. */
@@ -172,14 +187,17 @@ let tasksTimer: ReturnType<typeof setInterval> | null = null;
 /** Settings → Remote → Remote tasks (remote/). */
 export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement, pollMs = REMOTE_POLL_MS): HTMLElement {
   const box = h("div", { class: "pill-group", "data-role": "remote-tasks" });
-  let status: RemoteStatus = { on: false, consented: false, killed: false, fingerprint: "", relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", activity: [] };
+  let status: RemoteStatus = { on: false, consented: false, killed: false, clients: [], relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", activity: [] };
   let consenting = false;
   let note = "";
   let renewing = false;
-  /** Cloud Glim's token, right after setup only; forgotten on "Done". */
+  /** A new cloud client's token, right after "Add cloud client" only; forgotten on "Done". */
   let cloudToken = "";
+  /** A client was just removed: the runbook reminder. */
+  let removed = false;
   /** What was typed but not saved yet: kept across redraws. */
   let keyDraft = "";
+  let nameDraft: string | null = null;
   let relayDraft: string | null = null;
   /** Which Save just worked ("key" / "relay"), shown as "Saved" for a moment. */
   let saved = "";
@@ -194,7 +212,10 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       note = "";
       if (what) {
         saved = what;
-        if (what === "key") keyDraft = "";
+        if (what === "key") {
+          keyDraft = "";
+          nameDraft = null;
+        }
         if (what === "relay") relayDraft = null;
         if (savedTimer) clearTimeout(savedTimer);
         savedTimer = setTimeout(() => {
@@ -233,7 +254,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const prev = status;
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
-    const rest = (["on", "consented", "killed", "fingerprint", "relay", "pcPublicKey", "pcFingerprint"] as const).every(same);
+    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint"] as const).every(same);
     if (!rest) return draw();
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
@@ -270,16 +291,41 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       ));
     }
 
+    const clients = h("div", { "data-role": "remote-clients" }, h("label", { text: t("Cloud clients") }));
+    if (status.clients.length === 0) clients.append(h("div", { class: "hint", text: t("No cloud clients yet.") }));
+    for (const c of status.clients) {
+      const remove = h("button", { class: "danger", type: "button", "data-role": "remote-client-remove", text: t("Remove") });
+      remove.addEventListener("click", () => void act(async () => {
+        const next = await Bridge.remoteClientRemove(c.name);
+        cloudToken = "";
+        removed = true;
+        return next;
+      }));
+      clients.append(h("div", { "data-role": "remote-client" },
+        h("div", { class: "pill-row" }, h("span", { class: "name", text: c.name }), remove),
+        h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: c.fingerprint }) }),
+        h("div", { class: "hint", text: addedText(c) }),
+      ));
+    }
+    box.append(clients);
+    if (removed) box.append(h("div", { class: "hint", "data-role": "remote-client-removed", text: t("Removed. Run the relay-tokens runbook so the relay stops taking its token.") }));
+    const name = h("input", { type: "text", "data-role": "remote-client-name", placeholder: t("Client name, like account-2"), spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
+    name.value = nameDraft ?? nextClientName(status.clients);
+    name.addEventListener("input", () => { nameDraft = name.value; });
     const input = h("input", { type: "text", "data-role": "remote-key", placeholder: t("Paste the 64 hex characters"), spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
     input.value = keyDraft;
     input.addEventListener("input", () => { keyDraft = input.value; });
-    const save = h("button", { type: "button", "data-role": "remote-key-save", text: t("Save key") });
+    const save = h("button", { type: "button", "data-role": "remote-client-add", text: t("Add cloud client") });
     save.addEventListener("click", () => {
-      const key = input.value;
-      void act(() => Bridge.remoteKey(key), "key");
+      const [n, key] = [name.value, input.value];
+      void act(async () => {
+        const r = await Bridge.remoteClientAdd(n, key);
+        cloudToken = r.cloudToken;
+        removed = false;
+        return r.status;
+      }, "key");
     });
-    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, input, save, ...savedMark("key")));
-    if (status.fingerprint) box.append(h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.fingerprint }) }));
+    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, name, input, save, ...savedMark("key")));
 
     const relay = h("input", { type: "text", "data-role": "remote-relay", placeholder: "https://name.subdomain.workers.dev", spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
     relay.value = relayDraft ?? status.relay;
@@ -317,8 +363,8 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         draw();
       });
       box.append(h("div", { class: "card", "data-role": "remote-renew" },
-        h("div", { class: "name", text: t("Make new relay tokens and a new result key?") }),
-        h("div", { class: "hint", text: t("The old ones stop working at once: you'll put the new ones in cloud Glim's environment and run the relay-tokens runbook again.") }),
+        h("div", { class: "name", text: t("Make a new PC token and result key?") }),
+        h("div", { class: "hint", text: t("The old ones stop working at once: put the new result key in each cloud environment and run the relay-tokens runbook again.") }),
         h("div", { class: "row" }, yes, no),
       ));
     }
@@ -334,7 +380,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         draw();
       });
       box.append(h("div", { class: "card", "data-role": "remote-cloud" },
-        h("div", { class: "hint", text: t("Cloud Glim's relay token, shown only this once: put it in cloud Glim's environment as RELAY_CLOUD_TOKEN now.") }),
+        h("div", { class: "hint", text: t("This client's relay token, shown only this once: put it in that account's cloud environment as the relay's network secret, then run the relay-tokens runbook.") }),
         h("div", { class: "row" }, field, copy, done),
       ));
     }
@@ -357,9 +403,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
 
   async function runSetup() {
     try {
-      const r = await Bridge.remoteSetup();
-      status = r.status;
-      cloudToken = r.cloudToken;
+      status = await Bridge.remoteSetup();
       note = "";
     } catch (e) {
       note = String(e);
