@@ -279,6 +279,10 @@ pub fn start_in_console(_command: &str, _folder: &std::path::Path, _env: &[(&str
     Err("couldn't start".into())
 }
 
+pub fn pid_running(pid: u32) -> bool {
+    pid != 0 && std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
 pub fn find_claude() -> Option<PathBuf> {
     None
 }

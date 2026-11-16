@@ -4,6 +4,7 @@ mod accounts;
 mod agent_hooks;
 mod ai;
 mod autostart;
+mod build_lock;
 mod agents;
 mod capture;
 mod chat;
@@ -920,6 +921,12 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
     });
     remote::with(|g| g.note_kill(remote::now_s(), killed));
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
+}
+
+/// One build at a time (build_lock.rs): what runs and what waits, for the island.
+#[tauri::command]
+fn build_wait_status() -> build_lock::BuildWait {
+    build_lock::status()
 }
 
 /// Settings → Claude Code & Agents → Accounts: each account's name, config
@@ -2072,6 +2079,7 @@ pub fn run() {
             remote_set,
             remote_client_add,
             accounts_status,
+            build_wait_status,
             accounts_add,
             accounts_remove,
             remote_client_remove,

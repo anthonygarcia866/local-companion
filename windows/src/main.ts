@@ -25,7 +25,7 @@ import { registerHookHandlers } from "./island/hooks";
 import { refreshConfigured } from "./island/pill-status";
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
-import { UPDATE_NOTICE_MS, updateLine, updateNoticeShows } from "./core/update-notice";
+import { UPDATE_NOTICE_MS, buildWaitLine, updateLine, updateNoticeShows } from "./core/update-notice";
 import { KEY_REJECTED_MS, keyRejectedLine, showWhenFree } from "./core/key-rejected";
 import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t } from "./i18n/i18n";
 
@@ -390,6 +390,23 @@ async function main() {
   }, 20_000);
 
   island.launch();
+
+  // One build at a time (build_lock.rs): a build that waits for another is
+  // said once on the note card, each time a new one starts waiting.
+  let waitSeen = 0;
+  window.setInterval(async () => {
+    const w = await Bridge.buildWaitStatus();
+    const first = w?.waiting[0];
+    if (!first || first.since === waitSeen) return;
+    waitSeen = first.since;
+    if (!updateNoticeShows({ presence: presence.model.kind, paused: State.paused, approval: State.pendingApproval !== null })) return;
+    const line = buildWaitLine(w);
+    State.noteMessage = line;
+    island.alert("note");
+    window.setTimeout(() => {
+      if (State.view === "note" && State.noteMessage === line && State.mode === "expanded") island.collapse();
+    }, UPDATE_NOTICE_MS);
+  }, 10_000);
 
   // After an update (update_result.rs): its result once, on the note card.
   window.setTimeout(async () => {

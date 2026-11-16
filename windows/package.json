@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "predev": "cargo build --release -p glim-hook",
     "prebuild": "cargo build --release -p glim-hook",
-    "pack": "tauri build && node scripts/pack.mjs",
+    "pack": "node scripts/build-lock.mjs run release -- npm run pack:build",
+    "pack:build": "tauri build && node scripts/pack.mjs",
     "check:lantern": "node dev/lantern-check.mjs",
     "test:pages": "playwright test"
   },

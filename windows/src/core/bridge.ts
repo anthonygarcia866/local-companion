@@ -2,7 +2,7 @@
 // page is opened in a plain browser, so the island can be iterated on with
 // `npm run dev` alone.
 
-import type { UpdateResult } from "./update-notice";
+import type { BuildWait, UpdateResult } from "./update-notice";
 import type { ResumeCard } from "../views/resume";
 import type { LearnView } from "./learn";
 
@@ -217,6 +217,8 @@ export const Bridge = {
   runbookTakeRequest: () => call<string | null>("runbook_take_request"),
   /** The last update's result, once per update (null when none is new). */
   updateNoticeTake: () => call<UpdateResult | null>("update_notice_take"),
+  /** One build at a time: what runs and what waits (build_lock.rs). */
+  buildWaitStatus: () => call<BuildWait>("build_wait_status"),
   /** Settings → Secrets: names and saved dates, never a value. */
   secretsList: () => call<SecretInfo[]>("secrets_list"),
   /** Adds or replaces a secret; the value goes to Rust once and never comes back. */

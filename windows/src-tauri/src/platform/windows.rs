@@ -1021,6 +1021,11 @@ fn process_table() -> HashMap<u32, Proc> {
     out
 }
 
+/// Whether the process with this id is running (the process list only).
+pub fn pid_running(pid: u32) -> bool {
+    pid != 0 && process_table().contains_key(&pid)
+}
+
 /// Whether a process with this executable name (any case) is running. The
 /// process list only: nothing is opened or attached.
 pub fn process_running(exe: &str) -> bool {
