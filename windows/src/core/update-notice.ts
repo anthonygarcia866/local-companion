@@ -51,6 +51,28 @@ export function updateTimings(u: UpdateResult): string {
   return [...u.steps.map((s) => `${s.name} ${secs(s.ms)}${s.ok ? "" : " ✗"}`), `${t("total")} ${secs(u.totalMs)}`].join(" · ");
 }
 
+/** One build at a time (scripts/build-lock.mjs, owner 2026-11-15). */
+export interface BuildWait {
+  /** "glim-update" / "release", or "" when none runs. */
+  running: string;
+  waiting: { what: string; since: number }[];
+}
+
+function buildName(what: string): string {
+  if (what === "glim-update") return "glim-update";
+  if (what === "release") return t("the release build");
+  return t("another build");
+}
+
+/** The island's line for a build that waits, or "" when none does. */
+export function buildWaitLine(w: BuildWait | null): string {
+  const next = w?.waiting[0];
+  if (!next) return "";
+  const line = t("{waiting} is waiting: it starts when {running} finishes.", { waiting: buildName(next.what), running: buildName(w!.running) });
+  // "glim-update" keeps its own spelling; a sentence otherwise starts in capitals.
+  return next.what === "glim-update" ? line : line.charAt(0).toUpperCase() + line.slice(1);
+}
+
 /** Shown on the island only on the pill with no approval waiting; Settings has it anyway. */
 export function updateNoticeShows(o: { presence: string; paused: boolean; approval: boolean }): boolean {
   return o.presence === "pill" && !o.approval;

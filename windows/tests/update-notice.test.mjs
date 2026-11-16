@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { updateLine, updateTimings, updateNoticeShows } = await import("../src/core/update-notice.ts");
+const { updateLine, updateTimings, updateNoticeShows, buildWaitLine } = await import("../src/core/update-notice.ts");
 
 const base = { runId: "r", commit: "1a2b3c4d", ok: true, selftest: "6/6", failedStep: "", error: "", finishedAt: "", totalMs: 65_000, steps: [] };
 
@@ -34,4 +34,12 @@ test("the apps it closed to free memory follow the line; none, nothing added", (
   assert.equal(updateLine({ ...base, closed: [] }), "Updated to 1a2b3c4d: self-test 6/6");
   assert.equal(updateLine({ ...base, closed: [" "] }), "Updated to 1a2b3c4d: self-test 6/6");
   assert.equal(updateLine({ ...base, ok: false, failedStep: "pack", error: "npm run pack exited 1", closed: ["Slack"] }), "Update to 1a2b3c4d failed at pack: npm run pack exited 1. Closed to free memory: Slack");
+});
+
+test("one build at a time: the island names what waits and what it waits for", () => {
+  assert.equal(buildWaitLine(null), "");
+  assert.equal(buildWaitLine({ running: "release", waiting: [] }), "");
+  assert.equal(buildWaitLine({ running: "release", waiting: [{ what: "glim-update", since: 5 }] }), "glim-update is waiting: it starts when the release build finishes.");
+  assert.equal(buildWaitLine({ running: "glim-update", waiting: [{ what: "release", since: 5 }] }), "The release build is waiting: it starts when glim-update finishes.");
+  assert.equal(buildWaitLine({ running: "", waiting: [{ what: "release", since: 5 }] }), "The release build is waiting: it starts when another build finishes.");
 });
