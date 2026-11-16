@@ -645,7 +645,7 @@ mod tests {
   "dictationLevels": { "ms-teams.exe": "verbatim" },
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
   "keepAlive": { "on": true, "consented": true, "folders": ["C:\\path\\to\\example-project"], "desktopApp": true },
-  "remote": { "on": true, "consented": true, "killed": false, "allowedSince": 1763140000, "publicKey": "abababababababababababababababababababababababababababababababab", "relay": "https://task-relay.example.workers.dev", "pcPublicKey": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" },
+  "remote": { "on": true, "consented": true, "killed": false, "allowedSince": 1763140000, "publicKey": "abababababababababababababababababababababababababababababababab", "clients": [{ "name": "account-2", "publicKey": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef", "tokenSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "added": 1763200000 }], "relay": "https://task-relay.example.workers.dev", "pcPublicKey": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" },
   "cloudConsent": { "live": "on", "polish": "off", "autoCheck": "" }
 }"##;
 
