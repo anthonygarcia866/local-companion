@@ -8,10 +8,11 @@ import assert from "node:assert/strict";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { remoteSection, remoteTasks, entryState, clock, activityLine } = await import("../src/settings/remote.ts");
+const { remoteSection, remoteTasks, entryState, clock, activityLine, nextClientName, addedText } = await import("../src/settings/remote.ts");
 const { sent, replies } = await import("./tauri.mjs");
 
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)); };
+const roleText = (el, r) => el.find("div").concat(el.find("span")).filter((d) => d.getAttribute("data-role") === r).map((d) => d.textContent);
 const role = (el, tag, r) => el.find(tag).find((x) => x.getAttribute("data-role") === r);
 const FOLDER = "C:\\path\\to\\example-project";
 const CMD = "claude remote-control --spawn same-dir --capacity 1 --name \"example-project (PC)\"";
@@ -81,7 +82,9 @@ test("three stops in an hour are shown", async () => {
 
 // ── Remote tasks (remote courier core, 2026-11-14): no transport yet ─────────
 
-const rstatus = (over = {}) => ({ on: false, consented: false, killed: false, fingerprint: "", activity: [], ...over });
+const rstatus = (over = {}) => ({ on: false, consented: false, killed: false, clients: [], activity: [], ...over });
+const FP = "3F2A 91C0 0000 1111 2222 3333 4444 5555";
+const client = (name, added = 1763200000) => ({ name, fingerprint: FP, added });
 
 test("remote tasks: off by default, the card first, only Turn on turns it on", async () => {
   replies.set("remote_status", rstatus());
@@ -100,19 +103,46 @@ test("remote tasks: off by default, the card first, only Turn on turns it on", a
   assert.deepEqual(sent("remote_set").slice(n), [{ on: true, consent: true }]);
 });
 
-test("remote tasks: the key goes to Rust, only its fingerprint comes back", async () => {
-  replies.set("remote_status", rstatus());
-  const el = remoteTasks(toggle);
+test("cloud clients: Add sends the name and key to Rust; only the fingerprint comes back; the token shows once", async () => {
+  replies.set("remote_status", rstatus({ clients: [client("account-1", 0)] }));
+  const el = remoteTasks(toggle, 60_000);
   await tick();
+  assert.match(roleText(el, "remote-client").join(" | "), /account-1.*Added with the first setup/);
+  // The next free name is filled in.
+  assert.equal(role(el, "input", "remote-client-name").value, "account-2");
   const key = "ab".repeat(32);
+  const token = "c".repeat(64);
   role(el, "input", "remote-key").value = key;
-  replies.set("remote_key", rstatus({ fingerprint: "3F2A 91C0 0000 1111 2222 3333 4444 5555" }));
-  role(el, "button", "remote-key-save").fire("click");
+  replies.set("remote_client_add", { status: rstatus({ clients: [client("account-1", 0), client("account-2")] }), cloudToken: token });
+  role(el, "button", "remote-client-add").fire("click");
   await tick();
-  assert.deepEqual(sent("remote_key").at(-1), { key });
+  assert.deepEqual(sent("remote_client_add").at(-1), { name: "account-2", key });
+  assert.equal(roleText(el, "remote-client").length, 2);
   const text = el.find("div").map((d) => d.textContent).join(" | ");
   assert.match(text, /Fingerprint: 3F2A 91C0/);
   assert.ok(!text.includes(key), "the key itself is never shown");
+  assert.equal(role(el, "input", "remote-cloud-token").value, token);
+  role(el, "button", "remote-cloud-done").fire("click");
+  assert.equal(role(el, "input", "remote-cloud-token"), undefined, "gone after Done");
+});
+
+test("cloud clients: Remove names the one client and reminds about the runbook", async () => {
+  replies.set("remote_status", rstatus({ clients: [client("account-1"), client("account-2")] }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  replies.set("remote_client_remove", rstatus({ clients: [client("account-1")] }));
+  el.find("button").filter((b) => b.getAttribute("data-role") === "remote-client-remove")[1].fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_client_remove").at(-1), { name: "account-2" });
+  assert.equal(roleText(el, "remote-client").length, 1);
+  assert.match(roleText(el, "remote-client-removed")[0], /relay-tokens runbook/);
+});
+
+test("cloud clients: the next free name and the added date", () => {
+  assert.equal(nextClientName([]), "account-1");
+  assert.equal(nextClientName([client("account-1"), client("account-3")]), "account-2");
+  assert.equal(addedText(client("account-1", 0)), "Added with the first setup");
+  assert.match(addedText(client("account-2")), /^Added /);
 });
 
 test("remote tasks: the kill switch is one click, and Allow again undoes it", async () => {
@@ -133,6 +163,8 @@ test("remote tasks: the kill switch is one click, and Allow again undoes it", as
 test("remote activity: times, outcomes and kinds or reasons, newest first", async () => {
   const at = new Date(2026, 10, 14, 9, 7).getTime() / 1000;
   assert.equal(activityLine({ at, ok: true, kind: "session-status", reason: "", id: "x" }), "09:07 Accepted: session-status");
+  assert.equal(activityLine({ at, ok: true, kind: "session-status", reason: "", id: "x", client: "account-2" }), "09:07 account-2 · Accepted: session-status");
+  assert.equal(activityLine({ at, ok: false, kind: "", reason: "wrong-client", id: "", client: "account-1" }), "09:07 account-1 · Refused: wrong-client");
   assert.equal(activityLine({ at, ok: false, kind: "", reason: "expired", id: "" }), "09:07 Refused: expired");
   assert.equal(activityLine({ at, ok: false, kind: "kill-switch", reason: "", id: "" }), "09:07 Stop remote tasks");
   replies.set("remote_status", rstatus({ activity: [{ at, ok: false, kind: "", reason: "bad-signature", id: "" }, { at, ok: true, kind: "runbook", reason: "", id: "y" }] }));
@@ -145,7 +177,6 @@ test("remote activity: times, outcomes and kinds or reasons, newest first", asyn
 // ── Settings → Remote fixes (owner 2026-11-14) ───────────────────────────────
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const roleText = (el, r) => el.find("div").concat(el.find("span")).filter((d) => d.getAttribute("data-role") === r).map((d) => d.textContent);
 
 test("the Relay: line follows the connection live, without redrawing what's typed", async () => {
   replies.set("remote_status", rstatus({ on: true, consented: true, relay: "https://a.b.workers.dev", connection: "off" }));
@@ -170,8 +201,8 @@ test("Save key and Save address each show Saved, and only when it worked", async
   await tick();
   assert.deepEqual(roleText(el, "remote-key-saved"), []);
   role(el, "input", "remote-key").value = "ab".repeat(32);
-  replies.set("remote_key", rstatus({ fingerprint: "3F2A 91C0 0000 1111 2222 3333 4444 5555" }));
-  role(el, "button", "remote-key-save").fire("click");
+  replies.set("remote_client_add", { status: rstatus({ clients: [client("account-1")] }), cloudToken: "c".repeat(64) });
+  role(el, "button", "remote-client-add").fire("click");
   await tick();
   assert.deepEqual(roleText(el, "remote-key-saved"), ["Saved"]);
   role(el, "input", "remote-relay").value = "https://a.b.workers.dev";
@@ -187,8 +218,8 @@ test("Save key and Save address each show Saved, and only when it worked", async
   assert.deepEqual(roleText(el, "remote-relay-saved"), [], "a refusal is not Saved");
 });
 
-test("no key saved: no fingerprint line at all", async () => {
-  replies.set("remote_status", rstatus({ fingerprint: "", pcPublicKey: "", pcFingerprint: "" }));
+test("no client yet: no fingerprint line at all", async () => {
+  replies.set("remote_status", rstatus({ clients: [], pcPublicKey: "", pcFingerprint: "" }));
   const el = remoteTasks(toggle, 60_000);
   await tick();
   assert.deepEqual(roleText(el, "remote-fingerprint"), []);

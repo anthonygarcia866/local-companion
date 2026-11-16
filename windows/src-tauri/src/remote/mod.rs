@@ -437,10 +437,10 @@ impl Gate {
         }
         let sig = from_hex(&env.sig).filter(|s| s.len() == 64).ok_or((Rejection::BadSignature, None))?;
         let verifies = |k: &[u8]| ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, k).verify(env.payload.as_bytes(), &sig).is_ok();
-        if !verifies(&key) {
+        if !verifies(key.as_slice()) {
             // Another client's key: a task one client signed, queued with
             // another's token. Refused all the same, with its own code.
-            let other = clients.iter().filter(|c| c.name != client).any(|c| from_hex(&c.public_key).filter(|k| k.len() == 32).is_some_and(|k| verifies(&k)));
+            let other = clients.iter().filter(|c| c.name != client).any(|c| from_hex(&c.public_key).filter(|k| k.len() == 32).is_some_and(|k| verifies(k.as_slice())));
             return Err((if other { Rejection::WrongClient } else { Rejection::BadSignature }, None));
         }
         // Signed by this client's key from here on.

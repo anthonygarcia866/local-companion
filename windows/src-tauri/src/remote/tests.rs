@@ -348,7 +348,8 @@ fn clients_are_refused_with_a_taken_name_or_key_a_bad_name_or_past_ten() {
     }
     assert_eq!(s.add_client(client("account-99", &signer(99))), Err("too-many"));
     assert_eq!(parse_client_name("  Account-2 "), Ok("account-2".into()));
-    for bad in ["", "-x", "has space", "a_b", &"x".repeat(33)] {
+    let long = "x".repeat(33);
+    for bad in ["", "-x", "has space", "a_b", long.as_str()] {
         assert!(parse_client_name(bad).is_err(), "{bad}");
     }
 }
