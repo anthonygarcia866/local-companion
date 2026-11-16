@@ -483,8 +483,14 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
     // Never a program from `folder` itself (keepalive passes claude's full
     // path; this is the backstop).
     c.env("NoDefaultCurrentDirectoryInExePath", "1");
+    // An empty value removes the variable (accounts.rs: the default Claude
+    // account's process must not inherit another's CLAUDE_CONFIG_DIR).
     for (k, v) in env {
-        c.env(k, v);
+        if v.is_empty() {
+            c.env_remove(k);
+        } else {
+            c.env(k, v);
+        }
     }
     if new_console {
         c.creation_flags(CREATE_NEW_CONSOLE);
@@ -500,11 +506,19 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
 /// `folder`, no window, `stdin_text` written to its stdin and closed (a
 /// prompt never goes on the command line), output discarded, not waited
 /// for, tied to Glim's life.
-pub fn start_hidden_with_stdin(exe: &std::path::Path, args: &[&str], folder: &std::path::Path, stdin_text: &str) -> Result<(), String> {
+pub fn start_hidden_with_stdin(exe: &std::path::Path, args: &[&str], folder: &std::path::Path, env: &[(&str, &str)], stdin_text: &str) -> Result<(), String> {
     use std::io::Write;
     use std::process::Stdio;
     let mut c = Command::new(exe);
     c.args(args).current_dir(folder).env("NoDefaultCurrentDirectoryInExePath", "1");
+    // As start_in_console: an empty value removes the variable.
+    for (k, v) in env {
+        if v.is_empty() {
+            c.env_remove(k);
+        } else {
+            c.env(k, v);
+        }
+    }
     no_console(&mut c).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut child = c.spawn().map_err(|_| "couldn't start".to_string())?;
     let _ = kill_with_glim(&child);

@@ -210,7 +210,7 @@ impl Courier {
                 let (signer, exec, tx, answered) = (self.signer.clone(), self.exec.clone(), self.tx.clone(), self.answered.clone());
                 std::thread::spawn(move || {
                     let kind = task.command.kind().to_string();
-                    let out = exec.run(&task.command).map(|d| (kind, d));
+                    let out = exec.run(&task.command, &task.client).map(|d| (kind, d));
                     if let Err(code) = &out {
                         crate::log::line(format!("remote: task failed {}", code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect::<String>()));
                     }
@@ -396,7 +396,11 @@ pub fn watch_outages(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, ma
 }
 
 /// The app's courier: one thread with its own runtime, for Glim's life.
-pub fn start(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, keepalive_folders: Box<dyn Fn() -> Vec<String> + Send + Sync>) {
+pub fn start(
+    settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>,
+    keepalive_folders: Box<dyn Fn() -> Vec<String> + Send + Sync>,
+    accounts: Box<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync>,
+) {
     let link = Arc::new(|s: &RemoteSettings| -> Result<Link, &'static str> {
         let url = relay::endpoint(&s.relay).map_err(|_| "no-relay")?;
         let token = pc_token_vault().read().ok().flatten().filter(|t| t.len() == 64).ok_or("not-set-up")?;
@@ -407,7 +411,7 @@ pub fn start(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, keepalive_
         settings,
         link,
         accept: Arc::new(|s: &RemoteSettings, client: &str, raw: &[u8], now: i64| super::with(|g| g.accept_from(s, client, raw, now))),
-        exec: Arc::new(super::exec::RealExec { keepalive_folders }),
+        exec: Arc::new(super::exec::RealExec { keepalive_folders, accounts }),
         timing: Timing::default(),
         backoff_max: Duration::from_secs(60),
         idle: Duration::from_secs(2),

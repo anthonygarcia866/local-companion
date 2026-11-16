@@ -283,7 +283,7 @@ pub fn find_claude() -> Option<PathBuf> {
     None
 }
 
-pub fn start_hidden_with_stdin(_exe: &std::path::Path, _args: &[&str], _folder: &std::path::Path, _stdin_text: &str) -> Result<(), String> {
+pub fn start_hidden_with_stdin(_exe: &std::path::Path, _args: &[&str], _folder: &std::path::Path, _env: &[(&str, &str)], _stdin_text: &str) -> Result<(), String> {
     Err("couldn't start".into())
 }
 

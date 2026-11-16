@@ -11,10 +11,14 @@
 // The list is Rust's (lib.rs keeps it out of the page's settings saves):
 // - a project folder (a full local path, an existing folder, not a drive,
 //   Windows, Program Files or the whole profile), whose command is FIXED:
-//   `claude remote-control --spawn same-dir --capacity 1 --name "<folder name> (PC)"`,
+//   `claude remote-control --spawn worktree --capacity 1 --name "<folder name> (PC)"`,
 //   run through `cmd /d /s /c` in that folder in a console of its own (Windows
 //   Terminal on Windows 11, as the default terminal), with
-//   CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 in its environment;
+//   CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 in its environment. One per
+//   signed-in Claude account (accounts.rs, owner 2026-11-15), side by side,
+//   each with its own CLAUDE_CONFIG_DIR and named "<folder name> (PC,
+//   <account>)" for any account but the default one; each session it spawns
+//   works in its own git worktree (`--spawn worktree`);
 // - optionally the Claude desktop app (started through Windows, as voice's
 //   open_app does; "running" = its packaged claude.exe is running).
 // Nothing else is ever started: there is no free-form command anywhere.
@@ -69,7 +73,25 @@ pub fn display_name(folder: &str) -> String {
 
 /// The fixed command for a folder.
 pub fn command_line(folder: &str) -> String {
-    format!("claude remote-control --spawn same-dir --capacity 1 --name \"{} (PC)\"", display_name(folder))
+    format!("claude remote-control --spawn worktree --capacity 1 --name \"{} (PC)\"", display_name(folder))
+}
+
+/// The fixed command for a folder under a Claude account (accounts.rs): the
+/// default folder's account keeps `"<folder> (PC)"`, any other is named
+/// `"<folder> (PC, <account>)"`, so side-by-side servers tell apart.
+pub fn command_line_for(folder: &str, account: &crate::accounts::ClaudeAccount) -> String {
+    if account.config_dir.is_empty() {
+        return command_line(folder);
+    }
+    let who: String = account.name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.')).take(24).collect();
+    format!("claude remote-control --spawn worktree --capacity 1 --name \"{} (PC, {})\"", display_name(folder), who.trim())
+}
+
+/// command_line_for with `claude` as its full path, quoted.
+pub fn launch_line_for(exe: &str, folder: &str, account: &crate::accounts::ClaudeAccount) -> String {
+    let rest = command_line_for(folder, account);
+    let rest = rest.strip_prefix("claude").unwrap_or(&rest);
+    format!("\"{exe}\"{rest}")
 }
 
 /// The fixed command with `claude` as its full path, quoted.
@@ -97,7 +119,11 @@ pub fn folder_problem(raw: &str, list: &[String]) -> Option<String> {
 /// One thing to keep running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Spec {
+    /// A folder's server under the default Claude account.
     Folder(String),
+    /// A folder's server under another Claude account (its own
+    /// CLAUDE_CONFIG_DIR), side by side with the default one's.
+    AccountFolder(String, crate::accounts::ClaudeAccount),
     Desktop,
 }
 
@@ -105,9 +131,30 @@ impl Spec {
     pub fn id(&self) -> String {
         match self {
             Spec::Folder(f) => f.to_ascii_lowercase(),
+            Spec::AccountFolder(f, a) => format!("{}|{}", f.to_ascii_lowercase(), a.name.to_ascii_lowercase()),
             Spec::Desktop => DESKTOP.into(),
         }
     }
+
+    fn folder(&self) -> Option<&str> {
+        match self {
+            Spec::Folder(f) | Spec::AccountFolder(f, _) => Some(f.as_str()),
+            Spec::Desktop => None,
+        }
+    }
+
+    /// The account's name, "" for the default one.
+    fn account(&self) -> &str {
+        match self {
+            Spec::AccountFolder(_, a) => a.name.as_str(),
+            _ => "",
+        }
+    }
+}
+
+/// An id's folder part and account part ("" for the default account).
+fn id_parts(id: &str) -> (&str, &str) {
+    id.split_once('|').unwrap_or((id, ""))
 }
 
 /// What should be running now, from Settings: nothing unless on and consented.
@@ -116,6 +163,25 @@ pub fn wanted(s: &KeepAliveSettings) -> Vec<Spec> {
         return Vec::new();
     }
     let mut out: Vec<Spec> = s.folders.iter().take(MAX_FOLDERS).cloned().map(Spec::Folder).collect();
+    if s.desktop_app {
+        out.push(Spec::Desktop);
+    }
+    out
+}
+
+/// What should be running with several Claude accounts: each folder once
+/// per account in `accounts` (the signed-in ones; the caller filters), the
+/// default-folder account as Spec::Folder, the others as AccountFolder.
+pub fn wanted_for(s: &KeepAliveSettings, accounts: &[crate::accounts::ClaudeAccount]) -> Vec<Spec> {
+    if !(s.on && s.consented) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for f in s.folders.iter().take(MAX_FOLDERS) {
+        for a in accounts {
+            out.push(if a.config_dir.is_empty() { Spec::Folder(f.clone()) } else { Spec::AccountFolder(f.clone(), a.clone()) });
+        }
+    }
     if s.desktop_app {
         out.push(Spec::Desktop);
     }
@@ -189,6 +255,8 @@ pub struct EntryView {
     pub folder: String,
     /// The fixed command, or "" for the desktop app.
     pub command: String,
+    /// The Claude account it runs under ("" = the default one).
+    pub account: String,
     /// "running" | "waiting" | "start-failed" | "off".
     pub state: &'static str,
     /// Seconds since 1970: running since / next try.
@@ -231,10 +299,7 @@ impl Supervisor {
         }
         for spec in wanted {
             let id = spec.id();
-            let name = match spec {
-                Spec::Folder(f) => display_name(f),
-                Spec::Desktop => String::new(),
-            };
+            let name = spec.folder().map(display_name).unwrap_or_default();
             let slot = self.slots.entry(id.clone());
             let slot = match slot {
                 std::collections::btree_map::Entry::Vacant(v) => {
@@ -275,13 +340,19 @@ impl Supervisor {
     /// Stops and starts again the running or waiting folder entries named
     /// `folder` (their display name), or all of them; the desktop app is the
     /// user's and is never touched. Only entries the supervisor already has,
-    /// i.e. folders on the keep-alive list with keep-alive on. How many.
+    /// i.e. folders on the keep-alive list with keep-alive on. With
+    /// `account`, only that Claude account's ("" = the default one). How many.
     pub fn restart(&mut self, folder: Option<&str>, now: u64) -> usize {
+        self.restart_for(folder, None, now)
+    }
+
+    pub fn restart_for(&mut self, folder: Option<&str>, account: Option<&str>, now: u64) -> usize {
         let ids: Vec<String> = self
             .slots
             .keys()
             .filter(|id| id.as_str() != DESKTOP)
-            .filter(|id| folder.is_none_or(|f| display_name(id).eq_ignore_ascii_case(f)))
+            .filter(|id| folder.is_none_or(|f| display_name(id_parts(id).0).eq_ignore_ascii_case(f)))
+            .filter(|id| account.is_none_or(|a| id_parts(id).1.eq_ignore_ascii_case(a)))
             .cloned()
             .collect();
         for id in &ids {
@@ -302,15 +373,21 @@ impl Supervisor {
         if s.desktop_app {
             specs.push(Spec::Desktop);
         }
+        self.views_of(&specs)
+    }
+
+    /// One line per entry (each folder once per account).
+    pub fn views_of(&self, specs: &[Spec]) -> Vec<EntryView> {
         specs
             .iter()
             .map(|spec| {
                 let id = spec.id();
                 let (folder, command) = match spec {
                     Spec::Folder(f) => (f.clone(), command_line(f)),
+                    Spec::AccountFolder(f, a) => (f.clone(), command_line_for(f, a)),
                     Spec::Desktop => (String::new(), String::new()),
                 };
-                let mut v = EntryView { id: id.clone(), folder, command, state: "off", at: 0, last_exit: None, why: String::new(), failed_last_hour: 0 };
+                let mut v = EntryView { id: id.clone(), folder, command, account: spec.account().to_string(), state: "off", at: 0, last_exit: None, why: String::new(), failed_last_hour: 0 };
                 if let Some(slot) = self.slots.get(&id) {
                     v.failed_last_hour = slot.backoff.failed.len();
                     match &slot.phase {
@@ -399,7 +476,7 @@ impl RealLauncher {
     /// What actually runs: the fixed command with `claude` replaced by the
     /// launcher's full path, found on PATH or in ~/.local/bin, never inside
     /// the project folder (a planted claude.cmd there would run otherwise).
-    fn command_for(&self, folder: &str) -> Result<String, String> {
+    fn command_for(&self, folder: &str, account: Option<&crate::accounts::ClaudeAccount>) -> Result<String, String> {
         #[cfg(test)]
         if let Some(c) = &self.fake_command {
             return Ok(c.clone());
@@ -410,7 +487,10 @@ impl RealLauncher {
         if canon_exe.starts_with(&canon_folder) {
             return Err("the claude found is inside the project folder: refusing".into());
         }
-        Ok(launch_line(&exe.to_string_lossy(), folder))
+        Ok(match account {
+            Some(a) => launch_line_for(&exe.to_string_lossy(), folder, a),
+            None => launch_line(&exe.to_string_lossy(), folder),
+        })
     }
 
     fn new_console(&self) -> bool {
@@ -435,7 +515,16 @@ impl Launcher for RealLauncher {
             Spec::Folder(folder) => {
                 // Checked again: the folder may have gone since it was added.
                 crate::runbooks::allowed_folder(folder)?;
-                let child = crate::platform::start_in_console(&self.command_for(folder)?, std::path::Path::new(folder), &[(ENV_NAME, ENV_VALUE)], self.new_console())?;
+                // The default account: no CLAUDE_CONFIG_DIR, even inherited.
+                let env = [(ENV_NAME, ENV_VALUE), (crate::accounts::CONFIG_DIR_VAR, "")];
+                let child = crate::platform::start_in_console(&self.command_for(folder, None)?, std::path::Path::new(folder), &env, self.new_console())?;
+                Ok(Box::new(Child(child)))
+            }
+            Spec::AccountFolder(folder, account) => {
+                crate::runbooks::allowed_folder(folder)?;
+                let (var, dir) = crate::accounts::env(account);
+                let env = [(ENV_NAME, ENV_VALUE), (var, dir.as_str())];
+                let child = crate::platform::start_in_console(&self.command_for(folder, Some(account))?, std::path::Path::new(folder), &env, self.new_console())?;
                 Ok(Box::new(Child(child)))
             }
         }
@@ -446,20 +535,32 @@ impl Launcher for RealLauncher {
 
 static SUPERVISOR: std::sync::Mutex<Option<Supervisor>> = std::sync::Mutex::new(None);
 
-/// The remote courier's keepalive-restart: errors are fixed codes.
-pub fn restart(folder: Option<&str>) -> Result<usize, String> {
+/// The remote courier's keepalive-restart: errors are fixed codes. With
+/// `account` (the task's client's Claude account; "" = the default one),
+/// only that account's servers.
+pub fn restart(folder: Option<&str>, account: Option<&str>) -> Result<usize, String> {
     let mut sup = SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner());
     let sup = sup.as_mut().ok_or("keepalive-off")?;
-    match sup.restart(folder, crate::learn::now()) {
+    match sup.restart_for(folder, account, crate::learn::now()) {
         0 if folder.is_some() => Err("keepalive-folder-not-listed".into()),
         0 => Err("keepalive-off".into()),
         n => Ok(n),
     }
 }
 
-/// Settings → Remote's status lines.
-pub fn views(s: &KeepAliveSettings) -> Vec<EntryView> {
-    SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|sup| sup.views(s)).unwrap_or_else(|| Supervisor::default().views(s))
+/// The Claude accounts keep-alive runs a server for (accounts.rs): the
+/// default one always (as before accounts), any other once signed in (its
+/// login file is there; a server for one that needs login would only stop).
+pub fn accounts_to_run(s: &crate::settings::Settings) -> Vec<crate::accounts::ClaudeAccount> {
+    let home = crate::platform::home_dir();
+    crate::accounts::list(&s.claude_accounts, &home).into_iter().filter(|a| a.config_dir.is_empty() || crate::accounts::signed_in(a, &home)).collect()
+}
+
+/// Settings → Remote's status lines: each folder once per account.
+pub fn views(s: &crate::settings::Settings) -> Vec<EntryView> {
+    let on = KeepAliveSettings { on: true, consented: true, ..s.keep_alive.clone() };
+    let specs = wanted_for(&on, &accounts_to_run(s));
+    SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|sup| sup.views_of(&specs)).unwrap_or_else(|| Supervisor::default().views_of(&specs))
 }
 
 /// Starts the supervisor thread (once, at Glim's start): every 2 s it looks
@@ -476,7 +577,7 @@ pub fn start(settings: impl Fn() -> crate::settings::Settings + Send + 'static, 
         let launcher = RealLauncher::new();
         loop {
             let s = settings();
-            let want = wanted(&s.keep_alive);
+            let want = wanted_for(&s.keep_alive, &accounts_to_run(&s));
             let events = {
                 let mut sup = SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner());
                 sup.as_mut().map(|sup| sup.tick(&want, crate::learn::now(), &launcher)).unwrap_or_default()
@@ -529,6 +630,7 @@ mod tests {
             }
             self.started.borrow_mut().push(match spec {
                 Spec::Folder(f) => command_line(f),
+                Spec::AccountFolder(f, a) => command_line_for(f, a),
                 Spec::Desktop => "desktop".into(),
             });
             let k = Arc::new(Mutex::new(None));
@@ -546,6 +648,29 @@ mod tests {
     /// The remote courier's keepalive-restart (owner 2026-11-15): only the
     /// folders on the list, the named one or all, never the desktop app;
     /// started again by the next tick from the list's own entry.
+    #[test]
+    fn two_accounts_run_side_by_side_and_a_restart_can_name_one_account() {
+        let f = Fake::default();
+        let mut sup = Supervisor::default();
+        let two = crate::accounts::ClaudeAccount { name: "Claude2".into(), config_dir: r"C:\Users\someone\.claude2".into(), client: "account-2".into() };
+        let want = vec![Spec::Folder(FOLDER.into()), Spec::AccountFolder(FOLDER.into(), two.clone())];
+        sup.tick(&want, 100, &f);
+        assert_eq!(*f.started.borrow(), vec![command_line(FOLDER), command_line_for(FOLDER, &two)]);
+        assert!(f.started.borrow()[1].ends_with("--name \"example-project (PC, Claude2)\""));
+        // Claude2's only.
+        assert_eq!(sup.restart_for(Some("example-project"), Some("Claude2"), 110), 1);
+        sup.tick(&want, 110, &f);
+        assert_eq!(f.started.borrow().last().unwrap(), &command_line_for(FOLDER, &two));
+        // The default account's only ("").
+        assert_eq!(sup.restart_for(None, Some(""), 120), 1);
+        sup.tick(&want, 120, &f);
+        assert_eq!(f.started.borrow().last().unwrap(), &command_line(FOLDER));
+        // Both.
+        assert_eq!(sup.restart(None, 130), 2);
+        let views = sup.views_of(&want);
+        assert_eq!(views.iter().map(|v| v.account.as_str()).collect::<Vec<_>>(), ["", "Claude2"]);
+    }
+
     #[test]
     fn a_restart_stops_and_starts_only_listed_folders() {
         let f = Fake::default();
@@ -575,7 +700,7 @@ mod tests {
 
     #[test]
     fn the_command_is_fixed_with_the_folder_name() {
-        assert_eq!(command_line(FOLDER), "claude remote-control --spawn same-dir --capacity 1 --name \"example-project (PC)\"");
+        assert_eq!(command_line(FOLDER), "claude remote-control --spawn worktree --capacity 1 --name \"example-project (PC)\"");
         assert_eq!(display_name("C:\\x\\we\"ird&name|"), "weirdname");
         assert_eq!(display_name("C:\\"), "project");
         assert_eq!(display_name("C:\\a\\b\\"), "b");
@@ -585,7 +710,7 @@ mod tests {
     fn what_runs_is_claudes_full_path_and_the_fixed_arguments() {
         assert_eq!(
             launch_line(r"C:\Users\x\.local\bin\claude.exe", FOLDER),
-            r#""C:\Users\x\.local\bin\claude.exe" remote-control --spawn same-dir --capacity 1 --name "example-project (PC)""#
+            r#""C:\Users\x\.local\bin\claude.exe" remote-control --spawn worktree --capacity 1 --name "example-project (PC)""#
         );
     }
 

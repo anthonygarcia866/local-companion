@@ -77,6 +77,17 @@ Envelope, as carried:
 
 Every decision goes to Settings → Remote → **Remote activity** and glim.log: the time, the client, accepted or refused, the command kind or the refusal code. The id appears only once the signature has verified. Never a payload, an argument, a signature, a token or a key.
 
+## Accounts: which Claude account a task acts for (owner, 2026-11-15)
+
+Each cloud client acts for one Claude account on the PC (Settings → Claude Code & Agents → **Accounts**, `accounts.rs`): `account-1` → **Claude** (Claude Code's default config folder, `~\.claude`), `account-2` → **Claude2** (`~\.claude2`), prefilled. The list shows each account's config folder and whether it's signed in: only whether its login file (`.credentials.json`) exists. Glim never opens it.
+
+- `session-status`, `transcript-tail`: only the transcripts in that account's own config folder (the repo's, and its worktrees' under `<repo>\.claude\worktrees\`). Lines name the account (`local-companion: idle … [Claude2]`).
+- `start-session`: with that account's `CLAUDE_CONFIG_DIR` (removed for the default one, never inherited). With a prompt, `claude -p -w`: a git worktree of its own. Without one, the remote-control command named `(PC, <account>)` for any account but the default one.
+- `send-to-session`: that account's latest session only, continued where it works (the repo folder or one of its worktrees, checked); busy within 30 s.
+- `keepalive-restart`: that account's keep-alive servers only.
+- A repo whose sessions are only another account's answers `not-your-session`; a client no account acts for gets `not-your-session` for all of these. `runbook` doesn't depend on the account.
+- Keep Claude Code reachable runs one remote-control server per account (the default one always, the others once signed in), side by side, each with its own `CLAUDE_CONFIG_DIR` and `--spawn worktree`, so every session it spawns works in its own git worktree.
+
 ## Staying connected (owner, 2026-11-15)
 
 2026-11-15 ~11:25 the relay said `{"pc":true,"pending":1}` while a signed task got no answer within 60 s: a half-open line (after sleep or a network change, no close frame ever arrives), which the relay kept counting as the PC.

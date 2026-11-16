@@ -185,6 +185,9 @@ pub struct Settings {
     pub keep_alive: crate::keepalive::KeepAliveSettings,
     /// Settings → Remote → Remote tasks (remote/): Rust's, like keep_alive.
     pub remote: crate::remote::RemoteSettings,
+    /// Settings → Claude Code & Agents → Accounts (accounts.rs): Rust's;
+    /// empty = the prefilled Claude and Claude2.
+    pub claude_accounts: Vec<crate::accounts::ClaudeAccount>,
     /// Ask first (owner, 2026-11-04; consent.rs): the answer for each cloud
     /// feature that sends by itself. Empty until asked.
     pub cloud_consent: CloudConsent,
@@ -323,6 +326,7 @@ impl Default for Settings {
             phone: PhoneSettings::default(),
             keep_alive: crate::keepalive::KeepAliveSettings::default(),
             remote: crate::remote::RemoteSettings::default(),
+            claude_accounts: Vec::new(),
             cloud_consent: CloudConsent::default(),
         }
     }
@@ -646,6 +650,7 @@ mod tests {
   "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
   "keepAlive": { "on": true, "consented": true, "folders": ["C:\\path\\to\\example-project"], "desktopApp": true },
   "remote": { "on": true, "consented": true, "killed": false, "allowedSince": 1763140000, "publicKey": "abababababababababababababababababababababababababababababababab", "clients": [{ "name": "account-2", "publicKey": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef", "tokenSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "added": 1763200000 }], "relay": "https://task-relay.example.workers.dev", "pcPublicKey": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" },
+  "claudeAccounts": [{ "name": "Claude", "configDir": "", "client": "account-1" }, { "name": "Work", "configDir": "C:\\Users\\someone\\.claude-work", "client": "account-2" }],
   "cloudConsent": { "live": "on", "polish": "off", "autoCheck": "" }
 }"##;
 
@@ -1157,6 +1162,7 @@ mod tests {
                 "phone",
                 "keepAlive",
                 "remote",
+                "claudeAccounts",
                 "cloudConsent",
             ]
         );

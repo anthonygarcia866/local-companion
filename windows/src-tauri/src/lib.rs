@@ -1,5 +1,6 @@
 // Glim for Windows — app wiring and the commands the island calls.
 
+mod accounts;
 mod agent_hooks;
 mod ai;
 mod autostart;
@@ -132,6 +133,8 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         settings.keep_alive = current.keep_alive.clone();
         // Remote tasks (remote/) are Rust's too (remote_* commands).
         settings.remote = current.remote.clone();
+        // So are the Claude accounts (accounts_* commands).
+        settings.claude_accounts = current.claude_accounts.clone();
         // Whether My names was seeded is Rust's (shield::address_book).
         settings.own_names_seeded |= current.own_names_seeded;
         // The day the calendar's morning summary was last shown is Rust's.
@@ -701,8 +704,8 @@ struct KeepAliveStatus {
 }
 
 fn keepalive_now(shared: &Shared) -> KeepAliveStatus {
-    let s = shared.settings.lock().unwrap().keep_alive.clone();
-    KeepAliveStatus { entries: keepalive::views(&s), settings: s }
+    let all = shared.settings.lock().unwrap().clone();
+    KeepAliveStatus { entries: keepalive::views(&all), settings: all.keep_alive }
 }
 
 #[tauri::command]
@@ -917,6 +920,46 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
     });
     remote::with(|g| g.note_kill(remote::now_s(), killed));
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
+}
+
+/// Settings → Claude Code & Agents → Accounts: each account's name, config
+/// folder, whether its login file is there (never read) and its cloud client.
+#[tauri::command]
+fn accounts_status(shared: State<Shared>) -> Vec<accounts::AccountView> {
+    let saved = shared.settings.lock().unwrap().claude_accounts.clone();
+    let home = platform::home_dir();
+    accounts::views(&accounts::list(&saved, &home), &home)
+}
+
+/// Adds an account: a name and its config folder ("" = the default ~/.claude).
+#[tauri::command]
+fn accounts_add(app: AppHandle, shared: State<Shared>, name: String, folder: String) -> Result<Vec<accounts::AccountView>, String> {
+    let home = platform::home_dir();
+    let name = accounts::parse_name(&name).map_err(|_| i18n::t("A name is 1-24 letters, digits or spaces."))?;
+    let folder = accounts::parse_folder(&folder, &home).map_err(|_| i18n::t("That isn't a folder in your user profile."))?;
+    let mut list = accounts::list(&shared.settings.lock().unwrap().claude_accounts, &home);
+    accounts::add(&mut list, name, folder, &home).map_err(|why| match why {
+        "name-taken" => i18n::t("There's already an account by that name."),
+        "folder-taken" => i18n::t("Another account already uses that folder."),
+        _ => i18n::t("That's as many accounts as Glim keeps."),
+    })?;
+    update_settings(&app, &shared, |s| s.claude_accounts = list.clone());
+    log::line("accounts: account added");
+    Ok(accounts::views(&list, &home))
+}
+
+#[tauri::command]
+fn accounts_remove(app: AppHandle, shared: State<Shared>, name: String) -> Result<Vec<accounts::AccountView>, String> {
+    let home = platform::home_dir();
+    let mut list = accounts::list(&shared.settings.lock().unwrap().claude_accounts, &home);
+    let before = list.len();
+    list.retain(|a| a.name != name);
+    if list.len() == before {
+        return Err(i18n::t("There's no account by that name."));
+    }
+    update_settings(&app, &shared, |s| s.claude_accounts = list.clone());
+    log::line("accounts: account removed");
+    Ok(accounts::views(&list, &home))
 }
 
 /// The tray's one click.
@@ -2028,6 +2071,9 @@ pub fn run() {
             remote_status,
             remote_set,
             remote_client_add,
+            accounts_status,
+            accounts_add,
+            accounts_remove,
             remote_client_remove,
             remote_kill,
             capture_allow,
@@ -2238,9 +2284,14 @@ pub fn run() {
                 let rk = handle.clone();
                 let remote_settings: std::sync::Arc<dyn Fn() -> remote::RemoteSettings + Send + Sync> =
                     std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default());
+                let ra = handle.clone();
                 remote::courier::start(
                     remote_settings.clone(),
                     Box::new(move || rk.try_state::<Shared>().map(|s| s.settings.lock().unwrap().keep_alive.folders.clone()).unwrap_or_default()),
+                    Box::new(move || {
+                        let saved = ra.try_state::<Shared>().map(|s| s.settings.lock().unwrap().claude_accounts.clone()).unwrap_or_default();
+                        accounts::list(&saved, &platform::home_dir())
+                    }),
                 );
                 // A relay line down 10 minutes, and back (owner 2026-11-15):
                 // one phone ping each per outage, outside quiet hours.

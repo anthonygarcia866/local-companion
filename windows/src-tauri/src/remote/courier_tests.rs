@@ -87,7 +87,7 @@ struct Fake {
 }
 
 impl Exec for Fake {
-    fn run(&self, c: &Command) -> Result<String, String> {
+    fn run(&self, c: &Command, _client: &str) -> Result<String, String> {
         std::thread::sleep(self.delay);
         self.runs.lock().unwrap().push(c.kind().to_string());
         Ok(format!("did {}", c.kind()))

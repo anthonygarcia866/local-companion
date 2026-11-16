@@ -198,6 +198,10 @@ export const Bridge = {
   /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
   remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
   remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
+  /** Settings → Claude Code & Agents → Accounts (accounts.rs). */
+  accountsStatus: () => call<ClaudeAccountView[]>("accounts_status"),
+  accountsAdd: (name: string, folder: string) => callOrThrow<ClaudeAccountView[]>("accounts_add", { name, folder }),
+  accountsRemove: (name: string) => callOrThrow<ClaudeAccountView[]>("accounts_remove", { name }),
   remoteKill: (killed: boolean) => callOrThrow<RemoteStatus>("remote_kill", { killed }),
   /** The relay's address (https://name.subdomain.workers.dev); "" removes it. */
   remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
@@ -435,6 +439,8 @@ export interface KeepAliveEntry {
   folder: string;
   /** The fixed command ("" for the desktop app). */
   command: string;
+  /** The Claude account it runs under ("" = the default one). */
+  account?: string;
   state: "running" | "waiting" | "start-failed" | "off";
   /** Seconds since 1970: running since / next try. */
   at: number;
@@ -459,6 +465,15 @@ export interface RemoteActivity {
   reason: string;
   id: string;
   /** The cloud client that sent it ("account-2" ...), or "". */
+  client: string;
+}
+
+/** One Claude account: signed in = its login file exists (never read). */
+export interface ClaudeAccountView {
+  name: string;
+  configDir: string;
+  signedIn: boolean;
+  /** The cloud client acting for it ("account-1" ...). */
   client: string;
 }
 
