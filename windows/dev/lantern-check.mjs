@@ -5,7 +5,9 @@
 //
 // 1. Fidelity: the ported component and the approved design
 //    (docs/brand/glim-mascot.html) render the same pixels (to within ±2/255
-//    of rasterisation rounding, every exception listed), for every state,
+//    of rasterisation rounding, every exception listed; the aura's blur,
+//    which CI runners draw one of two ways, to within 32/255 on the aura's
+//    own pixels only, with the rest matching to ±2), for every state,
 //    full and compact, with animations frozen at the same instants (state
 //    transitions finished first, so each frame is the state at rest); and
 //    the additive classes (pop, pop-record, ignite) on top of their states.
@@ -41,6 +43,12 @@ const ROUNDING = 2;
 /** How many times a render that differs is re-rendered from fresh pages
  * before the difference counts (see the fidelity loop). */
 const RERENDERS = 4;
+/** The aura's blur (feGaussianBlur) comes out one of two ways on GPU-less CI
+ * runners, apart by at most this much at the edges of its filter region
+ * (#122's run 43669977998: the same 1307 pixels, 32/255, in every state).
+ * Allowed only on pixels the aura itself draws, and only when the rest of the
+ * lantern, rendered without its aura, matches to ROUNDING (`auraOnly`). */
+const AURA_BLUR = 32;
 /** Instants (ms into every animation) at which both renders are compared. */
 const FREEZE_AT = [0, 450, 1100, 2000, 3300];
 /** Instants for the additive classes: their animations are 0.4-1.2 s. */
@@ -187,6 +195,32 @@ async function main() {
         const px=i=>{const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const g=c.getContext('2d');g.drawImage(i,0,0);return g.getImageData(0,0,i.width,i.height).data;};
         const p=px(x),q=px(y);let n=0,m=0;for(let i=0;i<p.length;i+=4){let d=0;for(let k=0;k<4;k++)d=Math.max(d,Math.abs(p[i+k]-q[i+k]));if(d){n++;m=Math.max(m,d);}}
         return {pixels:n,max:m,total:p.length/4};})()`);
+    // A fresh render of `key` on both pages, with and without the aura; then
+    // the lantern without its aura compared to ROUNDING, and the renders with
+    // it compared only where the aura draws (pixels that change when the aura
+    // goes, on either page). Counts only.
+    const auraOnly = async (key) => {
+      const [state, compact, at, extra] = key.split("/");
+      const shots = {};
+      for (const [name, url] of [["design", designUrl], ["port", portUrl]]) {
+        await open(url);
+        const r = await setUp(state, compact === "true", Number(at), true, extra);
+        const clip = { x: r.x - 60, y: r.y - 40, width: r.width + 120, height: r.height + 80 };
+        shots[name] = await shot(clip);
+        await evaluate(`(async()=>{document.getElementById('glim').querySelector('.aura').remove();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()`);
+        shots[`${name}Bare`] = await shot(clip);
+      }
+      const bare = shots.designBare === shots.portBare ? { pixels: 0, max: 0 } : await diff(shots.designBare, shots.portBare);
+      const masked = await evaluate(`(async()=>{const load=s=>new Promise(r=>{const i=new Image();i.onload=()=>r(i);i.src='data:image/png;base64,'+s;});
+        const imgs=await Promise.all([${JSON.stringify(shots.design)},${JSON.stringify(shots.port)},${JSON.stringify(shots.designBare)},${JSON.stringify(shots.portBare)}].map(load));
+        if(imgs.some(i=>i.width!==imgs[0].width||i.height!==imgs[0].height))return {outside:-1,max:255};
+        const px=i=>{const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const g=c.getContext('2d');g.drawImage(i,0,0);return g.getImageData(0,0,i.width,i.height).data;};
+        const [p,q,b,c]=imgs.map(px);let outside=0,max=0;
+        for(let i=0;i<p.length;i+=4){let d=0,aura=0;for(let k=0;k<4;k++){d=Math.max(d,Math.abs(p[i+k]-q[i+k]));aura=Math.max(aura,Math.abs(p[i+k]-b[i+k]),Math.abs(q[i+k]-c[i+k]));}
+          if(d>${ROUNDING}){max=Math.max(max,d);if(!aura)outside++;}}
+        return {outside,max};})()`);
+      return { bare, outside: masked.outside < 0 ? Infinity : masked.outside, max: masked.max };
+    };
     let compared = 0;
     let exact = 0;
     const near = [];
@@ -227,6 +261,15 @@ async function main() {
           if (d.max <= ROUNDING) break;
         }
         near.push(`  re-rendered ${key} (${retry}/${RERENDERS}): closest pair ${d.pixels} pixels differ, by at most ${d.max}/255`);
+      }
+      // Still apart after the re-renders (one side kept picking the other way,
+      // 2026-11-14): no more re-runs, decide what the difference is. Without
+      // the aura both pages must still match to ROUNDING, and with it every
+      // differing pixel must be one the aura draws, by at most AURA_BLUR.
+      if (d.pixels > 0 && d.max > ROUNDING && d.max <= AURA_BLUR) {
+        const a = await auraOnly(key);
+        near.push(`  ${key}: without the aura ${a.bare.pixels} pixels differ (max ${a.bare.max}/255); with it ${a.outside} differing pixel(s) outside the aura, max ${a.max}/255`);
+        if (a.bare.pixels >= 0 && a.bare.max <= ROUNDING && a.outside === 0 && a.max <= AURA_BLUR) d = { pixels: 0, max: 0, total: d.total };
       }
       if (d.pixels < 0 || d.max > ROUNDING) {
         const tag = key.replace(/\/$/, "").replaceAll("/", "-");
