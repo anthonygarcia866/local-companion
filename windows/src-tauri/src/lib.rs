@@ -761,13 +761,25 @@ struct RemoteStatus {
     on: bool,
     consented: bool,
     killed: bool,
-    fingerprint: String,
+    /// The cloud clients: name, signer fingerprint, date added.
+    clients: Vec<RemoteClientView>,
     relay: String,
     /// A fixed code: off, connecting, connected, reconnecting, unauthorized …
     connection: String,
     pc_public_key: String,
     pc_fingerprint: String,
     activity: Vec<remote::Activity>,
+}
+
+/// One cloud client in Settings: never more of its key than the fingerprint,
+/// never its token (not kept here) or its token's hash.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteClientView {
+    name: String,
+    fingerprint: String,
+    /// Unix seconds; 0 = from before cloud clients.
+    added: i64,
 }
 
 fn remote_now(shared: &Shared) -> RemoteStatus {
@@ -778,7 +790,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         on: s.on,
         consented: s.consented,
         killed: s.killed,
-        fingerprint: remote::fingerprint(&s.public_key),
+        clients: s.clients().iter().map(|c| RemoteClientView { name: c.name.clone(), fingerprint: remote::fingerprint(&c.public_key), added: c.added }).collect(),
         relay: s.relay.clone(),
         connection: remote::courier::state().to_string(),
         pc_fingerprint: remote::fingerprint(&s.pc_public_key),
@@ -801,22 +813,63 @@ fn remote_relay(app: AppHandle, shared: State<Shared>, address: String) -> Resul
     Ok(remote_now(&shared))
 }
 
-/// "Set up the relay": new tokens for both sides and a new PC result key.
-/// The cloud token comes back to be shown once; Glim doesn't keep it.
+/// "Set up the relay": a new PC relay token and a new PC result key (cloud
+/// tokens are each cloud client's own: "Add cloud client").
+#[tauri::command]
+fn remote_setup(app: AppHandle, shared: State<Shared>) -> Result<RemoteStatus, String> {
+    let done = remote::courier::setup(&remote::courier::pc_token_vault(), &remote::courier::pc_key_vault(), &secrets::store()).map_err(|_| i18n::t("Couldn't set up the relay keys."))?;
+    let public = done.pc_public_key.clone();
+    update_settings(&app, &shared, |s| s.remote.pc_public_key = public);
+    log::line("remote: PC relay token and result key made");
+    Ok(remote_now(&shared))
+}
+
+/// "Add cloud client": a new cloud token for it (shown once, never kept
+/// here) and its signer's PUBLIC key. The relay's list (REMOTE_CLOUD_CLIENTS)
+/// is rewritten; the relay-tokens runbook hands it to the relay.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RemoteSetupAnswer {
+struct RemoteClientAnswer {
     status: RemoteStatus,
     cloud_token: String,
 }
 
 #[tauri::command]
-fn remote_setup(app: AppHandle, shared: State<Shared>) -> Result<RemoteSetupAnswer, String> {
-    let done = remote::courier::setup(&remote::courier::pc_token_vault(), &remote::courier::pc_key_vault(), &secrets::store()).map_err(|_| i18n::t("Couldn't set up the relay keys."))?;
-    let public = done.pc_public_key.clone();
-    update_settings(&app, &shared, |s| s.remote.pc_public_key = public);
-    log::line("remote: relay tokens and PC key made");
-    Ok(RemoteSetupAnswer { status: remote_now(&shared), cloud_token: done.cloud_token })
+fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: String) -> Result<RemoteClientAnswer, String> {
+    let name = remote::parse_client_name(&name).map_err(|_| i18n::t("A client's name is 1-32 letters, digits or dashes, like account-2."))?;
+    let key = remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))?;
+    let (token, hash) = remote::courier::new_cloud_token().map_err(|_| i18n::t("Couldn't make a token."))?;
+    let mut next = shared.settings.lock().unwrap().remote.clone();
+    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: hash, added: remote::now_s() }).map_err(|why| match why {
+        "name-taken" => i18n::t("There's already a client by that name."),
+        "key-taken" => i18n::t("Another client already uses that key."),
+        _ => i18n::t("That's as many clients as Glim keeps."),
+    })?;
+    // The relay's list first: if it can't be saved, nothing changed.
+    remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    update_settings(&app, &shared, |s| {
+        s.remote.clients = next.clients.clone();
+        s.remote.public_key = next.public_key.clone();
+    });
+    log::line("remote: cloud client added");
+    Ok(RemoteClientAnswer { status: remote_now(&shared), cloud_token: token })
+}
+
+/// "Remove": its tasks are refused at once here; the relay stops taking its
+/// token once the relay-tokens runbook ran.
+#[tauri::command]
+fn remote_client_remove(app: AppHandle, shared: State<Shared>, name: String) -> Result<RemoteStatus, String> {
+    let mut next = shared.settings.lock().unwrap().remote.clone();
+    if !next.remove_client(&name) {
+        return Err(i18n::t("There's no client by that name."));
+    }
+    remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    update_settings(&app, &shared, |s| {
+        s.remote.clients = next.clients.clone();
+        s.remote.public_key = next.public_key.clone();
+    });
+    log::line("remote: cloud client removed");
+    Ok(remote_now(&shared))
 }
 
 #[tauri::command]
@@ -842,16 +895,6 @@ fn remote_set(app: AppHandle, shared: State<Shared>, on: bool, consent: bool) ->
         s.remote.on = on;
     });
     log::line(if on { "remote: channel on" } else { "remote: channel off" });
-    Ok(remote_now(&shared))
-}
-
-/// The signer's public key, pasted (64 hex characters); "" removes it.
-#[tauri::command]
-fn remote_key(app: AppHandle, shared: State<Shared>, key: String) -> Result<RemoteStatus, String> {
-    let key = if key.trim().is_empty() { String::new() } else { remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))? };
-    let set = !key.is_empty();
-    update_settings(&app, &shared, |s| s.remote.public_key = key);
-    log::line(if set { "remote: signer key saved" } else { "remote: signer key removed" });
     Ok(remote_now(&shared))
 }
 
@@ -1984,7 +2027,8 @@ pub fn run() {
             keepalive_desktop,
             remote_status,
             remote_set,
-            remote_key,
+            remote_client_add,
+            remote_client_remove,
             remote_kill,
             capture_allow,
             capture_hide_again,

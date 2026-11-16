@@ -16,7 +16,15 @@
 //   commands with its arguments (command.rs).
 // - Replay protection: an id is accepted once; seen ids are kept (on disk,
 //   so a restart doesn't reopen them) until their expiry has passed.
-// - Rate limits, per rolling hour: at most 5 start-session, 30 commands.
+// - Cloud clients (owner 2026-11-15): one per Claude account ("account-1",
+//   "account-2" ...), each with its own relay token and its own signer key.
+//   The relay stamps each task with the client whose token queued it; the
+//   task must verify with THAT client's key (signed with another client's
+//   key: "wrong-client"). The single signer key from before clients is
+//   "account-1" (`public_key`, read as that client: nothing to re-enter).
+// - Rate limits, per rolling hour: per client at most 5 start-session and
+//   30 commands; on this PC in all, 8 start-session and 50 commands; 3
+//   keepalive-restart.
 // - Repo allowlist: commands that name a repo only for REPOS
 //   (local-companion to start).
 // - The channel is OFF by default and needs its one-time consent card; the
@@ -51,10 +59,22 @@ pub const REPOS: &[&str] = &["local-companion"];
 pub const MAX_LIFETIME_S: i64 = 600;
 /// Clock skew tolerated between the signer and this PC (seconds).
 pub const SKEW_S: i64 = 60;
+/// Per cloud client, per rolling hour.
 pub const MAX_START_PER_HOUR: usize = 5;
-/// keepalive-restart, per rolling hour (owner 2026-11-15).
-pub const MAX_KEEPALIVE_RESTARTS_PER_HOUR: usize = 3;
 pub const MAX_COMMANDS_PER_HOUR: usize = 30;
+/// On this PC, all clients together, per rolling hour (owner 2026-11-15).
+pub const MAX_START_PER_HOUR_PC: usize = 8;
+pub const MAX_COMMANDS_PER_HOUR_PC: usize = 50;
+/// keepalive-restart, per rolling hour, on this PC (owner 2026-11-15).
+pub const MAX_KEEPALIVE_RESTARTS_PER_HOUR: usize = 3;
+/// The client a task from a relay without client names (or the signer key
+/// from before clients) belongs to.
+pub const LEGACY_CLIENT: &str = "account-1";
+/// Cloud clients at most (the relay's list fits one secret).
+pub const MAX_CLIENTS: usize = 10;
+/// The relay's token-hash value for the client whose hash is the relay's
+/// old single CLOUD_TOKEN_SHA256 (relay/src/core.js cloudClients).
+pub const LEGACY_TOKEN: &str = "legacy";
 /// The biggest envelope read at all (bytes).
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024;
 /// Activity entries kept.
@@ -75,8 +95,11 @@ pub struct RemoteSettings {
     /// seconds (0: never). A task issued before it was queued while stopped:
     /// refused as killed, never run (owner 2026-11-14).
     pub allowed_since: i64,
-    /// The signer's Ed25519 public key, 64 lower-case hex characters ("" none).
+    /// The signer key from before cloud clients (64 lower-case hex, "" none):
+    /// read as client "account-1" while `clients` is empty (`clients()`).
     pub public_key: String,
+    /// Cloud clients, one per Claude account (owner 2026-11-15).
+    pub clients: Vec<CloudClient>,
     /// The relay's address, "https://<name>.<subdomain>.workers.dev" ("" none).
     pub relay: String,
     /// The PC's result key (public half, 64 hex) once set up ("" none); the
@@ -84,7 +107,82 @@ pub struct RemoteSettings {
     pub pc_public_key: String,
 }
 
+/// One cloud client: its name, its signer's PUBLIC key, the SHA-256 of its
+/// relay token (not secret; "legacy" = the relay's old single cloud token)
+/// and when it was added (Unix seconds; 0 = from before clients).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CloudClient {
+    pub name: String,
+    pub public_key: String,
+    pub token_sha256: String,
+    pub added: i64,
+}
+
+/// A client's name as typed: 1-32 of a-z 0-9 -, starting with a letter or
+/// digit (lower-cased, trimmed).
+pub fn parse_client_name(raw: &str) -> Result<String, &'static str> {
+    let n = raw.trim().to_ascii_lowercase();
+    let ok = (1..=32).contains(&n.len()) && n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !n.starts_with('-');
+    if ok {
+        Ok(n)
+    } else {
+        Err("bad-name")
+    }
+}
+
 impl RemoteSettings {
+    /// The cloud clients: the list, or (before any was added) the old single
+    /// signer key as "account-1".
+    pub fn clients(&self) -> Vec<CloudClient> {
+        if self.clients.is_empty() && !self.public_key.is_empty() {
+            return vec![CloudClient { name: LEGACY_CLIENT.into(), public_key: self.public_key.clone(), token_sha256: LEGACY_TOKEN.into(), added: 0 }];
+        }
+        self.clients.clone()
+    }
+
+    /// Adds a client (the list replaces the old single key from now on).
+    pub fn add_client(&mut self, c: CloudClient) -> Result<(), &'static str> {
+        let mut list = self.clients();
+        if list.iter().any(|x| x.name == c.name) {
+            return Err("name-taken");
+        }
+        if list.iter().any(|x| x.public_key == c.public_key) {
+            return Err("key-taken");
+        }
+        if list.len() >= MAX_CLIENTS {
+            return Err("too-many");
+        }
+        list.push(c);
+        self.clients = list;
+        self.public_key.clear();
+        Ok(())
+    }
+
+    /// Removes a client; false when there was none by that name.
+    pub fn remove_client(&mut self, name: &str) -> bool {
+        let mut list = self.clients();
+        let before = list.len();
+        list.retain(|x| x.name != name);
+        let gone = list.len() != before;
+        self.clients = list;
+        if gone {
+            self.public_key.clear();
+        }
+        gone
+    }
+
+    /// The relay's CLOUD_CLIENTS value ("name=hash,..."; "none" for nobody),
+    /// which Glim keeps in the REMOTE_CLOUD_CLIENTS secret for the
+    /// relay-tokens runbook.
+    pub fn relay_list(&self) -> String {
+        let list = self.clients();
+        if list.is_empty() {
+            return "none".into();
+        }
+        list.iter().map(|c| format!("{}={}", c.name, c.token_sha256)).collect::<Vec<_>>().join(",")
+    }
+
     /// The channel opens again (the kill switch's "Allow again", or Remote
     /// tasks switched back on): tasks issued before `now` waited at the relay
     /// while it was shut and are refused as killed (owner 2026-11-14). Every
@@ -113,6 +211,10 @@ pub enum Rejection {
     BadArgs,
     RepoNotAllowed,
     RateLimited,
+    /// The relay named no client this PC knows (removed, or never added).
+    UnknownClient,
+    /// Signed by another client's key than the one whose token queued it.
+    WrongClient,
 }
 
 impl Rejection {
@@ -134,6 +236,8 @@ impl Rejection {
             Rejection::BadArgs => "bad-args",
             Rejection::RepoNotAllowed => "repo-not-allowed",
             Rejection::RateLimited => "rate-limited",
+            Rejection::UnknownClient => "unknown-client",
+            Rejection::WrongClient => "wrong-client",
         }
     }
 }
@@ -187,6 +291,8 @@ pub struct Accepted {
     pub id: String,
     pub expires: i64,
     pub command: Command,
+    /// The cloud client that sent it (its token queued it, its key signed it).
+    pub client: String,
 }
 
 /// One line of the Remote activity list: no payloads.
@@ -202,6 +308,17 @@ pub struct Activity {
     pub reason: String,
     /// The task id, only once its signature verified.
     pub id: String,
+    /// The cloud client the relay said sent it (a checked name), "" none.
+    #[serde(default)]
+    pub client: String,
+}
+
+/// One accepted command, for the rate limits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Call {
+    pub at: i64,
+    pub start: bool,
+    pub client: String,
 }
 
 /// Replay cache, rate counters and the activity list. `path` keeps the
@@ -211,8 +328,8 @@ pub struct Activity {
 pub struct Gate {
     /// id → its expiry.
     seen: BTreeMap<String, i64>,
-    /// Accepted commands' times (start-session flagged).
-    recent: Vec<(i64, bool)>,
+    /// Accepted commands (start-session flagged, with their client).
+    recent: Vec<Call>,
     /// Accepted keepalive-restart times.
     restarts: Vec<i64>,
     pub activity: Vec<Activity>,
@@ -222,18 +339,25 @@ pub struct Gate {
 #[derive(Serialize, Deserialize, Default)]
 struct Saved {
     seen: BTreeMap<String, i64>,
+    /// Before cloud clients: (time, start-session); all account-1's.
+    #[serde(default)]
     recent: Vec<(i64, bool)>,
     activity: Vec<Activity>,
     /// Added 2026-11-15: an older file has none (its seen ids still load).
     #[serde(default)]
     restarts: Vec<i64>,
+    /// Added 2026-11-15 (cloud clients).
+    #[serde(default)]
+    calls: Vec<Call>,
 }
 
 impl Gate {
     /// The gate kept in `path` (`%LOCALAPPDATA%\Glim\remote-state.json`).
     pub fn load(path: std::path::PathBuf) -> Gate {
         let saved: Saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Gate { seen: saved.seen, recent: saved.recent, restarts: saved.restarts, activity: saved.activity, path: Some(path) }
+        let mut recent: Vec<Call> = saved.recent.iter().map(|(at, start)| Call { at: *at, start: *start, client: LEGACY_CLIENT.into() }).collect();
+        recent.extend(saved.calls);
+        Gate { seen: saved.seen, recent, restarts: saved.restarts, activity: saved.activity, path: Some(path) }
     }
 
     pub fn default_path() -> std::path::PathBuf {
@@ -242,7 +366,7 @@ impl Gate {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        let saved = Saved { seen: self.seen.clone(), recent: self.recent.clone(), activity: self.activity.clone(), restarts: self.restarts.clone() };
+        let saved = Saved { seen: self.seen.clone(), recent: Vec::new(), activity: self.activity.clone(), restarts: self.restarts.clone(), calls: self.recent.clone() };
         if let Ok(bytes) = serde_json::to_vec(&saved) {
             let tmp = path.with_extension("json.tmp");
             if std::fs::write(&tmp, bytes).is_ok() {
@@ -259,21 +383,28 @@ impl Gate {
         self.activity.drain(..extra);
     }
 
-    /// Every check, in order; the outcome is noted either way.
+    /// A task from the single signer of before cloud clients ("account-1").
     pub fn accept(&mut self, s: &RemoteSettings, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
+        self.accept_from(s, LEGACY_CLIENT, raw, now)
+    }
+
+    /// Every check, in order, for a task the relay says `client` queued; the
+    /// outcome is noted either way.
+    pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
         // Forget what has expired (plus the skew) and counts over an hour old.
         self.seen.retain(|_, exp| *exp + SKEW_S >= now);
-        self.recent.retain(|(t, _)| *t > now - 3600);
+        self.recent.retain(|c| c.at > now - 3600);
         self.restarts.retain(|t| *t > now - 3600);
-        let r = self.check(s, raw, now);
+        let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
+        let r = self.check(s, &named, raw, now);
         let entry = match &r {
-            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone() },
-            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default() },
+            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone() },
+            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone() },
         };
         self.note(entry);
         if let Ok(a) = &r {
             self.seen.insert(a.id.clone(), a.expires);
-            self.recent.push((now, matches!(a.command, Command::StartSession { .. })));
+            self.recent.push(Call { at: now, start: matches!(a.command, Command::StartSession { .. }), client: a.client.clone() });
             if matches!(a.command, Command::KeepaliveRestart { .. }) {
                 self.restarts.push(now);
             }
@@ -284,14 +415,19 @@ impl Gate {
 
     /// The checks. The id comes back with a rejection only once the
     /// signature verified.
-    fn check(&self, s: &RemoteSettings, raw: &[u8], now: i64) -> Result<Accepted, (Rejection, Option<String>)> {
+    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, (Rejection, Option<String>)> {
         if s.killed {
             return Err((Rejection::Killed, None));
         }
         if !s.on || !s.consented {
             return Err((Rejection::Off, None));
         }
-        let key = from_hex(&s.public_key).filter(|k| k.len() == 32).ok_or((Rejection::NoKey, None))?;
+        let clients = s.clients();
+        if clients.is_empty() {
+            return Err((Rejection::NoKey, None));
+        }
+        let mine = clients.iter().find(|c| c.name == client).ok_or((Rejection::UnknownClient, None))?;
+        let key = from_hex(&mine.public_key).filter(|k| k.len() == 32).ok_or((Rejection::NoKey, None))?;
         if raw.len() > MAX_ENVELOPE_BYTES {
             return Err((Rejection::TooBig, None));
         }
@@ -300,10 +436,14 @@ impl Gate {
             return Err((Rejection::BadEnvelope, None));
         }
         let sig = from_hex(&env.sig).filter(|s| s.len() == 64).ok_or((Rejection::BadSignature, None))?;
-        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, &key)
-            .verify(env.payload.as_bytes(), &sig)
-            .map_err(|_| (Rejection::BadSignature, None))?;
-        // Signed by the owner's key from here on.
+        let verifies = |k: &[u8]| ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, k).verify(env.payload.as_bytes(), &sig).is_ok();
+        if !verifies(&key) {
+            // Another client's key: a task one client signed, queued with
+            // another's token. Refused all the same, with its own code.
+            let other = clients.iter().filter(|c| c.name != client).any(|c| from_hex(&c.public_key).filter(|k| k.len() == 32).is_some_and(|k| verifies(&k)));
+            return Err((if other { Rejection::WrongClient } else { Rejection::BadSignature }, None));
+        }
+        // Signed by this client's key from here on.
         let p: Payload = serde_json::from_str(&env.payload).map_err(|_| (Rejection::BadPayload, None))?;
         let id_ok = (16..=64).contains(&p.id.len()) && p.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
         if !id_ok {
@@ -330,22 +470,25 @@ impl Gate {
             return Err((Rejection::Replay, id));
         }
         let command = command::parse(&p.cmd, &p.args).map_err(|e| (e, id.clone()))?;
-        if self.recent.len() >= MAX_COMMANDS_PER_HOUR {
+        let own = || self.recent.iter().filter(|c| c.client == client);
+        if self.recent.len() >= MAX_COMMANDS_PER_HOUR_PC || own().count() >= MAX_COMMANDS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
-        if matches!(command, Command::StartSession { .. }) && self.recent.iter().filter(|(_, start)| *start).count() >= MAX_START_PER_HOUR {
+        if matches!(command, Command::StartSession { .. })
+            && (self.recent.iter().filter(|c| c.start).count() >= MAX_START_PER_HOUR_PC || own().filter(|c| c.start).count() >= MAX_START_PER_HOUR)
+        {
             return Err((Rejection::RateLimited, id));
         }
         if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
-        Ok(Accepted { id: p.id, expires: p.exp, command })
+        Ok(Accepted { id: p.id, expires: p.exp, command, client: client.to_string() })
     }
 
     /// The kill switch was used: noted in the list (it refuses on its own,
     /// through the settings).
     pub fn note_kill(&mut self, now: i64, killed: bool) {
-        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new() });
+        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new(), client: String::new() });
         self.save();
     }
 }

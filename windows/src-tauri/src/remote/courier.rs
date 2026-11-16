@@ -43,11 +43,17 @@ use crate::net::Url;
 /// Glim's own credentials (secrets::RESERVED lists them).
 pub const PC_TOKEN_TARGET: &str = "Glim/RemoteRelayPcToken";
 pub const PC_KEY_TARGET: &str = "Glim/RemotePcSigningKey";
-/// Ordinary secrets (Settings → Secrets) holding the two tokens' SHA-256, so
-/// an approved runbook can hand them to `wrangler secret put` on stdin. Not
-/// secret in themselves (a hash of 32 random bytes).
+/// Ordinary secrets (Settings → Secrets) holding the tokens' SHA-256, so an
+/// approved runbook (relay-tokens) can hand them to `wrangler secret put` on
+/// stdin. Not secret in themselves (a hash of 32 random bytes).
 pub const PC_TOKEN_HASH_SECRET: &str = "REMOTE_PC_TOKEN_SHA256";
+/// The single cloud token's hash from before cloud clients (still the
+/// relay's CLOUD_TOKEN_SHA256, "account-1"'s "legacy" entry). No longer
+/// written.
 pub const CLOUD_TOKEN_HASH_SECRET: &str = "REMOTE_CLOUD_TOKEN_SHA256";
+/// The cloud clients' list for the relay ("name=hash,...", or "none"):
+/// RemoteSettings::relay_list, rewritten on every add and remove.
+pub const CLOUD_CLIENTS_SECRET: &str = "REMOTE_CLOUD_CLIENTS";
 /// Results remembered for a task delivered twice.
 const ANSWERED_KEPT: usize = 50;
 
@@ -65,30 +71,41 @@ pub fn sha256_hex(s: &str) -> String {
     hex(&Sha256::digest(s.as_bytes()))
 }
 
-/// What Settings shows once after "Set up the relay".
+/// What Settings shows after "Set up the relay".
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Setup {
-    /// cloud Glim's relay token: shown this once, never kept on this PC.
-    pub cloud_token: String,
-    /// The PC's result key (public, 64 hex), for cloud Glim's environment.
+    /// The PC's result key (public, 64 hex), for cloud Glim's environments.
     pub pc_public_key: String,
 }
 
-/// New relay tokens for both sides and a new PC result key. The PC token and
-/// the private key go to Credential Manager, both tokens' hashes to
-/// Settings → Secrets; the cloud token comes back to be shown once.
+/// A new PC relay token and a new PC result key. The token and the private
+/// key go to Credential Manager, the token's hash to Settings → Secrets.
+/// Cloud tokens are each cloud client's own (`new_cloud_token`), untouched.
 pub fn setup(pc_token: &dyn Vault, pc_key: &dyn Vault, secrets: &dyn crate::secrets::Store) -> Result<Setup, String> {
     let rng = ring::rand::SystemRandom::new();
     let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).map_err(|_| "no randomness".to_string())?;
     let kp = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).map_err(|_| "bad key".to_string())?;
     let pc = random_hex32()?;
-    let cloud = random_hex32()?;
     pc_key.write(&hex(pkcs8.as_ref()))?;
     pc_token.write(&pc)?;
     crate::secrets::save(secrets, PC_TOKEN_HASH_SECRET, &sha256_hex(&pc))?;
-    crate::secrets::save(secrets, CLOUD_TOKEN_HASH_SECRET, &sha256_hex(&cloud))?;
-    Ok(Setup { cloud_token: cloud, pc_public_key: hex(kp.public_key().as_ref()) })
+    Ok(Setup { pc_public_key: hex(kp.public_key().as_ref()) })
+}
+
+/// A new cloud client's relay token: (token, its SHA-256). The token is
+/// shown once and never kept on this PC; the hash goes into the client's
+/// entry and the relay's list.
+pub fn new_cloud_token() -> Result<(String, String), String> {
+    let token = random_hex32()?;
+    let hash = sha256_hex(&token);
+    Ok((token, hash))
+}
+
+/// Writes the relay's list of cloud clients to its secret (for the
+/// relay-tokens runbook).
+pub fn save_client_list(s: &RemoteSettings, secrets: &dyn crate::secrets::Store) -> Result<(), String> {
+    crate::secrets::save(secrets, CLOUD_CLIENTS_SECRET, &s.relay_list()).map(|_| ())
 }
 
 /// The PC's result key from its vault entry (PKCS#8, hex).
@@ -136,7 +153,8 @@ fn peek_id(env: &str) -> Option<String> {
     ok.then(|| id.to_string())
 }
 
-pub type AcceptFn = dyn Fn(&RemoteSettings, &[u8], i64) -> Result<Accepted, Rejection> + Send + Sync;
+/// (settings, the client the relay named, the envelope, now).
+pub type AcceptFn = dyn Fn(&RemoteSettings, &str, &[u8], i64) -> Result<Accepted, Rejection> + Send + Sync;
 
 /// Turns relay frames into signed results on `tx`.
 pub struct Courier {
@@ -180,7 +198,9 @@ impl Courier {
             return;
         }
         let Some(id) = peek_id(env) else { return };
-        match (self.accept)(settings, env.as_bytes(), now) {
+        // A relay from before cloud clients names none: the old single one.
+        let client = f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT);
+        match (self.accept)(settings, client, env.as_bytes(), now) {
             Err(why) => {
                 let frame = result_frame(&id, &sign_result(&self.signer, &id, &key, now, &Err(why.code().to_string())));
                 Self::remember(&self.answered, key, &frame);
@@ -227,7 +247,7 @@ pub fn state() -> &'static str {
 
 /// Allowed to connect at all (and nothing reconnects otherwise).
 pub fn wanted(s: &RemoteSettings) -> bool {
-    s.on && s.consented && !s.killed && !s.public_key.is_empty() && !s.relay.is_empty()
+    s.on && s.consented && !s.killed && !s.clients().is_empty() && !s.relay.is_empty()
 }
 
 pub struct Loop {
@@ -386,7 +406,7 @@ pub fn start(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, keepalive_
     let l = Loop {
         settings,
         link,
-        accept: Arc::new(|s: &RemoteSettings, raw: &[u8], now: i64| super::with(|g| g.accept(s, raw, now))),
+        accept: Arc::new(|s: &RemoteSettings, client: &str, raw: &[u8], now: i64| super::with(|g| g.accept_from(s, client, raw, now))),
         exec: Arc::new(super::exec::RealExec { keepalive_folders }),
         timing: Timing::default(),
         backoff_max: Duration::from_secs(60),
