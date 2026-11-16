@@ -652,7 +652,7 @@ mod tests {
     fn two_accounts_run_side_by_side_and_a_restart_can_name_one_account() {
         let f = Fake::default();
         let mut sup = Supervisor::default();
-        let two = crate::accounts::ClaudeAccount { name: "Claude2".into(), config_dir: "C:\Users\someone\.claude2".into(), client: "account-2".into() };
+        let two = crate::accounts::ClaudeAccount { name: "Claude2".into(), config_dir: r"C:\Users\someone\.claude2".into(), client: "account-2".into() };
         let want = vec![Spec::Folder(FOLDER.into()), Spec::AccountFolder(FOLDER.into(), two.clone())];
         sup.tick(&want, 100, &f);
         assert_eq!(*f.started.borrow(), vec![command_line(FOLDER), command_line_for(FOLDER, &two)]);
