@@ -412,3 +412,87 @@ fn an_old_state_file_keeps_its_counts_as_account_1() {
     assert_eq!(again.accept_from(&s, "account-1", &envelope(&kp, &task(&id(601), "session-status", json!({}))), NOW), Err(Rejection::RateLimited));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Accounts (owner 2026-11-15): each client reaches only its account's sessions ──
+
+fn transcript(config: &std::path::Path, slug: &str, name: &str) {
+    let d = config.join("projects").join(slug);
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(d.join(format!("{name}.jsonl")), "{}\n").unwrap();
+}
+
+#[test]
+fn each_client_sees_only_its_own_accounts_sessions_and_the_others_are_not_yours() {
+    let home = std::env::temp_dir().join(format!("glim-remote-accounts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let (one, two) = (home.join(".claude"), home.join(".claude2"));
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::create_dir_all(&two).unwrap();
+    let repo = home.join("example-repo");
+    let slug = exec::project_slug(&repo);
+    // Claude has a session in the repo; Claude2 one in its own worktree.
+    transcript(&one, &slug, "aaaaaaaa-one");
+    transcript(&two, &format!("{slug}--claude-worktrees-quiet-fox"), "bbbbbbbb-two");
+    let accounts = crate::accounts::list(&[], &home);
+    let known = vec![one.clone(), two.clone()];
+    let s1 = exec::scope(&accounts, "account-1", &known, &home).unwrap();
+    let s2 = exec::scope(&accounts, "account-2", &known, &home).unwrap();
+    assert_eq!(s1.account.name, "Claude");
+    assert_eq!(s2.account.name, "Claude2");
+    let stem = |s: &exec::Scope| s.latest(&repo).map(|(p, _)| p.file_stem().unwrap().to_string_lossy().into_owned());
+    assert_eq!(stem(&s1).as_deref(), Some("aaaaaaaa-one"));
+    assert_eq!(stem(&s2).as_deref(), Some("bbbbbbbb-two"), "a worktree's session is the account's own");
+    // A repo where only the other account has sessions: not yours.
+    let other = home.join("other-repo");
+    transcript(&one, &exec::project_slug(&other), "cccccccc-one");
+    assert!(s2.latest(&other).is_none());
+    assert_eq!(s2.none_reason(&other), "not-your-session");
+    assert_eq!(s1.none_reason(&home.join("nobody-repo")), "no-transcript");
+    // A client no account acts for gets nothing.
+    assert!(exec::scope(&accounts, "account-9", &known, &home).is_none());
+    // A neighbouring repo whose name starts the same is not a worktree.
+    transcript(&two, &format!("{slug}-copy"), "dddddddd-two");
+    assert_eq!(stem(&s2).as_deref(), Some("bbbbbbbb-two"));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_second_accounts_remote_control_is_named_after_it_and_the_default_keeps_its_name() {
+    let home = std::path::PathBuf::from(r"C:\Users\someone");
+    let accounts = crate::accounts::list(&[], &home);
+    assert_eq!(crate::keepalive::command_line_for(r"C:\x\example-repo", &accounts[0]), crate::keepalive::command_line(r"C:\x\example-repo"));
+    assert_eq!(crate::keepalive::command_line_for(r"C:\x\example-repo", &accounts[1]), r#"claude remote-control --spawn worktree --capacity 1 --name "example-repo (PC, Claude2)""#);
+}
+
+#[test]
+fn send_to_session_continues_only_in_the_repo_or_its_worktrees() {
+    let root = std::env::temp_dir().join(format!("glim-remote-cwd-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let repo = root.join("example-repo");
+    let tree = repo.join(".claude").join("worktrees").join("quiet-fox");
+    let elsewhere = root.join("elsewhere");
+    for d in [&tree, &elsewhere] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let line = |p: &std::path::Path| format!("{}\n", json!({ "type": "user", "cwd": p.to_string_lossy() }));
+    let bytes = format!("{}{}", line(&repo), line(&tree));
+    assert_eq!(exec::session_cwd(bytes.as_bytes()), Some(tree.clone()), "the last one");
+    assert!(exec::within_repo(&tree, &repo).is_some());
+    assert!(exec::within_repo(&repo, &repo).is_some());
+    assert!(exec::within_repo(&elsewhere, &repo).is_none());
+    assert!(exec::within_repo(&repo.join(".claude"), &repo).is_none());
+    assert_eq!(exec::session_cwd(b"not json\n{}"), None);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn keep_alive_runs_one_server_per_account_and_restarts_only_the_asked_accounts() {
+    use crate::keepalive::{wanted_for, KeepAliveSettings, Spec};
+    let home = std::path::PathBuf::from(r"C:\Users\someone");
+    let accounts = crate::accounts::list(&[], &home);
+    let s = KeepAliveSettings { on: true, consented: true, folders: vec![r"C:\x\example-repo".into()], desktop_app: false };
+    let want = wanted_for(&s, &accounts);
+    assert_eq!(want, vec![Spec::Folder(r"C:\x\example-repo".into()), Spec::AccountFolder(r"C:\x\example-repo".into(), accounts[1].clone())]);
+    assert_ne!(want[0].id(), want[1].id(), "side by side");
+    assert!(wanted_for(&KeepAliveSettings { on: false, ..s.clone() }, &accounts).is_empty());
+}

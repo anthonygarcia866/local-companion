@@ -18,6 +18,7 @@ import {
 } from "../core/pills";
 import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
+import { accountsSection } from "./accounts";
 import { aiSection } from "./ai";
 import { writingSection } from "./writing";
 import { calendarSection, reloadCalendars } from "./calendar";
@@ -1080,6 +1081,7 @@ async function render() {
     shortcuts,
     h("div", { class: "settings-group", id: "settings-agents" },
       claudeSection(status),
+      accountsSection(),
       agentsSection(agents),
       planSection(status),
       activePillsSection(connected),

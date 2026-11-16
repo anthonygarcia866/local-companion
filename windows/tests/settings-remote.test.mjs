@@ -15,7 +15,7 @@ const tick = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => 
 const roleText = (el, r) => el.find("div").concat(el.find("span")).filter((d) => d.getAttribute("data-role") === r).map((d) => d.textContent);
 const role = (el, tag, r) => el.find(tag).find((x) => x.getAttribute("data-role") === r);
 const FOLDER = "C:\\path\\to\\example-project";
-const CMD = "claude remote-control --spawn same-dir --capacity 1 --name \"example-project (PC)\"";
+const CMD = "claude remote-control --spawn worktree --capacity 1 --name \"example-project (PC)\"";
 
 /** A stand-in for Settings' switch: a button whose click flips it. */
 function toggle(on, onChange) {

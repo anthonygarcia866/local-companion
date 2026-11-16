@@ -105,7 +105,7 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
       const remove = h("button", { class: "danger", type: "button", "data-role": "remote-remove", text: t("Remove") });
       remove.addEventListener("click", () => void act(() => Bridge.keepAliveRemove(e.folder)));
       list.append(h("div", { "data-role": "remote-entry" },
-        h("div", { class: "pill-row" }, h("span", { class: "name", text: e.folder }), remove),
+        h("div", { class: "pill-row" }, h("span", { class: "name", text: e.account ? `${e.folder} · ${e.account}` : e.folder }), remove),
         h("div", { class: "path", text: e.command }),
         h("div", { class: "hint", "data-role": "remote-state", text: entryState(e, s.on && s.consented) }),
         ...(e.failedLastHour >= 3 ? [h("div", { class: "hint", style: "color:#f4505e", text: t("Stopped {n} times in the last hour.", { n: String(e.failedLastHour) }) })] : []),
