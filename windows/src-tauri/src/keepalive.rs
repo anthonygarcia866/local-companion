@@ -272,6 +272,31 @@ impl Supervisor {
         events
     }
 
+    /// Stops and starts again the running or waiting folder entries named
+    /// `folder` (their display name), or all of them; the desktop app is the
+    /// user's and is never touched. Only entries the supervisor already has,
+    /// i.e. folders on the keep-alive list with keep-alive on. How many.
+    pub fn restart(&mut self, folder: Option<&str>, now: u64) -> usize {
+        let ids: Vec<String> = self
+            .slots
+            .keys()
+            .filter(|id| id.as_str() != DESKTOP)
+            .filter(|id| folder.is_none_or(|f| display_name(id).eq_ignore_ascii_case(f)))
+            .cloned()
+            .collect();
+        for id in &ids {
+            let Some(slot) = self.slots.get_mut(id) else { continue };
+            if let Phase::Running { child, .. } = &mut slot.phase {
+                child.stop();
+            }
+            // Started again by the next tick (2 s), from the list's own entry
+            // (the id is lower-cased); asked for, so no backoff.
+            slot.backoff.consecutive = 0;
+            slot.phase = Phase::Waiting { until: now, last_exit: 0 };
+        }
+        ids.len()
+    }
+
     pub fn views(&self, s: &KeepAliveSettings) -> Vec<EntryView> {
         let mut specs: Vec<Spec> = s.folders.iter().cloned().map(Spec::Folder).collect();
         if s.desktop_app {
@@ -421,6 +446,17 @@ impl Launcher for RealLauncher {
 
 static SUPERVISOR: std::sync::Mutex<Option<Supervisor>> = std::sync::Mutex::new(None);
 
+/// The remote courier's keepalive-restart: errors are fixed codes.
+pub fn restart(folder: Option<&str>) -> Result<usize, String> {
+    let mut sup = SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner());
+    let sup = sup.as_mut().ok_or("keepalive-off")?;
+    match sup.restart(folder, crate::learn::now()) {
+        0 if folder.is_some() => Err("keepalive-folder-not-listed".into()),
+        0 => Err("keepalive-off".into()),
+        n => Ok(n),
+    }
+}
+
 /// Settings → Remote's status lines.
 pub fn views(s: &KeepAliveSettings) -> Vec<EntryView> {
     SUPERVISOR.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|sup| sup.views(s)).unwrap_or_else(|| Supervisor::default().views(s))
@@ -506,6 +542,36 @@ mod tests {
     }
 
     const FOLDER: &str = "C:\\path\\to\\example-project";
+
+    /// The remote courier's keepalive-restart (owner 2026-11-15): only the
+    /// folders on the list, the named one or all, never the desktop app;
+    /// started again by the next tick from the list's own entry.
+    #[test]
+    fn a_restart_stops_and_starts_only_listed_folders() {
+        let f = Fake::default();
+        let mut sup = Supervisor::default();
+        let other = "C:\\path\\to\\other-repo";
+        let want = vec![Spec::Folder(FOLDER.into()), Spec::Folder(other.into()), Spec::Desktop];
+        sup.tick(&want, 100, &f);
+        assert_eq!(f.started.borrow().len(), 3);
+        // A name not on the list: nothing.
+        assert_eq!(sup.restart(Some("not-listed"), 110), 0);
+        assert_eq!(*f.stopped.lock().unwrap(), 0);
+        // The named one only.
+        assert_eq!(sup.restart(Some("Example-Project"), 120), 1);
+        assert_eq!(*f.stopped.lock().unwrap(), 1);
+        sup.tick(&want, 120, &f);
+        assert_eq!(f.started.borrow().len(), 4);
+        assert_eq!(f.started.borrow().last().unwrap(), &command_line(FOLDER), "the list's own spelling");
+        // All folders: two, the desktop app untouched.
+        assert_eq!(sup.restart(None, 130), 2);
+        sup.tick(&want, 130, &f);
+        assert_eq!(f.started.borrow().len(), 6);
+        assert!(f.started.borrow()[4..].iter().all(|c| c != "desktop"));
+        // Keep-alive off (nothing wanted): nothing to restart.
+        sup.tick(&[], 140, &f);
+        assert_eq!(sup.restart(None, 150), 0);
+    }
 
     #[test]
     fn the_command_is_fixed_with_the_folder_name() {

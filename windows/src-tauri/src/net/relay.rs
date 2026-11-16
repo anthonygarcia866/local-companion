@@ -11,12 +11,15 @@
 // TLS stack reqwest already uses.
 //
 // `session` runs one connection: it hands each text frame to the caller,
-// sends what the caller queued, pings every 25 s (the relay answers without
-// waking up) and gives up when a pong is 10 s late, the socket closes, or the
-// wall clock jumped (the PC slept): the caller reconnects and the relay
-// hands over whatever is still pending.
+// sends what the caller queued, pings every 30 s (the relay answers without
+// waking up) and gives up when nothing at all came back for 60 s (a
+// half-open line after sleep or a network change sends no close frame), the
+// socket closes, the wall clock jumped (the PC slept), or `kick` was called
+// (Windows said it resumed or the network changed, remote/wake.rs): the
+// caller reconnects at once and the relay hands over whatever is still
+// pending (owner 2026-11-15).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -39,6 +42,65 @@ pub const PING: &str = r#"{"t":"ping"}"#;
 pub const PONG: &str = r#"{"t":"pong"}"#;
 
 static RELAY_ON: AtomicBool = AtomicBool::new(false);
+
+/// Bumped by `kick`: a session that saw another number ends, and a courier
+/// waiting out its backoff stops waiting. Per thread in tests (each test's
+/// courier runs on its own thread), so one test's kick can't drop another's
+/// line.
+#[cfg(not(test))]
+static KICKS: AtomicU64 = AtomicU64::new(0);
+#[cfg(not(test))]
+static KICK_WHY: AtomicU8 = AtomicU8::new(0);
+#[cfg(test)]
+thread_local! {
+    static KICKS: AtomicU64 = const { AtomicU64::new(0) };
+    static KICK_WHY: AtomicU8 = const { AtomicU8::new(0) };
+}
+
+#[cfg(not(test))]
+fn with_kicks<R>(f: impl FnOnce(&AtomicU64, &AtomicU8) -> R) -> R {
+    f(&KICKS, &KICK_WHY)
+}
+
+#[cfg(test)]
+fn with_kicks<R>(f: impl FnOnce(&AtomicU64, &AtomicU8) -> R) -> R {
+    KICKS.with(|k| KICK_WHY.with(|w| f(k, w)))
+}
+
+/// Why the line was kicked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kick {
+    /// Windows resumed from sleep.
+    Resumed,
+    /// An IP address changed (Wi-Fi, VPN, cable).
+    Network,
+}
+
+impl Kick {
+    pub fn code(self) -> &'static str {
+        match self {
+            Kick::Resumed => "resumed",
+            Kick::Network => "network-changed",
+        }
+    }
+}
+
+/// Drop the current connection and reconnect now (remote/wake.rs).
+pub fn kick(why: Kick) {
+    with_kicks(|k, w| {
+        w.store(why as u8, Ordering::SeqCst);
+        k.fetch_add(1, Ordering::SeqCst);
+    });
+}
+
+/// The kick count now (compare with a later one).
+pub fn kicks() -> u64 {
+    with_kicks(|k, _| k.load(Ordering::SeqCst))
+}
+
+fn last_kick() -> Kick {
+    if with_kicks(|_, w| w.load(Ordering::SeqCst)) == Kick::Network as u8 { Kick::Network } else { Kick::Resumed }
+}
 
 /// Remote tasks on + consented + not stopped (remote::courier keeps it).
 pub fn set_relay_allowed(on: bool) {
@@ -122,14 +184,15 @@ pub async fn connect(url: &Url, token: &str) -> Result<Socket, &'static str> {
 pub struct Timing {
     pub tick: Duration,
     pub ping_every: Duration,
-    pub pong_within: Duration,
+    /// Nothing heard for this long (no pong, no frame): the line is dead.
+    pub silent_for: Duration,
     /// A wall-clock jump this much beyond the time that passed = woke up.
     pub sleep_jump: Duration,
 }
 
 impl Default for Timing {
     fn default() -> Self {
-        Timing { tick: Duration::from_millis(250), ping_every: Duration::from_secs(25), pong_within: Duration::from_secs(10), sleep_jump: Duration::from_secs(15) }
+        Timing { tick: Duration::from_millis(250), ping_every: Duration::from_secs(30), silent_for: Duration::from_secs(60), sleep_jump: Duration::from_secs(15) }
     }
 }
 
@@ -145,7 +208,7 @@ pub fn woke_from_sleep(wall_before: SystemTime, wall_now: SystemTime, mono_elaps
 pub enum End {
     /// The caller said stop (remote off or stopped): don't reconnect.
     Stopped,
-    /// The connection is gone (closed, no pong, slept): reconnect.
+    /// The connection is gone (closed, silent, slept, kicked): reconnect.
     Lost(&'static str),
 }
 
@@ -162,7 +225,8 @@ pub async fn session(mut ws: Socket, io: Io<'_>, t: Timing) -> End {
     let Io { outbox, unsent, on_frame, keep_going } = io;
     let mut queue: Vec<String> = std::mem::take(unsent);
     let mut last_ping = Instant::now();
-    let mut ping_out: Option<Instant> = None;
+    let mut heard = Instant::now();
+    let kicked_at = kicks();
     let mut wall = SystemTime::now();
     let mut mono = Instant::now();
     loop {
@@ -181,18 +245,19 @@ pub async fn session(mut ws: Socket, io: Io<'_>, t: Timing) -> End {
             Err(_) => {}
             Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => return End::Lost("closed"),
             Ok(Some(Ok(Message::Text(text)))) => {
-                if text.as_str() == PONG {
-                    ping_out = None;
-                } else {
+                heard = Instant::now();
+                if text.as_str() != PONG {
                     on_frame(text.as_str());
                 }
             }
-            Ok(Some(Ok(Message::Pong(_)))) => ping_out = None,
-            Ok(Some(Ok(_))) => {}
+            Ok(Some(Ok(_))) => heard = Instant::now(),
         }
         if !keep_going() {
             let _ = ws.close(None).await;
             return End::Stopped;
+        }
+        if kicks() != kicked_at {
+            return End::Lost(last_kick().code());
         }
         let (wall_now, mono_elapsed) = (SystemTime::now(), mono.elapsed());
         if woke_from_sleep(wall, wall_now, mono_elapsed, &t) {
@@ -200,15 +265,14 @@ pub async fn session(mut ws: Socket, io: Io<'_>, t: Timing) -> End {
         }
         wall = wall_now;
         mono = Instant::now();
-        if ping_out.is_some_and(|p| p.elapsed() > t.pong_within) {
-            return End::Lost("no-pong");
+        if heard.elapsed() > t.silent_for {
+            return End::Lost("silent");
         }
-        if ping_out.is_none() && last_ping.elapsed() >= t.ping_every {
+        if last_ping.elapsed() >= t.ping_every {
             if ws.send(Message::Text(PING.into())).await.is_err() {
                 return End::Lost("send");
             }
             last_ping = Instant::now();
-            ping_out = Some(last_ping);
         }
     }
 }
@@ -282,6 +346,12 @@ pub mod testing {
             // Dropping the stream sends no close frame.
             drop(self);
         }
+
+        /// A half-open line: the socket stays open but nothing is read or
+        /// answered, ever (no close frame, no pong).
+        pub fn go_dead(self) -> Box<dyn Send> {
+            Box::new(self.ws)
+        }
     }
 }
 
@@ -315,6 +385,22 @@ mod tests {
         assert_eq!(check(&url), Err("remote-off"));
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         assert_eq!(rt.block_on(connect(&url, "token")).err(), Some("remote-off"));
+    }
+
+    #[test]
+    fn the_heartbeat_is_30_s_and_a_line_silent_for_60_s_is_dead() {
+        let t = Timing::default();
+        assert_eq!((t.ping_every, t.silent_for), (Duration::from_secs(30), Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn a_kick_is_counted_and_named() {
+        let before = kicks();
+        kick(Kick::Network);
+        assert!(kicks() > before);
+        assert_eq!(last_kick().code(), "network-changed");
+        kick(Kick::Resumed);
+        assert_eq!(last_kick().code(), "resumed");
     }
 
     #[test]

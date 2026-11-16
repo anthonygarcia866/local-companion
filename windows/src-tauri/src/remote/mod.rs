@@ -37,6 +37,7 @@ use sha2::{Digest, Sha256};
 pub mod command;
 pub mod courier;
 pub mod exec;
+pub mod wake;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -51,6 +52,8 @@ pub const MAX_LIFETIME_S: i64 = 600;
 /// Clock skew tolerated between the signer and this PC (seconds).
 pub const SKEW_S: i64 = 60;
 pub const MAX_START_PER_HOUR: usize = 5;
+/// keepalive-restart, per rolling hour (owner 2026-11-15).
+pub const MAX_KEEPALIVE_RESTARTS_PER_HOUR: usize = 3;
 pub const MAX_COMMANDS_PER_HOUR: usize = 30;
 /// The biggest envelope read at all (bytes).
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024;
@@ -210,6 +213,8 @@ pub struct Gate {
     seen: BTreeMap<String, i64>,
     /// Accepted commands' times (start-session flagged).
     recent: Vec<(i64, bool)>,
+    /// Accepted keepalive-restart times.
+    restarts: Vec<i64>,
     pub activity: Vec<Activity>,
     path: Option<std::path::PathBuf>,
 }
@@ -219,13 +224,16 @@ struct Saved {
     seen: BTreeMap<String, i64>,
     recent: Vec<(i64, bool)>,
     activity: Vec<Activity>,
+    /// Added 2026-11-15: an older file has none (its seen ids still load).
+    #[serde(default)]
+    restarts: Vec<i64>,
 }
 
 impl Gate {
     /// The gate kept in `path` (`%LOCALAPPDATA%\Glim\remote-state.json`).
     pub fn load(path: std::path::PathBuf) -> Gate {
         let saved: Saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Gate { seen: saved.seen, recent: saved.recent, activity: saved.activity, path: Some(path) }
+        Gate { seen: saved.seen, recent: saved.recent, restarts: saved.restarts, activity: saved.activity, path: Some(path) }
     }
 
     pub fn default_path() -> std::path::PathBuf {
@@ -234,7 +242,7 @@ impl Gate {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        let saved = Saved { seen: self.seen.clone(), recent: self.recent.clone(), activity: self.activity.clone() };
+        let saved = Saved { seen: self.seen.clone(), recent: self.recent.clone(), activity: self.activity.clone(), restarts: self.restarts.clone() };
         if let Ok(bytes) = serde_json::to_vec(&saved) {
             let tmp = path.with_extension("json.tmp");
             if std::fs::write(&tmp, bytes).is_ok() {
@@ -256,6 +264,7 @@ impl Gate {
         // Forget what has expired (plus the skew) and counts over an hour old.
         self.seen.retain(|_, exp| *exp + SKEW_S >= now);
         self.recent.retain(|(t, _)| *t > now - 3600);
+        self.restarts.retain(|t| *t > now - 3600);
         let r = self.check(s, raw, now);
         let entry = match &r {
             Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone() },
@@ -265,6 +274,9 @@ impl Gate {
         if let Ok(a) = &r {
             self.seen.insert(a.id.clone(), a.expires);
             self.recent.push((now, matches!(a.command, Command::StartSession { .. })));
+            if matches!(a.command, Command::KeepaliveRestart { .. }) {
+                self.restarts.push(now);
+            }
         }
         self.save();
         r.map_err(|(why, _)| why)
@@ -322,6 +334,9 @@ impl Gate {
             return Err((Rejection::RateLimited, id));
         }
         if matches!(command, Command::StartSession { .. }) && self.recent.iter().filter(|(_, start)| *start).count() >= MAX_START_PER_HOUR {
+            return Err((Rejection::RateLimited, id));
+        }
+        if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
         Ok(Accepted { id: p.id, expires: p.exp, command })

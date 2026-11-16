@@ -10,6 +10,9 @@
 //   GET  /v1/results/<id>     cloud token: the signed result, handed over once
 //                             (?wait=1-25 seconds to wait for it).
 //   GET  /v1/status           cloud token: {pc: connected?, pending: n}.
+//                             "connected" = a PC socket that pinged (or
+//                             sent a frame) in the last 75 s; a silent one
+//                             is closed then (core.js PC_SILENT_MS).
 
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
@@ -67,9 +70,19 @@ const now = () => Math.floor(Date.now() / 1000);
 export class Mailbox extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
-    // Keep-alive pings are answered without waking the object.
+    // Keep-alive pings are answered without waking the object (hibernatable
+    // WebSockets' auto-response: no wake-up, no billed request); when the
+    // object is awake anyway, the last auto-response's time says whether
+    // the PC is still there.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}'));
-    this.relay = new Relay(new SqlStore(ctx.storage.sql), () => ctx.getWebSockets("pc"));
+    const lastSeenMs = (ws) => {
+      let a = null;
+      try { a = ws.deserializeAttachment(); } catch { /* none */ }
+      const auto = ctx.getWebSocketAutoResponseTimestamp(ws);
+      const t = Math.max(a && a.since ? a.since : 0, a && a.last ? a.last : 0, auto ? auto.getTime() : 0);
+      return t > 0 ? t : null;
+    };
+    this.relay = new Relay(new SqlStore(ctx.storage.sql), () => ctx.getWebSockets("pc"), lastSeenMs);
   }
 
   async schedule() {
@@ -94,6 +107,7 @@ export class Mailbox extends DurableObject {
       }
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server, ["pc"]);
+      server.serializeAttachment({ since: Date.now() });
       for (const f of this.relay.pendingFrames(now())) server.send(f);
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -121,6 +135,7 @@ export class Mailbox extends DurableObject {
   }
 
   async webSocketMessage(ws, message) {
+    try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), last: Date.now() }); } catch { /* closing */ }
     if (typeof message !== "string") return;
     this.relay.fromPc(message, now());
     await this.schedule();

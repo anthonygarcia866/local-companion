@@ -10,10 +10,16 @@
 //   Ed25519 key (made here, its private half only in Credential Manager as
 //   Glim/RemotePcSigningKey): cloud Glim checks it with the PC's public key,
 //   so the relay can't forge or alter one.
-// - Reconnects: on a lost line (closed, no pong, woke from sleep) right away,
-//   then 2, 4 … 60 s apart. The relay keeps unanswered tasks until expiry and
-//   hands them over on connect; results not yet sent wait here; a task seen
-//   again (same bytes) gets its first result again, not a replay refusal.
+// - Reconnects: on a lost line (closed, 60 s silent, woke from sleep, or
+//   kicked by Windows' resume / network-change events, wake.rs) right away,
+//   then 2, 4 … 60 s apart; a kick or a wall-clock jump also ends a backoff
+//   wait early. The relay keeps unanswered tasks until expiry and hands them
+//   over on connect; results not yet sent wait here; a task seen again (same
+//   bytes) gets its first result again, not a replay refusal, and a task id
+//   accepted once is refused as a replay until it expires (never run twice).
+// - Outages (owner 2026-11-15): with Remote tasks on and set up, a line down
+//   for 10 minutes pings the phone once and its recovery once (`Outage`;
+//   quiet hours respected, a stop by the owner is no outage).
 // - The kill switch ends the connection within a tick and nothing reconnects
 //   until "Allow again".
 // - Logged: connection states and fixed codes only (the gate logs decisions);
@@ -21,7 +27,7 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use ring::rand::SecureRandom;
 use ring::signature::{Ed25519KeyPair, KeyPair};
@@ -280,11 +286,12 @@ pub async fn run(l: Loop) {
                         set_state("off");
                         continue;
                     }
-                    // Straight back after a drop or a sleep; backoff when a
-                    // connection keeps dying young.
+                    // Straight back after a drop, a sleep or a kick; backoff
+                    // when a connection keeps dying young.
                     End::Lost(why) => {
-                        set_state(if why == "slept" { "woke-reconnecting" } else { "reconnecting" });
-                        if began.elapsed() >= Duration::from_secs(5) {
+                        crate::log::line(format!("remote: relay line lost ({why})"));
+                        set_state(if matches!(why, "slept" | "resumed") { "woke-reconnecting" } else { "reconnecting" });
+                        if began.elapsed() >= Duration::from_secs(5) || matches!(why, "resumed" | "network-changed") {
                             continue;
                         }
                         failures += 1;
@@ -293,12 +300,79 @@ pub async fn run(l: Loop) {
             }
         }
         let wait = Duration::from_secs(1u64 << failures.min(6)).min(l.backoff_max);
-        let until = std::time::Instant::now() + wait;
-        while std::time::Instant::now() < until && (l.running)() && wanted(&(l.settings)()) {
+        let until = Instant::now() + wait;
+        // Resumed or the network changed while waiting: try again now.
+        let kicked = relay::kicks();
+        let (mut wall, mut mono) = (SystemTime::now(), Instant::now());
+        while Instant::now() < until && (l.running)() && wanted(&(l.settings)()) && relay::kicks() == kicked {
             tokio::time::sleep(l.idle.min(Duration::from_millis(500))).await;
+            if relay::woke_from_sleep(wall, SystemTime::now(), mono.elapsed(), &l.timing) {
+                break;
+            }
+            (wall, mono) = (SystemTime::now(), Instant::now());
         }
     }
     relay::set_relay_allowed(false);
+}
+
+/// A relay line down this long pings the phone (owner 2026-11-15).
+pub const OUTAGE_ALERT_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// What the outage watch says on the phone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ping {
+    Down,
+    Back,
+}
+
+/// One relay outage at a time: at most one Down and one Back each.
+#[derive(Debug, Default)]
+pub struct Outage {
+    down_since: Option<Instant>,
+    told: bool,
+}
+
+impl Outage {
+    /// One look: `wanted` (Remote tasks on, consented, not stopped, set up),
+    /// `connected` (the line is up), `may_ping` (phone on, outside quiet
+    /// hours). A Down not allowed yet waits for `may_ping`; so does its Back.
+    pub fn tick(&mut self, wanted: bool, connected: bool, now: Instant, after: Duration, may_ping: bool) -> Option<Ping> {
+        if !wanted {
+            // Switched off or stopped by the owner: not an outage.
+            *self = Outage::default();
+            return None;
+        }
+        if connected {
+            self.down_since = None;
+            if self.told && may_ping {
+                self.told = false;
+                return Some(Ping::Back);
+            }
+            return None;
+        }
+        let since = *self.down_since.get_or_insert(now);
+        if !self.told && may_ping && now.duration_since(since) >= after {
+            self.told = true;
+            return Some(Ping::Down);
+        }
+        None
+    }
+}
+
+/// The outage watch's thread: every 15 s, the line's state against the
+/// settings; `may_ping` and `ping` come from the app (phone.rs).
+pub fn watch_outages(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, may_ping: Box<dyn Fn() -> bool + Send>, ping: Box<dyn Fn(Ping) + Send>) {
+    let _ = std::thread::Builder::new().name("remote-outage-watch".into()).spawn(move || {
+        let mut o = Outage::default();
+        loop {
+            std::thread::sleep(Duration::from_secs(15));
+            let s = settings();
+            if let Some(p) = o.tick(wanted(&s), state() == "connected", Instant::now(), OUTAGE_ALERT_AFTER, may_ping()) {
+                crate::log::line(format!("remote: relay {} ping", if p == Ping::Down { "down" } else { "back" }));
+                ping(p);
+            }
+        }
+    });
 }
 
 /// The app's courier: one thread with its own runtime, for Glim's life.
@@ -319,6 +393,7 @@ pub fn start(settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>, keepalive_
         idle: Duration::from_secs(2),
         running: Arc::new(|| true),
     };
+    super::wake::start();
     let _ = std::thread::Builder::new().name("remote-courier".into()).spawn(move || {
         let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
         rt.block_on(run(l));

@@ -1,5 +1,5 @@
-// The remote command parser (not wired to any transport yet). Five
-// commands, each with fixed, checked arguments; anything else is refused.
+// The remote command parser. Six commands, each with fixed, checked
+// arguments; anything else is refused.
 //
 //   session-status   {"repo"?: name}
 //   transcript-tail  {"repo": name, "lines"?: 1-50 (20)}
@@ -7,6 +7,10 @@
 //   send-to-session  {"repo": name, "text": 1-4000 chars}
 //   runbook          {"name": runbook name}  (approved, non-asking ones only,
 //                                             as `glim.exe --run` allows)
+//   keepalive-restart {"folder"?: name}      restarts "Keep Claude Code
+//                    reachable" sessions: the one whose folder has that name,
+//                    or all; only folders already on its list (owner
+//                    2026-11-15). 3 an hour.
 //
 // Repos must be on remote::REPOS. Free text (prompt, text) is the signer's
 // own words; a transport that passes on text from anyone else must wrap it
@@ -28,6 +32,8 @@ pub enum Command {
     StartSession { repo: String, prompt: Option<String> },
     SendToSession { repo: String, text: String },
     Runbook { name: String },
+    /// A keep-alive folder's name (its last part), or None for all of them.
+    KeepaliveRestart { folder: Option<String> },
 }
 
 impl Command {
@@ -38,6 +44,7 @@ impl Command {
             Command::StartSession { .. } => "start-session",
             Command::SendToSession { .. } => "send-to-session",
             Command::Runbook { .. } => "runbook",
+            Command::KeepaliveRestart { .. } => "keepalive-restart",
         }
     }
 }
@@ -121,6 +128,17 @@ pub fn parse(cmd: &str, args: &Map<String, Value>) -> Result<Command, Rejection>
         "runbook" => {
             only(args, &["name"])?;
             Ok(Command::Runbook { name: runbook_name(args)? })
+        }
+        "keepalive-restart" => {
+            only(args, &["folder"])?;
+            let folder = match args.get("folder") {
+                None => None,
+                // A folder's display name (keepalive::display_name): matched
+                // against the keep-alive list on this PC, never a path.
+                Some(Value::String(f)) if (1..=80).contains(&f.trim().chars().count()) && f.trim().chars().all(|c| c.is_alphanumeric() || " ._-()".contains(c)) => Some(f.trim().to_string()),
+                Some(_) => return Err(Rejection::BadArgs),
+            };
+            Ok(Command::KeepaliveRestart { folder })
         }
         _ => Err(Rejection::UnknownCommand),
     }

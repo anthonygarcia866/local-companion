@@ -2192,9 +2192,30 @@ pub fn run() {
                 // stopped and set up; idle otherwise.
                 let rc = handle.clone();
                 let rk = handle.clone();
+                let remote_settings: std::sync::Arc<dyn Fn() -> remote::RemoteSettings + Send + Sync> =
+                    std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default());
                 remote::courier::start(
-                    std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default()),
+                    remote_settings.clone(),
                     Box::new(move || rk.try_state::<Shared>().map(|s| s.settings.lock().unwrap().keep_alive.folders.clone()).unwrap_or_default()),
+                );
+                // A relay line down 10 minutes, and back (owner 2026-11-15):
+                // one phone ping each per outage, outside quiet hours.
+                let (rq, rp) = (handle.clone(), handle.clone());
+                remote::courier::watch_outages(
+                    remote_settings,
+                    Box::new(move || {
+                        rq.try_state::<Shared>().is_some_and(|s| {
+                            let p = s.settings.lock().unwrap().phone.clone();
+                            p.enabled && !phone::in_quiet_hours(&p, platform::local_time())
+                        })
+                    }),
+                    Box::new(move |ping| {
+                        let Some(settings) = rp.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()) else { return };
+                        let kind = if ping == remote::courier::Ping::Down { phone::Kind::RelayDown } else { phone::Kind::RelayBack };
+                        tauri::async_runtime::spawn(async move {
+                            let _ = phone::notify(&settings, kind, "integration_claude", "").await;
+                        });
+                    }),
                 );
                 keepalive::start(
                     move || ka.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default(),

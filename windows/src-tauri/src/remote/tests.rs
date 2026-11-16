@@ -248,3 +248,41 @@ fn a_forged_queued_task_is_a_bad_signature_not_killed() {
     assert_eq!(g.accept(&s, &forged, NOW + 2), Err(Rejection::BadSignature));
     assert_eq!(g.activity.last().unwrap().id, "");
 }
+
+/// keepalive-restart (owner 2026-11-15): a folder's name or none, nothing
+/// else; three an hour; the kill switch refuses it like everything else.
+#[test]
+fn keepalive_restart_parses_is_rate_limited_and_obeys_the_kill_switch() {
+    let parse = |args: Value| command::parse("keepalive-restart", args.as_object().unwrap());
+    assert_eq!(parse(json!({})), Ok(Command::KeepaliveRestart { folder: None }));
+    assert_eq!(parse(json!({ "folder": " local-companion " })), Ok(Command::KeepaliveRestart { folder: Some("local-companion".into()) }));
+    for bad in [json!({ "folder": r"C:\Users\x\repo" }), json!({ "folder": "" }), json!({ "folder": 3 }), json!({ "repo": "local-companion" }), json!({ "folder": "a/b" })] {
+        assert_eq!(parse(bad.clone()), Err(Rejection::BadArgs), "{bad}");
+    }
+    assert_eq!(Command::KeepaliveRestart { folder: None }.kind(), "keepalive-restart");
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    for n in 0..3 {
+        assert!(g.accept(&s, &envelope(&kp, &task(&id(500 + n), "keepalive-restart", json!({}))), NOW + n as i64).is_ok());
+    }
+    assert_eq!(g.accept(&s, &envelope(&kp, &task(&id(510), "keepalive-restart", json!({}))), NOW + 5), Err(Rejection::RateLimited), "the 4th in an hour");
+    assert!(g.accept(&s, &envelope(&kp, &task(&id(511), "session-status", json!({}))), NOW + 6).is_ok(), "other commands still go");
+    let killed = RemoteSettings { killed: true, ..settings_for(&kp) };
+    let mut g = Gate::default();
+    assert_eq!(g.accept(&killed, &envelope(&kp, &task(&id(520), "keepalive-restart", json!({}))), NOW), Err(Rejection::Killed));
+}
+
+/// remote-state.json from before keepalive-restart (no "restarts"): its seen
+/// ids still load, so nothing becomes replayable after an update.
+#[test]
+fn an_older_gate_file_still_keeps_its_seen_ids() {
+    let dir = std::env::temp_dir().join(format!("glim-gate-old-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("remote-state.json");
+    std::fs::write(&path, format!(r#"{{"seen":{{"{}":{}}},"recent":[],"activity":[]}}"#, id(600), NOW + 300)).unwrap();
+    let kp = signer(7);
+    let mut g = Gate::load(path.clone());
+    assert_eq!(g.accept(&settings_for(&kp), &envelope(&kp, &task(&id(600), "session-status", json!({}))), NOW), Err(Rejection::Replay));
+    let _ = std::fs::remove_dir_all(&dir);
+}
