@@ -472,7 +472,7 @@ fn a_frame_that_is_not_a_task_is_ignored() {
     let c = Courier::new(
         Arc::new(Ed25519KeyPair::from_seed_unchecked(&[9; 32]).unwrap()),
         Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
-        Arc::new(|_: &RemoteSettings, _: &[u8], _: i64| Err(Rejection::Off)),
+        Arc::new(|_: &RemoteSettings, _: &str, _: &[u8], _: i64| Err(Rejection::Off)),
         tx,
         Arc::default(),
     );
