@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Relay, MemoryStore, caller, sha256Hex, taskMeta, MAX_PENDING } from "../src/core.js";
+import { Relay, MemoryStore, caller, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS } from "../src/core.js";
 import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
 import os from "node:os";
 
@@ -202,4 +202,34 @@ test("keygen: default file under LOCALAPPDATA/Glim, never a synced folder", asyn
   assert.equal(await main(["keygen"], env), 4, "refuses to overwrite");
   assert.equal(await main(["keygen", String.raw`C:\Users\someone\Desktop\k.txt`], env), 4);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("a PC socket silent for 75 s is closed, gets no task, and status says pc:false", () => {
+  const k = keygen();
+  const list = [];
+  const mk = (lastSeen) => { const ws = { sent: [], closed: null, lastSeen, send(t) { this.sent.push(t); }, close(code, why) { this.closed = [code, why]; } }; list.push(ws); return ws; };
+  const relay = new Relay(new MemoryStore(), () => list.filter((w) => !w.closed), (ws) => ws.lastSeen);
+  const pc = mk(NOW * 1000);
+  // Pinged 74 s ago: alive.
+  assert.equal(relay.status(NOW + 74).pc, true);
+  assert.equal(pc.closed, null);
+  // 76 s with no ping (a half-open line): closed, not connected, and a new
+  // task stays pending for the next connection instead of vanishing.
+  const t = signTask(k.seed, "session-status", {}, NOW + 76);
+  assert.deepEqual(relay.queue(t.text, NOW + 76).body, { id: t.id, delivered: false });
+  assert.deepEqual(pc.closed, [4001, "no-ping"]);
+  assert.equal(pc.sent.length, 0);
+  assert.deepEqual(relay.status(NOW + 76), { pc: false, pending: 1 });
+  // The PC reconnects: the pending task is handed over (once per connection).
+  assert.deepEqual(relay.pendingFrames(NOW + 80).map((f) => JSON.parse(f).env), [t.text]);
+  assert.equal(PC_SILENT_MS, 75_000);
+  // Unknown last-seen (older wiring): treated as alive.
+  const bare = new Relay(new MemoryStore(), () => [{ send() {} }]);
+  assert.equal(bare.status(NOW).pc, true);
+});
+
+test("index.js: pings are auto-answered (no wake-up) and the socket's last ping decides liveness", () => {
+  const src = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
+  assert.ok(src.includes("setWebSocketAutoResponse") && src.includes("getWebSocketAutoResponseTimestamp"));
+  assert.ok(src.includes("serializeAttachment({ since: Date.now() })"));
 });

@@ -20,6 +20,9 @@
 //                    active in the last 30 s.
 //   runbook          an approved, unchanged, non-asking runbook, exactly as
 //                    `glim.exe --run` runs it (Trigger::Remote in runbooks.log).
+//   keepalive-restart stops and starts again the "Keep Claude Code reachable"
+//                    sessions (keepalive.rs) for folders already on its list,
+//                    with their fixed command; nothing when keep-alive is off.
 //
 // A repo's folder: a keep-alive folder (Settings → Remote) with that name,
 // else %USERPROFILE%\<repo> holding a .git folder; never one runbooks would
@@ -256,6 +259,11 @@ impl Exec for RealExec {
                 let exe = self.claude(&f)?;
                 crate::platform::start_hidden_with_stdin(&exe, &["-p", "--continue", "--output-format", "text"], &f, text)?;
                 Ok(format!("{repo}: sent to the latest session (claude -p --continue)"))
+            }
+            Command::KeepaliveRestart { folder } => {
+                let n = crate::keepalive::restart(folder.as_deref())?;
+                crate::log::line(format!("remote: keepalive-restart restarted {n}"));
+                Ok(format!("keep-alive: restarted {n} session(s)"))
             }
             Command::Runbook { name } => {
                 let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});

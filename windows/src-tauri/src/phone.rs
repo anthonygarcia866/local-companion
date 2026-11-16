@@ -56,6 +56,10 @@ pub enum Kind {
     Watch,
     /// Keep-alive (keepalive.rs): 3 restarts ended within an hour.
     KeepAlive,
+    /// The remote courier's relay line has been down 10 minutes
+    /// (remote::courier::Outage), and it's back (owner 2026-11-15).
+    RelayDown,
+    RelayBack,
 }
 
 impl Kind {
@@ -69,6 +73,8 @@ impl Kind {
             Kind::Test => "test",
             Kind::Watch => "watch",
             Kind::KeepAlive => "keep-alive",
+            Kind::RelayDown => "relay down",
+            Kind::RelayBack => "relay back",
         }
     }
 }
@@ -116,6 +122,9 @@ pub fn message(kind: Kind, agent: &str, project: Option<&str>) -> String {
         Kind::Test => "Test notification from Glim".into(),
         Kind::Watch => format!("{who}: what you asked Glim to watch for happened"),
         Kind::KeepAlive => format!("{who}: remote control stopped 3 times in an hour"),
+        // Fixed texts: nothing about the tasks, the relay or the network.
+        Kind::RelayDown => "Glim's remote tasks link has been down for 10 minutes".into(),
+        Kind::RelayBack => "Glim's remote tasks link is back".into(),
     }
 }
 
@@ -132,6 +141,8 @@ pub fn wanted(settings: &Settings, kind: Kind) -> bool {
             Kind::Watch => true,
             // The owner turned keep-alive on: the master switch is enough.
             Kind::KeepAlive => true,
+            // The owner turned Remote tasks on: the master switch is enough.
+            Kind::RelayDown | Kind::RelayBack => true,
         }
 }
 
@@ -170,20 +181,25 @@ pub fn idle_ms() -> Option<u64> {
 pub fn away_and_awake(p: &crate::settings::PhoneSettings, idle_ms: Option<u64>, now: crate::platform::LocalTime) -> bool {
     let after_min = u64::from(p.idle_after_min.clamp(1, 60));
     let away = !p.idle_only || idle_ms.is_none_or(|ms| ms >= after_min * 60_000);
+    away && !in_quiet_hours(p, now)
+}
+
+/// Settings → Phone's quiet hours, now (they may cross midnight; from = to:
+/// never quiet).
+pub fn in_quiet_hours(p: &crate::settings::PhoneSettings, now: crate::platform::LocalTime) -> bool {
     let minutes = |hhmm: &str| -> Option<u32> {
         let (h, m) = hhmm.trim().split_once(':')?;
         let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
         (h < 24 && m < 60).then_some(h * 60 + m)
     };
-    let quiet = p.quiet_hours
+    p.quiet_hours
         && match (minutes(&p.quiet_from), minutes(&p.quiet_to)) {
             (Some(f), Some(t)) if f != t => {
                 let n = now.hour * 60 + now.minute;
                 if f < t { n >= f && n < t } else { n >= f || n < t }
             }
             _ => false,
-        };
-    away && !quiet
+        }
 }
 
 // ── Rate limit ────────────────────────────────────────────────────────────────
@@ -364,6 +380,27 @@ mod tests {
         assert!(away_and_awake(&p, None, at(7, 0)) && away_and_awake(&p, None, at(21, 59)));
         p.quiet_to = "22:00".into();
         assert!(away_and_awake(&p, None, at(23, 0)), "from = to: never quiet");
+    }
+
+    /// The relay outage pings (owner 2026-11-15): fixed texts naming
+    /// nothing, the master switch, and quiet hours on their own.
+    #[test]
+    fn relay_outage_pings_are_fixed_text_behind_the_switch_and_quiet_hours() {
+        assert_eq!(message(Kind::RelayDown, &agent_label("integration_claude"), Some("local-companion")), "Glim's remote tasks link has been down for 10 minutes");
+        assert_eq!(message(Kind::RelayBack, "x", None), "Glim's remote tasks link is back");
+        let mut s = Settings::default();
+        assert!(!wanted(&s, Kind::RelayDown));
+        s.phone.enabled = true;
+        assert!(wanted(&s, Kind::RelayDown) && wanted(&s, Kind::RelayBack));
+        let at = |hour, minute| crate::platform::LocalTime { year: 2026, month: 11, day: 15, hour, minute, second: 0 };
+        let mut p = s.phone.clone();
+        p.quiet_hours = true;
+        p.quiet_from = "21:30".into();
+        p.quiet_to = "06:45".into();
+        assert!(in_quiet_hours(&p, at(23, 0)) && in_quiet_hours(&p, at(6, 44)));
+        assert!(!in_quiet_hours(&p, at(6, 45)) && !in_quiet_hours(&p, at(12, 0)));
+        p.quiet_hours = false;
+        assert!(!in_quiet_hours(&p, at(23, 0)));
     }
     use crate::ai::key::MemoryVault;
     use crate::net::tests::{serve_capture, serve_once};

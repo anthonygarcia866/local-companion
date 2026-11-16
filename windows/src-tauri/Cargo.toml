@@ -101,6 +101,12 @@ windows = { version = "0.61", features = [
   "Win32_UI_Shell",
   # The one-time writing prompt's app name (capture/uia.rs): FileDescription.
   "Win32_Storage_FileSystem",
+  # The courier reconnects at once on resume from sleep and on a network
+  # change (remote/wake.rs): PowerRegisterSuspendResumeNotification and
+  # NotifyAddrChange (no socket, only a wake-up; nothing new is compiled).
+  "Win32_System_Power",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_System_IO",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

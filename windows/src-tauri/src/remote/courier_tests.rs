@@ -146,7 +146,7 @@ fn rig_loop(url: &str, delay: Duration, timing: Timing) -> (Rig, Loop) {
 }
 
 fn quick() -> Timing {
-    Timing { tick: Duration::from_millis(20), ping_every: Duration::from_millis(200), pong_within: Duration::from_millis(300), sleep_jump: Duration::from_secs(15) }
+    Timing { tick: Duration::from_millis(20), ping_every: Duration::from_millis(200), silent_for: Duration::from_millis(500), sleep_jump: Duration::from_secs(15) }
 }
 
 /// Runs `body` with the courier going in the background.
@@ -243,6 +243,107 @@ fn a_relay_that_stops_answering_pings_is_left_and_reconnected() {
         assert!(open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap()["ok"].as_bool().unwrap());
         rig
     });
+}
+
+/// Owner 2026-11-15 (relay said pc:true, a task got no answer): a half-open
+/// line (open, but nothing read or answered, no close frame) is found by the
+/// silence check, the courier reconnects, the relay hands the still-pending
+/// task over again, and it runs exactly once (the first result again).
+#[test]
+fn a_dead_line_with_no_close_frame_is_left_and_the_pending_task_runs_once() {
+    with_courier(Duration::from_millis(50), quick(), |server, rig| async move {
+        let mut c = accept(&server).await;
+        let frame = fresh(&rig.cloud, "task-halfopen-0001");
+        c.send(&frame).await;
+        // The line dies silently with the task delivered: its result goes
+        // into the dead socket, and nobody answers the PC's pings.
+        let dead = c.go_dead();
+        let began = std::time::Instant::now();
+        let mut c2 = accept(&server).await;
+        assert!(began.elapsed() < Duration::from_secs(3), "found within the silence window (+ a tick), {:?}", began.elapsed());
+        drop(dead);
+        // The relay redelivers what is still pending.
+        c2.send(&frame).await;
+        let mut got = None;
+        while let Some(f) = c2.recv(SHORT).await {
+            let r = open(&f, &rig.pc_pub).unwrap();
+            if r["id"] == "task-halfopen-0001" {
+                got = Some(r);
+                break;
+            }
+        }
+        let r = got.expect("the pending task's result after reconnecting");
+        assert_eq!(r["ok"].as_bool(), Some(true));
+        assert_eq!(rig.runs.lock().unwrap().len(), 1, "run exactly once");
+        rig
+    });
+}
+
+/// The same task id signed again (other bytes) is a replay: refused, never
+/// run a second time.
+#[test]
+fn a_task_id_seen_once_is_refused_as_a_replay_and_not_run_again() {
+    with_courier(Duration::ZERO, quick(), |server, rig| async move {
+        let mut c = accept(&server).await;
+        let now = now_s();
+        c.send(&task(&rig.cloud, "task-dupe-0000001", now - 1, now + 299)).await;
+        assert_eq!(open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap()["ok"].as_bool(), Some(true));
+        c.send(&task(&rig.cloud, "task-dupe-0000001", now, now + 290)).await;
+        let r = open(&c.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap();
+        assert_eq!((r["ok"].as_bool(), r["error"].as_str()), (Some(false), Some("replay")));
+        assert_eq!(rig.runs.lock().unwrap().len(), 1);
+        rig
+    });
+}
+
+/// Windows said it resumed (remote/wake.rs): the line is dropped and opened
+/// again at once, even a young one (no backoff).
+#[test]
+fn a_resume_kick_reconnects_at_once() {
+    with_courier(Duration::ZERO, quick(), |server, rig| async move {
+        let _c = accept(&server).await;
+        crate::net::relay::kick(crate::net::relay::Kick::Resumed);
+        let began = std::time::Instant::now();
+        let mut c2 = tokio::time::timeout(Duration::from_millis(1500), server.accept()).await.expect("reconnected at once");
+        assert!(began.elapsed() < Duration::from_millis(1500));
+        c2.send(&fresh(&rig.cloud, "task-after-wake-1")).await;
+        assert!(open(&c2.recv(SHORT).await.unwrap(), &rig.pc_pub).unwrap()["ok"].as_bool().unwrap());
+        rig
+    });
+}
+
+/// Owner 2026-11-15: down 10 minutes → one Down ping; back → one Back;
+/// quiet hours hold both; the owner's own stop is no outage.
+#[test]
+fn a_relay_outage_pings_once_down_and_once_back() {
+    use courier::{Outage, Ping};
+    let t0 = std::time::Instant::now();
+    let after = Duration::from_secs(600);
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    let mut o = Outage::default();
+    assert_eq!(o.tick(true, true, at(0), after, true), None);
+    assert_eq!(o.tick(true, false, at(10), after, true), None);
+    assert_eq!(o.tick(true, false, at(609), after, true), None, "9 min 59 s");
+    assert_eq!(o.tick(true, false, at(611), after, true), Some(Ping::Down));
+    assert_eq!(o.tick(true, false, at(1200), after, true), None, "once per outage");
+    assert_eq!(o.tick(true, true, at(1300), after, true), Some(Ping::Back));
+    assert_eq!(o.tick(true, true, at(1400), after, true), None);
+    // Quiet hours: the Down waits for them to end; so does its Back.
+    let mut o = Outage::default();
+    o.tick(true, false, at(0), after, false);
+    assert_eq!(o.tick(true, false, at(700), after, false), None);
+    assert_eq!(o.tick(true, false, at(800), after, true), Some(Ping::Down));
+    assert_eq!(o.tick(true, true, at(900), after, false), None);
+    assert_eq!(o.tick(true, true, at(1000), after, true), Some(Ping::Back));
+    // Switched off or stopped by the owner: nothing, and the count restarts.
+    let mut o = Outage::default();
+    o.tick(true, false, at(0), after, true);
+    assert_eq!(o.tick(false, false, at(700), after, true), None);
+    assert_eq!(o.tick(true, false, at(710), after, true), None, "a new outage starts at 710");
+    assert_eq!(o.tick(true, false, at(1311), after, true), Some(Ping::Down));
+    // A Down is never followed by a Back the owner's stop cut short.
+    assert_eq!(o.tick(false, false, at(1400), after, true), None);
+    assert_eq!(o.tick(true, true, at(1500), after, true), None);
 }
 
 #[test]

@@ -14,6 +14,10 @@ export const MAX_LIFETIME_S = 600;
 export const SKEW_S = 60;
 export const MAX_PENDING = 50;
 export const MAX_WAIT_S = 25;
+/** A PC socket that hasn't pinged (or sent anything) for this long is dead:
+ * a half-open line after sleep or a network change never sends a close
+ * frame. Glim pings every 30 s (owner 2026-11-15). */
+export const PC_SILENT_MS = 75_000;
 const ID = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** Lower-case hex SHA-256 of a string. */
@@ -79,12 +83,29 @@ export function taskMeta(text, now) {
 /**
  * The relay. `store` keeps tasks and results (Map-backed in tests, SQLite in
  * the Durable Object); `pcSockets()` lists the PC's open sockets, each with
- * `send(text)`.
+ * `send(text)` and `close(code, reason)`; `lastSeenMs(ws)` says when a
+ * socket last pinged, connected or sent a frame (ms; null = unknown).
  */
 export class Relay {
-  constructor(store, pcSockets) {
+  constructor(store, pcSockets, lastSeenMs = () => null) {
     this.store = store;
     this.pcSockets = pcSockets;
+    this.lastSeenMs = lastSeenMs;
+  }
+
+  /** The PC's sockets that are alive; a silent one is closed (4001) here,
+   * so it neither gets a task nor counts as connected. */
+  livePc(now) {
+    const live = [];
+    for (const ws of this.pcSockets()) {
+      const seen = this.lastSeenMs(ws);
+      if (seen !== null && now * 1000 - seen > PC_SILENT_MS) {
+        try { ws.close(4001, "no-ping"); } catch { /* already gone */ }
+        continue;
+      }
+      live.push(ws);
+    }
+    return live;
   }
 
   /** Everything past its expiry (+ skew) goes. */
@@ -100,13 +121,13 @@ export class Relay {
     if (this.store.hasTask(meta.id) || this.store.hasResult(meta.id)) return { status: 409, body: { error: "duplicate-id" } };
     if (this.store.countTasks() >= MAX_PENDING) return { status: 429, body: { error: "too-many-pending" } };
     this.store.putTask(meta.id, meta.exp, text);
-    const delivered = this.deliver(meta.id, text);
+    const delivered = this.deliver(meta.id, text, now);
     return { status: 202, body: { id: meta.id, delivered } };
   }
 
-  deliver(id, text) {
+  deliver(id, text, now) {
     let n = 0;
-    for (const ws of this.pcSockets()) {
+    for (const ws of this.livePc(now)) {
       try {
         ws.send(JSON.stringify({ t: "task", env: text }));
         n++;
@@ -154,7 +175,7 @@ export class Relay {
 
   status(now) {
     this.purge(now);
-    return { pc: this.pcSockets().length > 0, pending: this.store.countTasks() };
+    return { pc: this.livePc(now).length > 0, pending: this.store.countTasks() };
   }
 
   /** When the alarm should next clear expired rows (ms), or null. */
