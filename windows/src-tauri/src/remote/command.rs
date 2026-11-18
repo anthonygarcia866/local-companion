@@ -4,7 +4,9 @@
 //   session-status   {"repo"?: name}
 //   transcript-tail  {"repo": name, "lines"?: 1-50 (20)}
 //   start-session    {"repo": name, "prompt"?: 1-2000 chars}
-//   send-to-session  {"repo": name, "text": 1-4000 chars}
+//   send-to-session  {"repo": name, "session": its id, "text": 1-4000 chars}
+//                    (owner 2026-11-17: the target session must be named;
+//                    its full id as session-status shows it)
 //   runbook          {"name": runbook name}  (approved, non-asking ones only,
 //                                             as `glim.exe --run` allows)
 //   keepalive-restart {"folder"?: name}      restarts "Keep Claude Code
@@ -30,7 +32,8 @@ pub enum Command {
     SessionStatus { repo: Option<String> },
     TranscriptTail { repo: String, lines: u64 },
     StartSession { repo: String, prompt: Option<String> },
-    SendToSession { repo: String, text: String },
+    /// `session`: a Claude Code session id (a lower-case UUID).
+    SendToSession { repo: String, session: String, text: String },
     Runbook { name: String },
     /// A keep-alive folder's name (its last part), or None for all of them.
     KeepaliveRestart { folder: Option<String> },
@@ -99,6 +102,13 @@ fn runbook_name(args: &Map<String, Value>) -> Result<String, Rejection> {
     }
 }
 
+/// A Claude Code session id: a lower-case UUID (8-4-4-4-12 hex), the name of
+/// its transcript file. Nothing else, so it can't name a path.
+pub fn is_session_id(s: &str) -> bool {
+    let groups: Vec<&str> = s.split('-').collect();
+    groups.len() == 5 && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)))
+}
+
 pub fn parse(cmd: &str, args: &Map<String, Value>) -> Result<Command, Rejection> {
     match cmd {
         "session-status" => {
@@ -120,10 +130,14 @@ pub fn parse(cmd: &str, args: &Map<String, Value>) -> Result<Command, Rejection>
             Ok(Command::StartSession { repo, prompt: text(args, "prompt", MAX_PROMPT_CHARS, false)? })
         }
         "send-to-session" => {
-            only(args, &["repo", "text"])?;
+            only(args, &["repo", "session", "text"])?;
             let repo = repo(args, true)?.unwrap_or_default();
+            let session = match args.get("session") {
+                Some(Value::String(s)) if is_session_id(s) => s.clone(),
+                _ => return Err(Rejection::BadArgs),
+            };
             let text = text(args, "text", MAX_TEXT_CHARS, true)?.unwrap_or_default();
-            Ok(Command::SendToSession { repo, text })
+            Ok(Command::SendToSession { repo, session, text })
         }
         "runbook" => {
             only(args, &["name"])?;

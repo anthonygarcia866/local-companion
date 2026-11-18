@@ -501,6 +501,9 @@ export interface RemoteStatus {
   /** The PC's result key (public, 64 hex), or "" before setup. */
   pcPublicKey: string;
   pcFingerprint: string;
+  /** The PC's encryption key (public, 64 hex): cloud Glim's GLIM_PC_ENC_KEY; "" before setup. */
+  pcEncKey: string;
+  pcEncFingerprint: string;
   /** Newest first. */
   activity: RemoteActivity[];
 }

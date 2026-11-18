@@ -606,6 +606,17 @@
    "ru": "Ключ результатов этого ПК",
    "id": "Kunci hasil PC ini"
   },
+  "This PC's encryption key (GLIM_PC_ENC_KEY)": {
+   "zh-Hans": "这台电脑的加密密钥 (GLIM_PC_ENC_KEY)",
+   "hi": "इस PC की एन्क्रिप्शन कुंजी (GLIM_PC_ENC_KEY)",
+   "es": "Clave de cifrado de este PC (GLIM_PC_ENC_KEY)",
+   "ar": "مفتاح التشفير لهذا الحاسوب (GLIM_PC_ENC_KEY)",
+   "fr": "Clé de chiffrement de ce PC (GLIM_PC_ENC_KEY)",
+   "bn": "এই PC-র এনক্রিপশন কী (GLIM_PC_ENC_KEY)",
+   "pt-BR": "Chave de criptografia deste PC (GLIM_PC_ENC_KEY)",
+   "ru": "Ключ шифрования этого ПК (GLIM_PC_ENC_KEY)",
+   "id": "Kunci enkripsi PC ini (GLIM_PC_ENC_KEY)"
+  },
   "Make new tokens and key": {
    "zh-Hans": "生成新的令牌和密钥",
    "hi": "नए टोकन और कुंजी बनाएँ",

@@ -34,9 +34,16 @@ serde_json = { version = "1", features = ["preserve_order"] }
 toml = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt"] }
-# Remote courier core (src/remote/): Ed25519 signature checks only. Already
-# in the build through rustls (ring 0.17): nothing new compiled, no network.
+# Remote courier core (src/remote/): Ed25519 signatures, and (seal.rs) HKDF
+# and ChaCha20-Poly1305. Already in the build through rustls (ring 0.17):
+# nothing new compiled, no network.
 ring = "0.17"
+# The courier's sealing (src/remote/seal.rs only, a test checks): X25519 with
+# a STATIC key, the PC's encryption key tasks are sealed to (owner
+# 2026-11-17, store-and-forward D4). ring only offers ephemeral X25519.
+# NEW crate (dalek-cryptography): pure Rust, no network, no telemetry, no
+# I/O; default features off (no precomputed tables), secrets zeroized.
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
 # Only src/net/ may use it (the network choke point; a test enforces this).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # The courier relay's WebSocket (src/net/relay.rs only, the same choke-point

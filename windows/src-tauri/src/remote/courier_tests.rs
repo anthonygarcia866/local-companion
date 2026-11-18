@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 
 use super::courier::{self, Courier, Link, Loop};
 use super::exec::Exec;
+use super::seal;
 use super::*;
 use crate::net::relay::{testing, Timing};
 
@@ -49,19 +50,24 @@ fn setup_keeps_the_pc_token_and_key_in_the_vault_and_only_the_hash_as_a_secret()
     let token = crate::ai::key::MemoryVault::default();
     let key = crate::ai::key::MemoryVault::default();
     let store = crate::secrets::MemoryStore::default();
-    let done = courier::setup(&token, &key, &store).unwrap();
+    let enc = crate::ai::key::MemoryVault::default();
+    let done = courier::setup(&token, &key, &enc, &store).unwrap();
     let pc = crate::ai::key::Vault::read(&token).unwrap().unwrap();
     assert_eq!(pc.len(), 64);
     let signer = courier::load_signer(&key).unwrap();
     assert_eq!(hex(signer.public_key().as_ref()), done.pc_public_key);
+    // The encryption key: private half in its own vault entry, public in Settings.
+    assert_eq!(seal::public_hex(&courier::load_enc(&enc).unwrap()), done.pc_enc_key);
+    assert_ne!(done.pc_enc_key, done.pc_public_key);
     // Straight from the test store (only runbooks may reveal a value; a test scans).
     let hash = |n: &str| store.0.borrow().iter().find(|(k, _)| k.ends_with(n)).map(|(_, (v, _))| v.clone());
     assert_eq!(hash(courier::PC_TOKEN_HASH_SECRET), Some(courier::sha256_hex(&pc)));
     // Cloud tokens are each client's own: setup leaves them alone.
     assert_eq!(hash(courier::CLOUD_TOKEN_HASH_SECRET), None);
     // A second setup replaces the PC's token and key.
-    let again = courier::setup(&token, &key, &store).unwrap();
+    let again = courier::setup(&token, &key, &enc, &store).unwrap();
     assert_ne!(again.pc_public_key, done.pc_public_key);
+    assert_ne!(again.pc_enc_key, done.pc_enc_key);
     assert_ne!(crate::ai::key::Vault::read(&token).unwrap().unwrap(), pc);
 }
 
@@ -155,6 +161,7 @@ fn rig_loop(url: &str, delay: Duration, timing: Timing) -> (Rig, Loop) {
         backoff_max: Duration::from_millis(50),
         idle: Duration::from_millis(20),
         running: Arc::new(move || r2.load(Ordering::SeqCst)),
+        ledger: Arc::default(),
     };
     (Rig { settings, running, pc_pub: pc.public_key().as_ref().to_vec(), cloud, runs }, l)
 }
@@ -466,6 +473,257 @@ fn off_or_not_consented_means_no_connection_at_all() {
     assert!(!courier::wanted(&RemoteSettings { consented: true, relay: String::new(), ..s }));
 }
 
+// ── Store-and-forward (owner 2026-11-17): sealed tasks and results ──
+
+/// RFC 7748's published X25519 test keys (never real ones): the PC's
+/// encryption key ("Bob") and the result seal's ephemeral key ("Alice").
+/// relay/test/relay.test.mjs checks the same bytes from the other side.
+const PC_ENC_SECRET: &str = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+const RESULT_EPHEMERAL: &str = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+const SEALED_RK: &str = "eb2187a344e922fe15692b2e64550738db75862a77eee972920926c21e6e672c";
+const SEALED_TASK: &str = r#"{"v":2,"id":"vector-task-0000002","iat":1763140000,"exp":1763226400,"epk":"75eaa546af013b14eace88be3b1fe5478f2f9a072e675516fd76fe6face3530f","n":"000102030405060708090a0b","ct":"b8ec532257db42bb3bd002f8b83b5e6dc4671c92936df8cb1f8884577b71402b097a9461cd7c08a02c89df156d4e774458d51b1988b8e0adfdeb656a793483237d94861e8f3b30a1e19125af008f10dda88e1b20d741793f89e1e49724da5ab1fb5ccbcedf30dbdf22180f6dab96d566ee7b57f03a7520299e8a8244050a138c0637687bd3692ea6039911d6cf7f1641b6fdd6fa123b7c14f1e1b807790e0cdfe7c50fad3913dd0146b2e4102bbefe1ffd6b9679d0f61387727b7cfc76f4bed6c1a2d7c2e463d46174b72e0fe934c3b8600e20ecb5b3c33f12bb2cb2066ab224e22f909015608d80bbd890a1d55a5e017c025e1a19c640b4aa7a37e667464d10ad0cb34378ea2dbbabffefe860a3f29feedae4a5c5d02c26bf2dd9bee39b110877cf7ffb092da75b53bad828b190104ff26aabcf0e1ba36dae8c8bf2f7d7be116976b516c3fa5aa1ce54abb657657475b89307588e68d5442ef6667ae37930c34d3250e0688c"}"#;
+const SEALED_TASK_INNER: &str = r#"{"v":1,"payload":"{\"id\":\"vector-task-0000002\",\"iat\":1763140000,\"exp\":1763226400,\"cmd\":\"session-status\",\"args\":{},\"rk\":\"eb2187a344e922fe15692b2e64550738db75862a77eee972920926c21e6e672c\"}","sig":"228126820638786f72d342d76c58bad75b08de897dd59c81d2f68b71b908d961b7db211b3299487f790277e93c4646c5bd89bbbe7f6f6fe736b6201d6f7f3b02"}"#;
+const SEALED_RESULT_INNER: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000002\",\"task\":\"7a28565ea45aa4568f31a15310d56e02c18afb1227ddf8098634cf3a053b6d4a\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"5c5656aeedc84c9c20cab9a72ba70ed6311a359d0de7bbdc6fe1887ba8da8a5f7873d2e6f001b5030e26c53dff3c8ade27affec0570a800d49942f641f1ce102"}"#;
+const SEALED_RESULT: &str = r#"{"v":2,"id":"vector-task-0000002","epk":"8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a","n":"a0a1a2a3a4a5a6a7a8a9aaab","ct":"fca0f22cb2c91cbd459d82a6e49defa9053992c58a55fdee2e3ec880f92f29f2561391e2d28dd8ea2d8e4fbcf0f5c880c9c924ab7344635d43826ca5cdd14e073875e85face52a6f014562d741fd9196419c62e1b714a25949e02fd40e5787ecdb3717a4290f5a4c92026ff2f4189cea5baa3d2c01c3839a0d771a5fb8337eabe1c0a45c92dcd56f653449c4fb208b33099a783cc7e3a85a4c2e1d8f5a62bf421617c568d22ceb5b6170f2e6ed5c14b56bee7166d61418cc95c56c65b388dec1f72ab2160d0be0b500e1818b9e90c650b38386228f2242307b8b44fd9a3bf69f4714ad4675d39b8045841c7781e0b3ff2c45d1b6c68520d1863cfb5900e7d872959d5453f98eaf129b6abf29872749f057d996f16c40fd55c26fb11a73d347ee049a8f4320141312bf2986dbb30e8dcc8671952d7ce53f97a20e77fee6cbe994a782007ee1af63f053bbbcc63a92313a6d02c2ab3d43abe77dcfc580eb508fe7dc47f5e8dadc586942f373ac213a40fb2ef9ad24a99b1ae5e612a39593a60dec3d7d538e343fc8dfd216df4504f7221b58"}"#;
+const SEALED_ID: &str = "vector-task-0000002";
+
+fn arr<const N: usize>(h: &str) -> [u8; N] {
+    unhex(h).try_into().unwrap()
+}
+
+fn cloud_settings() -> RemoteSettings {
+    RemoteSettings { on: true, consented: true, public_key: hex(seed_pair(CLOUD_SEED).public_key().as_ref()), ..Default::default() }
+}
+
+#[test]
+fn the_seal_vectors_a_node_sealed_task_opens_and_glims_sealed_result_matches_byte_for_byte() {
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    assert_eq!(seal::public_hex(&pc_enc), "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f", "RFC 7748's Bob");
+    let (inner, outer) = seal::open_task(Some(&pc_enc), SEALED_TASK).unwrap();
+    assert_eq!(inner, SEALED_TASK_INNER);
+    assert_eq!(outer, seal::Outer { id: SEALED_ID.into(), iat: 1_763_140_000, exp: 1_763_226_400 });
+    let a = Gate::default().accept_sealed(&cloud_settings(), "account-1", SEALED_TASK.as_bytes(), 1_763_140_010, Some(&pc_enc)).unwrap();
+    assert_eq!((a.id.as_str(), a.command.kind(), a.rk), (SEALED_ID, "session-status", Some(arr::<32>(SEALED_RK))));
+    // Signed over the hash of the SEALED envelope (what cloud Glim sent), then
+    // sealed to the task's result key: byte for byte what relay/test opens.
+    let pc = seed_pair(PC_SEED);
+    let signed = courier::sign_result(&pc, SEALED_ID, &courier::sha256_hex(SEALED_TASK), 1_763_140_003, &Ok(("session-status".into(), "local-companion: idle".into())));
+    assert_eq!(signed, SEALED_RESULT_INNER);
+    let s = seal::seal_with(arr::<32>(RESULT_EPHEMERAL), arr::<12>("a0a1a2a3a4a5a6a7a8a9aaab"), &arr::<32>(SEALED_RK), "result", SEALED_ID, signed.as_bytes()).unwrap();
+    assert_eq!(seal::result_envelope(SEALED_ID, &s), SEALED_RESULT);
+}
+
+#[test]
+fn a_sealed_task_altered_misaddressed_or_relabelled_is_refused_as_bad_seal_and_noted() {
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let s = cloud_settings();
+    let t = 1_763_140_010;
+    let mut g = Gate::default();
+    let other = seal::secret_from_hex(&"11".repeat(32)).unwrap();
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&other)), Err(Rejection::BadSeal), "another PC's key");
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, None), Err(Rejection::BadSeal), "no key on this PC");
+    let edit = |f: &dyn Fn(&mut Value)| {
+        let mut v: Value = serde_json::from_str(SEALED_TASK).unwrap();
+        f(&mut v);
+        v.to_string()
+    };
+    let flipped = edit(&|v| {
+        let ct = v["ct"].as_str().unwrap().to_string();
+        let last = if ct.ends_with('0') { '1' } else { '0' };
+        v["ct"] = json!(format!("{}{last}", &ct[..ct.len() - 1]));
+    });
+    // The relay stretching the outside's expiry to keep it longer, or
+    // renaming it: the outside no longer matches the signed task (or the
+    // AEAD's label), refused.
+    let stretched = edit(&|v| v["exp"] = json!(1_763_226_400 + 3600));
+    let renamed = edit(&|v| v["id"] = json!("vector-task-0000003"));
+    for bad in [&flipped, &stretched, &renamed] {
+        assert_eq!(g.accept_sealed(&s, "account-1", bad.as_bytes(), t, Some(&pc_enc)), Err(Rejection::BadSeal));
+    }
+    assert_eq!(g.activity.iter().filter(|a| a.reason == "bad-seal").count(), 5, "every one noted");
+    assert!(g.activity.iter().all(|a| a.id.is_empty()), "no id from an unopened seal");
+    // The kill switch comes first, sealed or not.
+    let killed = RemoteSettings { killed: true, ..s.clone() };
+    assert_eq!(g.accept_sealed(&killed, "account-1", flipped.as_bytes(), t, Some(&pc_enc)), Err(Rejection::Killed));
+    assert_eq!(g.accept_sealed(&killed, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc)), Err(Rejection::Killed));
+    // Anyone can seal to the PC's public key, but not sign as the client.
+    let forger = Ed25519KeyPair::from_seed_unchecked(&[5; 32]).unwrap();
+    let frame: Value = serde_json::from_str(&task(&forger, "forged-task-0000001", t - 5, t + 300)).unwrap();
+    let inner = frame["env"].as_str().unwrap().to_string();
+    let sealed = seal::seal(&arr::<32>(&seal::public_hex(&pc_enc)), "task", "forged-task-0000001", inner.as_bytes()).unwrap();
+    let outer = json!({ "v": 2, "id": "forged-task-0000001", "iat": t - 5, "exp": t + 300, "epk": seal::to_hex(&sealed.epk), "n": seal::to_hex(&sealed.nonce), "ct": seal::to_hex(&sealed.ct) }).to_string();
+    assert_eq!(g.accept_sealed(&s, "account-1", outer.as_bytes(), t, Some(&pc_enc)), Err(Rejection::BadSignature));
+    // The genuine one still goes, once.
+    assert!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc)).is_ok());
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t + 1, Some(&pc_enc)), Err(Rejection::Replay));
+}
+
+#[test]
+fn results_are_sealed_to_the_tasks_result_key_and_only_it_opens_them() {
+    let pc = seed_pair(PC_SEED);
+    let id = "result-test-000001";
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let rk = arr::<32>(&seal::public_hex(&rk_secret));
+    let ok: Result<(String, String), String> = Ok(("session-status".into(), "local-companion: idle".into()));
+    let out = courier::answer(&pc, id, "hash", 5, &ok, Some(&rk));
+    let v: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["v"], 2);
+    assert!(!out.contains("idle"), "the relay can't read it");
+    let (epk, n, ct) = (arr::<32>(v["epk"].as_str().unwrap()), arr::<12>(v["n"].as_str().unwrap()), unhex(v["ct"].as_str().unwrap()));
+    let inner = seal::open(&rk_secret, &epk, &n, "result", id, &ct).unwrap();
+    assert_eq!(String::from_utf8(inner).unwrap(), courier::sign_result(&pc, id, "hash", 5, &ok), "the signed result, unchanged");
+    assert!(seal::open(&rk_secret, &epk, &n, "result", "another-task-00001", &ct).is_none(), "bound to its id");
+    assert!(seal::open(&rk_secret, &epk, &n, "task", id, &ct).is_none(), "task and result keys are apart");
+    assert!(seal::open(&seal::secret_from_hex(&"43".repeat(32)).unwrap(), &epk, &n, "result", id, &ct).is_none(), "only the result key opens it");
+    assert_ne!(out, courier::answer(&pc, id, "hash", 5, &ok, Some(&rk)), "a fresh ephemeral key and nonce each time");
+    // No result key (an older courier): signed and unsealed, as before.
+    assert_eq!(courier::answer(&pc, id, "hash", 5, &ok, None), courier::sign_result(&pc, id, "hash", 5, &ok));
+    // A key that can't be sealed to (low order): a signed refusal, never the result in clear.
+    let bad = courier::answer(&pc, id, "hash", 5, &ok, Some(&[0u8; 32]));
+    assert!(bad.contains("bad-result-key") && !bad.contains("idle"), "{bad}");
+    // Too big for the relay once sealed: a sealed result-too-big instead.
+    let big: Result<(String, String), String> = Ok(("transcript-tail".into(), "€".repeat(12_000)));
+    let out = courier::answer(&pc, id, "hash", 5, &big, Some(&rk));
+    assert!(out.len() <= seal::MAX_SEALED_RESULT_BYTES);
+    let v: Value = serde_json::from_str(&out).unwrap();
+    let inner = seal::open(&rk_secret, &arr::<32>(v["epk"].as_str().unwrap()), &arr::<12>(v["n"].as_str().unwrap()), "result", id, &unhex(v["ct"].as_str().unwrap())).unwrap();
+    assert!(String::from_utf8(inner).unwrap().contains("result-too-big"));
+}
+
+#[test]
+fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let pc_pub = arr::<32>(&seal::public_hex(&pc_enc));
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let cloud = seed_pair(CLOUD_SEED);
+    let now = super::now_s();
+    let id = "courier-sealed-0001";
+    let p = json!({ "id": id, "iat": now, "exp": now + 3600, "cmd": "session-status", "args": {}, "rk": seal::public_hex(&rk_secret) }).to_string();
+    let inner = json!({ "v": 1, "payload": p, "sig": hex(cloud.sign(p.as_bytes()).as_ref()) }).to_string();
+    let s = seal::seal(&pc_pub, "task", id, inner.as_bytes()).unwrap();
+    let outer = json!({ "v": 2, "id": id, "iat": now, "exp": now + 3600, "epk": seal::to_hex(&s.epk), "n": seal::to_hex(&s.nonce), "ct": seal::to_hex(&s.ct) }).to_string();
+    let gate = Arc::new(Mutex::new(Gate::default()));
+    let (g2, enc2) = (gate.clone(), pc_enc.clone());
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let c = Courier::new(
+        Arc::new(seed_pair(PC_SEED)),
+        Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
+        Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g2.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc2))),
+        tx,
+        Arc::default(),
+    );
+    c.on_frame(&cloud_settings(), &json!({ "t": "task", "env": outer, "client": "account-1" }).to_string(), now);
+    let frame: Value = serde_json::from_str(&rx.blocking_recv().unwrap()).unwrap();
+    assert_eq!(frame["id"], id);
+    let env: Value = serde_json::from_str(frame["env"].as_str().unwrap()).unwrap();
+    assert_eq!(env["v"], 2, "sealed");
+    let opened = seal::open(&rk_secret, &arr::<32>(env["epk"].as_str().unwrap()), &arr::<12>(env["n"].as_str().unwrap()), "result", id, &unhex(env["ct"].as_str().unwrap())).unwrap();
+    let signed: Value = serde_json::from_slice(&opened).unwrap();
+    let payload = signed["payload"].as_str().unwrap();
+    assert!(UnparsedPublicKey::new(&ED25519, seed_pair(PC_SEED).public_key().as_ref()).verify(payload.as_bytes(), &unhex(signed["sig"].as_str().unwrap())).is_ok());
+    let r: Value = serde_json::from_str(payload).unwrap();
+    assert_eq!((r["ok"].as_bool(), r["detail"].as_str(), r["task"].as_str()), (Some(true), Some("did session-status"), Some(courier::sha256_hex(&outer).as_str())));
+    // A seal that doesn't open: answered at once, signed, unsealed, with a fixed code.
+    c.on_frame(&cloud_settings(), &json!({ "t": "task", "env": outer.replace("\"n\":\"", "\"n\":\"ff"), "client": "account-1" }).to_string(), now);
+    let refused: Value = serde_json::from_str(&rx.blocking_recv().unwrap()).unwrap();
+    let env: Value = serde_json::from_str(refused["env"].as_str().unwrap()).unwrap();
+    assert_eq!(env["v"], 1);
+    assert!(env["payload"].as_str().unwrap().contains("\"error\":\"bad-envelope\"") || env["payload"].as_str().unwrap().contains("\"error\":\"bad-seal\""));
+}
+
+#[test]
+fn a_task_that_ran_gets_its_first_answer_again_after_a_restart_never_replay() {
+    let dir = std::env::temp_dir().join(format!("glim-ledger-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("remote-answers.json");
+    let _ = std::fs::remove_file(&path);
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let pc_pub = arr::<32>(&seal::public_hex(&pc_enc));
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let cloud = seed_pair(CLOUD_SEED);
+    let now = super::now_s();
+    let id = "ledger-task-000001";
+    let p = json!({ "id": id, "iat": now, "exp": now + 3600, "cmd": "session-status", "args": {}, "rk": seal::public_hex(&rk_secret) }).to_string();
+    let inner = json!({ "v": 1, "payload": p, "sig": hex(cloud.sign(p.as_bytes()).as_ref()) }).to_string();
+    let s = seal::seal(&pc_pub, "task", id, inner.as_bytes()).unwrap();
+    let outer = json!({ "v": 2, "id": id, "iat": now, "exp": now + 3600, "epk": seal::to_hex(&s.epk), "n": seal::to_hex(&s.nonce), "ct": seal::to_hex(&s.ct) }).to_string();
+    let frame = json!({ "t": "task", "env": outer, "client": "account-1" }).to_string();
+    // One gate for both "runs" of the app (its seen ids are on disk too).
+    let gate = Arc::new(Mutex::new(Gate::default()));
+    let runs: Arc<Mutex<Vec<String>>> = Arc::default();
+    let make = |tx| {
+        let (g, enc) = (gate.clone(), pc_enc.clone());
+        Courier::new(
+            Arc::new(seed_pair(PC_SEED)),
+            Arc::new(Fake { delay: Duration::from_millis(300), runs: runs.clone() }),
+            Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc))),
+            tx,
+            Arc::default(),
+        )
+        .with_ledger(Arc::new(Mutex::new(courier::Ledger::load(path.clone()))))
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let first = make(tx);
+    first.on_frame(&cloud_settings(), &frame, now);
+    // Handed over again while it still runs (a reconnect): nothing yet.
+    first.on_frame(&cloud_settings(), &frame, now);
+    let answer = rx.blocking_recv().unwrap();
+    assert!(rx.try_recv().is_err(), "one answer, not a replay refusal");
+    // The app restarts (no memory left) and the relay hands it over again.
+    let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
+    make(tx2).on_frame(&cloud_settings(), &frame, now + 5);
+    assert_eq!(rx2.blocking_recv().unwrap(), answer, "the first answer again");
+    assert_eq!(runs.lock().unwrap().len(), 1, "it ran once");
+    // On disk: the sealed result only, never the result text.
+    let disk = std::fs::read_to_string(&path).unwrap();
+    assert!(disk.contains(id) && !disk.contains("did session-status") && !disk.contains("session-status"), "sealed: {disk}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unsealed_success_is_remembered_only_as_already_ran() {
+    let mut l = courier::Ledger::default();
+    l.start("k");
+    assert_eq!(l.lookup("k", 10), Some(courier::Seen::Running));
+    l.finish("k", 100, None);
+    assert_eq!(l.lookup("k", 50), Some(courier::Seen::Answered(None)));
+    assert_eq!(l.lookup("k", 101), None, "forgotten after the task's expiry");
+}
+
+/// The sealing crate and ring's AEAD / HKDF stay in seal.rs.
+#[test]
+fn only_seal_rs_uses_the_sealing_crypto() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let words = [concat!("x25519", "_dalek"), concat!("ring::", "aead"), concat!("ring::", "hkdf")];
+    let mut stack = vec![src];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") && !path.ends_with("remote/seal.rs") && !path.ends_with(r"remote\seal.rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for w in words {
+                    assert!(!text.contains(w), "{} uses {w}", path.display());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_pc_set_up_before_sealing_gets_its_encryption_key_once() {
+    let v = crate::ai::key::MemoryVault::default();
+    let first = courier::ensure_enc_key(&v).unwrap();
+    assert_eq!(first.len(), 64);
+    assert_eq!(courier::ensure_enc_key(&v).unwrap(), first, "kept, not remade");
+    // An entry that doesn't parse is an error, and it is left as it was.
+    let bad = crate::ai::key::MemoryVault::default();
+    crate::ai::key::Vault::write(&bad, "not a key").unwrap();
+    assert!(courier::ensure_enc_key(&bad).is_err());
+    assert_eq!(crate::ai::key::Vault::read(&bad).unwrap().as_deref(), Some("not a key"));
+}
+
 #[test]
 fn a_frame_that_is_not_a_task_is_ignored() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -554,6 +812,7 @@ fn live_relay_round_trip() {
         backoff_max: Duration::from_secs(5),
         idle: Duration::from_millis(200),
         running: Arc::new(move || std::time::Instant::now() < until),
+        ledger: Arc::default(),
     };
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(courier::run(l));

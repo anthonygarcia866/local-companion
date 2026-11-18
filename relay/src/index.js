@@ -9,9 +9,13 @@
 //                             queued, each stamped with the cloud client
 //                             whose token queued it.
 //   POST /v1/tasks            a cloud client's token: queue one signed task.
-//   GET  /v1/results/<id>     that client's token: the signed result of one
-//                             of ITS tasks, handed over once (?wait=1-25
-//                             seconds to wait for it).
+//   GET  /v1/results/<id>     that client's token: the result of one of ITS
+//                             tasks (?wait=1-25 seconds to wait for it;
+//                             ?with=task: {task, result}, the task envelope
+//                             it answers too). Kept until acknowledged.
+//   DELETE /v1/results/<id>   that client's token: acknowledge (delete) it.
+//   GET  /v1/results          that client's token: its pending tasks and
+//                             kept results, ids, states and times only.
 //   GET  /v1/status           a cloud client's token: {pc: connected?,
 //                             pending: n of its own tasks}.
 //                             "connected" = a PC socket that pinged (or
@@ -53,6 +57,11 @@ class SqlStore {
       const cols = sql.exec(`PRAGMA table_info(${table})`).toArray().map((c) => c.name);
       if (!cols.includes("client")) sql.exec(`ALTER TABLE ${table} ADD COLUMN client TEXT NOT NULL DEFAULT '${LEGACY_CLIENT}'`);
     }
+    // Store-and-forward (2026-11-17): a result keeps the task envelope it
+    // answers and when it arrived.
+    const rcols = sql.exec("PRAGMA table_info(results)").toArray().map((c) => c.name);
+    if (!rcols.includes("task")) sql.exec("ALTER TABLE results ADD COLUMN task TEXT NOT NULL DEFAULT ''");
+    if (!rcols.includes("ready_at")) sql.exec("ALTER TABLE results ADD COLUMN ready_at INTEGER NOT NULL DEFAULT 0");
   }
   one(q, ...a) {
     const rows = this.sql.exec(q, ...a).toArray();
@@ -63,15 +72,28 @@ class SqlStore {
   countTasks(client) {
     return client === undefined ? this.one("SELECT COUNT(*) AS n FROM tasks").n : this.one("SELECT COUNT(*) AS n FROM tasks WHERE client = ?", client).n;
   }
+  countResults(client) { return this.one("SELECT COUNT(*) AS n FROM results WHERE client = ?", client).n; }
   putTask(id, exp, body, client) { this.sql.exec("INSERT INTO tasks (id, exp, body, client) VALUES (?, ?, ?, ?)", id, exp, body, client); }
   task(id) { return this.one("SELECT exp, client FROM tasks WHERE id = ?", id); }
+  taskBody(id) { const r = this.one("SELECT body FROM tasks WHERE id = ?", id); return r ? r.body : null; }
   deleteTask(id) { this.sql.exec("DELETE FROM tasks WHERE id = ?", id); }
   tasks() { return this.sql.exec("SELECT id, exp, body, client FROM tasks ORDER BY rowid").toArray(); }
-  putResult(id, exp, body, client) { this.sql.exec("INSERT OR REPLACE INTO results (id, exp, body, client) VALUES (?, ?, ?, ?)", id, exp, body, client); }
-  takeResult(id, client) {
-    const r = this.one("SELECT body FROM results WHERE id = ? AND client = ?", id, client);
-    if (r) this.sql.exec("DELETE FROM results WHERE id = ?", id);
-    return r ? r.body : null;
+  putResult(id, exp, body, client, task = "", readyAt = 0) {
+    this.sql.exec("INSERT OR REPLACE INTO results (id, exp, body, client, task, ready_at) VALUES (?, ?, ?, ?, ?, ?)", id, exp, body, client, task, readyAt);
+  }
+  result(id, client) {
+    const r = this.one("SELECT body, task FROM results WHERE id = ? AND client = ?", id, client);
+    return r ? { body: r.body, task: r.task } : null;
+  }
+  deleteResult(id, client) {
+    if (this.one("SELECT 1 AS x FROM results WHERE id = ? AND client = ?", id, client) === null) return false;
+    this.sql.exec("DELETE FROM results WHERE id = ? AND client = ?", id, client);
+    return true;
+  }
+  listFor(client) {
+    const tasks = this.sql.exec("SELECT id, exp FROM tasks WHERE client = ? ORDER BY rowid", client).toArray().map((r) => ({ id: r.id, state: "pending", exp: r.exp, readyAt: null }));
+    const results = this.sql.exec("SELECT id, exp, ready_at FROM results WHERE client = ? ORDER BY rowid", client).toArray().map((r) => ({ id: r.id, state: "ready", exp: r.exp, readyAt: r.ready_at }));
+    return [...tasks, ...results];
   }
   deleteExpired(before) {
     this.sql.exec("DELETE FROM tasks WHERE exp < ?", before);
@@ -140,12 +162,21 @@ export class Mailbox extends DurableObject {
       await this.schedule();
       return json(r.status, r.body);
     }
+    if (url.pathname === "/v1/results" && request.method === "GET") {
+      const r = this.relay.list(now(), client);
+      return json(r.status, r.body);
+    }
     const m = /^\/v1\/results\/([^/]+)$/.exec(url.pathname);
+    if (m && request.method === "DELETE") {
+      const r = this.relay.ack(m[1], now(), client);
+      return json(r.status, r.body);
+    }
     if (m && request.method === "GET") {
       const wait = Math.min(MAX_WAIT_S, Math.max(0, Number(url.searchParams.get("wait") || "0") | 0));
+      const withTask = url.searchParams.get("with") === "task";
       const until = Date.now() + wait * 1000;
       for (;;) {
-        const r = this.relay.takeResult(m[1], now(), client);
+        const r = this.relay.takeResult(m[1], now(), client, withTask);
         if (r.raw !== undefined) return new Response(r.raw, { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } });
         if (r.status !== 202 || Date.now() >= until) return json(r.status, r.body);
         await new Promise((res) => setTimeout(res, 500));

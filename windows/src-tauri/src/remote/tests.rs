@@ -4,6 +4,8 @@ use serde_json::{json, Value};
 use super::*;
 
 const NOW: i64 = 1_763_140_000;
+/// A made-up Claude Code session id.
+const SESSION: &str = "0b6c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3";
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -37,9 +39,9 @@ fn a_signed_fresh_task_is_accepted_once_and_noted_without_its_payload() {
     let kp = signer(7);
     let s = settings_for(&kp);
     let mut g = Gate::default();
-    let raw = envelope(&kp, &task(&id(1), "send-to-session", json!({ "repo": "local-companion", "text": "SECRET-ish words to send" })));
+    let raw = envelope(&kp, &task(&id(1), "send-to-session", json!({ "repo": "local-companion", "session": SESSION, "text": "SECRET-ish words to send" })));
     let a = g.accept(&s, &raw, NOW).unwrap();
-    assert_eq!(a.command, Command::SendToSession { repo: "local-companion".into(), text: "SECRET-ish words to send".into() });
+    assert_eq!(a.command, Command::SendToSession { repo: "local-companion".into(), session: SESSION.into(), text: "SECRET-ish words to send".into() });
     assert_eq!(g.accept(&s, &raw, NOW + 1), Err(Rejection::Replay));
     let listed = format!("{:?}", g.activity);
     assert!(!listed.contains("SECRET") && !listed.contains("words"), "{listed}");
@@ -80,12 +82,83 @@ fn expiry_lifetime_and_clock_skew() {
     let mut g = Gate::default();
     let at = |iat: i64, exp: i64, n: usize| envelope(&kp, &json!({ "id": id(n), "iat": iat, "exp": exp, "cmd": "session-status", "args": {} }));
     assert_eq!(g.accept(&s, &at(NOW - 700, NOW - 100, 10), NOW), Err(Rejection::Expired));
-    assert_eq!(g.accept(&s, &at(NOW, NOW + 601, 11), NOW), Err(Rejection::TooLong), "at most 10 minutes");
+    assert_eq!(g.accept(&s, &at(NOW, NOW + 72 * 3600 + 1, 11), NOW), Err(Rejection::TooLong), "at most 72 h");
+    assert!(g.accept(&s, &at(NOW, NOW + 72 * 3600, 16), NOW).is_ok(), "72 h is allowed (owner 2026-11-17)");
     assert_eq!(g.accept(&s, &at(NOW + 120, NOW + 300, 12), NOW), Err(Rejection::NotYetValid));
     assert_eq!(g.accept(&s, &at(NOW, NOW - 1, 13), NOW), Err(Rejection::TooLong), "expires before it was issued");
     assert!(g.accept(&s, &at(NOW + 30, NOW + 600, 14), NOW).is_ok(), "30 s ahead is skew");
-    assert!(g.accept(&s, &at(NOW - 600, NOW - 30, 15), NOW).is_ok(), "30 s past expiry is skew");
+    // No skew after the expiry (owner 2026-11-17): expired at the relay = never runs.
+    assert_eq!(g.accept(&s, &at(NOW - 600, NOW - 1, 15), NOW), Err(Rejection::Expired), "1 s past its expiry");
+    assert!(g.accept(&s, &at(NOW - 600, NOW, 17), NOW).is_ok(), "its expiry second itself");
     assert_eq!(g.activity.iter().find(|a| a.reason == "expired").unwrap().id, id(10), "a verified id is noted");
+}
+
+#[test]
+fn start_session_and_send_to_session_live_at_most_24_hours() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    let at = |exp: i64, n: usize, cmd: &str, args: Value| envelope(&kp, &json!({ "id": id(n), "iat": NOW, "exp": exp, "cmd": cmd, "args": args }));
+    let send = json!({ "repo": "local-companion", "session": SESSION, "text": "hi" });
+    let start = json!({ "repo": "local-companion" });
+    assert_eq!(g.accept(&s, &at(NOW + 24 * 3600 + 1, 1, "send-to-session", send.clone()), NOW), Err(Rejection::TooLong));
+    assert_eq!(g.accept(&s, &at(NOW + 24 * 3600 + 1, 2, "start-session", start.clone()), NOW), Err(Rejection::TooLong));
+    assert!(g.accept(&s, &at(NOW + 24 * 3600, 3, "send-to-session", send), NOW).is_ok());
+    assert!(g.accept(&s, &at(NOW + 24 * 3600, 4, "start-session", start), NOW).is_ok());
+    assert!(g.accept(&s, &at(NOW + 72 * 3600, 5, "session-status", json!({})), NOW).is_ok(), "read-only commands may wait 72 h");
+}
+
+#[test]
+fn a_long_lived_task_still_obeys_replay_and_the_kill_switch() {
+    let kp = signer(7);
+    let mut g = Gate::default();
+    let t = envelope(&kp, &json!({ "id": id(1), "iat": NOW, "exp": NOW + 72 * 3600, "cmd": "session-status", "args": {} }));
+    assert!(g.accept(&settings_for(&kp), &t, NOW).is_ok());
+    // Seen ids are kept until their own expiry, so 71 h later it is still a replay.
+    assert_eq!(g.accept(&settings_for(&kp), &t, NOW + 71 * 3600), Err(Rejection::Replay));
+    // Queued for a day while the kill switch was on, delivered after "Allow again": killed.
+    let queued = envelope(&kp, &json!({ "id": id(2), "iat": NOW, "exp": NOW + 72 * 3600, "cmd": "session-status", "args": {} }));
+    let reopened = RemoteSettings { allowed_since: NOW + 24 * 3600, ..settings_for(&kp) };
+    assert_eq!(g.accept(&reopened, &queued, NOW + 25 * 3600), Err(Rejection::Killed));
+}
+
+#[test]
+fn a_verified_task_refused_for_now_can_never_run_later() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    // Issued 2 min ahead of this PC's clock: not yet valid, and burned.
+    let early = envelope(&kp, &json!({ "id": id(1), "iat": NOW + 120, "exp": NOW + 3600, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &early, NOW), Err(Rejection::NotYetValid));
+    assert_eq!(g.accept(&s, &early, NOW + 200), Err(Rejection::Replay), "the relay's copy, later");
+    // Rate-limited, then redelivered after the hour: still not run.
+    for n in 0..MAX_COMMANDS_PER_HOUR {
+        assert!(g.accept(&s, &envelope(&kp, &task(&id(100 + n), "session-status", json!({}))), NOW).is_ok());
+    }
+    let late = envelope(&kp, &json!({ "id": id(2), "iat": NOW, "exp": NOW + 72 * 3600, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &late, NOW), Err(Rejection::RateLimited));
+    assert_eq!(g.accept(&s, &late, NOW + 3700), Err(Rejection::Replay));
+    // A task whose signature didn't verify burns nothing (its id isn't trusted).
+    let forged = envelope(&signer(8), &task(&id(3), "session-status", json!({})));
+    assert_eq!(g.accept(&s, &forged, NOW), Err(Rejection::BadSignature));
+    let genuine = json!({ "id": id(3), "iat": NOW + 3690, "exp": NOW + 4000, "cmd": "session-status", "args": {} });
+    assert!(g.accept(&s, &envelope(&kp, &genuine), NOW + 3700).is_ok());
+}
+
+#[test]
+fn a_result_key_in_the_payload_is_kept_and_a_bad_one_refused() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    let rk = "ab".repeat(32);
+    let ok = envelope(&kp, &json!({ "id": id(1), "iat": NOW, "exp": NOW + 300, "cmd": "session-status", "args": {}, "rk": rk }));
+    assert_eq!(g.accept(&s, &ok, NOW).unwrap().rk, Some([0xab; 32]));
+    let none = envelope(&kp, &task(&id(2), "session-status", json!({})));
+    assert_eq!(g.accept(&s, &none, NOW).unwrap().rk, None, "an older courier: answered unsealed");
+    for (n, bad) in [(3, json!("ab")), (4, json!("AB".repeat(32))), (5, json!(7))] {
+        let raw = envelope(&kp, &json!({ "id": id(n), "iat": NOW, "exp": NOW + 300, "cmd": "session-status", "args": {}, "rk": bad }));
+        assert!(matches!(g.accept(&s, &raw, NOW), Err(Rejection::BadPayload)), "{bad}");
+    }
 }
 
 #[test]
@@ -111,7 +184,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new() });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new(), pc_enc_key: String::new() });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));
@@ -159,10 +232,15 @@ fn the_command_parser_checks_every_argument() {
     assert_eq!(parse("start-session", &m(json!({ "repo": "..\\local-companion" }))), Err(Rejection::RepoNotAllowed));
     assert_eq!(parse("start-session", &m(json!({}))), Err(Rejection::BadArgs));
     assert_eq!(parse("start-session", &m(json!({ "repo": "local-companion", "prompt": "x".repeat(2001) }))), Err(Rejection::BadArgs));
-    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion" }))), Err(Rejection::BadArgs), "text required");
-    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "text": "   " }))), Err(Rejection::BadArgs));
-    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "text": "a\u{1b}[2J" }))), Err(Rejection::BadArgs), "no control characters");
-    assert!(parse("send-to-session", &m(json!({ "repo": "local-companion", "text": "line one\nline two" }))).is_ok());
+    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "session": SESSION }))), Err(Rejection::BadArgs), "text required");
+    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "session": SESSION, "text": "   " }))), Err(Rejection::BadArgs));
+    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "session": SESSION, "text": "a\u{1b}[2J" }))), Err(Rejection::BadArgs), "no control characters");
+    assert!(parse("send-to-session", &m(json!({ "repo": "local-companion", "session": SESSION, "text": "line one\nline two" }))).is_ok());
+    // The target session must be named (owner 2026-11-17), as a UUID only.
+    assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "text": "hi" }))), Err(Rejection::BadArgs), "session required");
+    for bad in ["0b6c1d2e", "..\\..\\x", "0B6C1D2E-3F40-4A5B-8C6D-7E8F90A1B2C3", "0b6c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3.jsonl", "0b6c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c", "0b6c1d2e/3f40-4a5b-8c6d-7e8f90a1b2c3"] {
+        assert_eq!(parse("send-to-session", &m(json!({ "repo": "local-companion", "session": bad, "text": "hi" }))), Err(Rejection::BadArgs), "{bad}");
+    }
     assert_eq!(parse("runbook", &m(json!({ "name": "glim-update" }))), Ok(Command::Runbook { name: "glim-update".into() }));
     for bad in [json!({ "name": "Glim Update" }), json!({ "name": "" }), json!({ "name": "a&b" }), json!({ "name": "glim-update", "extra": 1 })] {
         assert_eq!(parse("runbook", &m(bad.clone())), Err(Rejection::BadArgs), "{bad}");
@@ -460,6 +538,32 @@ fn each_client_sees_only_its_own_accounts_sessions_and_the_others_are_not_yours(
     // A neighbouring repo whose name starts the same is not a worktree.
     transcript(&two, &format!("{slug}-copy"), "dddddddd-two");
     assert_eq!(stem(&s2).as_deref(), Some("bbbbbbbb-two"));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn send_to_session_reaches_only_the_named_session_of_its_own_account() {
+    let home = std::env::temp_dir().join(format!("glim-remote-named-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let (one, two) = (home.join(".claude"), home.join(".claude2"));
+    std::fs::create_dir_all(&one).unwrap();
+    std::fs::create_dir_all(&two).unwrap();
+    let repo = home.join("example-repo");
+    let slug = exec::project_slug(&repo);
+    let (mine, theirs) = ("1a2b3c4d-0000-4000-8000-00000000000a", "5e6f7a8b-0000-4000-8000-00000000000b");
+    transcript(&two, &format!("{slug}--claude-worktrees-quiet-fox"), mine);
+    transcript(&one, &slug, theirs);
+    let accounts = crate::accounts::list(&[], &home);
+    let known = vec![one.clone(), two.clone()];
+    let s2 = exec::scope(&accounts, "account-2", &known, &home).unwrap();
+    assert!(s2.session(&repo, mine).unwrap().ends_with(format!("{mine}.jsonl")), "its own, in a worktree");
+    assert_eq!(s2.session(&repo, theirs), Err("not-your-session".to_string()), "another account's");
+    assert_eq!(s2.session(&repo, "99999999-0000-4000-8000-000000000000"), Err("no-such-session".to_string()), "gone or never there");
+    assert_eq!(s2.session(&home.join("other-repo"), mine), Err("no-such-session".to_string()), "another repo's folder");
+    assert_eq!(exec::session_transcript(&known, &repo, "..\\.claude2"), None, "only a UUID names a session");
+    // session-status shows the full id, which send-to-session names.
+    let line = exec::status_line("example-repo", s2.latest(&repo), std::time::SystemTime::now());
+    assert!(line.contains(&format!("(session {mine})")), "{line}");
     let _ = std::fs::remove_dir_all(&home);
 }
 

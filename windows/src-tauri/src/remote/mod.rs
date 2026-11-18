@@ -12,8 +12,14 @@
 //   shown; the private key never touches this PC.
 // - `payload` is `{"id","iat","exp","cmd","args"}`: a unique id (16-64 of
 //   A-Z a-z 0-9 _ -), issued-at and expires-at in Unix seconds, expiry at
-//   most 10 minutes after issue (60 s clock skew allowed), one of five
-//   commands with its arguments (command.rs).
+//   most 72 h after issue (24 h for start-session and send-to-session;
+//   owner 2026-11-17), 60 s clock skew allowed on the issue time but NONE
+//   after the expiry (a task expired at the relay never runs), one of six
+//   commands with its arguments (command.rs), and optionally `rk`: the
+//   X25519 key (64 hex) the result is sealed to (seal.rs).
+// - Store-and-forward (owner 2026-11-17): the task may arrive sealed to this
+//   PC (`{"v":2,…}`, seal.rs); courier.rs opens it before this gate, which
+//   always checks the signed v1 envelope inside.
 // - Replay protection: an id is accepted once; seen ids are kept (on disk,
 //   so a restart doesn't reopen them) until their expiry has passed.
 // - Cloud clients (owner 2026-11-15): one per Claude account ("account-1",
@@ -45,6 +51,7 @@ use sha2::{Digest, Sha256};
 pub mod command;
 pub mod courier;
 pub mod exec;
+pub mod seal;
 pub mod wake;
 #[cfg(test)]
 mod tests;
@@ -55,8 +62,10 @@ pub use command::Command;
 
 /// Repos a remote command may name (owner 2026-11-14: Glim's own repo only).
 pub const REPOS: &[&str] = &["local-companion"];
-/// A task lives at most this long (seconds).
-pub const MAX_LIFETIME_S: i64 = 600;
+/// A task lives at most this long (seconds; owner 2026-11-17, was 600).
+pub const MAX_LIFETIME_S: i64 = 72 * 3600;
+/// start-session and send-to-session act into live work: 24 h at most.
+pub const MAX_LIVE_LIFETIME_S: i64 = 24 * 3600;
 /// Clock skew tolerated between the signer and this PC (seconds).
 pub const SKEW_S: i64 = 60;
 /// Per cloud client, per rolling hour.
@@ -105,6 +114,10 @@ pub struct RemoteSettings {
     /// The PC's result key (public half, 64 hex) once set up ("" none); the
     /// private half is only in Credential Manager (courier::PC_KEY_TARGET).
     pub pc_public_key: String,
+    /// The PC's encryption key (X25519, public half, 64 hex) that tasks are
+    /// sealed to: cloud Glim's GLIM_PC_ENC_KEY ("" none). The private half
+    /// is only in Credential Manager (courier::PC_ENC_TARGET).
+    pub pc_enc_key: String,
 }
 
 /// One cloud client: its name, its signer's PUBLIC key, the SHA-256 of its
@@ -215,6 +228,9 @@ pub enum Rejection {
     UnknownClient,
     /// Signed by another client's key than the one whose token queued it.
     WrongClient,
+    /// A sealed task this PC couldn't open, or whose outside doesn't match
+    /// the signed task inside.
+    BadSeal,
 }
 
 impl Rejection {
@@ -238,6 +254,7 @@ impl Rejection {
             Rejection::RateLimited => "rate-limited",
             Rejection::UnknownClient => "unknown-client",
             Rejection::WrongClient => "wrong-client",
+            Rejection::BadSeal => "bad-seal",
         }
     }
 }
@@ -283,6 +300,9 @@ struct Payload {
     cmd: String,
     #[serde(default)]
     args: serde_json::Map<String, serde_json::Value>,
+    /// The X25519 key (64 hex) the result is sealed to (store-and-forward).
+    #[serde(default)]
+    rk: Option<String>,
 }
 
 /// A task that passed every check.
@@ -293,6 +313,9 @@ pub struct Accepted {
     pub command: Command,
     /// The cloud client that sent it (its token queued it, its key signed it).
     pub client: String,
+    /// The key its result is sealed to: named in the signed payload, so the
+    /// relay can't swap it. None: an older courier, answered unsealed.
+    pub rk: Option<[u8; 32]>,
 }
 
 /// One line of the Remote activity list: no payloads.
@@ -388,6 +411,35 @@ impl Gate {
         self.accept_from(s, LEGACY_CLIENT, raw, now)
     }
 
+    /// A task as the relay hands it over: sealed to this PC (`{"v":2,…}`,
+    /// opened with `enc`, its outside checked against the signed task
+    /// inside) or not; then every check of `accept_from` on the signed task.
+    /// A seal that doesn't open is noted and refused as `bad-seal` (or, as
+    /// for any task, `killed` / `off` first).
+    pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>) -> Result<Accepted, Rejection> {
+        let text = std::str::from_utf8(raw).unwrap_or("");
+        if seal::version(text) != Some(2) {
+            return self.accept_from(s, client, raw, now);
+        }
+        let opened = seal::open_task(enc, text).ok().filter(|(inner, outer)| seal::inner_times(inner).as_ref() == Some(outer));
+        match opened {
+            Some((inner, _)) => self.accept_from(s, client, inner.as_bytes(), now),
+            None => {
+                let why = if s.killed {
+                    Rejection::Killed
+                } else if !s.on || !s.consented {
+                    Rejection::Off
+                } else {
+                    Rejection::BadSeal
+                };
+                let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
+                self.note(Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: String::new(), client: named });
+                self.save();
+                Err(why)
+            }
+        }
+    }
+
     /// Every check, in order, for a task the relay says `client` queued; the
     /// outcome is noted either way.
     pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
@@ -402,6 +454,14 @@ impl Gate {
             Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone() },
         };
         self.note(entry);
+        // A verified task's id gets exactly one outcome (review 2026-11-17):
+        // one refused for now (rate-limited, not yet valid …) is burned too,
+        // so a copy the relay kept can't run later, after its signer was
+        // told it didn't (and likely sent it again under a new id). Kept as
+        // long as any task can live.
+        if let Err((_, Some(id))) = &r {
+            self.seen.entry(id.clone()).or_insert(now + MAX_LIFETIME_S);
+        }
         if let Ok(a) = &r {
             self.seen.insert(a.id.clone(), a.expires);
             self.recent.push(Call { at: now, start: matches!(a.command, Command::StartSession { .. }), client: a.client.clone() });
@@ -463,13 +523,22 @@ impl Gate {
         if p.iat > now + SKEW_S {
             return Err((Rejection::NotYetValid, id));
         }
-        if now > p.exp + SKEW_S {
+        // No skew after the expiry (owner 2026-11-17): a task the relay
+        // already let go of as expired never runs here.
+        if now > p.exp {
             return Err((Rejection::Expired, id));
         }
         if self.seen.contains_key(&p.id) {
             return Err((Rejection::Replay, id));
         }
+        let rk = match p.rk.as_deref() {
+            None => None,
+            Some(h) => Some(seal::from_hex(h).and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or((Rejection::BadPayload, id.clone()))?),
+        };
         let command = command::parse(&p.cmd, &p.args).map_err(|e| (e, id.clone()))?;
+        if matches!(command, Command::StartSession { .. } | Command::SendToSession { .. }) && p.exp - p.iat > MAX_LIVE_LIFETIME_S {
+            return Err((Rejection::TooLong, id));
+        }
         let own = || self.recent.iter().filter(|c| c.client == client);
         if self.recent.len() >= MAX_COMMANDS_PER_HOUR_PC || own().count() >= MAX_COMMANDS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
@@ -482,7 +551,7 @@ impl Gate {
         if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
-        Ok(Accepted { id: p.id, expires: p.exp, command, client: client.to_string() })
+        Ok(Accepted { id: p.id, expires: p.exp, command, client: client.to_string(), rk })
     }
 
     /// The kill switch was used: noted in the list (it refuses on its own,
