@@ -187,7 +187,7 @@ let tasksTimer: ReturnType<typeof setInterval> | null = null;
 /** Settings → Remote → Remote tasks (remote/). */
 export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement, pollMs = REMOTE_POLL_MS): HTMLElement {
   const box = h("div", { class: "pill-group", "data-role": "remote-tasks" });
-  let status: RemoteStatus = { on: false, consented: false, killed: false, clients: [], relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", activity: [] };
+  let status: RemoteStatus = { on: false, consented: false, killed: false, clients: [], relay: "", connection: "off", pcPublicKey: "", pcFingerprint: "", pcEncKey: "", pcEncFingerprint: "", activity: [] };
   let consenting = false;
   let note = "";
   let renewing = false;
@@ -254,7 +254,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const prev = status;
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
-    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint"] as const).every(same);
+    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint"] as const).every(same);
     if (!rest) return draw();
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
@@ -342,6 +342,18 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     if (status.pcPublicKey && status.pcFingerprint) {
       box.append(h("label", { text: t("This PC's result key") }), h("div", { class: "path", "data-role": "remote-pc-key", text: status.pcPublicKey }));
       box.append(h("div", { class: "hint", "data-role": "remote-pc-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.pcFingerprint }) }));
+    }
+    // Store-and-forward (owner 2026-11-17): tasks are sealed to this key;
+    // each cloud environment needs it as GLIM_PC_ENC_KEY. Public, so it may be copied.
+    if (status.pcEncKey && status.pcEncFingerprint) {
+      const encKey = status.pcEncKey;
+      const copyEnc = h("button", { type: "button", "data-role": "remote-pc-enc-copy", text: t("Copy") });
+      copyEnc.addEventListener("click", () => void navigator.clipboard?.writeText(encKey));
+      box.append(
+        h("label", { text: t("This PC's encryption key (GLIM_PC_ENC_KEY)") }),
+        h("div", { class: "row" }, h("div", { class: "path", "data-role": "remote-pc-enc-key", text: encKey }), copyEnc),
+        h("div", { class: "hint", "data-role": "remote-pc-enc-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: status.pcEncFingerprint }) }),
+      );
     }
     const setup = h("button", { type: "button", "data-role": "remote-setup", text: status.pcPublicKey ? t("Make new tokens and key") : t("Set up the relay") });
     setup.addEventListener("click", () => {

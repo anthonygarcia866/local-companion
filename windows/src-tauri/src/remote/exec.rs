@@ -15,9 +15,12 @@
 //                    needing approval is refused in that mode. Without one:
 //                    the keep-alive's fixed remote-control command in a
 //                    console, to pick up from the Claude app.
-//   send-to-session  `claude -p --continue` in the repo folder with the text
-//                    on stdin; refused ("busy") while a session there was
-//                    active in the last 30 s.
+//   send-to-session  `claude -p --resume <session>` where that session works
+//                    (the repo folder or one of its worktrees), the text on
+//                    stdin. The session must be named and be this account's
+//                    (owner 2026-11-17): "no-such-session" / "not-your-
+//                    session" otherwise; "busy" while it wrote in the last
+//                    30 s.
 //   runbook          an approved, unchanged, non-asking runbook, exactly as
 //                    `glim.exe --run` runs it (Trigger::Remote in runbooks.log).
 //   keepalive-restart stops and starts again the "Keep Claude Code reachable"
@@ -89,6 +92,17 @@ fn project_dirs(dir: &Path, slug: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Session `id`'s transcript (`<id>.jsonl`) among `config_dirs`' projects
+/// for `folder` and its worktrees. `id` is a checked UUID (command.rs), so
+/// it can't name anything else.
+pub fn session_transcript(config_dirs: &[PathBuf], folder: &Path, id: &str) -> Option<PathBuf> {
+    if !super::command::is_session_id(id) {
+        return None;
+    }
+    let slug = project_slug(folder);
+    config_dirs.iter().flat_map(|dir| project_dirs(dir, &slug)).map(|p| p.join(format!("{id}.jsonl"))).find(|p| p.is_file())
+}
+
 /// The newest transcript among `config_dirs`' projects/<slug>/*.jsonl.
 pub fn latest_transcript(config_dirs: &[PathBuf], folder: &Path) -> Option<(PathBuf, SystemTime)> {
     let slug = project_slug(folder);
@@ -135,7 +149,8 @@ pub fn status_line(repo: &str, latest: Option<(PathBuf, SystemTime)>, now: Syste
         None => format!("{repo}: no Claude Code session yet"),
         Some((p, t)) => {
             let s = age_s(t, now);
-            let id: String = p.file_stem().map(|x| x.to_string_lossy().chars().take(8).collect()).unwrap_or_default();
+            // The full id: what send-to-session names (owner 2026-11-17).
+            let id: String = p.file_stem().map(|x| x.to_string_lossy().into_owned()).unwrap_or_default();
             let state = if s < ACTIVE_S { "active" } else { "idle" };
             format!("{repo}: {state}, last activity {} (session {id})", ago(s))
         }
@@ -250,6 +265,16 @@ impl Scope {
         latest_transcript(std::slice::from_ref(&self.own), folder)
     }
 
+    /// The transcript of session `id` for the folder (or one of its
+    /// worktrees) in this account's own config folder. Another account's:
+    /// `not-your-session`; nowhere: `no-such-session`.
+    pub fn session(&self, folder: &Path, id: &str) -> Result<PathBuf, String> {
+        if let Some(p) = session_transcript(std::slice::from_ref(&self.own), folder, id) {
+            return Ok(p);
+        }
+        Err(if session_transcript(&self.others, folder, id).is_some() { "not-your-session".into() } else { "no-such-session".into() })
+    }
+
     /// Why there's no session of its own: another account has one, or none does.
     pub fn none_reason(&self, folder: &Path) -> String {
         if latest_transcript(&self.others, folder).is_some() { "not-your-session".into() } else { "no-transcript".into() }
@@ -331,21 +356,23 @@ impl Exec for RealExec {
                     }
                 }
             }
-            Command::SendToSession { repo, text } => {
+            Command::SendToSession { repo, session, text } => {
+                // The named session only (owner 2026-11-17): this account's,
+                // for this repo, still there; else refused.
                 let scope = self.scope(client)?;
                 let f = self.folder(repo)?;
-                let latest = match scope.latest(&f) {
-                    None => return Err(scope.none_reason(&f)),
-                    Some((_, t)) if age_s(t, now) < BUSY_S => return Err("busy".into()),
-                    Some((p, _)) => p,
-                };
+                let transcript = scope.session(&f, session)?;
+                let t = std::fs::metadata(&transcript).and_then(|m| m.modified()).map_err(|_| "no-such-session".to_string())?;
+                if age_s(t, now) < BUSY_S {
+                    return Err("busy".into());
+                }
                 // Continued where that session works: the repo folder or one
                 // of its worktrees, never anywhere else.
-                let at = read_tail(&latest).ok().and_then(|b| session_cwd(&b)).and_then(|cwd| within_repo(&cwd, &f)).unwrap_or_else(|| f.clone());
+                let at = read_tail(&transcript).ok().and_then(|b| session_cwd(&b)).and_then(|cwd| within_repo(&cwd, &f)).unwrap_or_else(|| f.clone());
                 let exe = self.claude(&at)?;
                 let (var, dir) = crate::accounts::env(&scope.account);
-                crate::platform::start_hidden_with_stdin(&exe, &["-p", "--continue", "--output-format", "text"], &at, &[(var, dir.as_str())], text)?;
-                Ok(format!("{repo}: sent to {}'s latest session (claude -p --continue)", scope.account.name))
+                crate::platform::start_hidden_with_stdin(&exe, &["-p", "--resume", session.as_str(), "--output-format", "text"], &at, &[(var, dir.as_str())], text)?;
+                Ok(format!("{repo}: sent to {}'s session {session} (claude -p --resume)", scope.account.name))
             }
             Command::KeepaliveRestart { folder } => {
                 // Only this client's account's servers.

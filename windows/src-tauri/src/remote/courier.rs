@@ -35,6 +35,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::exec::{cap, Exec};
+use super::seal;
 use super::{Accepted, Rejection, RemoteSettings};
 use crate::ai::key::Vault;
 use crate::net::relay::{self, End, Timing};
@@ -43,6 +44,9 @@ use crate::net::Url;
 /// Glim's own credentials (secrets::RESERVED lists them).
 pub const PC_TOKEN_TARGET: &str = "Glim/RemoteRelayPcToken";
 pub const PC_KEY_TARGET: &str = "Glim/RemotePcSigningKey";
+/// The PC's encryption key (X25519, 64 hex): tasks are sealed to its public
+/// half (store-and-forward, owner 2026-11-17).
+pub const PC_ENC_TARGET: &str = "Glim/RemotePcEncKey";
 /// Ordinary secrets (Settings → Secrets) holding the tokens' SHA-256, so an
 /// approved runbook (relay-tokens) can hand them to `wrangler secret put` on
 /// stdin. Not secret in themselves (a hash of 32 random bytes).
@@ -77,20 +81,47 @@ pub fn sha256_hex(s: &str) -> String {
 pub struct Setup {
     /// The PC's result key (public, 64 hex), for cloud Glim's environments.
     pub pc_public_key: String,
+    /// The PC's encryption key (public, 64 hex): GLIM_PC_ENC_KEY.
+    pub pc_enc_key: String,
 }
 
-/// A new PC relay token and a new PC result key. The token and the private
-/// key go to Credential Manager, the token's hash to Settings → Secrets.
-/// Cloud tokens are each cloud client's own (`new_cloud_token`), untouched.
-pub fn setup(pc_token: &dyn Vault, pc_key: &dyn Vault, secrets: &dyn crate::secrets::Store) -> Result<Setup, String> {
+/// A new PC relay token, a new PC result key and a new PC encryption key.
+/// The token and the private keys go to Credential Manager, the token's hash
+/// to Settings → Secrets. Cloud tokens are each cloud client's own
+/// (`new_cloud_token`), untouched.
+pub fn setup(pc_token: &dyn Vault, pc_key: &dyn Vault, pc_enc: &dyn Vault, secrets: &dyn crate::secrets::Store) -> Result<Setup, String> {
     let rng = ring::rand::SystemRandom::new();
     let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).map_err(|_| "no randomness".to_string())?;
     let kp = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).map_err(|_| "bad key".to_string())?;
     let pc = random_hex32()?;
+    let enc = random_hex32()?;
+    let enc_public = seal::secret_from_hex(&enc).map(|s| seal::public_hex(&s)).ok_or("bad key")?;
     pc_key.write(&hex(pkcs8.as_ref()))?;
+    pc_enc.write(&enc)?;
     pc_token.write(&pc)?;
     crate::secrets::save(secrets, PC_TOKEN_HASH_SECRET, &sha256_hex(&pc))?;
-    Ok(Setup { pc_public_key: hex(kp.public_key().as_ref()) })
+    Ok(Setup { pc_public_key: hex(kp.public_key().as_ref()), pc_enc_key: enc_public })
+}
+
+/// The PC's encryption key from its vault entry.
+pub fn load_enc(v: &dyn Vault) -> Option<seal::Secret> {
+    v.read().ok().flatten().and_then(|h| seal::secret_from_hex(h.trim()))
+}
+
+/// The PC's encryption key's public half, made first if there is none yet
+/// (a PC set up before 2026-11-17 keeps its token and result key).
+pub fn ensure_enc_key(v: &dyn Vault) -> Result<String, String> {
+    if let Some(s) = load_enc(v) {
+        return Ok(seal::public_hex(&s));
+    }
+    let enc = random_hex32()?;
+    let s = seal::secret_from_hex(&enc).ok_or("bad key")?;
+    v.write(&enc)?;
+    Ok(seal::public_hex(&s))
+}
+
+pub fn pc_enc_vault() -> impl Vault {
+    crate::ai::key::CredentialManager { target: PC_ENC_TARGET }
 }
 
 /// A new cloud client's relay token: (token, its SHA-256). The token is
@@ -143,9 +174,34 @@ pub fn result_frame(id: &str, envelope: &str) -> String {
     json!({ "t": "result", "id": id, "env": envelope }).to_string()
 }
 
+/// A result as it goes back: signed, then sealed to the task's result key
+/// `rk` when the (verified) task named one (store-and-forward; the relay
+/// keeps it until acknowledged and can't read it). A key that can't be
+/// sealed to answers `bad-result-key`; a sealed result too big for the
+/// relay answers `result-too-big` (both still sealed when they can be).
+pub fn answer(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>) -> String {
+    let signed = sign_result(kp, id, task, at, outcome);
+    let Some(rk) = rk else { return signed };
+    match seal::seal(rk, "result", id, signed.as_bytes()) {
+        None => sign_result(kp, id, task, at, &Err("bad-result-key".into())),
+        Some(s) => {
+            let env = seal::result_envelope(id, &s);
+            if env.len() <= seal::MAX_SEALED_RESULT_BYTES || outcome.as_ref().err().is_some_and(|e| e == "result-too-big") {
+                env
+            } else {
+                answer(kp, id, task, at, &Err("result-too-big".into()), Some(rk))
+            }
+        }
+    }
+}
+
 /// The id a relay frame's envelope names, before anything is verified (the
-/// result must name it for the relay to match it up). Only a well-formed id.
+/// result must name it for the relay to match it up). Only a well-formed id;
+/// a sealed task's is the one outside the seal.
 fn peek_id(env: &str) -> Option<String> {
+    if seal::version(env) == Some(2) {
+        return seal::outer_id(env);
+    }
     let v: Value = serde_json::from_str(env).ok()?;
     let p: Value = serde_json::from_str(v.get("payload")?.as_str()?).ok()?;
     let id = p.get("id")?.as_str()?;
@@ -214,7 +270,7 @@ impl Courier {
                     if let Err(code) = &out {
                         crate::log::line(format!("remote: task failed {}", code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect::<String>()));
                     }
-                    let frame = result_frame(&task.id, &sign_result(&signer, &task.id, &key, super::now_s(), &out));
+                    let frame = result_frame(&task.id, &answer(&signer, &task.id, &key, super::now_s(), &out, task.rk.as_ref()));
                     Self::remember(&answered, key, &frame);
                     let _ = tx.send(frame);
                 });
@@ -410,7 +466,12 @@ pub fn start(
     let l = Loop {
         settings,
         link,
-        accept: Arc::new(|s: &RemoteSettings, client: &str, raw: &[u8], now: i64| super::with(|g| g.accept_from(s, client, raw, now))),
+        // A sealed task is opened with the PC's encryption key, read from
+        // Credential Manager when one arrives (never kept in memory between).
+        accept: Arc::new(|s: &RemoteSettings, client: &str, raw: &[u8], now: i64| {
+            let enc = if seal::version(std::str::from_utf8(raw).unwrap_or("")) == Some(2) { load_enc(&pc_enc_vault()) } else { None };
+            super::with(|g| g.accept_sealed(s, client, raw, now, enc.as_ref()))
+        }),
         exec: Arc::new(super::exec::RealExec { keepalive_folders, accounts }),
         timing: Timing::default(),
         backoff_max: Duration::from_secs(60),

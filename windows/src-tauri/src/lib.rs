@@ -772,6 +772,9 @@ struct RemoteStatus {
     connection: String,
     pc_public_key: String,
     pc_fingerprint: String,
+    /// The PC's encryption key (public): cloud Glim's GLIM_PC_ENC_KEY.
+    pc_enc_key: String,
+    pc_enc_fingerprint: String,
     activity: Vec<remote::Activity>,
 }
 
@@ -799,6 +802,8 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         connection: remote::courier::state().to_string(),
         pc_fingerprint: remote::fingerprint(&s.pc_public_key),
         pc_public_key: s.pc_public_key,
+        pc_enc_fingerprint: remote::fingerprint(&s.pc_enc_key),
+        pc_enc_key: s.pc_enc_key,
         activity,
     }
 }
@@ -821,10 +826,14 @@ fn remote_relay(app: AppHandle, shared: State<Shared>, address: String) -> Resul
 /// tokens are each cloud client's own: "Add cloud client").
 #[tauri::command]
 fn remote_setup(app: AppHandle, shared: State<Shared>) -> Result<RemoteStatus, String> {
-    let done = remote::courier::setup(&remote::courier::pc_token_vault(), &remote::courier::pc_key_vault(), &secrets::store()).map_err(|_| i18n::t("Couldn't set up the relay keys."))?;
-    let public = done.pc_public_key.clone();
-    update_settings(&app, &shared, |s| s.remote.pc_public_key = public);
-    log::line("remote: PC relay token and result key made");
+    let done = remote::courier::setup(&remote::courier::pc_token_vault(), &remote::courier::pc_key_vault(), &remote::courier::pc_enc_vault(), &secrets::store())
+        .map_err(|_| i18n::t("Couldn't set up the relay keys."))?;
+    let (public, enc) = (done.pc_public_key.clone(), done.pc_enc_key.clone());
+    update_settings(&app, &shared, |s| {
+        s.remote.pc_public_key = public;
+        s.remote.pc_enc_key = enc;
+    });
+    log::line("remote: PC relay token, result key and encryption key made");
     Ok(remote_now(&shared))
 }
 
@@ -2290,6 +2299,24 @@ pub fn run() {
                 // stopped and set up; idle otherwise.
                 let rc = handle.clone();
                 let rk = handle.clone();
+                // Store-and-forward (2026-11-17): a PC set up before it gets
+                // its encryption key now, keeping its token and result key.
+                if let Some(sh) = handle.try_state::<Shared>() {
+                    let (set_up, known) = {
+                        let s = sh.settings.lock().unwrap();
+                        (!s.remote.pc_public_key.is_empty(), s.remote.pc_enc_key.clone())
+                    };
+                    if set_up {
+                        match remote::courier::ensure_enc_key(&remote::courier::pc_enc_vault()) {
+                            Ok(public) if public != known => {
+                                update_settings(&handle, &sh, |s| s.remote.pc_enc_key = public);
+                                log::line("remote: PC encryption key ready");
+                            }
+                            Ok(_) => {}
+                            Err(_) => log::line("remote: couldn't make the PC encryption key"),
+                        }
+                    }
+                }
                 let remote_settings: std::sync::Arc<dyn Fn() -> remote::RemoteSettings + Send + Sync> =
                     std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default());
                 let ra = handle.clone();
