@@ -109,6 +109,13 @@ pub fn latest_transcript(config_dirs: &[PathBuf], folder: &Path) -> Option<(Path
     best
 }
 
+/// keepalive-restart's result: how many, and whose (a task only ever
+/// restarts its own client's account's servers), e.g.
+/// "keep-alive: restarted 1 session(s) [Claude2]".
+pub fn restart_line(n: usize, account: &str) -> String {
+    format!("keep-alive: restarted {n} session(s) [{account}]")
+}
+
 fn age_s(t: SystemTime, now: SystemTime) -> u64 {
     now.duration_since(t).unwrap_or(Duration::ZERO).as_secs()
 }
@@ -346,7 +353,7 @@ impl Exec for RealExec {
                 let account = if scope.account.config_dir.is_empty() { String::new() } else { scope.account.name.clone() };
                 let n = crate::keepalive::restart(folder.as_deref(), Some(&account))?;
                 crate::log::line(format!("remote: keepalive-restart restarted {n}"));
-                Ok(format!("keep-alive: restarted {n} session(s)"))
+                Ok(restart_line(n, &scope.account.name))
             }
             Command::Runbook { name } => {
                 let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});
