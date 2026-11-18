@@ -1,6 +1,22 @@
-# Courier store-and-forward: design note (2026-11-17, for the owner's review)
+# Courier store-and-forward: design note (2026-11-17)
 
-Status: **DESIGN, not built.** Roadmap item 1 of "connect cloud Glim to the Glim app" (PROJECT_STATUS.md, owner 2026-11-17). Nothing here is coded until the owner has reviewed it. Builds on `docs/remote-courier.md`; everything there still holds unless this note changes it.
+Status: **APPROVED by the owner 2026-11-17 and BUILT** (PR #137: relay → Glim app → `courier.mjs`). Roadmap item 1 of "connect cloud Glim to the Glim app" (PROJECT_STATUS.md). Builds on `docs/remote-courier.md`, which now describes the result.
+
+## The owner's decisions (2026-11-17)
+
+- **D1** 24 h default, 72 h cap; `start-session` and `send-to-session` 24 h at most. **`send-to-session` must name its target session id**; the PC refuses it when that session no longer exists (`no-such-session`) or isn't that account's (`not-your-session`).
+- **D2** results kept 72 h. **D3** deleted only on the client's acknowledgement, after it has opened and verified them. **D4** tasks sealed to the PC in this PR; `GLIM_PC_ENC_KEY` (public) in Settings → Remote, with a Copy button, and in the per-account setup docs. **D5** the `results` listing shows ids, states and times only.
+- Also: domain-separated key derivation (HKDF with distinct labels for task and result keys; the signing key is never used directly); the kill switch and duplicate-id rules apply to long-lived tasks; **a task expired at the relay never runs**.
+
+## ⚠ Changes from the reviewed design, found while building (2026-11-17)
+
+- **One new crate, `x25519-dalek` 2** (plus `curve25519-dalek`, `curve25519-dalek-derive`, `fiat-crypto`, `zeroize_derive`), in `remote/seal.rs` only. §3 said "no new crate", which held for results only: `ring` offers X25519 **ephemeral** keys only, and D4 needs the PC to keep a **static** encryption key. Pure Rust, no network, no telemetry, no I/O; default features off, secrets zeroized. Called out in the PR.
+- **Random nonces**, not a zero nonce: the task's ephemeral key is derived from the seed and id (so the sender can re-open its own task), which makes the key repeat if a task were ever re-sealed. A random 12-byte nonce removes that worry for both directions.
+- **The AEAD label binds the task id, not the client name**: cloud Glim doesn't know the name Glim gave it. Nothing is lost: only the per-task result key opens a result, and the gate checks a task's signature with the key of the client the relay named.
+- **The PC's encryption key is its own random key** (`Glim/RemotePcEncKey`), not derived from the result key: made by "Set up the relay", or once at startup on a PC set up before.
+- **Expiry: no clock skew after `exp`** at the relay or on the PC (was 60 s), so "expired at the relay" and "refused on the PC" are the same second.
+- **`GET /v1/results/<id>` still returns the bare result** (old couriers keep working, sync `send` at every step); `?with=task` returns `{task, result}`.
+- **Unsealed tasks are still accepted** (an older courier, or `GLIM_PC_ENC_KEY` not set yet: `courier.mjs` warns). Results are sealed whenever the signed task names `rk`.
 
 ## The problem
 
