@@ -4,9 +4,15 @@
 // What it is: a mailbox between cloud Glim (signs tasks) and the Glim app on
 // the owner's PC (checks them, acts, signs results). The relay can't sign
 // either way, and checks neither signature: the PC verifies tasks, cloud Glim
-// verifies results (docs/remote-courier.md). It keeps an envelope only until
-// it is answered or expires (10 minutes at most), never logs, and stores no
+// verifies results (docs/remote-courier.md). It keeps a task until it is
+// answered or expires (72 h at most) and a result until its client
+// acknowledges it (or 72 h after it arrived), never logs, and stores no
 // token: only the SHA-256 of each, as Worker secrets.
+//
+// Store-and-forward (owner 2026-11-17, docs/courier-store-and-forward.md):
+// tasks may be SEALED to the PC and results to the sending client (v2
+// envelopes, {v:2, id, ..., epk, n, ct}); the relay reads only their id and
+// times, never their contents. v1 (signed, unsealed) envelopes still work.
 //
 // Cloud clients (owner 2026-11-15): one PC token, and one cloud token per
 // cloud client ("account-1", "account-2" ...: one per Claude account), each
@@ -15,9 +21,16 @@
 // signed by THAT client's key. A client sees only its own results and
 // pending count.
 
-export const MAX_TASK_BYTES = 16 * 1024;
-export const MAX_RESULT_BYTES = 32 * 1024;
-export const MAX_LIFETIME_S = 600;
+/** A sealed task is a v1 envelope (16 KB at most) in hex, plus a little. */
+export const MAX_TASK_BYTES = 34 * 1024;
+/** A sealed result: a signed one (32 KB at most) in hex, plus a little. */
+export const MAX_RESULT_BYTES = 66 * 1024;
+/** A task lives at most 72 h (owner 2026-11-17; was 10 minutes). */
+export const MAX_LIFETIME_S = 72 * 3600;
+/** A result is kept until acknowledged, or this long after it arrived. */
+export const RESULT_KEEP_S = 72 * 3600;
+/** Unacknowledged results a client may have before its new tasks wait. */
+export const MAX_RESULTS_PER_CLIENT = 200;
 export const SKEW_S = 60;
 export const MAX_PENDING = 50;
 export const MAX_WAIT_S = 25;
@@ -27,6 +40,8 @@ export const MAX_WAIT_S = 25;
 export const PC_SILENT_MS = 75_000;
 const ID = /^[A-Za-z0-9_-]{16,64}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
+const HEX24 = /^[0-9a-f]{24}$/;
+const HEXN = /^(?:[0-9a-f]{2})+$/;
 /** A cloud client's name: lower-case letters, digits and dashes. */
 export const CLIENT_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 /** The name the single cloud token of before 2026-11-15 goes by. */
@@ -102,31 +117,43 @@ export async function caller(authorization, env) {
 }
 
 /**
- * The little the relay reads from a signed envelope: its id and expiry, so it
- * can deliver it once and forget it on time. Unverified (the PC verifies);
- * null when it isn't one.
+ * The little the relay reads from an envelope: its id and times, so it can
+ * deliver it once and forget it on time. Unverified (the ends verify); null
+ * when it isn't one. v1 = signed `{v:1, payload, sig}` (the id and times are
+ * in the payload); v2 = sealed `{v:2, id, iat?, exp?, epk, n, ct}` (a task
+ * carries its id and times outside the seal, and the PC checks they match
+ * the signed ones inside; a result carries only its id).
  */
 export function envelopeMeta(text, now, maxBytes) {
   if (typeof text !== "string" || new TextEncoder().encode(text).length > maxBytes) return null;
   let env, p;
   try {
     env = JSON.parse(text);
-    if (!env || env.v !== 1 || typeof env.payload !== "string" || typeof env.sig !== "string") return null;
+    if (!env || typeof env !== "object") return null;
+    if (env.v === 2) {
+      const ok = typeof env.id === "string" && ID.test(env.id) && HEX64.test(env.epk || "") && HEX24.test(env.n || "") && typeof env.ct === "string" && HEXN.test(env.ct);
+      return ok ? { id: env.id, iat: env.iat, exp: env.exp, sealed: true } : null;
+    }
+    if (env.v !== 1 || typeof env.payload !== "string" || typeof env.sig !== "string") return null;
     p = JSON.parse(env.payload);
   } catch {
     return null;
   }
   if (!p || typeof p.id !== "string" || !ID.test(p.id)) return null;
-  return { id: p.id, iat: p.iat, exp: p.exp };
+  return { id: p.id, iat: p.iat, exp: p.exp, sealed: false };
 }
 
-/** A task cloud Glim may queue: well-formed, not expired, not too long-lived. */
+/**
+ * A task cloud Glim may queue: well-formed, not expired, not too long-lived.
+ * No clock-skew allowance after the expiry (owner 2026-11-17: a task expired
+ * at the relay never runs, so it is neither taken nor handed over then).
+ */
 export function taskMeta(text, now) {
   const m = envelopeMeta(text, now, MAX_TASK_BYTES);
   if (!m || !Number.isInteger(m.iat) || !Number.isInteger(m.exp)) return { error: "bad-envelope" };
   if (m.exp < m.iat || m.exp - m.iat > MAX_LIFETIME_S) return { error: "lifetime-too-long" };
   if (m.iat > now + SKEW_S) return { error: "not-yet-valid" };
-  if (now > m.exp + SKEW_S) return { error: "expired" };
+  if (now > m.exp) return { error: "expired" };
   return { id: m.id, exp: m.exp };
 }
 
@@ -158,9 +185,10 @@ export class Relay {
     return live;
   }
 
-  /** Everything past its expiry (+ skew) goes. */
+  /** Tasks past their expiry go (no skew: an expired task is never handed
+   * over), and results past their keep time. */
   purge(now) {
-    this.store.deleteExpired(now - SKEW_S);
+    this.store.deleteExpired(now);
   }
 
   /** A cloud client queues a task: delivered at once if the PC is connected. */
@@ -170,6 +198,7 @@ export class Relay {
     if (meta.error) return { status: 400, body: { error: meta.error } };
     if (this.store.hasTask(meta.id) || this.store.hasResult(meta.id)) return { status: 409, body: { error: "duplicate-id" } };
     if (this.store.countTasks() >= MAX_PENDING) return { status: 429, body: { error: "too-many-pending" } };
+    if (this.store.countResults(client) >= MAX_RESULTS_PER_CLIENT) return { status: 429, body: { error: "too-many-results" } };
     this.store.putTask(meta.id, meta.exp, text, client);
     const delivered = this.deliver(text, client, now);
     return { status: 202, body: { id: meta.id, delivered } };
@@ -195,9 +224,10 @@ export class Relay {
   }
 
   /**
-   * A frame from the PC. A result answers (and removes) its task; it is kept
-   * for cloud Glim until fetched or the task's expiry. Anything else is
-   * ignored.
+   * A frame from the PC. A result answers (and removes) its task; it is kept,
+   * with the task envelope it answers (so a later session can verify it),
+   * until its client acknowledges it or RESULT_KEEP_S after it arrived.
+   * Anything else is ignored.
    */
   fromPc(frame, now) {
     let f;
@@ -209,21 +239,40 @@ export class Relay {
     if (!f || f.t !== "result" || typeof f.id !== "string" || !ID.test(f.id) || typeof f.env !== "string") return;
     const task = this.store.task(f.id);
     if (task === null) return;
-    if (!envelopeMeta(f.env, now, MAX_RESULT_BYTES)) return;
+    const meta = envelopeMeta(f.env, now, MAX_RESULT_BYTES);
+    if (!meta || meta.id !== f.id) return;
+    const body = this.store.taskBody(f.id);
     this.store.deleteTask(f.id);
-    this.store.putResult(f.id, task.exp, f.env, task.client);
+    this.store.putResult(f.id, now + RESULT_KEEP_S, f.env, task.client, body || "", now);
   }
 
-  /** A cloud client fetches a result of its own: handed over once, then
-   * deleted. Another client's task or result is "not found". */
-  takeResult(id, now, client = LEGACY_CLIENT) {
+  /** A cloud client fetches a result of its own. It stays until acknowledged
+   * (`ack`; owner 2026-11-17: deleted only once the client has opened and
+   * verified it), so a lost response loses nothing. `withTask`: the answer
+   * is `{task, result}`, the result and the task envelope it answers.
+   * Another client's task or result is "not found". */
+  takeResult(id, now, client = LEGACY_CLIENT, withTask = false) {
     this.purge(now);
     if (!ID.test(id || "")) return { status: 400, body: { error: "bad-id" } };
-    const r = this.store.takeResult(id, client);
-    if (r !== null) return { status: 200, raw: r };
+    const r = this.store.result(id, client);
+    if (r !== null) return { status: 200, raw: withTask ? JSON.stringify({ task: r.task, result: r.body }) : r.body };
     const t = this.store.task(id);
     const mine = t !== null && t.client === client;
     return { status: mine ? 202 : 404, body: { pending: mine } };
+  }
+
+  /** The client acknowledges a result of its own: deleted now. */
+  ack(id, now, client = LEGACY_CLIENT) {
+    this.purge(now);
+    if (!ID.test(id || "")) return { status: 400, body: { error: "bad-id" } };
+    return this.store.deleteResult(id, client) ? { status: 200, body: { deleted: true } } : { status: 404, body: { deleted: false } };
+  }
+
+  /** The client's own tasks and results: ids, states and times only (owner
+   * 2026-11-17), never a command, an argument or a result. */
+  list(now, client = LEGACY_CLIENT) {
+    this.purge(now);
+    return { status: 200, body: { results: this.store.listFor(client) } };
   }
 
   /** The PC's connection, and how many of this client's tasks wait. */
@@ -235,7 +284,7 @@ export class Relay {
   /** When the alarm should next clear expired rows (ms), or null. */
   nextPurgeMs() {
     const e = this.store.earliestExp();
-    return e === null ? null : (e + SKEW_S + 1) * 1000;
+    return e === null ? null : (e + 1) * 1000;
   }
 }
 
@@ -254,18 +303,30 @@ export class MemoryStore {
   hasResult(id) { return this.r.has(id); }
   /** All pending tasks, or one client's. */
   countTasks(client) { return client === undefined ? this.t.size : [...this.t.values()].filter((x) => x.client === client).length; }
+  countResults(client) { return [...this.r.values()].filter((x) => x.client === client).length; }
   putTask(id, exp, body, client) { this.t.set(id, { id, exp, body, client }); }
   /** { exp, client } of a pending task, or null. */
   task(id) { const x = this.t.get(id); return x ? { exp: x.exp, client: x.client } : null; }
+  taskBody(id) { const x = this.t.get(id); return x ? x.body : null; }
   deleteTask(id) { this.t.delete(id); }
   tasks() { return [...this.t.values()]; }
-  putResult(id, exp, body, client) { this.r.set(id, { exp, body, client }); }
-  /** Handed over only to the client that queued the task. */
-  takeResult(id, client) {
+  putResult(id, exp, body, client, task = "", readyAt = 0) { this.r.set(id, { exp, body, client, task, readyAt }); }
+  /** { body, task } of a result, only for the client that queued the task. */
+  result(id, client) {
     const r = this.r.get(id);
-    if (!r || r.client !== client) return null;
+    return r && r.client === client ? { body: r.body, task: r.task } : null;
+  }
+  deleteResult(id, client) {
+    const r = this.r.get(id);
+    if (!r || r.client !== client) return false;
     this.r.delete(id);
-    return r.body;
+    return true;
+  }
+  /** One client's pending tasks and kept results: ids, states, times. */
+  listFor(client) {
+    const tasks = [...this.t.entries()].filter(([, x]) => x.client === client).map(([id, x]) => ({ id, state: "pending", exp: x.exp, readyAt: null }));
+    const results = [...this.r.entries()].filter(([, x]) => x.client === client).map(([id, x]) => ({ id, state: "ready", exp: x.exp, readyAt: x.readyAt }));
+    return [...tasks, ...results];
   }
   deleteExpired(before) {
     for (const [k, v] of this.t) if (v.exp < before) this.t.delete(k);

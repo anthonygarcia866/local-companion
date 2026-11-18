@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS } from "../src/core.js";
+import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS, RESULT_KEEP_S, MAX_RESULTS_PER_CLIENT } from "../src/core.js";
 import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
 import os from "node:os";
 
@@ -101,8 +101,9 @@ test("expired, too long-lived, duplicate and malformed tasks are refused; at mos
   const relay = new Relay(new MemoryStore(), () => []);
   const old = signTask(k.seed, "session-status", {}, NOW - 1000);
   assert.equal(relay.queue(old.text, NOW).body.error, "expired");
-  const long = JSON.stringify({ v: 1, payload: JSON.stringify({ id: "x".repeat(20), iat: NOW, exp: NOW + 3600, cmd: "a", args: {} }), sig: "00" });
-  assert.equal(taskMeta(long, NOW).error, "lifetime-too-long");
+  const life = (s) => JSON.stringify({ v: 1, payload: JSON.stringify({ id: "x".repeat(20), iat: NOW, exp: NOW + s, cmd: "a", args: {} }), sig: "00" });
+  assert.equal(taskMeta(life(72 * 3600), NOW).error, undefined, "72 h is allowed (owner 2026-11-17)");
+  assert.equal(taskMeta(life(72 * 3600 + 1), NOW).error, "lifetime-too-long");
   assert.equal(relay.queue("not json", NOW).body.error, "bad-envelope");
   const t = signTask(k.seed, "session-status", {}, NOW);
   relay.queue(t.text, NOW);
@@ -115,8 +116,77 @@ test("tasks are forgotten after their expiry: a PC waking later gets nothing", (
   const k = keygen();
   const relay = new Relay(new MemoryStore(), () => []);
   relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW);
-  assert.equal(relay.pendingFrames(NOW + 300 + 61).length, 0);
+  assert.equal(relay.pendingFrames(NOW + 300 + 1).length, 0);
   assert.equal(relay.nextPurgeMs(), null);
+});
+
+test("a task expired at the relay is never handed over or taken, with no skew after its expiry", () => {
+  const k = keygen();
+  const relay = new Relay(new MemoryStore(), () => []);
+  const t = signTask(k.seed, "session-status", {}, NOW);
+  assert.equal(relay.queue(t.text, NOW + 300).status, 202, "still valid at its expiry second");
+  assert.equal(relay.pendingFrames(NOW + 300).length, 1);
+  assert.equal(relay.pendingFrames(NOW + 301).length, 0, "one second later it is gone");
+  assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW + 301).body.error, "expired");
+  // A result for a task the relay already forgot is dropped.
+  relay.fromPc(JSON.stringify({ t: "result", id: t.id, env: signedResult(k.seed, t.id, NOW, t.text) }), NOW + 302);
+  assert.equal(relay.takeResult(t.id, NOW + 302).status, 404);
+});
+
+test("results stay until their client acknowledges them (or 72 h), with the task they answer", () => {
+  const a = keygen(), pcKey = keygen();
+  const relay = new Relay(new MemoryStore(), () => []);
+  const t = signTask(a.seed, "session-status", {}, NOW);
+  relay.queue(t.text, NOW, "account-2");
+  assert.deepEqual(relay.list(NOW, "account-2").body, { results: [{ id: t.id, state: "pending", exp: NOW + 300, readyAt: null }] });
+  assert.deepEqual(relay.list(NOW, "account-1").body, { results: [] }, "another client sees nothing");
+  relay.fromPc(JSON.stringify({ t: "result", id: t.id, env: signedResult(pcKey.seed, t.id, NOW + 2, t.text) }), NOW + 2);
+  const listed = relay.list(NOW + 3, "account-2").body.results;
+  assert.deepEqual(listed, [{ id: t.id, state: "ready", exp: NOW + 2 + RESULT_KEEP_S, readyAt: NOW + 2 }]);
+  assert.deepEqual(Object.keys(listed[0]).sort(), ["exp", "id", "readyAt", "state"], "ids, states and times only");
+  // Fetched twice: still there (a lost response loses nothing).
+  assert.equal(relay.takeResult(t.id, NOW + 4, "account-2").status, 200);
+  const both = JSON.parse(relay.takeResult(t.id, NOW + 4, "account-2", true).raw);
+  assert.equal(both.task, t.text, "the exact task envelope it answers");
+  assert.equal(verifyResult(pcKey.pub, both.result, t.id, both.task, NOW + 4).ok, true);
+  // Only its own client may fetch or acknowledge it.
+  assert.equal(relay.takeResult(t.id, NOW + 5, "account-1").status, 404);
+  assert.equal(relay.ack(t.id, NOW + 5, "account-1").status, 404);
+  assert.equal(relay.ack(t.id, NOW + 5, "account-2").status, 200);
+  assert.equal(relay.takeResult(t.id, NOW + 6, "account-2").status, 404, "gone once acknowledged");
+  assert.deepEqual(relay.list(NOW + 6, "account-2").body, { results: [] });
+  assert.equal(relay.ack(t.id, NOW + 6, "account-2").status, 404);
+  // Never acknowledged: purged 72 h after it arrived, long after the task's expiry.
+  const u = signTask(a.seed, "session-status", {}, NOW);
+  relay.queue(u.text, NOW, "account-2");
+  relay.fromPc(JSON.stringify({ t: "result", id: u.id, env: signedResult(pcKey.seed, u.id, NOW + 10, u.text) }), NOW + 10);
+  assert.equal(relay.takeResult(u.id, NOW + 10 + RESULT_KEEP_S, "account-2").status, 200);
+  assert.equal(relay.takeResult(u.id, NOW + 11 + RESULT_KEEP_S, "account-2").status, 404);
+  assert.equal(relay.nextPurgeMs(), null);
+});
+
+test("sealed (v2) envelopes: the relay reads only the id and times; results must name their task", () => {
+  const relay = new Relay(new MemoryStore(), () => []);
+  const id = "s".repeat(24);
+  const sealed = (extra) => JSON.stringify({ v: 2, id, iat: NOW, exp: NOW + 24 * 3600, epk: "ab".repeat(32), n: "cd".repeat(12), ct: "ef".repeat(40), ...extra });
+  assert.equal(relay.queue(sealed({ ct: "not hex" }), NOW).body.error, "bad-envelope");
+  assert.equal(relay.queue(sealed({ epk: "ab" }), NOW).body.error, "bad-envelope");
+  assert.equal(relay.queue(sealed({ exp: NOW + 73 * 3600 }), NOW).body.error, "lifetime-too-long");
+  assert.equal(relay.queue(sealed(), NOW).status, 202);
+  const result = (rid) => JSON.stringify({ v: 2, id: rid, epk: "12".repeat(32), n: "34".repeat(12), ct: "56".repeat(40) });
+  relay.fromPc(JSON.stringify({ t: "result", id, env: result("o".repeat(24)) }), NOW + 1);
+  assert.equal(relay.takeResult(id, NOW + 1).status, 202, "a result naming another id doesn't answer it");
+  relay.fromPc(JSON.stringify({ t: "result", id, env: result(id) }), NOW + 1);
+  assert.equal(relay.takeResult(id, NOW + 1).raw, result(id));
+});
+
+test("at most 200 unacknowledged results per client: its new tasks wait, others' don't", () => {
+  const k = keygen();
+  const store = new MemoryStore();
+  for (let i = 0; i < MAX_RESULTS_PER_CLIENT; i++) store.putResult(`r${String(i).padStart(20, "0")}`, NOW + 1000, "{}", "account-2", "", NOW);
+  const relay = new Relay(store, () => []);
+  assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW, "account-2").body.error, "too-many-results");
+  assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW, "account-1").status, 202);
 });
 
 test("a result answers its task once; unknown ids and junk are ignored", () => {
@@ -133,7 +203,9 @@ test("a result answers its task once; unknown ids and junk are ignored", () => {
   const got = relay.takeResult(t.id, NOW);
   assert.equal(got.status, 200);
   assert.equal(verifyResult(pcKey.pub, got.raw, t.id, t.text, NOW).detail, "idle");
-  assert.equal(relay.takeResult(t.id, NOW).status, 404, "handed over once");
+  assert.equal(relay.takeResult(t.id, NOW).status, 200, "kept until acknowledged (owner 2026-11-17)");
+  assert.equal(relay.ack(t.id, NOW).status, 200);
+  assert.equal(relay.takeResult(t.id, NOW).status, 404, "acknowledged = gone");
 });
 
 test("cloud Glim refuses a result with a bad signature, the wrong key, another task's id or another envelope", () => {
@@ -287,4 +359,14 @@ test("index.js: the client name the Durable Object sees is the Worker's, never t
   assert.ok(src.includes('if (who.role === "cloud") forwarded.headers.set(CLIENT_HEADER, who.client)'));
   assert.ok(src.includes("return stub.fetch(forwarded)"));
   assert.ok(src.includes("ADD COLUMN client"));
+});
+
+test("index.js: the SQLite store has every method the tested Map store has, and the new routes", () => {
+  const src = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
+  const sql = src.slice(src.indexOf("class SqlStore"), src.indexOf("export class Mailbox"));
+  for (const m of Object.getOwnPropertyNames(MemoryStore.prototype).filter((n) => n !== "constructor")) {
+    assert.match(sql, new RegExp(`\\n  ${m}\\(`), `SqlStore.${m}`);
+  }
+  assert.ok(src.includes("ADD COLUMN task") && src.includes("ADD COLUMN ready_at"));
+  assert.ok(src.includes('request.method === "DELETE"') && src.includes('url.pathname === "/v1/results" && request.method === "GET"'));
 });
