@@ -33,6 +33,9 @@ export const RESULT_KEEP_S = 72 * 3600;
 export const MAX_RESULTS_PER_CLIENT = 200;
 export const SKEW_S = 60;
 export const MAX_PENDING = 50;
+/** One client's share (review 2026-11-17): with 72 h lifetimes, one leaked
+ * token can't fill every slot and lock the other clients out. */
+export const MAX_PENDING_PER_CLIENT = 25;
 export const MAX_WAIT_S = 25;
 /** A PC socket that hasn't pinged (or sent anything) for this long is dead:
  * a half-open line after sleep or a network change never sends a close
@@ -197,7 +200,7 @@ export class Relay {
     const meta = taskMeta(text, now);
     if (meta.error) return { status: 400, body: { error: meta.error } };
     if (this.store.hasTask(meta.id) || this.store.hasResult(meta.id)) return { status: 409, body: { error: "duplicate-id" } };
-    if (this.store.countTasks() >= MAX_PENDING) return { status: 429, body: { error: "too-many-pending" } };
+    if (this.store.countTasks() >= MAX_PENDING || this.store.countTasks(client) >= MAX_PENDING_PER_CLIENT) return { status: 429, body: { error: "too-many-pending" } };
     if (this.store.countResults(client) >= MAX_RESULTS_PER_CLIENT) return { status: 429, body: { error: "too-many-results" } };
     this.store.putTask(meta.id, meta.exp, text, client);
     const delivered = this.deliver(text, client, now);

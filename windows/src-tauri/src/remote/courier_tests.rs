@@ -161,6 +161,7 @@ fn rig_loop(url: &str, delay: Duration, timing: Timing) -> (Rig, Loop) {
         backoff_max: Duration::from_millis(50),
         idle: Duration::from_millis(20),
         running: Arc::new(move || r2.load(Ordering::SeqCst)),
+        ledger: Arc::default(),
     };
     (Rig { settings, running, pc_pub: pc.public_key().as_ref().to_vec(), cloud, runs }, l)
 }
@@ -547,7 +548,8 @@ fn a_sealed_task_altered_misaddressed_or_relabelled_is_refused_as_bad_seal_and_n
     assert_eq!(g.accept_sealed(&killed, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc)), Err(Rejection::Killed));
     // Anyone can seal to the PC's public key, but not sign as the client.
     let forger = Ed25519KeyPair::from_seed_unchecked(&[5; 32]).unwrap();
-    let inner = task(&forger, "forged-task-0000001", t - 5, t + 300);
+    let frame: Value = serde_json::from_str(&task(&forger, "forged-task-0000001", t - 5, t + 300)).unwrap();
+    let inner = frame["env"].as_str().unwrap().to_string();
     let sealed = seal::seal(&arr::<32>(&seal::public_hex(&pc_enc)), "task", "forged-task-0000001", inner.as_bytes()).unwrap();
     let outer = json!({ "v": 2, "id": "forged-task-0000001", "iat": t - 5, "exp": t + 300, "epk": seal::to_hex(&sealed.epk), "n": seal::to_hex(&sealed.nonce), "ct": seal::to_hex(&sealed.ct) }).to_string();
     assert_eq!(g.accept_sealed(&s, "account-1", outer.as_bytes(), t, Some(&pc_enc)), Err(Rejection::BadSignature));
@@ -629,6 +631,65 @@ fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     assert!(env["payload"].as_str().unwrap().contains("\"error\":\"bad-envelope\"") || env["payload"].as_str().unwrap().contains("\"error\":\"bad-seal\""));
 }
 
+#[test]
+fn a_task_that_ran_gets_its_first_answer_again_after_a_restart_never_replay() {
+    let dir = std::env::temp_dir().join(format!("glim-ledger-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("remote-answers.json");
+    let _ = std::fs::remove_file(&path);
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let pc_pub = arr::<32>(&seal::public_hex(&pc_enc));
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let cloud = seed_pair(CLOUD_SEED);
+    let now = super::now_s();
+    let id = "ledger-task-000001";
+    let p = json!({ "id": id, "iat": now, "exp": now + 3600, "cmd": "session-status", "args": {}, "rk": seal::public_hex(&rk_secret) }).to_string();
+    let inner = json!({ "v": 1, "payload": p, "sig": hex(cloud.sign(p.as_bytes()).as_ref()) }).to_string();
+    let s = seal::seal(&pc_pub, "task", id, inner.as_bytes()).unwrap();
+    let outer = json!({ "v": 2, "id": id, "iat": now, "exp": now + 3600, "epk": seal::to_hex(&s.epk), "n": seal::to_hex(&s.nonce), "ct": seal::to_hex(&s.ct) }).to_string();
+    let frame = json!({ "t": "task", "env": outer, "client": "account-1" }).to_string();
+    // One gate for both "runs" of the app (its seen ids are on disk too).
+    let gate = Arc::new(Mutex::new(Gate::default()));
+    let runs: Arc<Mutex<Vec<String>>> = Arc::default();
+    let make = |tx| {
+        let (g, enc) = (gate.clone(), pc_enc.clone());
+        Courier::new(
+            Arc::new(seed_pair(PC_SEED)),
+            Arc::new(Fake { delay: Duration::from_millis(300), runs: runs.clone() }),
+            Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc))),
+            tx,
+            Arc::default(),
+        )
+        .with_ledger(Arc::new(Mutex::new(courier::Ledger::load(path.clone()))))
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let first = make(tx);
+    first.on_frame(&cloud_settings(), &frame, now);
+    // Handed over again while it still runs (a reconnect): nothing yet.
+    first.on_frame(&cloud_settings(), &frame, now);
+    let answer = rx.blocking_recv().unwrap();
+    assert!(rx.try_recv().is_err(), "one answer, not a replay refusal");
+    // The app restarts (no memory left) and the relay hands it over again.
+    let (tx2, mut rx2) = tokio::sync::mpsc::unbounded_channel();
+    make(tx2).on_frame(&cloud_settings(), &frame, now + 5);
+    assert_eq!(rx2.blocking_recv().unwrap(), answer, "the first answer again");
+    assert_eq!(runs.lock().unwrap().len(), 1, "it ran once");
+    // On disk: the sealed result only, never the result text.
+    let disk = std::fs::read_to_string(&path).unwrap();
+    assert!(disk.contains(id) && !disk.contains("did session-status") && !disk.contains("session-status"), "sealed: {disk}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_unsealed_success_is_remembered_only_as_already_ran() {
+    let mut l = courier::Ledger::default();
+    l.start("k");
+    assert_eq!(l.lookup("k", 10), Some(courier::Seen::Running));
+    l.finish("k", 100, None);
+    assert_eq!(l.lookup("k", 50), Some(courier::Seen::Answered(None)));
+    assert_eq!(l.lookup("k", 101), None, "forgotten after the task's expiry");
+}
+
 /// The sealing crate and ring's AEAD / HKDF stay in seal.rs.
 #[test]
 fn only_seal_rs_uses_the_sealing_crypto() {
@@ -656,6 +717,11 @@ fn a_pc_set_up_before_sealing_gets_its_encryption_key_once() {
     let first = courier::ensure_enc_key(&v).unwrap();
     assert_eq!(first.len(), 64);
     assert_eq!(courier::ensure_enc_key(&v).unwrap(), first, "kept, not remade");
+    // An entry that doesn't parse is an error, and it is left as it was.
+    let bad = crate::ai::key::MemoryVault::default();
+    crate::ai::key::Vault::write(&bad, "not a key").unwrap();
+    assert!(courier::ensure_enc_key(&bad).is_err());
+    assert_eq!(crate::ai::key::Vault::read(&bad).unwrap().as_deref(), Some("not a key"));
 }
 
 #[test]
@@ -746,6 +812,7 @@ fn live_relay_round_trip() {
         backoff_max: Duration::from_secs(5),
         idle: Duration::from_millis(200),
         running: Arc::new(move || std::time::Instant::now() < until),
+        ledger: Arc::default(),
     };
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(courier::run(l));

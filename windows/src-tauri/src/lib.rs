@@ -2313,7 +2313,7 @@ pub fn run() {
                                 log::line("remote: PC encryption key ready");
                             }
                             Ok(_) => {}
-                            Err(_) => log::line("remote: couldn't make the PC encryption key"),
+                            Err(_) => log::line("remote: PC encryption key unreadable; not replaced"),
                         }
                     }
                 }

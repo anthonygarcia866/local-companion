@@ -454,6 +454,14 @@ impl Gate {
             Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone() },
         };
         self.note(entry);
+        // A verified task's id gets exactly one outcome (review 2026-11-17):
+        // one refused for now (rate-limited, not yet valid …) is burned too,
+        // so a copy the relay kept can't run later, after its signer was
+        // told it didn't (and likely sent it again under a new id). Kept as
+        // long as any task can live.
+        if let Err((_, Some(id))) = &r {
+            self.seen.entry(id.clone()).or_insert(now + MAX_LIFETIME_S);
+        }
         if let Ok(a) = &r {
             self.seen.insert(a.id.clone(), a.expires);
             self.recent.push(Call { at: now, start: matches!(a.command, Command::StartSession { .. }), client: a.client.clone() });

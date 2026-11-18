@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS, RESULT_KEEP_S, MAX_RESULTS_PER_CLIENT } from "../src/core.js";
+import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS, RESULT_KEEP_S, MAX_RESULTS_PER_CLIENT, MAX_PENDING_PER_CLIENT } from "../src/core.js";
 import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
 import { sealTo, sealTask, openSealed, openResult, openOwnTask, verifyFull, resultKey, taskEphemeral, x25519PublicOf, buildTask, parseTtl, LABEL } from "../courier.mjs";
 import os from "node:os";
@@ -109,8 +109,12 @@ test("expired, too long-lived, duplicate and malformed tasks are refused; at mos
   const t = signTask(k.seed, "session-status", {}, NOW);
   relay.queue(t.text, NOW);
   assert.equal(relay.queue(t.text, NOW).status, 409);
-  for (let i = 1; i < MAX_PENDING; i++) relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW);
+  // One client's share is 25 (one leaked token can't lock the others out)...
+  for (let i = 1; i < MAX_PENDING_PER_CLIENT; i++) assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW).status, 202);
   assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW).status, 429);
+  // ...another client still has room, up to 50 in all.
+  for (let i = 0; i < MAX_PENDING - MAX_PENDING_PER_CLIENT; i++) assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW, "account-2").status, 202);
+  assert.equal(relay.queue(signTask(k.seed, "session-status", {}, NOW).text, NOW, "account-3").status, 429);
 });
 
 test("tasks are forgotten after their expiry: a PC waking later gets nothing", () => {

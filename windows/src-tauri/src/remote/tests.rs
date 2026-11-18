@@ -123,6 +123,29 @@ fn a_long_lived_task_still_obeys_replay_and_the_kill_switch() {
 }
 
 #[test]
+fn a_verified_task_refused_for_now_can_never_run_later() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    // Issued 2 min ahead of this PC's clock: not yet valid, and burned.
+    let early = envelope(&kp, &json!({ "id": id(1), "iat": NOW + 120, "exp": NOW + 3600, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &early, NOW), Err(Rejection::NotYetValid));
+    assert_eq!(g.accept(&s, &early, NOW + 200), Err(Rejection::Replay), "the relay's copy, later");
+    // Rate-limited, then redelivered after the hour: still not run.
+    for n in 0..MAX_COMMANDS_PER_HOUR {
+        assert!(g.accept(&s, &envelope(&kp, &task(&id(100 + n), "session-status", json!({}))), NOW).is_ok());
+    }
+    let late = envelope(&kp, &json!({ "id": id(2), "iat": NOW, "exp": NOW + 72 * 3600, "cmd": "session-status", "args": {} }));
+    assert_eq!(g.accept(&s, &late, NOW), Err(Rejection::RateLimited));
+    assert_eq!(g.accept(&s, &late, NOW + 3700), Err(Rejection::Replay));
+    // A task whose signature didn't verify burns nothing (its id isn't trusted).
+    let forged = envelope(&signer(8), &task(&id(3), "session-status", json!({})));
+    assert_eq!(g.accept(&s, &forged, NOW), Err(Rejection::BadSignature));
+    let genuine = json!({ "id": id(3), "iat": NOW + 3690, "exp": NOW + 4000, "cmd": "session-status", "args": {} });
+    assert!(g.accept(&s, &envelope(&kp, &genuine), NOW + 3700).is_ok());
+}
+
+#[test]
 fn a_result_key_in_the_payload_is_kept_and_a_bad_one_refused() {
     let kp = signer(7);
     let s = settings_for(&kp);
