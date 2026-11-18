@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { Relay, MemoryStore, caller, cloudClients, sha256Hex, taskMeta, MAX_PENDING, PC_SILENT_MS, RESULT_KEEP_S, MAX_RESULTS_PER_CLIENT } from "../src/core.js";
 import { keygen, signTask, verifyResult, privateKey, sha256Hex as hashOf, authHeaders, main, defaultKeyFile, keyFileProblem } from "../courier.mjs";
+import { sealTo, sealTask, openSealed, openResult, openOwnTask, verifyFull, resultKey, taskEphemeral, x25519PublicOf, buildTask, parseTtl, LABEL } from "../courier.mjs";
 import os from "node:os";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -255,22 +256,47 @@ test("the relay code never logs", () => {
 // cloud Glim's two ways to authenticate: a claude.ai/code network secret (the
 // agent proxy adds the header; the session has no RELAY_CLOUD_TOKEN), or the
 // env var as a fallback.
-function stubRelay(pc) {
+/**
+ * What the Glim app does with a task, in node: opens it if sealed (with the
+ * PC's encryption key `enc`), signs a result with `pc`, and seals it to the
+ * task's result key when it names one (unless `unsealed`).
+ */
+function pcAnswer(pc, enc, taskText, { unsealed = false, extra = {} } = {}) {
+  const outer = JSON.parse(taskText);
+  const inner = outer.v === 2 ? openSealed(enc, outer.epk, "task", outer.id, outer.n, outer.ct) : taskText;
+  const p = JSON.parse(JSON.parse(inner).payload);
+  const signed = signedResult(pc.seed, p.id, Math.floor(Date.now() / 1000), taskText, extra);
+  if (!p.rk || unsealed) return signed;
+  const s = sealTo(Buffer.from(p.rk, "hex"), crypto.randomBytes(32), crypto.randomBytes(12), "result", p.id, signed);
+  return JSON.stringify({ v: 2, id: p.id, ...s });
+}
+
+/** A stand-in relay keeping one task and its result until acknowledged. */
+function stubRelay(pc, opts = {}) {
   const seen = [];
-  let queued = null;
-  const fetchFn = async (url, init) => {
-    seen.push({ url, auth: (init.headers || {}).authorization });
+  const store = { task: null, result: null };
+  const fetchFn = async (url, init = {}) => {
+    seen.push({ url, auth: (init.headers || {}).authorization, method: init.method || "GET" });
     if (url.endsWith("/v1/tasks")) {
-      queued = init.body;
+      store.task = init.body;
+      store.sent = init.body;
+      store.result = opts.pending ? null : pcAnswer(pc, opts.enc, init.body, opts);
       return new Response(JSON.stringify({ delivered: true }), { status: 202 });
     }
-    if (url.includes("/v1/results/")) {
-      const id = JSON.parse(JSON.parse(queued).payload).id;
-      return new Response(signedResult(pc.seed, id, Math.floor(Date.now() / 1000), queued), { status: 200 });
+    if (/\/v1\/results\/[^/?]+/.test(url)) {
+      if (init.method === "DELETE") {
+        const had = store.result !== null;
+        store.result = null;
+        store.task = had ? null : store.task;
+        return new Response(JSON.stringify({ deleted: had }), { status: had ? 200 : 404 });
+      }
+      if (store.result === null) return new Response(JSON.stringify({ pending: store.task !== null }), { status: store.task !== null ? 202 : 404 });
+      return new Response(url.includes("with=task") ? JSON.stringify({ task: store.task, result: store.result }) : store.result, { status: 200 });
     }
+    if (url.endsWith("/v1/results")) return new Response(JSON.stringify({ results: [] }), { status: 200 });
     return new Response(JSON.stringify({ pc: true, pending: 0 }), { status: 200 });
   };
-  return { seen, fetchFn };
+  return { seen, fetchFn, store };
 }
 
 const BASE = { RELAY_URL: "https://task-relay.example-sub.workers.dev" };
@@ -369,4 +395,165 @@ test("index.js: the SQLite store has every method the tested Map store has, and 
   }
   assert.ok(src.includes("ADD COLUMN task") && src.includes("ADD COLUMN ready_at"));
   assert.ok(src.includes('request.method === "DELETE"') && src.includes('url.pathname === "/v1/results" && request.method === "GET"'));
+});
+
+// ── Store-and-forward (owner 2026-11-17): sealing, async send, result, results ──
+
+// RFC 7748's published X25519 test keys (never real ones): the PC's
+// encryption key ("Bob") and the result seal's ephemeral key ("Alice"). The
+// Rust tests (courier_tests.rs, SEALED_*) check the same bytes.
+const SEAL = {
+  pcEncSecret: "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb",
+  pcEncPub: "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+  pcSeed: "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+  id: "vector-task-0000002",
+  rk: "eb2187a344e922fe15692b2e64550738db75862a77eee972920926c21e6e672c",
+  task: String.raw`{"v":2,"id":"vector-task-0000002","iat":1763140000,"exp":1763226400,"epk":"75eaa546af013b14eace88be3b1fe5478f2f9a072e675516fd76fe6face3530f","n":"000102030405060708090a0b","ct":"b8ec532257db42bb3bd002f8b83b5e6dc4671c92936df8cb1f8884577b71402b097a9461cd7c08a02c89df156d4e774458d51b1988b8e0adfdeb656a793483237d94861e8f3b30a1e19125af008f10dda88e1b20d741793f89e1e49724da5ab1fb5ccbcedf30dbdf22180f6dab96d566ee7b57f03a7520299e8a8244050a138c0637687bd3692ea6039911d6cf7f1641b6fdd6fa123b7c14f1e1b807790e0cdfe7c50fad3913dd0146b2e4102bbefe1ffd6b9679d0f61387727b7cfc76f4bed6c1a2d7c2e463d46174b72e0fe934c3b8600e20ecb5b3c33f12bb2cb2066ab224e22f909015608d80bbd890a1d55a5e017c025e1a19c640b4aa7a37e667464d10ad0cb34378ea2dbbabffefe860a3f29feedae4a5c5d02c26bf2dd9bee39b110877cf7ffb092da75b53bad828b190104ff26aabcf0e1ba36dae8c8bf2f7d7be116976b516c3fa5aa1ce54abb657657475b89307588e68d5442ef6667ae37930c34d3250e0688c"}`,
+  innerResult: String.raw`{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000002\",\"task\":\"7a28565ea45aa4568f31a15310d56e02c18afb1227ddf8098634cf3a053b6d4a\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"5c5656aeedc84c9c20cab9a72ba70ed6311a359d0de7bbdc6fe1887ba8da8a5f7873d2e6f001b5030e26c53dff3c8ade27affec0570a800d49942f641f1ce102"}`,
+  result: String.raw`{"v":2,"id":"vector-task-0000002","epk":"8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a","n":"a0a1a2a3a4a5a6a7a8a9aaab","ct":"fca0f22cb2c91cbd459d82a6e49defa9053992c58a55fdee2e3ec880f92f29f2561391e2d28dd8ea2d8e4fbcf0f5c880c9c924ab7344635d43826ca5cdd14e073875e85face52a6f014562d741fd9196419c62e1b714a25949e02fd40e5787ecdb3717a4290f5a4c92026ff2f4189cea5baa3d2c01c3839a0d771a5fb8337eabe1c0a45c92dcd56f653449c4fb208b33099a783cc7e3a85a4c2e1d8f5a62bf421617c568d22ceb5b6170f2e6ed5c14b56bee7166d61418cc95c56c65b388dec1f72ab2160d0be0b500e1818b9e90c650b38386228f2242307b8b44fd9a3bf69f4714ad4675d39b8045841c7781e0b3ff2c45d1b6c68520d1863cfb5900e7d872959d5453f98eaf129b6abf29872749f057d996f16c40fd55c26fb11a73d347ee049a8f4320141312bf2986dbb30e8dcc8671952d7ce53f97a20e77fee6cbe994a782007ee1af63f053bbbcc63a92313a6d02c2ab3d43abe77dcfc580eb508fe7dc47f5e8dadc586942f373ac213a40fb2ef9ad24a99b1ae5e612a39593a60dec3d7d538e343fc8dfd216df4504f7221b58"}`,
+};
+
+test("the seal vectors: this side seals what Glim opens and opens what Glim seals", () => {
+  const seed = VECTOR.cloudSeed;
+  assert.equal(x25519PublicOf(Buffer.from(SEAL.pcEncSecret, "hex")).toString("hex"), SEAL.pcEncPub);
+  assert.equal(x25519PublicOf(resultKey(seed, SEAL.id)).toString("hex"), SEAL.rk);
+  const inner = signTask(seed, "session-status", {}, 1763140000, SEAL.id, { ttl: 86400, rk: SEAL.rk }).text;
+  assert.equal(sealTask(seed, SEAL.pcEncPub, inner, SEAL.id, 1763140000, 1763226400, Buffer.from("000102030405060708090a0b", "hex")), SEAL.task);
+  assert.equal(openOwnTask(seed, SEAL.pcEncPub, SEAL.task, SEAL.id), inner, "the sender can open its own task again later");
+  assert.deepEqual(openResult(seed, SEAL.result, SEAL.id), { inner: SEAL.innerResult, sealed: true });
+  // The PC's result key is RFC 8032's second test key (VECTOR.pcPub).
+  const env = { GLIM_TASK_SIGNING_KEY: seed, GLIM_PC_PUBLIC_KEY: VECTOR.pcPub, GLIM_PC_ENC_KEY: SEAL.pcEncPub };
+  const realNow = Date.now;
+  Date.now = () => 1763140010 * 1000;
+  try {
+    const r = verifyFull(env, SEAL.id, SEAL.task, SEAL.result);
+    assert.deepEqual([r.ok, r.detail], [true, "local-companion: idle"]);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("per-task keys: domain-separated labels, never the signing seed itself", () => {
+  const k = keygen();
+  const t = taskEphemeral(k.seed, "a".repeat(20)), r = resultKey(k.seed, "a".repeat(20));
+  assert.notDeepEqual(t, r, "task and result keys differ");
+  assert.notEqual(t.toString("hex"), k.seed);
+  assert.notEqual(r.toString("hex"), k.seed);
+  assert.notDeepEqual(resultKey(k.seed, "b".repeat(20)), r, "one per task id");
+  assert.equal(LABEL, "glim-courier-v2");
+  const src = fs.readFileSync(path.join(here, "../courier.mjs"), "utf8");
+  assert.ok(src.includes("task-ephemeral|") && src.includes("result-key|") && src.includes("${LABEL} ${what}|"));
+});
+
+function sealedEnv() {
+  const signer = keygen(), pc = keygen();
+  const enc = crypto.randomBytes(32);
+  const env = { ...BASE, GLIM_TASK_SIGNING_KEY: signer.seed, GLIM_PC_PUBLIC_KEY: pc.pub, GLIM_PC_ENC_KEY: x25519PublicOf(enc).toString("hex") };
+  return { signer, pc, enc, env };
+}
+
+test("verifyFull refuses a tampered seal, an unsealed success, a task the relay made up, another id", () => {
+  const { pc, enc, env } = sealedEnv();
+  const t = buildTask(env, "session-status", {}, 3600);
+  assert.equal(JSON.parse(t.text).v, 2, "sealed to the PC");
+  assert.ok(!t.text.includes("session-status"), "the relay can't read the command");
+  const good = pcAnswer(pc, enc, t.text);
+  assert.equal(verifyFull(env, t.id, t.text, good).ok, true);
+  const g = JSON.parse(good);
+  const flipped = JSON.stringify({ ...g, ct: g.ct.slice(0, -1) + (g.ct.endsWith("0") ? "1" : "0") });
+  assert.throws(() => verifyFull(env, t.id, t.text, flipped), /bad-seal/);
+  // The relay can't downgrade: an unsealed success for a task that named a result key.
+  assert.throws(() => verifyFull(env, t.id, t.text, pcAnswer(pc, enc, t.text, { unsealed: true })), /bad-result/);
+  // A refusal (the PC never seals to a key from a task it couldn't verify) may come unsealed.
+  const refusal = pcAnswer(pc, enc, t.text, { unsealed: true, extra: { ok: false, kind: "", detail: "", error: "bad-seal" } });
+  assert.equal(verifyFull(env, t.id, t.text, refusal).error, "bad-seal");
+  // A task the relay made up (signed by someone else) with our id: refused before the result counts.
+  const other = sealedEnv();
+  const forged = buildTask({ ...env, GLIM_TASK_SIGNING_KEY: other.signer.seed }, "session-status", {}, 3600, undefined, t.id);
+  assert.throws(() => verifyFull(env, t.id, forged.text, pcAnswer(pc, enc, forged.text)), /bad-task/);
+  // Another task's result.
+  const u = buildTask(env, "session-status", {}, 3600);
+  assert.throws(() => verifyFull(env, t.id, t.text, pcAnswer(pc, enc, u.text)), /bad-result|bad-seal/);
+});
+
+test("send --async, then result <id> from a later session: verified, acknowledged, then gone", async () => {
+  const { pc, enc, env } = sealedEnv();
+  const relay = stubRelay(pc, { enc });
+  const out = [];
+  const log = console.log;
+  console.log = (s) => out.push(String(s));
+  try {
+    assert.equal(await main(["send", "--async", "session-status"], env, relay.fetchFn), 0);
+    const { id, exp } = JSON.parse(out.pop());
+    const sent = JSON.parse(relay.store.task);
+    assert.equal(sent.id, id);
+    assert.equal(exp - sent.iat, 24 * 3600, "24 h by default");
+    assert.equal(relay.seen.some((s) => s.method === "DELETE"), false, "nothing acknowledged yet");
+    // A new session: nothing but the environment and the id.
+    assert.equal(await main(["result", id, "--keep"], env, relay.fetchFn), 0);
+    assert.equal(relay.seen.some((s) => s.method === "DELETE"), false, "--keep keeps it");
+    assert.equal(await main(["result", id], env, relay.fetchFn), 0);
+    assert.equal(JSON.parse(out.pop()).ok, true);
+    assert.equal(relay.seen.filter((s) => s.method === "DELETE").length, 1, "acknowledged once verified");
+    assert.equal(await main(["result", id], env, relay.fetchFn), 5, "gone once acknowledged");
+    assert.equal(await main(["results"], env, relay.fetchFn), 0);
+  } finally {
+    console.log = log;
+  }
+});
+
+test("result: still pending is exit 3; a result that fails its checks is exit 2 and never acknowledged", async () => {
+  const { pc, enc, env } = sealedEnv();
+  const pending = stubRelay(pc, { enc, pending: true });
+  const out = [];
+  const log = console.log;
+  console.log = (s) => out.push(String(s));
+  try {
+    assert.equal(await main(["send", "--async", "session-status"], env, pending.fetchFn), 0);
+    const { id } = JSON.parse(out.pop());
+    assert.equal(await main(["result", id], env, pending.fetchFn), 3);
+    const bad = stubRelay(keygen(), { enc });
+    assert.equal(await main(["send", "--async", "session-status"], env, bad.fetchFn), 0);
+    const { id: id2 } = JSON.parse(out.pop());
+    assert.equal(await main(["result", id2], env, bad.fetchFn), 2, "signed by another PC key");
+    assert.equal(bad.seen.some((s) => s.method === "DELETE"), false);
+  } finally {
+    console.log = log;
+  }
+});
+
+test("--ttl: 30 s to 72 h, start-session and send-to-session 24 h at most", async () => {
+  assert.deepEqual(["90", "30s", "15m", "24h", "3d", "x", "-1"].map(parseTtl), [90, 30, 900, 86400, 259200, null, null]);
+  const { pc, enc, env } = sealedEnv();
+  const relay = stubRelay(pc, { enc });
+  const never = async () => assert.fail("no request expected");
+  assert.equal(await main(["send", "--async", "session-status", "--ttl", "73h"], env, never), 4);
+  assert.equal(await main(["send", "--async", "session-status", "--ttl", "10s"], env, never), 4);
+  assert.equal(await main(["send", "--async", "send-to-session", "{}", "--ttl", "25h"], env, never), 4);
+  assert.equal(await main(["send", "--async", "start-session", "{}", "--ttl", "25h"], env, never), 4);
+  const log = console.log;
+  console.log = () => {};
+  try {
+    assert.equal(await main(["send", "--async", "session-status", "--ttl", "72h"], env, relay.fetchFn), 0);
+    const t = JSON.parse(relay.store.task);
+    assert.equal(t.exp - t.iat, 72 * 3600);
+  } finally {
+    console.log = log;
+  }
+  assert.equal(await main(["send", "--bogus", "session-status"], env, never), 4);
+});
+
+test("sync send seals the task, opens and verifies the result, then acknowledges it", async () => {
+  const { pc, enc, env } = sealedEnv();
+  const relay = stubRelay(pc, { enc });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    assert.equal(await main(["send", "session-status", "--wait", "5"], env, relay.fetchFn), 0);
+  } finally {
+    console.log = log;
+  }
+  assert.equal(JSON.parse(relay.store.sent).v, 2, "sealed to the PC");
+  assert.equal(relay.seen.filter((s) => s.method === "DELETE").length, 1, "acknowledged");
+  assert.equal(relay.store.result, null, "and gone");
 });
