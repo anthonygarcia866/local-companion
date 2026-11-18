@@ -273,6 +273,13 @@ fn keepalive_restart_parses_is_rate_limited_and_obeys_the_kill_switch() {
     assert_eq!(g.accept(&killed, &envelope(&kp, &task(&id(520), "keepalive-restart", json!({}))), NOW), Err(Rejection::Killed));
 }
 
+/// keepalive-restart's result names the account whose servers it restarted.
+#[test]
+fn keepalive_restart_result_names_the_account() {
+    assert_eq!(exec::restart_line(1, "Claude2"), "keep-alive: restarted 1 session(s) [Claude2]");
+    assert_eq!(exec::restart_line(0, "Claude"), "keep-alive: restarted 0 session(s) [Claude]");
+}
+
 /// remote-state.json from before keepalive-restart (no "restarts"): its seen
 /// ids still load, so nothing becomes replayable after an update.
 #[test]
