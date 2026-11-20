@@ -93,44 +93,84 @@ pub fn new_session_id() -> Result<String, String> {
 pub fn redact_detail(s: &str) -> String {
     let clean = crate::runbooks::scrub(s.as_bytes(), None);
     let mut out: Vec<String> = Vec::new();
-    // Lines left to skip inside a multi-line PEM block (bounded, so a
-    // BEGIN with no END never swallows the rest).
+    // Inside a PEM block that didn't end on its line: lines are skipped
+    // until END, while they look like a PEM body (base64, or a header such
+    // as "Proc-Type:"), at most PEM_MAX_LINES; a line that looks like
+    // neither (the next transcript message) ends the skip and is kept.
     let mut in_pem: usize = 0;
     for line in clean.split('\n') {
         if in_pem > 0 {
-            in_pem -= 1;
-            if line.contains("-----END") {
+            if let Some(e) = line.find("-----END") {
                 in_pem = 0;
-                let after = after_pem_end(line);
-                if !after.trim().is_empty() {
-                    out.push(redact_line(after));
+                let (text, open) = pem_line(&line[e..]);
+                // The END marker itself goes; what follows is checked again.
+                let text = text.strip_prefix("[secret]").map(str::to_string).unwrap_or(text);
+                if open {
+                    in_pem = PEM_MAX_LINES;
                 }
+                if !text.trim().is_empty() {
+                    out.push(text);
+                }
+                continue;
             }
-            continue;
-        }
-        if let Some(b) = line.find("-----BEGIN") {
-            let rest = &line[b..];
-            let header_only = rest.trim_end().ends_with("-----") && rest.matches("-----").count() == 2;
-            if rest.contains("-----END") {
-                // All on one line (a collapsed transcript message): BEGIN to
-                // the END marker's close, the text around it kept.
-                out.push(format!("{}[secret]{}", redact_line(&line[..b]), redact_line(after_pem_end(rest))));
-            } else if header_only {
-                // "-----BEGIN … KEY-----" alone: the body follows, to END.
-                in_pem = PEM_MAX_LINES;
-                out.push(format!("{}[secret]", redact_line(&line[..b])));
-            } else {
-                // A BEGIN without its END (cut short, or prose): this line only.
-                out.push(format!("{}[secret]", redact_line(&line[..b])));
+            if looks_like_pem_body(line) {
+                in_pem -= 1;
+                continue;
             }
-            continue;
+            in_pem = 0;
         }
-        out.push(redact_line(line));
+        let (text, open) = pem_line(line);
+        if open {
+            in_pem = PEM_MAX_LINES;
+        }
+        out.push(text);
     }
     out.join("\n")
 }
 
 const PEM_MAX_LINES: usize = 200;
+
+/// One line with every PEM block on it masked (security review
+/// 2026-11-19: all of them, not just the first), the text around them
+/// redacted; true when the last BEGIN has no END on this line (its body
+/// follows on the next lines). From a BEGIN with no END, the rest of the
+/// line is masked.
+fn pem_line(line: &str) -> (String, bool) {
+    let mut out = String::new();
+    let mut rest = line;
+    loop {
+        // An END with no BEGIN before it (the tail of a block from earlier
+        // lines): masked up to its closing dashes.
+        let begin = rest.find("-----BEGIN");
+        if let Some(e) = rest.find("-----END").filter(|e| begin.is_none_or(|b| *e < b)) {
+            out.push_str(&redact_line(&rest[..e]));
+            out.push_str("[secret]");
+            rest = after_pem_end(&rest[e..]);
+            continue;
+        }
+        let Some(b) = begin else {
+            out.push_str(&redact_line(rest));
+            return (out, false);
+        };
+        out.push_str(&redact_line(&rest[..b]));
+        out.push_str("[secret]");
+        let block = &rest[b..];
+        match block.find("-----END") {
+            Some(e) => rest = after_pem_end(&block[e..]),
+            None => return (out, true),
+        }
+    }
+}
+
+/// A line of a PEM body: base64 (64 per line, the last shorter), or one of
+/// its own headers ("Proc-Type: 4,ENCRYPTED", "DEK-Info: …"), or blank.
+fn looks_like_pem_body(line: &str) -> bool {
+    let t = line.trim();
+    t.is_empty()
+        || t.starts_with("Proc-Type:")
+        || t.starts_with("DEK-Info:")
+        || (t.len() >= 4 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='))
+}
 
 /// What follows a PEM END marker's closing dashes on its line.
 fn after_pem_end(s: &str) -> &str {
@@ -198,16 +238,16 @@ fn redact_line(line: &str) -> String {
     // --flag): the next value goes.
     let mut mask_next = false;
     for (i, w) in words.iter().enumerate() {
-        let c = word_core(w);
-        if mask_next && !c.is_empty() && c != "=" && c != ":" {
+        if mask_next && !word_core(w).is_empty() && word_core(w) != "=" && word_core(w) != ":" {
             mask_next = false;
             out.push("[secret]".into());
             continue;
         }
-        if let Some(m) = mask_url(w) {
-            out.push(m);
-            continue;
-        }
+        // A URL's password and labelled query values first, then every other
+        // check on what's left (security review 2026-11-19: never instead).
+        let masked_url = mask_url(w);
+        let w: &str = masked_url.as_deref().unwrap_or(*w);
+        let c = word_core(w);
         if let Some(cut) = c.find(['=', ':']) {
             // "password:hunter2", "token=abc", "\"token\":\"x\"", "password:" (value next)
             if is_label(c[..cut].trim_end()) {
