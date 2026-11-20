@@ -184,21 +184,79 @@ pub fn result_frame(id: &str, envelope: &str) -> String {
 /// `rk` when the (verified) task named one (store-and-forward; the relay
 /// keeps it until acknowledged and can't read it). A key that can't be
 /// sealed to answers `bad-result-key`; a sealed result too big for the
-/// relay answers `result-too-big` (both still sealed when they can be).
+/// relay answers with its newest part that fits (`fit_detail`), and only
+/// when not even that fits, `result-too-big` (still sealed when it can be).
+/// The 12,000-character cap is on characters, but quotes, backslashes and
+/// control characters grow when escaped twice (payload, then envelope) and
+/// sealing doubles every byte (hex): a quote-heavy transcript-tail used to
+/// come back as `result-too-big` with nothing in it (review 2026-11-17).
 pub fn answer(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>) -> String {
+    let env = build(kp, id, task, at, outcome, rk);
+    if env.len() <= MAX_RESULT_BYTES {
+        return env;
+    }
+    if let Ok((kind, detail)) = outcome {
+        if let Some(env) = fit_detail(&cap(detail.clone()), |d| build(kp, id, task, at, &Ok((kind.clone(), d.to_string())), rk)) {
+            return env;
+        }
+    }
+    build(kp, id, task, at, &Err("result-too-big".into()), rk)
+}
+
+/// The most a result envelope may be at the relay (its MAX_RESULT_BYTES),
+/// sealed or not.
+pub const MAX_RESULT_BYTES: usize = seal::MAX_SEALED_RESULT_BYTES;
+
+/// A result signed, then sealed when `rk` is given; no size check.
+fn build(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>) -> String {
     let signed = sign_result(kp, id, task, at, outcome);
     let Some(rk) = rk else { return signed };
     match seal::seal(rk, "result", id, signed.as_bytes()) {
         None => sign_result(kp, id, task, at, &Err("bad-result-key".into())),
-        Some(s) => {
-            let env = seal::result_envelope(id, &s);
-            if env.len() <= seal::MAX_SEALED_RESULT_BYTES || outcome.as_ref().err().is_some_and(|e| e == "result-too-big") {
-                env
-            } else {
-                answer(kp, id, task, at, &Err("result-too-big".into()), Some(rk))
-            }
+        Some(s) => seal::result_envelope(id, &s),
+    }
+}
+
+/// The last `n` characters of `chars`, starting at a whole line when a line
+/// break is in them (a transcript-tail keeps whole messages, newest last),
+/// marked "…" when anything was left out.
+pub fn tail_chars(chars: &[char], n: usize) -> String {
+    if n >= chars.len() {
+        return chars.iter().collect();
+    }
+    let mut part = &chars[chars.len() - n..];
+    if let Some(i) = part.iter().position(|&c| c == '\n') {
+        if i + 1 < part.len() {
+            part = &part[i + 1..];
         }
     }
+    format!("…{}", part.iter().collect::<String>())
+}
+
+/// The envelope for the longest tail of `detail` (`tail_chars`) whose
+/// envelope `make` builds within MAX_RESULT_BYTES: a binary search on the
+/// characters kept (about 14 builds for 12,000). None when not even the
+/// marker alone fits.
+pub fn fit_detail(detail: &str, make: impl Fn(&str) -> String) -> Option<String> {
+    let chars: Vec<char> = detail.chars().collect();
+    // `hi` is known too big; `lo` is the most known to fit.
+    let (mut lo, mut hi) = (0usize, chars.len());
+    let mut best = {
+        let env = make(&tail_chars(&chars, 0));
+        (env.len() <= MAX_RESULT_BYTES).then_some(env)
+    };
+    best.as_ref()?;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        let env = make(&tail_chars(&chars, mid));
+        if env.len() <= MAX_RESULT_BYTES {
+            lo = mid;
+            best = Some(env);
+        } else {
+            hi = mid;
+        }
+    }
+    best
 }
 
 /// The id a relay frame's envelope names, before anything is verified (the
