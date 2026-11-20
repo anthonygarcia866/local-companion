@@ -528,12 +528,6 @@ impl Gate {
             return Err((Rejection::BadId, None));
         }
         let id = Some(p.id.clone());
-        // "Require sealed tasks" (owner 2026-11-19): only a sealed task that
-        // names its result key. Checked once the signature verified, so the
-        // id is burned (one outcome per id) and the refusal is signed.
-        if s.require_sealed && (!sealed || p.rk.is_none()) {
-            return Err((Rejection::NotSealed, id));
-        }
         // Queued while the kill switch was on: the relay hands such tasks
         // over when the PC reconnects after "Allow again". Answered as
         // killed, never run. No clock-skew allowance here: a fresh task from
@@ -554,6 +548,12 @@ impl Gate {
         }
         if self.seen.contains_key(&p.id) {
             return Err((Rejection::Replay, id));
+        }
+        // "Require sealed tasks" (owner 2026-11-19): only a sealed task that
+        // names its result key. Checked once the signature verified and after
+        // killed / expired / replay (their codes say more), so the id is burned (one outcome per id) and the refusal is signed.
+        if s.require_sealed && (!sealed || p.rk.is_none()) {
+            return Err((Rejection::NotSealed, id));
         }
         let rk = match p.rk.as_deref() {
             None => None,

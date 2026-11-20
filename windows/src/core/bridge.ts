@@ -506,7 +506,7 @@ export interface RemoteStatus {
   pcEncKey: string;
   pcEncFingerprint: string;
   /** "Require sealed tasks" (off by default): unsealed tasks are refused as not-sealed. */
-  requireSealed?: boolean;
+  requireSealed: boolean;
   /** Newest first. */
   activity: RemoteActivity[];
 }
