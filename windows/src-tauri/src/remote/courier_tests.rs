@@ -775,6 +775,18 @@ fn result_details_are_redacted_but_ids_and_hashes_kept() {
     assert_eq!(r("db postgres://sam:pw123@db.example:5432/app"), "db postgres://sam:[secret]@db.example:5432/app");
     assert_eq!(r(&format!("npm_{} and hf_{}", "a1".repeat(10), "b2".repeat(10))), "[secret] and [secret]");
     assert_eq!(r("token\t=\tabc"), "token\t=\t[secret]");
+    // Security review 2026-11-19: every PEM block on a line, not just the first.
+    let two = "a -----BEGIN KEY----- AAA -----END KEY----- b -----BEGIN PRIVATE KEY----- BBB -----END PRIVATE KEY----- c";
+    assert_eq!(r(two), "a [secret] b [secret] c");
+    assert_eq!(r("x -----BEGIN KEY----- AAA -----END KEY----- y -----BEGIN KEY----- CCC"), "x [secret] y [secret]");
+    // A header with data on its line, the body on the next lines: all of it,
+    // up to END; the message after it is kept.
+    let body = "-----BEGIN PRIVATE KEY----- MIIEvQIBADAN\nBgkqhkiG9w0BAQEFAASC\nBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----\nclaude: done";
+    assert_eq!(r(body), "[secret]\nclaude: done");
+    let enc = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABC\n\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY----- after";
+    assert_eq!(r(enc), "[secret]\n after");
+    // A URL is masked AND still checked as a word.
+    assert_eq!(r("password=hunter2&token=abc"), "password=[secret]");
     assert_eq!(r("line1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\nline5"), "line1\n[secret]\nline5");
     assert_eq!(r("bell\u{7} and tab\tkept"), "bell and tab\tkept");
     // Kept: prose, session ids, commit hashes, the courier's own fixed lines.
