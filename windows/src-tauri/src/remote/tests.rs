@@ -184,7 +184,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new(), pc_enc_key: String::new() });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new(), pc_enc_key: String::new(), require_sealed: false });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));

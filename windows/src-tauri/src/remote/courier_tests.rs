@@ -668,6 +668,48 @@ fn a_refusal_that_cannot_fit_is_still_answered() {
     assert_eq!(open_result(&rk_secret, "result-test-000003", &out)["error"], "busy");
 }
 
+/// "Require sealed tasks" (owner 2026-11-19): off by default; on, only a
+/// sealed task naming its result key runs, and an unsealed one (or one
+/// with no result key) is refused as not-sealed, signed and burned.
+#[test]
+fn require_sealed_refuses_unsealed_tasks_and_ones_without_a_result_key() {
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let pc_pub = arr::<32>(&seal::public_hex(&pc_enc));
+    let cloud = seed_pair(CLOUD_SEED);
+    let now = super::now_s();
+    let payload = |id: &str, rk: bool| {
+        let mut p = json!({ "id": id, "iat": now, "exp": now + 3600, "cmd": "session-status", "args": {} });
+        if rk {
+            p["rk"] = json!(seal::public_hex(&seal::secret_from_hex(&"42".repeat(32)).unwrap()));
+        }
+        let p = p.to_string();
+        json!({ "v": 1, "payload": p, "sig": hex(cloud.sign(p.as_bytes()).as_ref()) }).to_string()
+    };
+    let sealed = |id: &str, rk: bool| {
+        let s = seal::seal(&pc_pub, "task", id, payload(id, rk).as_bytes()).unwrap();
+        json!({ "v": 2, "id": id, "iat": now, "exp": now + 3600, "epk": seal::to_hex(&s.epk), "n": seal::to_hex(&s.nonce), "ct": seal::to_hex(&s.ct) }).to_string()
+    };
+    let off = cloud_settings();
+    assert!(!off.require_sealed, "off by default");
+    assert!(!RemoteSettings::default().require_sealed);
+    let on = RemoteSettings { require_sealed: true, ..cloud_settings() };
+    let mut g = Gate::default();
+    let mut run = |s: &RemoteSettings, raw: String| g.accept_sealed(s, "account-1", raw.as_bytes(), now, Some(&pc_enc)).map(|a| a.id);
+    // Off: an older courier's unsealed task still runs.
+    assert_eq!(run(&off, payload("require-sealed-off-01", true)), Ok("require-sealed-off-01".to_string()));
+    // On: sealed and naming its result key, it runs.
+    assert_eq!(run(&on, sealed("require-sealed-on-001", true)), Ok("require-sealed-on-001".to_string()));
+    // On: unsealed, refused, and burned (never runs later, even with the switch off).
+    assert_eq!(run(&on, payload("require-sealed-plain1", true)), Err(Rejection::NotSealed));
+    assert_eq!(run(&off, payload("require-sealed-plain1", true)), Err(Rejection::Replay));
+    // On: sealed but naming no result key (its answer would go unsealed): refused.
+    assert_eq!(run(&on, sealed("require-sealed-no-rk1", false)), Err(Rejection::NotSealed));
+    assert_eq!(Rejection::NotSealed.code(), "not-sealed");
+    // The kill switch still comes first.
+    let killed = RemoteSettings { killed: true, ..on.clone() };
+    assert_eq!(run(&killed, payload("require-sealed-kill1", true)), Err(Rejection::Killed));
+}
+
 #[test]
 fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
