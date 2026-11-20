@@ -49,7 +49,233 @@ use super::{Command, REPOS};
 /// What a task answers: a detail, or a fixed error code.
 pub trait Exec: Send + Sync {
     /// `client`: the cloud client that sent the task (remote::Accepted).
-    fn run(&self, c: &Command, client: &str) -> Result<String, String>;
+    fn run(&self, c: &Command, client: &str) -> Result<Ran, String>;
+}
+
+/// A command that ran: its detail, and the Claude Code session it started
+/// or continued (the result's `session`, so cloud Glim can follow it up
+/// with send-to-session or transcript-tail).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ran {
+    pub detail: String,
+    pub session: Option<String>,
+}
+
+impl From<String> for Ran {
+    fn from(detail: String) -> Ran {
+        Ran { detail, session: None }
+    }
+}
+
+/// A new session id for `claude -p --session-id` (a v4 UUID from the
+/// system's randomness, the form command::is_session_id accepts).
+pub fn new_session_id() -> Result<String, String> {
+    use ring::rand::SecureRandom;
+    let mut b = [0u8; 16];
+    ring::rand::SystemRandom::new().fill(&mut b).map_err(|_| "no randomness".to_string())?;
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+}
+
+/// Every result's detail on its way out (result format, owner 2026-11-19).
+/// BEST EFFORT, not a guarantee: control characters but new lines and tabs
+/// go, and what looks like a credential becomes "[secret]": a PEM block, a
+/// token with a known prefix (sk-, sk_live_, ghp_, github_pat_, xoxb-, AKIA,
+/// AIza, eyJ, whsec_, npm_, hf_ …; 16+ characters), a long word after
+/// "Bearer", the value after a password / token / secret / api key /
+/// private, access or secret key label (`password: x`, `"token":"x"`,
+/// `API_KEY = x`, `x-api-key: x`, `--password x`), a URL's password
+/// (`scheme://user:pw@host`) and labelled query values (`?token=x`). Session
+/// ids and commit hashes are kept (cloud Glim needs them), so a bare long
+/// hex or UUID is not masked.
+pub fn redact_detail(s: &str) -> String {
+    let clean = crate::runbooks::scrub(s.as_bytes(), None);
+    let mut out: Vec<String> = Vec::new();
+    // Inside a PEM block that didn't end on its line, EVERY line is masked
+    // (fail closed, security review 2026-11-19) until END, at most
+    // PEM_MAX_LINES; only the start of the next transcript-tail message
+    // ("you: " / "claude: ", which no PEM body or armor header line can
+    // be) ends it early, so a BEGIN in prose doesn't swallow the rest.
+    let mut in_pem: usize = 0;
+    for line in clean.split('\n') {
+        if in_pem > 0 {
+            if let Some(e) = line.find("-----END") {
+                in_pem = 0;
+                let (text, open) = pem_line(&line[e..]);
+                // The END marker itself goes; what follows is checked again.
+                let text = text.strip_prefix("[secret]").map(str::to_string).unwrap_or(text);
+                if open {
+                    in_pem = PEM_MAX_LINES;
+                }
+                if !text.trim().is_empty() {
+                    out.push(text);
+                }
+                continue;
+            }
+            if !starts_message(line) {
+                in_pem -= 1;
+                continue;
+            }
+            in_pem = 0;
+        }
+        let (text, open) = pem_line(line);
+        if open {
+            in_pem = PEM_MAX_LINES;
+        }
+        out.push(text);
+    }
+    out.join("\n")
+}
+
+const PEM_MAX_LINES: usize = 200;
+
+/// One line with every PEM block on it masked (security review
+/// 2026-11-19: all of them, not just the first), the text around them
+/// redacted; true when the last BEGIN has no END on this line (its body
+/// follows on the next lines). From a BEGIN with no END, the rest of the
+/// line is masked.
+fn pem_line(line: &str) -> (String, bool) {
+    let mut out = String::new();
+    let mut rest = line;
+    loop {
+        // An END with no BEGIN before it (the tail of a block from earlier
+        // lines): masked up to its closing dashes.
+        let begin = rest.find("-----BEGIN");
+        if let Some(e) = rest.find("-----END").filter(|e| begin.is_none_or(|b| *e < b)) {
+            out.push_str(&redact_line(&rest[..e]));
+            out.push_str("[secret]");
+            rest = after_pem_end(&rest[e..]);
+            continue;
+        }
+        let Some(b) = begin else {
+            out.push_str(&redact_line(rest));
+            return (out, false);
+        };
+        out.push_str(&redact_line(&rest[..b]));
+        out.push_str("[secret]");
+        let block = &rest[b..];
+        match block.find("-----END") {
+            Some(e) => rest = after_pem_end(&block[e..]),
+            None => return (out, true),
+        }
+    }
+}
+
+/// The start of a transcript-tail message (exec::tail_of's prefixes).
+fn starts_message(line: &str) -> bool {
+    line.starts_with("you: ") || line.starts_with("claude: ") || line.starts_with("…you: ") || line.starts_with("…claude: ")
+}
+
+/// What follows a PEM END marker's closing dashes on its line.
+fn after_pem_end(s: &str) -> &str {
+    let Some(e) = s.find("-----END") else { return s };
+    let tail = &s[e + "-----END".len()..];
+    match tail.find("-----") {
+        Some(c) => &tail[c + "-----".len()..],
+        None => "",
+    }
+}
+
+const SECRET_PREFIXES: [&str; 26] = [
+    "sk-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "whsec_", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "AKIA", "ASIA", "AIza", "eyJ", "glpat-",
+    "npm_", "hf_", "shpat_", "dop_v1_", "pypi-",
+];
+/// Matched at a label's end, `-` read as `_` (x-api-key → x_api_key).
+const SECRET_LABELS: [&str; 12] = ["password", "passwd", "pwd", "passcode", "api_key", "apikey", "secret", "token", "secret_key", "private_key", "access_key", "credentials"];
+
+fn word_core(w: &str) -> &str {
+    w.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c))
+}
+
+fn is_label(w: &str) -> bool {
+    let l = word_core(w).trim_start_matches('-').to_ascii_lowercase().replace('-', "_");
+    !l.is_empty() && SECRET_LABELS.iter().any(|x| l.ends_with(x))
+}
+
+/// A URL's password (`scheme://user:pw@host`) and its labelled query
+/// values (`?token=x&…`); None when `w` has neither.
+fn mask_url(w: &str) -> Option<String> {
+    let mut s = w.to_string();
+    let mut changed = false;
+    if let Some(p) = s.find("://") {
+        let auth_end = s[p + 3..].find(['/', '?', '#']).map(|i| p + 3 + i).unwrap_or(s.len());
+        if let Some(at) = s[p + 3..auth_end].rfind('@').map(|i| p + 3 + i) {
+            if let Some(colon) = s[p + 3..at].find(':').map(|i| p + 3 + i) {
+                s.replace_range(colon + 1..at, "[secret]");
+                changed = true;
+            }
+        }
+    }
+    let mut from = 0;
+    while let Some(q) = s[from..].find(['?', '&']).map(|i| from + i) {
+        let key_start = q + 1;
+        let Some(eq) = s[key_start..].find('=').map(|i| key_start + i) else { break };
+        let key = &s[key_start..eq];
+        let end = s[eq + 1..].find(['&', '#', ' ']).map(|i| eq + 1 + i).unwrap_or(s.len());
+        if !key.contains(['?', '&']) && is_label(key) && end > eq + 1 {
+            s.replace_range(eq + 1..end, "[secret]");
+            changed = true;
+            from = eq + 1 + "[secret]".len();
+        } else {
+            from = key_start;
+        }
+    }
+    changed.then_some(s)
+}
+
+fn redact_line(line: &str) -> String {
+    // Words and the separators between them (spaces or tabs, kept as they were).
+    let words: Vec<&str> = line.split([' ', '\t']).collect();
+    let seps: Vec<char> = line.chars().filter(|c| *c == ' ' || *c == '\t').collect();
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    // A label ended its word or stood before a lone "=" / ":" (or was a
+    // --flag): the next value goes.
+    let mut mask_next = false;
+    for (i, w) in words.iter().enumerate() {
+        if mask_next && !word_core(w).is_empty() && word_core(w) != "=" && word_core(w) != ":" {
+            mask_next = false;
+            out.push("[secret]".into());
+            continue;
+        }
+        // A URL's password and labelled query values first, then every other
+        // check on what's left (security review 2026-11-19: never instead).
+        let masked_url = mask_url(w);
+        let w: &str = masked_url.as_deref().unwrap_or(*w);
+        let c = word_core(w);
+        if let Some(cut) = c.find(['=', ':']) {
+            // "password:hunter2", "token=abc", "\"token\":\"x\"", "password:" (value next)
+            if is_label(c[..cut].trim_end()) {
+                if cut + 1 < c.len() {
+                    out.push(format!("{}[secret]", &c[..=cut]));
+                } else {
+                    mask_next = true;
+                    out.push(w.to_string());
+                }
+                continue;
+            }
+        } else if is_label(c) {
+            let next = words.get(i + 1).map(|n| word_core(n));
+            // "password = hunter2", "--password hunter2"; prose ("the token works") is left alone.
+            if matches!(next, Some("=") | Some(":")) || (c.starts_with("--") && next.is_some_and(|n| !n.is_empty() && !n.starts_with('-'))) {
+                mask_next = true;
+                out.push(w.to_string());
+                continue;
+            }
+        }
+        let prefixed = c.len() >= 16 && SECRET_PREFIXES.iter().any(|p| c.starts_with(p));
+        let bearer = i > 0 && word_core(words[i - 1]).eq_ignore_ascii_case("bearer") && c.len() >= 16;
+        out.push(if prefixed || bearer { "[secret]".into() } else { w.to_string() });
+    }
+    let mut joined = String::with_capacity(line.len());
+    for (i, w) in out.iter().enumerate() {
+        if i > 0 {
+            joined.push(seps.get(i - 1).copied().unwrap_or(' '));
+        }
+        joined.push_str(w);
+    }
+    joined
 }
 
 pub const MAX_DETAIL_CHARS: usize = 12_000;
@@ -202,11 +428,15 @@ pub fn tail_of(bytes: &[u8], lines: usize) -> String {
     // message (2026-11-19). Oldest whole messages go first to fit 12,000.
     let mut msgs: Vec<String> = out.iter().map(|m| crate::runbooks::scrub(m.as_bytes(), None).replace('\n', " ")).collect();
     let mut total: usize = msgs.iter().map(|m| m.chars().count() + 1).sum();
-    while msgs.len() > 1 && total > MAX_DETAIL_CHARS + 1 {
+    let mut dropped = false;
+    while msgs.len() > 1 && total > MAX_DETAIL_CHARS {
         total -= msgs[0].chars().count() + 1;
         msgs.remove(0);
+        dropped = true;
     }
-    cap(msgs.join("\n"))
+    // Older messages left out: marked, so the result says `capped`.
+    let joined = msgs.join("\n");
+    cap(if dropped { format!("…{joined}") } else { joined })
 }
 
 pub fn cap(s: String) -> String {
@@ -321,7 +551,7 @@ impl RealExec {
 }
 
 impl Exec for RealExec {
-    fn run(&self, c: &Command, client: &str) -> Result<String, String> {
+    fn run(&self, c: &Command, client: &str) -> Result<Ran, String> {
         let now = SystemTime::now();
         match c {
             Command::SessionStatus { repo } => {
@@ -337,13 +567,13 @@ impl Exec for RealExec {
                         Err(_) => format!("{r}: folder not found on this PC"),
                     })
                     .collect();
-                Ok(lines.join("\n"))
+                Ok(lines.join("\n").into())
             }
             Command::TranscriptTail { repo, lines } => {
                 let scope = self.scope(client)?;
                 let f = self.folder(repo)?;
                 let (p, _) = scope.latest(&f).ok_or_else(|| scope.none_reason(&f))?;
-                Ok(tail_of(&read_tail(&p)?, *lines as usize))
+                Ok(tail_of(&read_tail(&p)?, *lines as usize).into())
             }
             Command::StartSession { repo, prompt } => {
                 let scope = self.scope(client)?;
@@ -353,14 +583,18 @@ impl Exec for RealExec {
                 match prompt {
                     Some(p) => {
                         // `-w`: a git worktree of its own (owner 2026-11-15).
-                        crate::platform::start_hidden_with_stdin(&exe, &["-p", "-w", "--output-format", "text"], &f, &[(var, dir.as_str())], p)?;
-                        Ok(format!("{repo}: started a Claude Code task (claude -p) as {}", scope.account.name))
+                        // Its id chosen here (`--session-id`, 2026-11-19), so
+                        // the result names the session cloud Glim can follow up.
+                        let id = new_session_id()?;
+                        crate::platform::start_hidden_with_stdin(&exe, &["-p", "-w", "--session-id", id.as_str(), "--output-format", "text"], &f, &[(var, dir.as_str())], p)?;
+                        Ok(Ran { detail: format!("{repo}: started a Claude Code task (claude -p) as {}, session {id}", scope.account.name), session: Some(id) })
                     }
                     None => {
                         let folder = f.to_string_lossy().into_owned();
                         let line = crate::keepalive::launch_line_for(&exe.to_string_lossy(), &folder, &scope.account);
                         crate::platform::start_in_console(&line, &f, &[(crate::keepalive::ENV_NAME, crate::keepalive::ENV_VALUE), (var, dir.as_str())], true)?;
-                        Ok(format!("{repo}: started a remote-control session as {}", scope.account.name))
+                        // Remote control names its sessions itself, later: none here.
+                        Ok(format!("{repo}: started a remote-control session as {}", scope.account.name).into())
                     }
                 }
             }
@@ -380,7 +614,7 @@ impl Exec for RealExec {
                 let exe = self.claude(&at)?;
                 let (var, dir) = crate::accounts::env(&scope.account);
                 crate::platform::start_hidden_with_stdin(&exe, &["-p", "--resume", session.as_str(), "--output-format", "text"], &at, &[(var, dir.as_str())], text)?;
-                Ok(format!("{repo}: sent to {}'s session {session} (claude -p --resume)", scope.account.name))
+                Ok(Ran { detail: format!("{repo}: sent to {}'s session {session} (claude -p --resume)", scope.account.name), session: Some(session.clone()) })
             }
             Command::KeepaliveRestart { folder } => {
                 // Only this client's account's servers.
@@ -388,7 +622,7 @@ impl Exec for RealExec {
                 let account = if scope.account.config_dir.is_empty() { String::new() } else { scope.account.name.clone() };
                 let n = crate::keepalive::restart(folder.as_deref(), Some(&account))?;
                 crate::log::line(format!("remote: keepalive-restart restarted {n}"));
-                Ok(restart_line(n, &scope.account.name))
+                Ok(restart_line(n, &scope.account.name).into())
             }
             Command::Runbook { name } => {
                 let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});
@@ -397,7 +631,7 @@ impl Exec for RealExec {
                         let done = steps.iter().filter(|o| o.ok).count();
                         let total = steps.first().map(|o| o.total).unwrap_or(0);
                         if done == steps.len() {
-                            Ok(format!("{name}: OK ({done}/{total} steps)"))
+                            Ok(format!("{name}: OK ({done}/{total} steps)").into())
                         } else {
                             Err(format!("runbook-failed-{done}-of-{total}"))
                         }
