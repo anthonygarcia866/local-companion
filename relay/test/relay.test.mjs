@@ -405,6 +405,8 @@ test("index.js: last_seen is noted on connect, frame, close and error, and kept 
   assert.ok(src.includes("CREATE TABLE IF NOT EXISTS seen"));
   assert.equal((src.match(/this\.relay\.noteSeen\(/g) || []).length, 4);
   assert.ok(src.includes("last_seen: Unix s"));
+  // A dropped line found late (1006) or our own no-ping close: the last ping, not the time of discovery.
+  assert.ok(src.includes("[1000, 1001, 1005].includes(code) ? Date.now() : this.lastSeenMs(ws)"));
 });
 
 test("index.js: pings are auto-answered (no wake-up) and the socket's last ping decides liveness", () => {

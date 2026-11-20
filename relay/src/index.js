@@ -203,14 +203,16 @@ export class Mailbox extends DurableObject {
   }
 
   async webSocketClose(ws, code) {
-    // A close frame is a sign of life; a dropped line only its last ping.
-    this.relay.noteSeen(Date.now());
+    // A clean close the PC sent (1000 / 1001 / none) is a sign of life now;
+    // anything else (1006 found long after a dropped line, our own 4001
+    // no-ping) only counts the socket's last ping (review 2026-11-19).
+    try { this.relay.noteSeen([1000, 1001, 1005].includes(code) ? Date.now() : this.lastSeenMs(ws)); } catch { /* gone */ }
     try { ws.close(code === 1005 ? 1000 : code, "bye"); } catch { /* already closed */ }
   }
 
   async webSocketError(ws) {
     // An error: only the socket's last ping counts.
-    this.relay.noteSeen(this.lastSeenMs(ws));
+    try { this.relay.noteSeen(this.lastSeenMs(ws)); } catch { /* gone */ }
     try { ws.close(1011, "error"); } catch { /* already closed */ }
   }
 }
