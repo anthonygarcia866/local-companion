@@ -613,8 +613,13 @@ fn a_quote_heavy_transcript_tail_fits_under_the_cap_instead_of_failing() {
     // 50 messages of 230 characters, nearly all quotes and backslashes: well
     // under 12,000 characters, but each grows to 4-8 bytes once escaped twice
     // and sealed (hex).
-    // Unsealed, quotes grow only 4x: control characters (7x) overflow it.
-    for (rk, filler) in [(Some(&rk), "\"\\"), (None, "\u{1}\u{2}")] {
+    // Unsealed, quotes grow only 4x and every detail is redacted (control
+    // characters gone), so 12,000 characters always fit: no trimming.
+    let quotes = format!("you: {}", "\"\\".repeat(5_990));
+    let p = payload_of(&courier::answer(&pc, id, "hash", 5, &Ok(("transcript-tail".into(), quotes.clone())), None));
+    assert_eq!((p["detail"].as_str(), p["capped"].as_bool()), (Some(quotes.as_str()), Some(false)));
+    {
+        let (rk, filler) = (Some(&rk), "\"\\");
         let lines: Vec<String> = (0..50).map(|i| format!("you: msg{i:02} {}", filler.repeat(110))).collect();
         let detail = lines.join("\n");
         assert!(detail.chars().count() <= super::exec::MAX_DETAIL_CHARS);
@@ -738,7 +743,7 @@ fn every_result_carries_status_times_session_and_a_redacted_capped_detail() {
     assert_eq!((p["capped"].as_bool(), p["detail"].as_str().unwrap().chars().count()), (Some(true), 12_001));
     let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
     let rk = arr::<32>(&seal::public_hex(&rk_secret));
-    let quotes: Result<(String, String), String> = Ok(("transcript-tail".into(), "\"".repeat(11_000)));
+    let quotes: Result<(String, String), String> = Ok(("transcript-tail".into(), "\"".repeat(13_000)));
     let p = open_result(&rk_secret, id, &courier::answer_meta(&pc, id, "hash", 120, &quotes, Some(&rk), &m));
     assert_eq!((p["capped"].as_bool(), p["ok"].as_bool(), p["session"].as_str()), (Some(true), Some(true), m.session.as_deref()));
     // Redacted on the way out, whatever the command.
@@ -757,7 +762,19 @@ fn result_details_are_redacted_but_ids_and_hashes_kept() {
     assert_eq!(r("api_key = abc123"), "api_key = [secret]");
     assert_eq!(r("Authorization: Bearer abcdefghijklmnop1234"), "Authorization: Bearer [secret]");
     assert_eq!(r(&format!("stripe sk_live_{} and whsec_{}", "x9".repeat(12), "y8".repeat(12))), "stripe [secret] and [secret]");
-    assert_eq!(r("you: here -----BEGIN PRIVATE KEY----- MIIEvQ abc -----END PRIVATE KEY----- thanks"), "you: here [secret]");
+    assert_eq!(r("you: here -----BEGIN PRIVATE KEY----- MIIEvQ abc -----END PRIVATE KEY----- thanks"), "you: here [secret] thanks");
+    // A BEGIN with no END (prose, or cut short): that line only, never the messages after it.
+    assert_eq!(r("you: grep for -----BEGIN in the file\nclaude: found it"), "you: grep for [secret]\nclaude: found it");
+    // JSON, hyphenated, compound and flag forms; URLs; tabs.
+    assert_eq!(r("{\"password\":\"hunter2\",\"user\":\"sam\"}"), "password\":[secret]");
+    assert_eq!(r("\"token\": \"abc\", \"user\": \"sam\""), "\"token\": [secret] \"user\": \"sam\"");
+    assert_eq!(r("x-api-key: abc123"), "x-api-key: [secret]");
+    assert_eq!(r("AWS_SECRET_ACCESS_KEY=abc123"), "AWS_SECRET_ACCESS_KEY=[secret]");
+    assert_eq!(r("run --password hunter2 now"), "run --password [secret] now");
+    assert_eq!(r("open https://x.example/cb?state=1&token=abc123&b=2"), "open https://x.example/cb?state=1&token=[secret]&b=2");
+    assert_eq!(r("db postgres://sam:pw123@db.example:5432/app"), "db postgres://sam:[secret]@db.example:5432/app");
+    assert_eq!(r(&format!("npm_{} and hf_{}", "a1".repeat(10), "b2".repeat(10))), "[secret] and [secret]");
+    assert_eq!(r("token\t=\tabc"), "token\t=\t[secret]");
     assert_eq!(r("line1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\nline5"), "line1\n[secret]\nline5");
     assert_eq!(r("bell\u{7} and tab\tkept"), "bell and tab\tkept");
     // Kept: prose, session ids, commit hashes, the courier's own fixed lines.
@@ -913,8 +930,8 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     let t = super::exec::tail_of(long.as_bytes(), 50);
     let n = t.chars().count();
     assert!(n > 11_000 && n <= super::exec::MAX_DETAIL_CHARS, "{n}");
-    assert!(t.starts_with("you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'));
-    assert!(t.lines().all(|l| l.starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
+    assert!(t.starts_with("…you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'), "older ones left out, marked");
+    assert!(t.lines().all(|l| l.trim_start_matches('…').starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
     // The folder as runbooks::allowed_folder hands it over: canonicalized,
     // with Windows' verbatim prefix (2026-11-14: session-status said "no

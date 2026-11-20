@@ -160,7 +160,7 @@ pub fn pc_key_vault() -> impl Vault {
     crate::ai::key::CredentialManager { target: PC_KEY_TARGET }
 }
 
-//// What a result says about its task besides the outcome (result format,
+/// What a result says about its task besides the outcome (result format,
 /// owner 2026-11-19): who sent it, when it was made, started and finished,
 /// and the Claude Code session it started or continued.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -196,7 +196,8 @@ pub fn sign_result_meta(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outc
     let (ok, kind, detail, error, capped) = match outcome {
         Ok((kind, detail)) => {
             let clean = super::exec::redact_detail(detail);
-            let over = clean.chars().count() > super::exec::MAX_DETAIL_CHARS;
+            // Cut here, or already cut before (tail_of's leading "…").
+            let over = clean.chars().count() > super::exec::MAX_DETAIL_CHARS || clean.starts_with('…');
             (true, kind.as_str(), cap(clean), "", m.capped || over)
         }
         Err(code) => (false, "", String::new(), code.as_str(), false),
@@ -218,7 +219,14 @@ pub fn sign_result_meta(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outc
     json!({ "v": 1, "payload": payload, "sig": hex(sig.as_ref()) }).to_string()
 }
 
-// The frame that carries a result back to the relay.
+/// A client name the relay gave, as a refusal may repeat it: a valid name
+/// (`parse_client_name`, at most 32 characters) or "" (review 2026-11-19:
+/// never an arbitrary relay string under the PC's signature).
+pub fn relay_named(raw: &str) -> String {
+    super::parse_client_name(raw).ok().filter(|n| n == raw).unwrap_or_default()
+}
+
+/// The frame that carries a result back to the relay.
 pub fn result_frame(id: &str, envelope: &str) -> String {
     json!({ "t": "result", "id": id, "env": envelope }).to_string()
 }
@@ -469,7 +477,7 @@ impl Courier {
                 return;
             }
             Some(Seen::Answered(None)) => {
-                let m = Meta { client: f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT).to_string(), ..Meta::default() };
+                let m = Meta { client: relay_named(f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT)), ..Meta::default() };
                 let _ = self.tx.send(result_frame(&id, &sign_result_meta(&self.signer, &id, &key, now, &Err("already-ran".into()), &m)));
                 return;
             }
@@ -479,7 +487,7 @@ impl Courier {
         let client = f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT);
         match (self.accept)(settings, client, env.as_bytes(), now) {
             Err(why) => {
-                let m = Meta { client: client.to_string(), ..Meta::default() };
+                let m = Meta { client: relay_named(client), ..Meta::default() };
                 let frame = result_frame(&id, &sign_result_meta(&self.signer, &id, &key, now, &Err(why.code().to_string()), &m));
                 Self::remember(&self.answered, key.clone(), &frame);
                 // A fixed code only: kept, so the same envelope gets the same answer.

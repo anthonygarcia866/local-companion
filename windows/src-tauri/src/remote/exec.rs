@@ -79,30 +79,50 @@ pub fn new_session_id() -> Result<String, String> {
     Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
 }
 
-/// Every result's detail on its way out (result format, owner 2026-11-19):
-/// control characters but new lines and tabs gone, and anything that looks
-/// like a credential replaced by "[secret]": a PEM block, a token with a
-/// known prefix (sk-, sk_live_, ghp_, github_pat_, xoxb-, AKIA, AIza, eyJ,
-/// whsec_ ...; 16+ characters), a long word after "Bearer", and the value
-/// after a password/token/secret/api key label. Session ids and commit
-/// hashes are kept (cloud Glim needs them), so a bare long hex or UUID is
-/// not masked.
+/// Every result's detail on its way out (result format, owner 2026-11-19).
+/// BEST EFFORT, not a guarantee: control characters but new lines and tabs
+/// go, and what looks like a credential becomes "[secret]": a PEM block, a
+/// token with a known prefix (sk-, sk_live_, ghp_, github_pat_, xoxb-, AKIA,
+/// AIza, eyJ, whsec_, npm_, hf_ …; 16+ characters), a long word after
+/// "Bearer", the value after a password / token / secret / api key /
+/// private, access or secret key label (`password: x`, `"token":"x"`,
+/// `API_KEY = x`, `x-api-key: x`, `--password x`), a URL's password
+/// (`scheme://user:pw@host`) and labelled query values (`?token=x`). Session
+/// ids and commit hashes are kept (cloud Glim needs them), so a bare long
+/// hex or UUID is not masked.
 pub fn redact_detail(s: &str) -> String {
     let clean = crate::runbooks::scrub(s.as_bytes(), None);
     let mut out: Vec<String> = Vec::new();
-    let mut in_pem = false;
+    // Lines left to skip inside a multi-line PEM block (bounded, so a
+    // BEGIN with no END never swallows the rest).
+    let mut in_pem: usize = 0;
     for line in clean.split('\n') {
-        // A PEM block: from BEGIN to the end of its END line (a collapsed
-        // transcript message has it all on one line), the text before kept.
-        if in_pem {
+        if in_pem > 0 {
+            in_pem -= 1;
             if line.contains("-----END") {
-                in_pem = false;
+                in_pem = 0;
+                let after = after_pem_end(line);
+                if !after.trim().is_empty() {
+                    out.push(redact_line(after));
+                }
             }
             continue;
         }
         if let Some(b) = line.find("-----BEGIN") {
-            in_pem = !line[b..].contains("-----END");
-            out.push(format!("{}[secret]", redact_line(&line[..b])));
+            let rest = &line[b..];
+            let header_only = rest.trim_end().ends_with("-----") && rest.matches("-----").count() == 2;
+            if rest.contains("-----END") {
+                // All on one line (a collapsed transcript message): BEGIN to
+                // the END marker's close, the text around it kept.
+                out.push(format!("{}[secret]{}", redact_line(&line[..b]), redact_line(after_pem_end(rest))));
+            } else if header_only {
+                // "-----BEGIN … KEY-----" alone: the body follows, to END.
+                in_pem = PEM_MAX_LINES;
+                out.push(format!("{}[secret]", redact_line(&line[..b])));
+            } else {
+                // A BEGIN without its END (cut short, or prose): this line only.
+                out.push(format!("{}[secret]", redact_line(&line[..b])));
+            }
             continue;
         }
         out.push(redact_line(line));
@@ -110,22 +130,72 @@ pub fn redact_detail(s: &str) -> String {
     out.join("\n")
 }
 
-const SECRET_PREFIXES: [&str; 16] = ["sk-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_", "ghp_", "gho_", "ghs_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza", "eyJ", "glpat-"];
-const SECRET_LABELS: [&str; 8] = ["password", "passwd", "pwd", "passcode", "api_key", "apikey", "secret", "token"];
+const PEM_MAX_LINES: usize = 200;
+
+/// What follows a PEM END marker's closing dashes on its line.
+fn after_pem_end(s: &str) -> &str {
+    let Some(e) = s.find("-----END") else { return s };
+    let tail = &s[e + "-----END".len()..];
+    match tail.find("-----") {
+        Some(c) => &tail[c + "-----".len()..],
+        None => "",
+    }
+}
+
+const SECRET_PREFIXES: [&str; 26] = [
+    "sk-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "whsec_", "ghp_", "gho_", "ghs_", "ghu_", "github_pat_", "xoxb-", "xoxp-", "xoxa-", "xoxs-", "AKIA", "ASIA", "AIza", "eyJ", "glpat-",
+    "npm_", "hf_", "shpat_", "dop_v1_", "pypi-",
+];
+/// Matched at a label's end, `-` read as `_` (x-api-key → x_api_key).
+const SECRET_LABELS: [&str; 12] = ["password", "passwd", "pwd", "passcode", "api_key", "apikey", "secret", "token", "secret_key", "private_key", "access_key", "credentials"];
 
 fn word_core(w: &str) -> &str {
     w.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c))
 }
 
 fn is_label(w: &str) -> bool {
-    let l = w.to_ascii_lowercase();
-    SECRET_LABELS.iter().any(|x| l.ends_with(x))
+    let l = word_core(w).trim_start_matches('-').to_ascii_lowercase().replace('-', "_");
+    !l.is_empty() && SECRET_LABELS.iter().any(|x| l.ends_with(x))
+}
+
+/// A URL's password (`scheme://user:pw@host`) and its labelled query
+/// values (`?token=x&…`); None when `w` has neither.
+fn mask_url(w: &str) -> Option<String> {
+    let mut s = w.to_string();
+    let mut changed = false;
+    if let Some(p) = s.find("://") {
+        let auth_end = s[p + 3..].find(['/', '?', '#']).map(|i| p + 3 + i).unwrap_or(s.len());
+        if let Some(at) = s[p + 3..auth_end].rfind('@').map(|i| p + 3 + i) {
+            if let Some(colon) = s[p + 3..at].find(':').map(|i| p + 3 + i) {
+                s.replace_range(colon + 1..at, "[secret]");
+                changed = true;
+            }
+        }
+    }
+    let mut from = 0;
+    while let Some(q) = s[from..].find(['?', '&']).map(|i| from + i) {
+        let key_start = q + 1;
+        let Some(eq) = s[key_start..].find('=').map(|i| key_start + i) else { break };
+        let key = &s[key_start..eq];
+        let end = s[eq + 1..].find(['&', '#', ' ']).map(|i| eq + 1 + i).unwrap_or(s.len());
+        if !key.contains(['?', '&']) && is_label(key) && end > eq + 1 {
+            s.replace_range(eq + 1..end, "[secret]");
+            changed = true;
+            from = eq + 1 + "[secret]".len();
+        } else {
+            from = key_start;
+        }
+    }
+    changed.then_some(s)
 }
 
 fn redact_line(line: &str) -> String {
-    let words: Vec<&str> = line.split(' ').collect();
+    // Words and the separators between them (spaces or tabs, kept as they were).
+    let words: Vec<&str> = line.split([' ', '\t']).collect();
+    let seps: Vec<char> = line.chars().filter(|c| *c == ' ' || *c == '\t').collect();
     let mut out: Vec<String> = Vec::with_capacity(words.len());
-    // A label ended its word or stood before a lone "=" / ":": the next value goes.
+    // A label ended its word or stood before a lone "=" / ":" (or was a
+    // --flag): the next value goes.
     let mut mask_next = false;
     for (i, w) in words.iter().enumerate() {
         let c = word_core(w);
@@ -134,8 +204,12 @@ fn redact_line(line: &str) -> String {
             out.push("[secret]".into());
             continue;
         }
+        if let Some(m) = mask_url(w) {
+            out.push(m);
+            continue;
+        }
         if let Some(cut) = c.find(['=', ':']) {
-            // "password:hunter2", "token=abc", "password:" (value next)
+            // "password:hunter2", "token=abc", "\"token\":\"x\"", "password:" (value next)
             if is_label(c[..cut].trim_end()) {
                 if cut + 1 < c.len() {
                     out.push(format!("{}[secret]", &c[..=cut]));
@@ -145,17 +219,27 @@ fn redact_line(line: &str) -> String {
                 }
                 continue;
             }
-        } else if is_label(c) && matches!(words.get(i + 1).map(|n| word_core(n)), Some("=") | Some(":")) {
-            // "password = hunter2"; prose ("the token works") is left alone.
-            mask_next = true;
-            out.push(w.to_string());
-            continue;
+        } else if is_label(c) {
+            let next = words.get(i + 1).map(|n| word_core(n));
+            // "password = hunter2", "--password hunter2"; prose ("the token works") is left alone.
+            if matches!(next, Some("=") | Some(":")) || (c.starts_with("--") && next.is_some_and(|n| !n.is_empty() && !n.starts_with('-'))) {
+                mask_next = true;
+                out.push(w.to_string());
+                continue;
+            }
         }
         let prefixed = c.len() >= 16 && SECRET_PREFIXES.iter().any(|p| c.starts_with(p));
         let bearer = i > 0 && word_core(words[i - 1]).eq_ignore_ascii_case("bearer") && c.len() >= 16;
         out.push(if prefixed || bearer { "[secret]".into() } else { w.to_string() });
     }
-    out.join(" ")
+    let mut joined = String::with_capacity(line.len());
+    for (i, w) in out.iter().enumerate() {
+        if i > 0 {
+            joined.push(seps.get(i - 1).copied().unwrap_or(' '));
+        }
+        joined.push_str(w);
+    }
+    joined
 }
 
 pub const MAX_DETAIL_CHARS: usize = 12_000;
@@ -308,11 +392,15 @@ pub fn tail_of(bytes: &[u8], lines: usize) -> String {
     // message (2026-11-19). Oldest whole messages go first to fit 12,000.
     let mut msgs: Vec<String> = out.iter().map(|m| crate::runbooks::scrub(m.as_bytes(), None).replace('\n', " ")).collect();
     let mut total: usize = msgs.iter().map(|m| m.chars().count() + 1).sum();
-    while msgs.len() > 1 && total > MAX_DETAIL_CHARS + 1 {
+    let mut dropped = false;
+    while msgs.len() > 1 && total > MAX_DETAIL_CHARS {
         total -= msgs[0].chars().count() + 1;
         msgs.remove(0);
+        dropped = true;
     }
-    cap(msgs.join("\n"))
+    // Older messages left out: marked, so the result says `capped`.
+    let joined = msgs.join("\n");
+    cap(if dropped { format!("…{joined}") } else { joined })
 }
 
 pub fn cap(s: String) -> String {
