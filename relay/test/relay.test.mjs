@@ -368,13 +368,43 @@ test("a PC socket silent for 75 s is closed, gets no task, and status says pc:fa
   assert.deepEqual(relay.queue(t.text, NOW + 76).body, { id: t.id, delivered: false });
   assert.deepEqual(pc.closed, [4001, "no-ping"]);
   assert.equal(pc.sent.length, 0);
-  assert.deepEqual(relay.status(NOW + 76), { pc: false, pending: 1 });
+  assert.deepEqual(relay.status(NOW + 76), { pc: false, last_seen: NOW, pending: 1 });
   // The PC reconnects: the pending task is handed over (once per connection).
   assert.deepEqual(relay.pendingFrames(NOW + 80).map((f) => JSON.parse(f).env), [t.text]);
   assert.equal(PC_SILENT_MS, 75_000);
   // Unknown last-seen (older wiring): treated as alive.
   const bare = new Relay(new MemoryStore(), () => [{ send() {} }]);
   assert.equal(bare.status(NOW).pc, true);
+});
+
+test("status: last_seen is the PC's last sign of life, kept while it's gone, and only moves forward", () => {
+  const list = [];
+  const relay = new Relay(new MemoryStore(), () => list.filter((w) => !w.closed), (ws) => ws.lastSeen);
+  // Never seen.
+  assert.deepEqual(relay.status(NOW), { pc: false, last_seen: null, pending: 0 });
+  // Connected, pinged 20 s ago (the auto-response time, read on status).
+  const ws = { lastSeen: (NOW - 20) * 1000, closed: null, send() {}, close(c) { this.closed = c; } };
+  list.push(ws);
+  assert.deepEqual(relay.status(NOW), { pc: true, last_seen: NOW - 20, pending: 0 });
+  ws.lastSeen = (NOW + 10) * 1000;
+  assert.equal(relay.status(NOW + 10).last_seen, NOW + 10);
+  // Gone (closed, or silent and closed here): pc false, last_seen kept.
+  ws.closed = 1000;
+  assert.deepEqual(relay.status(NOW + 600), { pc: false, last_seen: NOW + 10, pending: 0 });
+  // A late, older time never moves it back; junk is ignored.
+  relay.noteSeen((NOW - 999) * 1000);
+  relay.noteSeen(NaN);
+  relay.noteSeen("x");
+  assert.equal(relay.status(NOW + 600).last_seen, NOW + 10);
+  relay.noteSeen((NOW + 700) * 1000 + 999);
+  assert.equal(relay.status(NOW + 800).last_seen, NOW + 700, "Unix seconds");
+});
+
+test("index.js: last_seen is noted on connect, frame, close and error, and kept in SQLite", () => {
+  const src = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.ok(src.includes("CREATE TABLE IF NOT EXISTS seen"));
+  assert.equal((src.match(/this\.relay\.noteSeen\(/g) || []).length, 4);
+  assert.ok(src.includes("last_seen: Unix s"));
 });
 
 test("index.js: pings are auto-answered (no wake-up) and the socket's last ping decides liveness", () => {

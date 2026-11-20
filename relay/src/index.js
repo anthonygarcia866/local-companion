@@ -17,6 +17,8 @@
 //   GET  /v1/results          that client's token: its pending tasks and
 //                             kept results, ids, states and times only.
 //   GET  /v1/status           a cloud client's token: {pc: connected?,
+//                             last_seen: Unix s of the PC's last ping,
+//                             frame, connect or close (null = never),
 //                             pending: n of its own tasks}.
 //                             "connected" = a PC socket that pinged (or
 //                             sent a frame) in the last 75 s; a silent one
@@ -52,6 +54,8 @@ class SqlStore {
     this.sql = sql;
     sql.exec("CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, exp INTEGER NOT NULL, body TEXT NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS results (id TEXT PRIMARY KEY, exp INTEGER NOT NULL, body TEXT NOT NULL)");
+    // last_seen (2026-11-19): one row, the PC's last sign of life (ms).
+    sql.exec("CREATE TABLE IF NOT EXISTS seen (k INTEGER PRIMARY KEY CHECK (k = 1), ms INTEGER NOT NULL)");
     // Cloud clients (2026-11-15): rows from before belong to account-1.
     for (const table of ["tasks", "results"]) {
       const cols = sql.exec(`PRAGMA table_info(${table})`).toArray().map((c) => c.name);
@@ -103,6 +107,8 @@ class SqlStore {
     const r = this.one("SELECT MIN(exp) AS e FROM (SELECT exp FROM tasks UNION ALL SELECT exp FROM results)");
     return r && r.e !== null ? r.e : null;
   }
+  seenMs() { const r = this.one("SELECT ms FROM seen WHERE k = 1"); return r ? r.ms : null; }
+  setSeenMs(ms) { this.sql.exec("INSERT OR REPLACE INTO seen (k, ms) VALUES (1, ?)", ms); }
 }
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -122,6 +128,7 @@ export class Mailbox extends DurableObject {
       const t = Math.max(a && a.since ? a.since : 0, a && a.last ? a.last : 0, auto ? auto.getTime() : 0);
       return t > 0 ? t : null;
     };
+    this.lastSeenMs = lastSeenMs;
     this.relay = new Relay(new SqlStore(ctx.storage.sql), () => ctx.getWebSockets("pc"), lastSeenMs);
   }
 
@@ -151,6 +158,7 @@ export class Mailbox extends DurableObject {
       const [client, server] = Object.values(new WebSocketPair());
       this.ctx.acceptWebSocket(server, ["pc"]);
       server.serializeAttachment({ since: Date.now() });
+      this.relay.noteSeen(Date.now());
       for (const f of this.relay.pendingFrames(now())) server.send(f);
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -188,16 +196,21 @@ export class Mailbox extends DurableObject {
 
   async webSocketMessage(ws, message) {
     try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), last: Date.now() }); } catch { /* closing */ }
+    this.relay.noteSeen(Date.now());
     if (typeof message !== "string") return;
     this.relay.fromPc(message, now());
     await this.schedule();
   }
 
   async webSocketClose(ws, code) {
+    // A close frame is a sign of life; a dropped line only its last ping.
+    this.relay.noteSeen(Date.now());
     try { ws.close(code === 1005 ? 1000 : code, "bye"); } catch { /* already closed */ }
   }
 
   async webSocketError(ws) {
+    // An error: only the socket's last ping counts.
+    this.relay.noteSeen(this.lastSeenMs(ws));
     try { ws.close(1011, "error"); } catch { /* already closed */ }
   }
 }
