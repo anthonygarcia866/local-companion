@@ -197,8 +197,16 @@ pub fn tail_of(bytes: &[u8], lines: usize) -> String {
         }
     }
     out.reverse();
-    let joined = crate::runbooks::redact(out.join("\n").as_bytes(), None);
-    cap(joined)
+    // `scrub`, not `redact`: redact's own 4,000-character cap (Settings'
+    // runbook output) cut a 50-message tail to its last ~10 messages, mid
+    // message (2026-11-19). Oldest whole messages go first to fit 12,000.
+    let mut msgs: Vec<String> = out.iter().map(|m| crate::runbooks::scrub(m.as_bytes(), None).replace('\n', " ")).collect();
+    let mut total: usize = msgs.iter().map(|m| m.chars().count() + 1).sum();
+    while msgs.len() > 1 && total > MAX_DETAIL_CHARS + 1 {
+        total -= msgs[0].chars().count() + 1;
+        msgs.remove(0);
+    }
+    cap(msgs.join("\n"))
 }
 
 pub fn cap(s: String) -> String {

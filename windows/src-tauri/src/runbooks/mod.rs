@@ -904,17 +904,24 @@ fn needed_secret(world: &dyn World, name: &str) -> Result<secrets::SecretValue, 
 pub const OUTPUT_SHOWN: usize = 4000;
 
 pub fn redact(output: &[u8], secret: Option<&str>) -> String {
-    let mut text = String::from_utf8_lossy(output).replace("\r\n", "\n");
-    if let Some(v) = secret.filter(|v| !v.is_empty()) {
-        text = text.replace(v, "[secret]");
-    }
-    let clean: String = text.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).collect();
+    let clean = scrub(output, secret);
     let n = clean.chars().count();
     if n <= OUTPUT_SHOWN {
         clean
     } else {
         format!("…{}", clean.chars().skip(n - OUTPUT_SHOWN).collect::<String>())
     }
+}
+
+/// `redact` without its length cap (the remote courier caps its own, at
+/// 12,000 characters): the secret blanked out, CRLF made LF, no control
+/// characters but new lines and tabs.
+pub fn scrub(output: &[u8], secret: Option<&str>) -> String {
+    let mut text = String::from_utf8_lossy(output).replace("\r\n", "\n");
+    if let Some(v) = secret.filter(|v| !v.is_empty()) {
+        text = text.replace(v, "[secret]");
+    }
+    text.chars().filter(|c| !c.is_control() || matches!(c, '\n' | '\t')).collect()
 }
 
 fn one(runbook: &str, index: usize, total: usize, step: &Step, world: &dyn World) -> Result<String, String> {

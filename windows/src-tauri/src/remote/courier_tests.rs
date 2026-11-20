@@ -581,13 +581,86 @@ fn results_are_sealed_to_the_tasks_result_key_and_only_it_opens_them() {
     // A key that can't be sealed to (low order): a signed refusal, never the result in clear.
     let bad = courier::answer(&pc, id, "hash", 5, &ok, Some(&[0u8; 32]));
     assert!(bad.contains("bad-result-key") && !bad.contains("idle"), "{bad}");
-    // Too big for the relay once sealed: a sealed result-too-big instead.
-    let big: Result<(String, String), String> = Ok(("transcript-tail".into(), "€".repeat(12_000)));
+    // Too big for the relay once sealed: its newest part that fits, still sealed.
+    let big: Result<(String, String), String> = Ok(("transcript-tail".into(), format!("{}END", "€".repeat(12_000))));
     let out = courier::answer(&pc, id, "hash", 5, &big, Some(&rk));
     assert!(out.len() <= seal::MAX_SEALED_RESULT_BYTES);
     let v: Value = serde_json::from_str(&out).unwrap();
     let inner = seal::open(&rk_secret, &arr::<32>(v["epk"].as_str().unwrap()), &arr::<12>(v["n"].as_str().unwrap()), "result", id, &unhex(v["ct"].as_str().unwrap())).unwrap();
-    assert!(String::from_utf8(inner).unwrap().contains("result-too-big"));
+    let p = payload_of(&String::from_utf8(inner).unwrap());
+    assert_eq!(p["ok"], true, "{p}");
+    let d = p["detail"].as_str().unwrap();
+    assert!(d.starts_with('…') && d.ends_with("END") && d.chars().count() > 5_000, "trimmed from the front, newest kept: {} chars", d.chars().count());
+}
+
+fn payload_of(signed: &str) -> Value {
+    let v: Value = serde_json::from_str(signed).unwrap();
+    serde_json::from_str(v["payload"].as_str().unwrap()).unwrap()
+}
+
+fn open_result(rk_secret: &seal::Secret, id: &str, out: &str) -> Value {
+    let v: Value = serde_json::from_str(out).unwrap();
+    let inner = seal::open(rk_secret, &arr::<32>(v["epk"].as_str().unwrap()), &arr::<12>(v["n"].as_str().unwrap()), "result", id, &unhex(v["ct"].as_str().unwrap())).unwrap();
+    payload_of(&String::from_utf8(inner).unwrap())
+}
+
+#[test]
+fn a_quote_heavy_transcript_tail_fits_under_the_cap_instead_of_failing() {
+    let pc = seed_pair(PC_SEED);
+    let id = "result-test-000002";
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let rk = arr::<32>(&seal::public_hex(&rk_secret));
+    // 50 messages of 230 characters, nearly all quotes and backslashes: well
+    // under 12,000 characters, but each grows to 4-8 bytes once escaped twice
+    // and sealed (hex).
+    // Unsealed, quotes grow only 4x: control characters (7x) overflow it.
+    for (rk, filler) in [(Some(&rk), "\"\\"), (None, "\u{1}\u{2}")] {
+        let lines: Vec<String> = (0..50).map(|i| format!("you: msg{i:02} {}", filler.repeat(110))).collect();
+        let detail = lines.join("\n");
+        assert!(detail.chars().count() <= super::exec::MAX_DETAIL_CHARS);
+        let tail: Result<(String, String), String> = Ok(("transcript-tail".into(), detail.clone()));
+        let out = courier::answer(&pc, id, "hash", 5, &tail, rk);
+        assert!(out.len() <= courier::MAX_RESULT_BYTES, "{} bytes", out.len());
+        let p = if rk.is_some() { open_result(&rk_secret, id, &out) } else { payload_of(&out) };
+        assert_eq!(p["ok"], true, "{p}");
+        assert_eq!(p["error"], "");
+        let d = p["detail"].as_str().unwrap();
+        assert!(d.starts_with("…you: msg"), "starts at a whole message");
+        assert!(d.ends_with(lines.last().unwrap().as_str()), "the newest message kept whole");
+        assert!(d.len() < detail.len());
+        // Only whole messages: every kept line is one of the originals.
+        assert!(d.trim_start_matches('…').lines().all(|l| lines.iter().any(|o| o == l)));
+    }
+    // Small enough already: unchanged.
+    let small: Result<(String, String), String> = Ok(("transcript-tail".into(), "you: \"hi\"\nclaude: \"hello\"".into()));
+    assert_eq!(payload_of(&courier::answer(&pc, id, "hash", 5, &small, None))["detail"], "you: \"hi\"\nclaude: \"hello\"");
+}
+
+#[test]
+fn fit_detail_keeps_the_longest_tail_that_fits_or_gives_up() {
+    // A made-up size: 100 bytes a character.
+    let make = |d: &str| "x".repeat(d.chars().count() * 100);
+    let detail = format!("old line\n{}", "n".repeat(2_000));
+    let got = courier::fit_detail(&detail, make).unwrap();
+    assert!(got.len() <= courier::MAX_RESULT_BYTES && got.len() > courier::MAX_RESULT_BYTES - 200);
+    // Nothing fits, not even the marker: None (the caller answers result-too-big).
+    assert!(courier::fit_detail(&detail, |_| "x".repeat(courier::MAX_RESULT_BYTES + 1)).is_none());
+    // tail_chars: whole lines when a break is in the part kept.
+    let c: Vec<char> = "one\ntwo\nthree".chars().collect();
+    assert_eq!(courier::tail_chars(&c, 7), "…three", "mid line: from the next whole line");
+    assert_eq!(courier::tail_chars(&c, 9), "…two\nthree", "already at a line's start: kept");
+    assert_eq!(courier::tail_chars(&c, 5), "…three");
+    assert_eq!(courier::tail_chars(&c, 3), "…ree");
+    assert_eq!(courier::tail_chars(&c, 13), "one\ntwo\nthree");
+}
+
+#[test]
+fn a_refusal_that_cannot_fit_is_still_answered() {
+    let pc = seed_pair(PC_SEED);
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let rk = arr::<32>(&seal::public_hex(&rk_secret));
+    let out = courier::answer(&pc, "result-test-000003", "hash", 5, &Err("busy".into()), Some(&rk));
+    assert_eq!(open_result(&rk_secret, "result-test-000003", &out)["error"], "busy");
 }
 
 #[test]
@@ -752,6 +825,15 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     let text: String = lines.iter().map(|l| l.to_string() + "\n").collect();
     assert_eq!(super::exec::tail_of(text.as_bytes(), 20), "you: Please fix the build\nclaude: On it.\nclaude: Done: CI is green.");
     assert_eq!(super::exec::tail_of(text.as_bytes(), 1), "claude: Done: CI is green.");
+    // 50 long messages (2026-11-19): up to 12,000 characters of WHOLE
+    // messages, newest last; it used to be cut to 4,000 mid message by the
+    // runbook redactor's own cap. Control characters still go.
+    let long: String = (0..50).map(|i| json!({ "type": "user", "message": { "content": format!("m{i:02}\u{7} {}", "word ".repeat(80)) } }).to_string() + "\n").collect();
+    let t = super::exec::tail_of(long.as_bytes(), 50);
+    let n = t.chars().count();
+    assert!(n > 11_000 && n <= super::exec::MAX_DETAIL_CHARS, "{n}");
+    assert!(t.starts_with("you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'));
+    assert!(t.lines().all(|l| l.starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
     // The folder as runbooks::allowed_folder hands it over: canonicalized,
     // with Windows' verbatim prefix (2026-11-14: session-status said "no
