@@ -310,6 +310,8 @@ struct Payload {
 pub struct Accepted {
     pub id: String,
     pub expires: i64,
+    /// Its signed `iat` (the result's `created`).
+    pub iat: i64,
     pub command: Command,
     /// The cloud client that sent it (its token queued it, its key signed it).
     pub client: String,
@@ -551,7 +553,7 @@ impl Gate {
         if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
-        Ok(Accepted { id: p.id, expires: p.exp, command, client: client.to_string(), rk })
+        Ok(Accepted { id: p.id, expires: p.exp, iat: p.iat, command, client: client.to_string(), rk })
     }
 
     /// The kill switch was used: noted in the list (it refuses on its own,

@@ -480,6 +480,21 @@ test("verifyFull refuses a tampered seal, an unsealed success, a task the relay 
   assert.throws(() => verifyFull(env, t.id, t.text, pcAnswer(pc, enc, u.text)), /bad-result|bad-seal/);
 });
 
+test("verifyFull: the result format's created must be our task's iat and status must agree with ok", () => {
+  const { pc, enc, env } = sealedEnv();
+  const t = buildTask(env, "start-session", { repo: "local-companion", prompt: "hi" }, 3600);
+  const iat = JSON.parse(t.text).iat;
+  const fields = { client: "account-1", status: "done", created: iat, started: iat + 1, finished: iat + 2, session: "3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162", capped: false };
+  const r = verifyFull(env, t.id, t.text, pcAnswer(pc, enc, t.text, { extra: fields }));
+  assert.equal(r.session, fields.session);
+  assert.equal(r.created, iat);
+  assert.throws(() => verifyFull(env, t.id, t.text, pcAnswer(pc, enc, t.text, { extra: { ...fields, created: iat - 60 } })), /bad-result/);
+  assert.throws(() => verifyFull(env, t.id, t.text, pcAnswer(pc, enc, t.text, { extra: { ...fields, status: "failed" } })), /bad-result/);
+  // A refusal: created unknown (null), status refused.
+  const refusal = pcAnswer(pc, enc, t.text, { unsealed: true, extra: { ok: false, kind: "", detail: "", error: "killed", status: "refused", created: null, started: null } });
+  assert.equal(verifyFull(env, t.id, t.text, refusal).status, "refused");
+});
+
 test("send --async, then result <id> from a later session: verified, acknowledged, then gone", async () => {
   const { pc, enc, env } = sealedEnv();
   const relay = stubRelay(pc, { enc });

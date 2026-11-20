@@ -93,10 +93,10 @@ struct Fake {
 }
 
 impl Exec for Fake {
-    fn run(&self, c: &Command, _client: &str) -> Result<String, String> {
+    fn run(&self, c: &Command, _client: &str) -> Result<super::exec::Ran, String> {
         std::thread::sleep(self.delay);
         self.runs.lock().unwrap().push(c.kind().to_string());
-        Ok(format!("did {}", c.kind()))
+        Ok(format!("did {}", c.kind()).into())
     }
 }
 
@@ -696,12 +696,93 @@ fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     assert!(UnparsedPublicKey::new(&ED25519, seed_pair(PC_SEED).public_key().as_ref()).verify(payload.as_bytes(), &unhex(signed["sig"].as_str().unwrap())).is_ok());
     let r: Value = serde_json::from_str(payload).unwrap();
     assert_eq!((r["ok"].as_bool(), r["detail"].as_str(), r["task"].as_str()), (Some(true), Some("did session-status"), Some(courier::sha256_hex(&outer).as_str())));
+    // The result format (owner 2026-11-19): id, client, status, created /
+    // started / finished, capped, and no session for session-status.
+    assert_eq!((r["id"].as_str(), r["client"].as_str(), r["status"].as_str()), (Some(id), Some("account-1"), Some("done")));
+    assert_eq!(r["created"].as_i64(), Some(now), "the task's own iat");
+    let (started, finished) = (r["started"].as_i64().unwrap(), r["finished"].as_i64().unwrap());
+    assert!(started >= now && finished >= started && r["at"].as_i64() == Some(finished), "{r}");
+    assert_eq!((r["session"].is_null(), r["capped"].as_bool()), (true, Some(false)));
     // A seal that doesn't open: answered at once, signed, unsealed, with a fixed code.
     c.on_frame(&cloud_settings(), &json!({ "t": "task", "env": outer.replace("\"n\":\"", "\"n\":\"ff"), "client": "account-1" }).to_string(), now);
     let refused: Value = serde_json::from_str(&rx.blocking_recv().unwrap()).unwrap();
     let env: Value = serde_json::from_str(refused["env"].as_str().unwrap()).unwrap();
     assert_eq!(env["v"], 1);
     assert!(env["payload"].as_str().unwrap().contains("\"error\":\"bad-envelope\"") || env["payload"].as_str().unwrap().contains("\"error\":\"bad-seal\""));
+    // A refusal: it never ran, nothing of the task's is trusted but the client the relay named.
+    let r: Value = serde_json::from_str(env["payload"].as_str().unwrap()).unwrap();
+    assert_eq!((r["status"].as_str(), r["client"].as_str(), r["ok"].as_bool()), (Some("refused"), Some("account-1"), Some(false)));
+    assert!(r["created"].is_null() && r["started"].is_null() && r["session"].is_null() && r["finished"].as_i64() == Some(now), "{r}");
+}
+
+#[test]
+fn every_result_carries_status_times_session_and_a_redacted_capped_detail() {
+    let pc = seed_pair(PC_SEED);
+    let id = "format-test-000001";
+    let m = courier::Meta { client: "account-2".into(), created: Some(100), started: Some(110), session: Some("3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162".into()), capped: false };
+    let ok: Result<(String, String), String> = Ok(("start-session".into(), "started, session 3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162".into()));
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &ok, None, &m));
+    assert_eq!(p["status"], "done");
+    assert_eq!((p["created"].as_i64(), p["started"].as_i64(), p["finished"].as_i64(), p["at"].as_i64()), (Some(100), Some(110), Some(120), Some(120)));
+    assert_eq!(p["session"], "3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162");
+    assert_eq!(p["client"], "account-2");
+    assert!(p["detail"].as_str().unwrap().contains("3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162"), "session ids are never masked");
+    // It ran and failed: failed; never ran: refused.
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &Err("busy".into()), None, &m));
+    assert_eq!((p["status"].as_str(), p["error"].as_str(), p["detail"].as_str()), (Some("failed"), Some("busy"), Some("")));
+    let p = payload_of(&courier::sign_result(&pc, id, "hash", 120, &Err("killed".into())));
+    assert_eq!(p["status"], "refused");
+    // Capped: over 12,000 characters, or trimmed to fit the relay.
+    let long: Result<(String, String), String> = Ok(("transcript-tail".into(), "x".repeat(12_500)));
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &long, None, &m));
+    assert_eq!((p["capped"].as_bool(), p["detail"].as_str().unwrap().chars().count()), (Some(true), 12_001));
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let rk = arr::<32>(&seal::public_hex(&rk_secret));
+    let quotes: Result<(String, String), String> = Ok(("transcript-tail".into(), "\"".repeat(11_000)));
+    let p = open_result(&rk_secret, id, &courier::answer_meta(&pc, id, "hash", 120, &quotes, Some(&rk), &m));
+    assert_eq!((p["capped"].as_bool(), p["ok"].as_bool(), p["session"].as_str()), (Some(true), Some(true), m.session.as_deref()));
+    // Redacted on the way out, whatever the command.
+    let leak: Result<(String, String), String> = Ok(("runbook".into(), format!("deploy: key sk-ant-api03-{} ok", "a1".repeat(20))));
+    let d = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &leak, None, &m))["detail"].as_str().unwrap().to_string();
+    assert_eq!(d, "deploy: key [secret] ok");
+}
+
+#[test]
+fn result_details_are_redacted_but_ids_and_hashes_kept() {
+    use super::exec::redact_detail as r;
+    let gh = format!("ghp_{}", "Ab1".repeat(10));
+    assert_eq!(r(&format!("token {gh} here")), "token [secret] here");
+    assert_eq!(r("you: password: hunter2 please"), "you: password: [secret] please");
+    assert_eq!(r("DB_PASSWORD=hunter2"), "DB_PASSWORD=[secret]");
+    assert_eq!(r("api_key = abc123"), "api_key = [secret]");
+    assert_eq!(r("Authorization: Bearer abcdefghijklmnop1234"), "Authorization: Bearer [secret]");
+    assert_eq!(r(&format!("stripe sk_live_{} and whsec_{}", "x9".repeat(12), "y8".repeat(12))), "stripe [secret] and [secret]");
+    assert_eq!(r("you: here -----BEGIN PRIVATE KEY----- MIIEvQ abc -----END PRIVATE KEY----- thanks"), "you: here [secret]");
+    assert_eq!(r("line1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\nline5"), "line1\n[secret]\nline5");
+    assert_eq!(r("bell\u{7} and tab\tkept"), "bell and tab\tkept");
+    // Kept: prose, session ids, commit hashes, the courier's own fixed lines.
+    for fine in [
+        "the token works now and the secret is patience",
+        "local-companion: idle, last activity 3 min ago (session 3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162) [Claude]",
+        "merged 5288756a0b2b7f4c1d9e8f7a6b5c4d3e2f1a0b9c",
+        "keep-alive: restarted 1 session(s) [Claude2]",
+    ] {
+        assert_eq!(r(fine), fine);
+    }
+}
+
+#[test]
+fn start_session_names_the_session_it_starts() {
+    for _ in 0..20 {
+        let id = super::exec::new_session_id().unwrap();
+        assert!(super::command::is_session_id(&id), "{id}");
+        assert_eq!(id.as_bytes()[14], b'4', "v4");
+    }
+    assert_ne!(super::exec::new_session_id().unwrap(), super::exec::new_session_id().unwrap());
+    // The real command: `--session-id <that id>`, and the result names it.
+    let src = include_str!("exec.rs");
+    assert!(src.contains(r#""-p", "-w", "--session-id", id.as_str()"#));
+    assert!(src.contains("session: Some(id)") && src.contains("session: Some(session.clone())"));
 }
 
 #[test]

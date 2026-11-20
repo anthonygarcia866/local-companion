@@ -49,7 +49,113 @@ use super::{Command, REPOS};
 /// What a task answers: a detail, or a fixed error code.
 pub trait Exec: Send + Sync {
     /// `client`: the cloud client that sent the task (remote::Accepted).
-    fn run(&self, c: &Command, client: &str) -> Result<String, String>;
+    fn run(&self, c: &Command, client: &str) -> Result<Ran, String>;
+}
+
+/// A command that ran: its detail, and the Claude Code session it started
+/// or continued (the result's `session`, so cloud Glim can follow it up
+/// with send-to-session or transcript-tail).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ran {
+    pub detail: String,
+    pub session: Option<String>,
+}
+
+impl From<String> for Ran {
+    fn from(detail: String) -> Ran {
+        Ran { detail, session: None }
+    }
+}
+
+/// A new session id for `claude -p --session-id` (a v4 UUID from the
+/// system's randomness, the form command::is_session_id accepts).
+pub fn new_session_id() -> Result<String, String> {
+    use ring::rand::SecureRandom;
+    let mut b = [0u8; 16];
+    ring::rand::SystemRandom::new().fill(&mut b).map_err(|_| "no randomness".to_string())?;
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    Ok(format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32]))
+}
+
+/// Every result's detail on its way out (result format, owner 2026-11-19):
+/// control characters but new lines and tabs gone, and anything that looks
+/// like a credential replaced by "[secret]": a PEM block, a token with a
+/// known prefix (sk-, sk_live_, ghp_, github_pat_, xoxb-, AKIA, AIza, eyJ,
+/// whsec_ ...; 16+ characters), a long word after "Bearer", and the value
+/// after a password/token/secret/api key label. Session ids and commit
+/// hashes are kept (cloud Glim needs them), so a bare long hex or UUID is
+/// not masked.
+pub fn redact_detail(s: &str) -> String {
+    let clean = crate::runbooks::scrub(s.as_bytes(), None);
+    let mut out: Vec<String> = Vec::new();
+    let mut in_pem = false;
+    for line in clean.split('\n') {
+        // A PEM block: from BEGIN to the end of its END line (a collapsed
+        // transcript message has it all on one line), the text before kept.
+        if in_pem {
+            if line.contains("-----END") {
+                in_pem = false;
+            }
+            continue;
+        }
+        if let Some(b) = line.find("-----BEGIN") {
+            in_pem = !line[b..].contains("-----END");
+            out.push(format!("{}[secret]", redact_line(&line[..b])));
+            continue;
+        }
+        out.push(redact_line(line));
+    }
+    out.join("\n")
+}
+
+const SECRET_PREFIXES: [&str; 16] = ["sk-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_", "ghp_", "gho_", "ghs_", "github_pat_", "xoxb-", "xoxp-", "AKIA", "AIza", "eyJ", "glpat-"];
+const SECRET_LABELS: [&str; 8] = ["password", "passwd", "pwd", "passcode", "api_key", "apikey", "secret", "token"];
+
+fn word_core(w: &str) -> &str {
+    w.trim_matches(|c: char| "\"'`()[]{}<>,;.!?".contains(c))
+}
+
+fn is_label(w: &str) -> bool {
+    let l = w.to_ascii_lowercase();
+    SECRET_LABELS.iter().any(|x| l.ends_with(x))
+}
+
+fn redact_line(line: &str) -> String {
+    let words: Vec<&str> = line.split(' ').collect();
+    let mut out: Vec<String> = Vec::with_capacity(words.len());
+    // A label ended its word or stood before a lone "=" / ":": the next value goes.
+    let mut mask_next = false;
+    for (i, w) in words.iter().enumerate() {
+        let c = word_core(w);
+        if mask_next && !c.is_empty() && c != "=" && c != ":" {
+            mask_next = false;
+            out.push("[secret]".into());
+            continue;
+        }
+        if let Some(cut) = c.find(['=', ':']) {
+            // "password:hunter2", "token=abc", "password:" (value next)
+            if is_label(c[..cut].trim_end()) {
+                if cut + 1 < c.len() {
+                    out.push(format!("{}[secret]", &c[..=cut]));
+                } else {
+                    mask_next = true;
+                    out.push(w.to_string());
+                }
+                continue;
+            }
+        } else if is_label(c) && matches!(words.get(i + 1).map(|n| word_core(n)), Some("=") | Some(":")) {
+            // "password = hunter2"; prose ("the token works") is left alone.
+            mask_next = true;
+            out.push(w.to_string());
+            continue;
+        }
+        let prefixed = c.len() >= 16 && SECRET_PREFIXES.iter().any(|p| c.starts_with(p));
+        let bearer = i > 0 && word_core(words[i - 1]).eq_ignore_ascii_case("bearer") && c.len() >= 16;
+        out.push(if prefixed || bearer { "[secret]".into() } else { w.to_string() });
+    }
+    out.join(" ")
 }
 
 pub const MAX_DETAIL_CHARS: usize = 12_000;
@@ -321,7 +427,7 @@ impl RealExec {
 }
 
 impl Exec for RealExec {
-    fn run(&self, c: &Command, client: &str) -> Result<String, String> {
+    fn run(&self, c: &Command, client: &str) -> Result<Ran, String> {
         let now = SystemTime::now();
         match c {
             Command::SessionStatus { repo } => {
@@ -337,13 +443,13 @@ impl Exec for RealExec {
                         Err(_) => format!("{r}: folder not found on this PC"),
                     })
                     .collect();
-                Ok(lines.join("\n"))
+                Ok(lines.join("\n").into())
             }
             Command::TranscriptTail { repo, lines } => {
                 let scope = self.scope(client)?;
                 let f = self.folder(repo)?;
                 let (p, _) = scope.latest(&f).ok_or_else(|| scope.none_reason(&f))?;
-                Ok(tail_of(&read_tail(&p)?, *lines as usize))
+                Ok(tail_of(&read_tail(&p)?, *lines as usize).into())
             }
             Command::StartSession { repo, prompt } => {
                 let scope = self.scope(client)?;
@@ -353,14 +459,18 @@ impl Exec for RealExec {
                 match prompt {
                     Some(p) => {
                         // `-w`: a git worktree of its own (owner 2026-11-15).
-                        crate::platform::start_hidden_with_stdin(&exe, &["-p", "-w", "--output-format", "text"], &f, &[(var, dir.as_str())], p)?;
-                        Ok(format!("{repo}: started a Claude Code task (claude -p) as {}", scope.account.name))
+                        // Its id chosen here (`--session-id`, 2026-11-19), so
+                        // the result names the session cloud Glim can follow up.
+                        let id = new_session_id()?;
+                        crate::platform::start_hidden_with_stdin(&exe, &["-p", "-w", "--session-id", id.as_str(), "--output-format", "text"], &f, &[(var, dir.as_str())], p)?;
+                        Ok(Ran { detail: format!("{repo}: started a Claude Code task (claude -p) as {}, session {id}", scope.account.name), session: Some(id) })
                     }
                     None => {
                         let folder = f.to_string_lossy().into_owned();
                         let line = crate::keepalive::launch_line_for(&exe.to_string_lossy(), &folder, &scope.account);
                         crate::platform::start_in_console(&line, &f, &[(crate::keepalive::ENV_NAME, crate::keepalive::ENV_VALUE), (var, dir.as_str())], true)?;
-                        Ok(format!("{repo}: started a remote-control session as {}", scope.account.name))
+                        // Remote control names its sessions itself, later: none here.
+                        Ok(format!("{repo}: started a remote-control session as {}", scope.account.name).into())
                     }
                 }
             }
@@ -380,7 +490,7 @@ impl Exec for RealExec {
                 let exe = self.claude(&at)?;
                 let (var, dir) = crate::accounts::env(&scope.account);
                 crate::platform::start_hidden_with_stdin(&exe, &["-p", "--resume", session.as_str(), "--output-format", "text"], &at, &[(var, dir.as_str())], text)?;
-                Ok(format!("{repo}: sent to {}'s session {session} (claude -p --resume)", scope.account.name))
+                Ok(Ran { detail: format!("{repo}: sent to {}'s session {session} (claude -p --resume)", scope.account.name), session: Some(session.clone()) })
             }
             Command::KeepaliveRestart { folder } => {
                 // Only this client's account's servers.
@@ -388,7 +498,7 @@ impl Exec for RealExec {
                 let account = if scope.account.config_dir.is_empty() { String::new() } else { scope.account.name.clone() };
                 let n = crate::keepalive::restart(folder.as_deref(), Some(&account))?;
                 crate::log::line(format!("remote: keepalive-restart restarted {n}"));
-                Ok(restart_line(n, &scope.account.name))
+                Ok(restart_line(n, &scope.account.name).into())
             }
             Command::Runbook { name } => {
                 let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});
@@ -397,7 +507,7 @@ impl Exec for RealExec {
                         let done = steps.iter().filter(|o| o.ok).count();
                         let total = steps.first().map(|o| o.total).unwrap_or(0);
                         if done == steps.len() {
-                            Ok(format!("{name}: OK ({done}/{total} steps)"))
+                            Ok(format!("{name}: OK ({done}/{total} steps)").into())
                         } else {
                             Err(format!("runbook-failed-{done}-of-{total}"))
                         }
