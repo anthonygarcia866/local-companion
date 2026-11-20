@@ -787,6 +787,12 @@ fn result_details_are_redacted_but_ids_and_hashes_kept() {
     assert_eq!(r(enc), "[secret]\n after");
     // A URL is masked AND still checked as a word.
     assert_eq!(r("password=hunter2&token=abc"), "password=[secret]");
+    // Fail closed inside a block (security review 2026-11-19): armor headers,
+    // short or odd lines, prose-looking lines are all masked until END.
+    let odd = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: 1\nComment: hi there\n==\nlQOYBF\n-----END PGP PRIVATE KEY BLOCK-----\nok";
+    assert_eq!(r(odd), "[secret]\nok");
+    // Only the next transcript message ends a block that never ends.
+    assert_eq!(r("you: -----BEGIN X-----\nnot a message\nclaude: next"), "you: [secret]\nclaude: next");
     assert_eq!(r("line1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\nline5"), "line1\n[secret]\nline5");
     assert_eq!(r("bell\u{7} and tab\tkept"), "bell and tab\tkept");
     // Kept: prose, session ids, commit hashes, the courier's own fixed lines.

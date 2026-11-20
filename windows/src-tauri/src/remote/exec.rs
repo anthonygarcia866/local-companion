@@ -93,10 +93,11 @@ pub fn new_session_id() -> Result<String, String> {
 pub fn redact_detail(s: &str) -> String {
     let clean = crate::runbooks::scrub(s.as_bytes(), None);
     let mut out: Vec<String> = Vec::new();
-    // Inside a PEM block that didn't end on its line: lines are skipped
-    // until END, while they look like a PEM body (base64, or a header such
-    // as "Proc-Type:"), at most PEM_MAX_LINES; a line that looks like
-    // neither (the next transcript message) ends the skip and is kept.
+    // Inside a PEM block that didn't end on its line, EVERY line is masked
+    // (fail closed, security review 2026-11-19) until END, at most
+    // PEM_MAX_LINES; only the start of the next transcript-tail message
+    // ("you: " / "claude: ", which no PEM body or armor header line can
+    // be) ends it early, so a BEGIN in prose doesn't swallow the rest.
     let mut in_pem: usize = 0;
     for line in clean.split('\n') {
         if in_pem > 0 {
@@ -113,7 +114,7 @@ pub fn redact_detail(s: &str) -> String {
                 }
                 continue;
             }
-            if looks_like_pem_body(line) {
+            if !starts_message(line) {
                 in_pem -= 1;
                 continue;
             }
@@ -162,14 +163,9 @@ fn pem_line(line: &str) -> (String, bool) {
     }
 }
 
-/// A line of a PEM body: base64 (64 per line, the last shorter), or one of
-/// its own headers ("Proc-Type: 4,ENCRYPTED", "DEK-Info: …"), or blank.
-fn looks_like_pem_body(line: &str) -> bool {
-    let t = line.trim();
-    t.is_empty()
-        || t.starts_with("Proc-Type:")
-        || t.starts_with("DEK-Info:")
-        || (t.len() >= 4 && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='))
+/// The start of a transcript-tail message (exec::tail_of's prefixes).
+fn starts_message(line: &str) -> bool {
+    line.starts_with("you: ") || line.starts_with("claude: ") || line.starts_with("…you: ") || line.starts_with("…claude: ")
 }
 
 /// What follows a PEM END marker's closing dashes on its line.
