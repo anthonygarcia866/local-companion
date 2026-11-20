@@ -179,6 +179,7 @@ export class Relay {
     const live = [];
     for (const ws of this.pcSockets()) {
       const seen = this.lastSeenMs(ws);
+      if (seen !== null) this.noteSeen(seen);
       if (seen !== null && now * 1000 - seen > PC_SILENT_MS) {
         try { ws.close(4001, "no-ping"); } catch { /* already gone */ }
         continue;
@@ -281,7 +282,19 @@ export class Relay {
   /** The PC's connection, and how many of this client's tasks wait. */
   status(now, client = LEGACY_CLIENT) {
     this.purge(now);
-    return { pc: this.livePc(now).length > 0, pending: this.store.countTasks(client) };
+    const pc = this.livePc(now).length > 0;
+    const seen = this.store.seenMs();
+    return { pc, last_seen: seen === null ? null : Math.floor(seen / 1000), pending: this.store.countTasks(client) };
+  }
+
+  /** The PC was seen at `ms` (a ping, a frame, a connect or a close): kept
+   * across disconnects and restarts, so `status` can say when the PC was
+   * last there even while it's gone (owner 2026-11-19). Only ever moves
+   * forward. */
+  noteSeen(ms) {
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return;
+    const cur = this.store.seenMs();
+    if (cur === null || ms > cur) this.store.setSeenMs(Math.floor(ms));
   }
 
   /** When the alarm should next clear expired rows (ms), or null. */
@@ -339,4 +352,7 @@ export class MemoryStore {
     const all = [...this.t.values(), ...this.r.values()].map((x) => x.exp);
     return all.length ? Math.min(...all) : null;
   }
+  /** When the PC was last seen (ms), or null. */
+  seenMs() { return this.seen === undefined ? null : this.seen; }
+  setSeenMs(ms) { this.seen = ms; }
 }
