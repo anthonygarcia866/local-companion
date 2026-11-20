@@ -224,10 +224,15 @@ pub fn tail_chars(chars: &[char], n: usize) -> String {
     if n >= chars.len() {
         return chars.iter().collect();
     }
-    let mut part = &chars[chars.len() - n..];
-    if let Some(i) = part.iter().position(|&c| c == '\n') {
-        if i + 1 < part.len() {
-            part = &part[i + 1..];
+    let start = chars.len() - n;
+    let mut part = &chars[start..];
+    // Already at a line's start (the character before is a break): keep it.
+    let at_line_start = start > 0 && chars[start - 1] == '\n';
+    if !at_line_start {
+        if let Some(i) = part.iter().position(|&c| c == '\n') {
+            if i + 1 < part.len() {
+                part = &part[i + 1..];
+            }
         }
     }
     format!("…{}", part.iter().collect::<String>())
@@ -235,7 +240,7 @@ pub fn tail_chars(chars: &[char], n: usize) -> String {
 
 /// The envelope for the longest tail of `detail` (`tail_chars`) whose
 /// envelope `make` builds within MAX_RESULT_BYTES: a binary search on the
-/// characters kept (about 14 builds for 12,000). None when not even the
+/// characters kept (about 16 builds for 12,000). None when not even the
 /// marker alone fits.
 pub fn fit_detail(detail: &str, make: impl Fn(&str) -> String) -> Option<String> {
     let chars: Vec<char> = detail.chars().collect();

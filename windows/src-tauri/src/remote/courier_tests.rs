@@ -647,7 +647,9 @@ fn fit_detail_keeps_the_longest_tail_that_fits_or_gives_up() {
     assert!(courier::fit_detail(&detail, |_| "x".repeat(courier::MAX_RESULT_BYTES + 1)).is_none());
     // tail_chars: whole lines when a break is in the part kept.
     let c: Vec<char> = "one\ntwo\nthree".chars().collect();
-    assert_eq!(courier::tail_chars(&c, 9), "…three");
+    assert_eq!(courier::tail_chars(&c, 7), "…three", "mid line: from the next whole line");
+    assert_eq!(courier::tail_chars(&c, 9), "…two\nthree", "already at a line's start: kept");
+    assert_eq!(courier::tail_chars(&c, 5), "…three");
     assert_eq!(courier::tail_chars(&c, 3), "…ree");
     assert_eq!(courier::tail_chars(&c, 13), "one\ntwo\nthree");
 }
@@ -823,6 +825,15 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     let text: String = lines.iter().map(|l| l.to_string() + "\n").collect();
     assert_eq!(super::exec::tail_of(text.as_bytes(), 20), "you: Please fix the build\nclaude: On it.\nclaude: Done: CI is green.");
     assert_eq!(super::exec::tail_of(text.as_bytes(), 1), "claude: Done: CI is green.");
+    // 50 long messages (2026-11-19): up to 12,000 characters of WHOLE
+    // messages, newest last; it used to be cut to 4,000 mid message by the
+    // runbook redactor's own cap. Control characters still go.
+    let long: String = (0..50).map(|i| json!({ "type": "user", "message": { "content": format!("m{i:02}\u{7} {}", "word ".repeat(80)) } }).to_string() + "\n").collect();
+    let t = super::exec::tail_of(long.as_bytes(), 50);
+    let n = t.chars().count();
+    assert!(n > 11_000 && n <= super::exec::MAX_DETAIL_CHARS, "{n}");
+    assert!(t.starts_with("you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'));
+    assert!(t.lines().all(|l| l.starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
     // The folder as runbooks::allowed_folder hands it over: canonicalized,
     // with Windows' verbatim prefix (2026-11-14: session-status said "no
