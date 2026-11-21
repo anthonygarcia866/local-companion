@@ -1,7 +1,7 @@
 // Phone approval of a paused remote runbook step (owner 2026-11-21,
-// docs/remote-runbooks.md §8). OWNER-MERGE ONLY: changes to this file (the
-// PC's verification) are merged by the owner, never by cloud Glim + Claude
-// (CLAUDE.md, CODEOWNERS).
+// docs/remote-runbooks.md §8). SECURITY-CRITICAL: changes to this file (the
+// PC's verification) merge only with CI green and a fresh-agent security
+// review finding nothing critical or high (CLAUDE.md, CODEOWNERS).
 //
 // - Approvers are WebAuthn credentials (a synced Face ID passkey now; a
 //   hardware security key can be added the same way later, no rebuild):

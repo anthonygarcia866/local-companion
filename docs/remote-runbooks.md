@@ -4,7 +4,7 @@ Roadmap TOP item 5. The owner decided D1-D6 in chat on 2026-11-20 (§7). They re
 
 1. **Levels 1 and 3, plus editable limits** (§3.1, §3.5).
 2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3). Built 2026-11-20: `remote/runs.rs`. Until PR 3, nothing can approve a paused run: it only expires (24 h) or ends `killed`. A run still running when Glim stops ends `failed … (interrupted)` at the next start (its step may or may not have finished, so it is never resumed).
-3. **Phone approval (level 2)**: owner answered §8 on 2026-11-21; built as PR 3 (the page in a PR of its own, owner-merge only).
+3. **Phone approval (level 2)**: owner answered §8 on 2026-11-21; built as PR 3 (the page in a PR of its own; security-critical paths).
 
 No runbook is remote-allowed after any of these PRs. The owner picks levels afterwards, one runbook at a time, by editing its file and approving it again.
 
@@ -128,7 +128,7 @@ No runbook is remote-allowed after any of these PRs. The owner picks levels afte
 
 1. **(a) A synced Face ID passkey.** Built so a hardware security key can be added later as another approver with no rebuild: up to 3 approvers, each its own credential and key (`kind` = `passkey` / `security-key`).
 2. **The page is on GitHub Pages from this repo** (`approve/`, `.github/workflows/approve-pages.yml`, `https://anthonygarcia866.github.io/local-companion/`).
-   - Owner-merge only: `.github/CODEOWNERS`, plus the rule in CLAUDE.md "Merges". It covers the page and the PC's verification code (`remote/approve.rs`, `relay/src/approvals.js`).
+   - Security-critical (owner 2026-11-21; was owner-merge only earlier that day): `.github/CODEOWNERS`, plus the rule in CLAUDE.md "Merges" (CI green + a fresh-agent security review with nothing critical or high). It covers the page and the PC's verification code (`remote/approve.rs`, `relay/src/approvals.js`).
    - Match code: Pushover's text and the page both show the runbook, step, client and a random 6-character code. The page says not to approve if the code doesn't match. The passkey signs SHA-256 of the request id, run id, runbook, its approved hash, step, step kind, step count, client, expiry and code, and the PC rebuilds and checks every one of them.
    - **Other Pages sites on the same origin, checked 2026-11-21:** none. Of the account's 6 repos (5 private, 1 public), none has Pages enabled, and there is no `anthonygarcia866.github.io` user site. So nothing else can use the passkey today. CLAUDE.md now forbids enabling Pages on another repo of this account. If one is ever needed, move the page to its own domain first.
 3. **No relay address in Pushover links.** The link carries the request id and the relay's host sealed to each approver's key. Request details are sealed (AES-256-GCM) to a key on the phone: the WebAuthn **PRF** output of the passkey (iOS 18+, reliable from 18.4, iCloud Keychain passkeys), via HKDF. No key is stored by the page: the phone re-derives it with Face ID each time. Pushover sees only the runbook name, step, client and match code.
