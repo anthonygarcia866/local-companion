@@ -94,6 +94,11 @@ test("phone POST bodies: Content-Length required and checked against the stream,
   assert.equal((await readCapped(fakeRequest({ "content-length": "5" }, ["{}"]), 10)).status, 400, "shorter than declared");
   assert.deepEqual(await readCapped(fakeRequest({ "content-length": "0" }, null), 10), { ok: true, text: "" });
   assert.equal(MAX_ANSWER_BYTES, 8 * 1024);
+  // The Durable Object's check: no Content-Length needed (the Worker drops
+  // it), the stream cap still holds.
+  assert.deepEqual(await readCapped(fakeRequest({}, ["{}"]), 10, true), { ok: true, text: "{}" });
+  assert.equal((await readCapped(fakeRequest({}, ["x".repeat(6), "x".repeat(6)]), 10, true)).status, 413);
+  assert.deepEqual(await readCapped(fakeRequest({}, null), 10, true), { ok: true, text: "" });
 });
 
 test("the Worker reads a phone body capped before forwarding it", () => {

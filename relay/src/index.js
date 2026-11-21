@@ -215,7 +215,9 @@ export class Mailbox extends DurableObject {
         const r = this.approvals.read(kind, id, now());
         return phoneJson(r.status, r.body);
       }
-      const body = await readCapped(request, MAX_ANSWER_BYTES);
+      // Only the Worker reaches this (it read the body capped already and
+      // forwarded it without a Content-Length): the stream cap again.
+      const body = await readCapped(request, MAX_ANSWER_BYTES, true);
       if (!body.ok) return phoneJson(body.status, { error: body.error });
       const r = this.approvals.answer(kind, id, body.text, now());
       return phoneJson(r.status, r.body);
