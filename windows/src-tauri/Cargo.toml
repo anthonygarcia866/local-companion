@@ -44,6 +44,8 @@ ring = "0.17"
 # NEW crate (dalek-cryptography): pure Rust, no network, no telemetry, no
 # I/O; default features off (no precomputed tables), secrets zeroized.
 x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+# The pairing QR code in Settings → Remote (owner 2026-11-21): pure Rust, SVG only, no I/O.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # Only src/net/ may use it (the network choke point; a test enforces this).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # The courier relay's WebSocket (src/net/relay.rs only, the same choke-point

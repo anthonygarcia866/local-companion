@@ -642,6 +642,9 @@ impl Exec for RealExec {
                 let stopped = || super::runs::with(|r| r.killed(&id));
                 let seg = crate::runbooks::run_remote_now(name, None, 0, false, &stopped);
                 let run = super::runs::with(|r| r.began(&id, seg, super::now_s()))?;
+                if run.state == super::runs::RunState::Paused {
+                    ask_phone(&run);
+                }
                 runbook_answer(&run)
             }
             Command::RunStatus { run } => {
@@ -669,13 +672,94 @@ pub fn runbook_answer(run: &super::runs::Run) -> Result<Ran, String> {
 
 /// Resumes a paused remote run at its paused step, once the owner OK'd it
 /// (phone approval, PR 3, calls this after the phone's signature verified).
-#[allow(dead_code)] // called by phone approval (PR 3)
 pub fn resume_run(id: &str) -> Result<super::runs::Run, String> {
     let Some(_running) = RemoteRun::claim() else { return Err("runbook-busy".into()) };
     let (name, hash, from) = super::runs::with(|r| r.begin_resume(id, super::now_s()))?;
     let stopped = || super::runs::with(|r| r.killed(id));
     let seg = crate::runbooks::run_remote_now(&name, Some(&hash), from, true, &stopped);
-    super::runs::with(|r| r.resumed(id, seg, super::now_s()))
+    let run = super::runs::with(|r| r.resumed(id, seg, super::now_s()))?;
+    // Another phone step further on: ask again.
+    if run.state == super::runs::RunState::Paused {
+        ask_phone(&run);
+    }
+    Ok(run)
+}
+
+/// What the courier hands this module once (courier::start): the settings,
+/// the relay outbox and the phone (Pushover, with a link).
+pub struct Hooks {
+    pub settings: std::sync::Arc<dyn Fn() -> super::RemoteSettings + Send + Sync>,
+    pub send: std::sync::Arc<dyn Fn(String) + Send + Sync>,
+    pub phone: std::sync::Arc<dyn Fn(String, String) + Send + Sync>,
+}
+
+static HOOKS: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();
+
+pub fn set_hooks(h: Hooks) {
+    let _ = HOOKS.set(h);
+}
+
+/// A run paused at a phone step: one approval request, sealed to every
+/// enrolled approver, and a Pushover ping with its match code and link
+/// (docs/remote-runbooks.md §8). No approver: it waits, and expires.
+pub fn ask_phone(run: &super::runs::Run) {
+    use super::approve;
+    let Some(h) = HOOKS.get() else { return };
+    let s = (h.settings)();
+    let keys = approve::read_keys(&approve::keys_vault());
+    let approvers: Vec<(approve::Approver, [u8; 32])> = s
+        .approvers
+        .iter()
+        .filter_map(|a| keys.get(&a.id).and_then(|k| super::seal::from_hex(k)).and_then(|k| <[u8; 32]>::try_from(k).ok()).map(|k| (a.clone(), k)))
+        .collect();
+    if approvers.is_empty() {
+        crate::log::line("remote: runbook paused; no phone approver enrolled");
+        return;
+    }
+    let host = s.relay.trim_start_matches("https://").trim_end_matches('/').to_string();
+    let (Some(rid), Some(code)) = (approve::new_slot_id(), approve::new_match_code()) else { return };
+    let Some(req) = approve::request(&rid, &code, run, &approvers, &host) else { return };
+    super::runs::with(|r| r.set_approval(&run.id, &rid, &code));
+    (h.send)(req.frame);
+    (h.phone)(req.text, req.url);
+    crate::log::line("remote: phone approval requested");
+}
+
+/// The approval page's answer to request `rid`, as the relay hands it over.
+/// The request is used up whatever the answer; only a verified Approve
+/// resumes the run (on a thread of its own).
+pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
+    use super::approve::{judge, Verdict};
+    let Some(h) = HOOKS.get() else { return };
+    (h.send)(serde_json::json!({ "t": "approval-ack", "id": rid }).to_string());
+    let s = (h.settings)();
+    if s.killed {
+        crate::log::line("remote: phone approval refused killed");
+        return;
+    }
+    let Some(run) = super::runs::with(|r| r.take_approval(rid, now)) else {
+        crate::log::line("remote: phone approval refused no-waiting-run");
+        return;
+    };
+    match judge(answer, rid, &run, &run.code, &s.approvers) {
+        Verdict::Approve => {
+            crate::log::line("remote: phone approval verified; resuming");
+            let id = run.id.clone();
+            let _ = std::thread::Builder::new().name("remote-resume".into()).spawn(move || {
+                if let Err(e) = resume_run(&id) {
+                    crate::log::line(format!("remote: resume refused {e}"));
+                }
+            });
+        }
+        Verdict::Stop => {
+            let _ = super::runs::with(|r| r.decline(&run.id, now));
+            crate::log::line("remote: phone approval declined");
+        }
+        Verdict::Refused(code) => {
+            let _ = super::runs::with(|r| r.refuse(&run.id, code, now));
+            crate::log::line(format!("remote: phone approval refused {code}"));
+        }
+    }
 }
 
 /// The one remote runbook run allowed at a time; released when dropped.

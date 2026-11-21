@@ -1,0 +1,9 @@
+# Owner-merge-only paths (owner 2026-11-21, CLAUDE.md "Merges"): the phone
+# approval page and the PC code that verifies its approvals. Changes here
+# are merged by the owner only, never by cloud Glim + Claude.
+/approve/ @anthonygarcia866
+/.github/workflows/approve-pages.yml @anthonygarcia866
+/windows/src-tauri/src/remote/approve.rs @anthonygarcia866
+/windows/src-tauri/src/remote/approve_tests.rs @anthonygarcia866
+/relay/src/approvals.js @anthonygarcia866
+/.github/CODEOWNERS @anthonygarcia866

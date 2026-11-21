@@ -48,6 +48,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod approve;
 pub mod command;
 pub mod courier;
 pub mod exec;
@@ -135,6 +136,10 @@ pub struct RemoteSettings {
     pub runbooks_per_hour: u32,
     /// Remote runbook tasks an hour on this PC; 0 = the default (10).
     pub runbooks_per_hour_pc: u32,
+    /// Phone approvers (owner 2026-11-21): WebAuthn credentials allowed to
+    /// OK a paused remote runbook step. Added and removed on this PC only
+    /// (Settings → Remote); their keys in Credential Manager.
+    pub approvers: Vec<approve::Approver>,
 }
 
 impl RemoteSettings {

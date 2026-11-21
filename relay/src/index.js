@@ -23,9 +23,29 @@
 //                             "connected" = a PC socket that pinged (or
 //                             sent a frame) in the last 75 s; a silent one
 //                             is closed then (core.js PC_SILENT_MS).
+//
+// Phone approvals (owner 2026-11-21, approvals.js; NO token, CORS only for
+// the approval page's origin): the 32-hex slot id the PC made is the only
+// key, and what it unlocks is sealed (requests) or single-use and verified
+// by the PC (answers).
+//   GET  /v1/approve/<id>     a sealed approval request.
+//   POST /v1/approve/<id>     its one answer (stop, or approve + assertion).
+//   POST /v1/pair/<id>        a pairing slot's one answer (sealed to the PC).
 
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, CLIENT_NAME, LEGACY_CLIENT, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
+import { Approvals, MAX_ANSWER_BYTES } from "./approvals.js";
+
+/** The approval page (GitHub Pages, approve/ in the repo): the only origin
+ * a browser may call the phone routes from. */
+export const PAGE_ORIGIN = "https://anthonygarcia866.github.io";
+/** /v1/approve/<id> and /v1/pair/<id>. */
+const PHONE_ROUTE = /^\/v1\/(approve|pair)\/([0-9a-f]{32})$/;
+/** Set by the Worker for a phone route; whatever a caller sent is dropped. */
+const PHONE_HEADER = "x-relay-phone";
+
+const cors = (headers = {}) => ({ ...headers, "access-control-allow-origin": PAGE_ORIGIN, "access-control-allow-methods": "GET, POST", "access-control-allow-headers": "content-type", "access-control-max-age": "600", vary: "origin" });
+const phoneJson = (status, body) => new Response(JSON.stringify(body), { status, headers: cors({ "content-type": "application/json", "cache-control": "no-store" }) });
 
 /** Set by the Worker (never by the caller) for the Durable Object. */
 const CLIENT_HEADER = "x-relay-client";
@@ -35,6 +55,21 @@ const json = (status, body) =>
 
 export default {
   async fetch(request, env) {
+    const url0 = new URL(request.url);
+    const phone = PHONE_ROUTE.exec(url0.pathname);
+    if (phone) {
+      // No token here, by design. Only the page's origin gets CORS, and
+      // only GET (approve) / POST reach the mailbox.
+      if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
+      const okMethod = request.method === "POST" || (request.method === "GET" && phone[1] === "approve");
+      if (!okMethod) return phoneJson(405, { error: "method" });
+      const stub = env.RELAY.get(env.RELAY.idFromName("mailbox"));
+      const forwarded = new Request(request);
+      forwarded.headers.delete(CLIENT_HEADER);
+      forwarded.headers.delete("authorization");
+      forwarded.headers.set(PHONE_HEADER, "1");
+      return stub.fetch(forwarded);
+    }
     const who = await caller(request.headers.get("authorization"), env);
     if (!who) return json(401, { error: "unauthorized" });
     const url = new URL(request.url);
@@ -111,6 +146,24 @@ class SqlStore {
   setSeenMs(ms) { this.sql.exec("INSERT OR REPLACE INTO seen (k, ms) VALUES (1, ?)", ms); }
 }
 
+/** Approval and pairing slots (approvals.js's store). */
+class SqlSlots {
+  constructor(sql) {
+    this.sql = sql;
+    sql.exec("CREATE TABLE IF NOT EXISTS slots (id TEXT PRIMARY KEY, kind TEXT NOT NULL, exp INTEGER NOT NULL, body TEXT NOT NULL, answer TEXT)");
+  }
+  get(id) {
+    const rows = this.sql.exec("SELECT id, kind, exp, body, answer FROM slots WHERE id = ?", id).toArray();
+    return rows.length ? rows[0] : null;
+  }
+  put(r) { this.sql.exec("INSERT INTO slots (id, kind, exp, body, answer) VALUES (?, ?, ?, ?, NULL)", r.id, r.kind, r.exp, r.body); }
+  setAnswer(id, answer) { this.sql.exec("UPDATE slots SET answer = ? WHERE id = ? AND answer IS NULL", answer, id); }
+  remove(id) { this.sql.exec("DELETE FROM slots WHERE id = ?", id); }
+  count() { return this.sql.exec("SELECT COUNT(*) AS n FROM slots").toArray()[0].n; }
+  answered() { return this.sql.exec("SELECT id, kind, answer FROM slots WHERE answer IS NOT NULL ORDER BY rowid").toArray(); }
+  expire(before) { this.sql.exec("DELETE FROM slots WHERE exp < ?", before); }
+}
+
 const now = () => Math.floor(Date.now() / 1000);
 
 export class Mailbox extends DurableObject {
@@ -130,6 +183,7 @@ export class Mailbox extends DurableObject {
     };
     this.lastSeenMs = lastSeenMs;
     this.relay = new Relay(new SqlStore(ctx.storage.sql), () => ctx.getWebSockets("pc"), lastSeenMs);
+    this.approvals = new Approvals(new SqlSlots(ctx.storage.sql), () => ctx.getWebSockets("pc"));
   }
 
   async schedule() {
@@ -146,6 +200,20 @@ export class Mailbox extends DurableObject {
 
   async fetch(request) {
     const url = new URL(request.url);
+    const phone = request.headers.get(PHONE_HEADER) === "1" ? PHONE_ROUTE.exec(url.pathname) : null;
+    if (phone) {
+      const [, route, id] = phone;
+      const kind = route === "approve" ? "approval" : "pair";
+      if (request.method === "GET") {
+        const r = this.approvals.read(kind, id, now());
+        return phoneJson(r.status, r.body);
+      }
+      const len = Number(request.headers.get("content-length") || "0");
+      if (len > MAX_ANSWER_BYTES) return phoneJson(413, { error: "too-big" });
+      const text = await request.text();
+      const r = this.approvals.answer(kind, id, text, now());
+      return phoneJson(r.status, r.body);
+    }
     const named = request.headers.get(CLIENT_HEADER) || "";
     const client = CLIENT_NAME.test(named) ? named : null;
     if (url.pathname !== "/v1/pc" && client === null) return json(403, { error: "wrong-token" });
@@ -160,6 +228,7 @@ export class Mailbox extends DurableObject {
       server.serializeAttachment({ since: Date.now() });
       this.relay.noteSeen(Date.now());
       for (const f of this.relay.pendingFrames(now())) server.send(f);
+      for (const f of this.approvals.pendingFrames(now())) server.send(f);
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === "/v1/tasks" && request.method === "POST") {
@@ -198,6 +267,12 @@ export class Mailbox extends DurableObject {
     try { ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), last: Date.now() }); } catch { /* closing */ }
     this.relay.noteSeen(Date.now());
     if (typeof message !== "string") return;
+    let f = null;
+    try { f = JSON.parse(message); } catch { /* not JSON: core ignores it too */ }
+    if (f && typeof f.t === "string" && /^(approval|pair)(-void|-ack)?$/.test(f.t)) {
+      this.approvals.fromPc(f, now());
+      return;
+    }
     this.relay.fromPc(message, now());
     await this.schedule();
   }

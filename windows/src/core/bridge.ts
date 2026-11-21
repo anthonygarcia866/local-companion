@@ -207,6 +207,11 @@ export const Bridge = {
   remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
   remoteRequireSealed: (on: boolean) => callOrThrow<RemoteStatus>("remote_require_sealed", { on }),
   remoteRunbookLimits: (perClient: number, perPc: number) => callOrThrow<RemoteStatus>("remote_runbook_limits", { perClient, perPc }),
+  remotePairStart: () => callOrThrow<PairView>("remote_pair_start"),
+  remotePairStatus: () => callOrThrow<PairView>("remote_pair_status"),
+  remotePairConfirm: (name: string) => callOrThrow<RemoteStatus>("remote_pair_confirm", { name }),
+  remotePairCancel: () => callOrThrow<PairView>("remote_pair_cancel"),
+  remoteApproverRemove: (id: string) => callOrThrow<RemoteStatus>("remote_approver_remove", { id }),
   /** A new PC relay token + result key (cloud tokens are each client's own). */
   remoteSetup: () => callOrThrow<RemoteStatus>("remote_setup"),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
@@ -515,8 +520,33 @@ export interface RemoteStatus {
   runbooksPerHourPc?: number;
   /** Runbooks whose file gives them a remote level: "name (cloud)". */
   remoteRunbooks?: string[];
+  /** Phone approvers (owner 2026-11-21): added and removed only here. */
+  approvers?: RemoteApprover[];
   /** Newest first. */
   activity: RemoteActivity[];
+}
+
+export interface RemoteApprover {
+  id: string;
+  name: string;
+  fingerprint: string;
+  /** "passkey" | "security-key". */
+  kind: string;
+  /** A synced passkey (on every device of that Apple ID). */
+  synced: boolean;
+  added: number;
+}
+
+/** A phone pairing in progress (Settings → Remote → Pair a phone). */
+export interface PairView {
+  /** "none" | "waiting" | "ready" | "failed" | "expired". */
+  state: string;
+  url: string;
+  /** The QR code, an SVG Rust drew. */
+  qrSvg: string;
+  expires: number;
+  fingerprint: string;
+  synced: boolean;
 }
 
 export interface RemoteClientAnswer {

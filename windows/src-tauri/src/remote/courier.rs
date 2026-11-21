@@ -456,7 +456,23 @@ impl Courier {
     /// commands run on a thread of their own and answer when done.
     pub fn on_frame(&self, settings: &RemoteSettings, frame: &str, now: i64) {
         let Ok(f) = serde_json::from_str::<Value>(frame) else { return };
-        if f.get("t").and_then(Value::as_str) != Some("task") {
+        // Phone approvals (owner 2026-11-21): the page's answers, which the
+        // relay can't forge (approve.rs verifies them).
+        let t = f.get("t").and_then(Value::as_str).unwrap_or("");
+        if t == "approval-answer" || t == "pair-answer" {
+            let id = f.get("id").and_then(Value::as_str).unwrap_or("");
+            let answer = f.get("answer").and_then(Value::as_str).unwrap_or("");
+            if id.len() != 32 || !id.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)) {
+                return;
+            }
+            if t == "approval-answer" {
+                super::exec::on_approval_answer(id, answer, now);
+            } else {
+                super::approve::on_pair_answer(id, answer, now, &send_frame);
+            }
+            return;
+        }
+        if t != "task" {
             return;
         }
         let Some(env) = f.get("env").and_then(Value::as_str) else { return };
@@ -562,9 +578,21 @@ pub struct Loop {
     pub ledger: Arc<Mutex<Ledger>>,
 }
 
+/// The courier's outbox, for frames the PC starts (approval requests,
+/// pairing slots, voids); None until the courier runs.
+static OUTBOX: Mutex<Option<tokio::sync::mpsc::UnboundedSender<String>>> = Mutex::new(None);
+
+/// Sends a frame to the relay now, or on the next connection.
+pub fn send_frame(frame: String) {
+    if let Some(tx) = OUTBOX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        let _ = tx.send(frame);
+    }
+}
+
 /// Runs until `running` says stop.
 pub async fn run(l: Loop) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    *OUTBOX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx.clone());
     let mut unsent: Vec<String> = Vec::new();
     let answered: Answered = Arc::default();
     let mut failures: u32 = 0;
@@ -699,7 +727,9 @@ pub fn start(
     settings: Arc<dyn Fn() -> RemoteSettings + Send + Sync>,
     keepalive_folders: Box<dyn Fn() -> Vec<String> + Send + Sync>,
     accounts: Box<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync>,
+    phone: Arc<dyn Fn(String, String) + Send + Sync>,
 ) {
+    super::exec::set_hooks(super::exec::Hooks { settings: settings.clone(), send: Arc::new(send_frame), phone });
     let link = Arc::new(|s: &RemoteSettings| -> Result<Link, &'static str> {
         let url = relay::endpoint(&s.relay).map_err(|_| "no-relay")?;
         let token = pc_token_vault().read().ok().flatten().filter(|t| t.len() == 64).ok_or("not-set-up")?;
