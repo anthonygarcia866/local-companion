@@ -91,3 +91,13 @@ file_exists = 'C:\path\to\example-project\.env.local'
 # type = "launch_detached"
 # command = 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\path\to\example-tools\example-updater.ps1'
 # folder = 'C:\path\to\example-tools'
+
+# Remote level (owner 2026-11-20, docs/remote-runbooks.md). Absent = "never":
+# cloud Glim can't start this runbook. "cloud" lets a signed cloud task run it
+# with no ask; "phone" (not built yet) will ask on the owner's phone. It is
+# inside the approved hash: changing it means approving the runbook again.
+# A step may set `remote = "phone"` or `remote = "never"` to be stricter
+# (never less strict) than the runbook; an `ask = true` step counts as
+# "phone" remotely; a launch_detached step is never remote.
+# [remote]
+# level = "cloud"

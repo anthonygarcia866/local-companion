@@ -777,6 +777,11 @@ struct RemoteStatus {
     pc_enc_fingerprint: String,
     /// "Require sealed tasks" (off by default).
     require_sealed: bool,
+    /// Remote runbook tasks an hour: per cloud client, on this PC (D6).
+    runbooks_per_hour: u32,
+    runbooks_per_hour_pc: u32,
+    /// Runbooks whose file gives them a remote level ("name (cloud)"), read only.
+    remote_runbooks: Vec<String>,
     activity: Vec<remote::Activity>,
 }
 
@@ -807,8 +812,24 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         pc_enc_fingerprint: remote::fingerprint(&s.pc_enc_key),
         pc_enc_key: s.pc_enc_key,
         require_sealed: s.require_sealed,
+        runbooks_per_hour: s.runbook_limits().0,
+        runbooks_per_hour_pc: s.runbook_limits().1,
+        remote_runbooks: runbooks::views().into_iter().filter(|b| b.remote != "never").map(|b| format!("{} ({})", b.name, b.remote)).collect(),
         activity,
     }
+}
+
+/// Remote runbook limits (owner 2026-11-20, D6): set here, on the PC, only.
+#[tauri::command]
+fn remote_runbook_limits(app: AppHandle, shared: State<Shared>, per_client: u32, per_pc: u32) -> Result<RemoteStatus, String> {
+    let c = per_client.clamp(*remote::RUNBOOKS_PER_HOUR_RANGE.start(), *remote::RUNBOOKS_PER_HOUR_RANGE.end());
+    let p = per_pc.clamp(*remote::RUNBOOKS_PER_HOUR_PC_RANGE.start(), *remote::RUNBOOKS_PER_HOUR_PC_RANGE.end());
+    update_settings(&app, &shared, |s| {
+        s.remote.runbooks_per_hour = c;
+        s.remote.runbooks_per_hour_pc = p;
+    });
+    log::line(format!("remote: runbook limits {c}/h per client, {p}/h on the PC"));
+    Ok(remote_now(&shared))
 }
 
 /// "Require sealed tasks" on or off (owner 2026-11-19).
@@ -2109,6 +2130,7 @@ pub fn run() {
             capture_status,
             remote_relay,
             remote_require_sealed,
+            remote_runbook_limits,
             remote_setup,
             runbooks_list,
             runbook_approve,

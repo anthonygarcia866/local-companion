@@ -27,6 +27,8 @@ pub fn exit_code(r: &Result<Vec<Outcome>, Refusal>) -> i32 {
         Err(Refusal::NotFound(_) | Refusal::Invalid(_)) => 2,
         Err(Refusal::NotApproved | Refusal::Changed) => 3,
         Err(Refusal::Asks(_)) => 4,
+        // Remote-only refusals (never from the CLI's own trigger).
+        Err(Refusal::NotRemote | Refusal::NeedsPhone) => 5,
     }
 }
 

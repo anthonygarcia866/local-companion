@@ -149,7 +149,8 @@ export function activityLine(a: RemoteActivity): string {
   if (a.kind === "kill-switch") return `${clock(a.at)} ${t("Stop remote tasks")}`;
   if (a.kind === "allowed-again") return `${clock(a.at)} ${t("Allow again")}`;
   const who = a.client ? `${a.client} · ` : "";
-  return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind: a.kind }) : t("Refused: {reason}", { reason: a.reason })}`;
+  const kind = a.runbook ? `${a.kind} ${a.runbook}` : a.kind;
+  return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind }) : t("Refused: {reason}", { reason: a.reason })}`;
 }
 
 /** The first free "account-N" (account-1, account-2 ...). */
@@ -235,6 +236,18 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     return saved === what ? [h("span", { class: "hint", "data-role": `remote-${what}-saved`, role: "status", style: "color:#3fb950", text: t("Saved") })] : [];
   }
 
+  function runbookLimits(): HTMLElement {
+    const perClient = h("input", { type: "number", min: "1", max: "20", "data-role": "remote-runbooks-client", value: String(status.runbooksPerHour ?? 5), style: "width:5em" }) as HTMLInputElement;
+    const perPc = h("input", { type: "number", min: "1", max: "50", "data-role": "remote-runbooks-pc", value: String(status.runbooksPerHourPc ?? 10), style: "width:5em" }) as HTMLInputElement;
+    const save = () => void act(() => Bridge.remoteRunbookLimits(Number(perClient.value) || 5, Number(perPc.value) || 10));
+    perClient.addEventListener("change", save);
+    perPc.addEventListener("change", save);
+    return h("div", { "data-role": "remote-runbook-limits" },
+      h("div", { class: "row" }, h("label", { text: t("Remote runbooks an hour, per cloud client") }), perClient),
+      h("div", { class: "row" }, h("label", { text: t("Remote runbooks an hour, this PC") }), perPc),
+    );
+  }
+
   function fillActivity(list: HTMLElement) {
     clear(list);
     list.append(h("h3", { text: t("Remote activity") }));
@@ -254,7 +267,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const prev = status;
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
-    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed"] as const).every(same);
+    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks"] as const).every(same);
     if (!rest) return draw();
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
@@ -414,6 +427,12 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       box.append(h("div", { class: "row" }, stop));
     }
     if (note) box.append(h("div", { class: "hint", "data-role": "remote-tasks-note", style: "color:#f4505e", text: note }));
+
+    // Remote runbooks (owner 2026-11-20, docs/remote-runbooks.md): the
+    // limits are set here, on the PC, only; the list is read only.
+    box.append(runbookLimits());
+    const remoteBooks = status.remoteRunbooks ?? [];
+    box.append(h("div", { class: "hint", "data-role": "remote-runbooks", text: remoteBooks.length ? t("Runbooks cloud Glim may start: {names}", { names: remoteBooks.join(", ") }) : t("No runbook may run remotely. A runbook's file sets it: [remote] level.") }));
 
     activityBox = h("div", { "data-role": "remote-activity" });
     fillActivity(activityBox);

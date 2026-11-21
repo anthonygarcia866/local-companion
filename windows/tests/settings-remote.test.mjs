@@ -247,3 +247,27 @@ test("no client yet: no fingerprint line at all", async () => {
   assert.deepEqual(roleText(el, "remote-fingerprint"), []);
   assert.deepEqual(roleText(el, "remote-pc-fingerprint"), []);
 });
+
+test("remote runbooks: limits are set here (one call to Rust), the list is read only, activity names the runbook", async () => {
+  const on = { on: true, consented: true };
+  replies.set("remote_status", rstatus({ ...on, runbooksPerHour: 5, runbooksPerHourPc: 10, remoteRunbooks: [] }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.match(roleText(el, "remote-runbooks")[0], /No runbook may run remotely/);
+  const perClient = role(el, "input", "remote-runbooks-client");
+  assert.equal(perClient.value ?? perClient.getAttribute("value"), "5");
+  const perPc = role(el, "input", "remote-runbooks-pc");
+  perPc.value = perPc.value ?? perPc.getAttribute("value");
+  assert.equal(perPc.value, "10");
+  replies.set("remote_runbook_limits", rstatus({ ...on, runbooksPerHour: 7, runbooksPerHourPc: 10, remoteRunbooks: [] }));
+  perClient.value = "7";
+  perClient.fire("change");
+  await tick();
+  assert.deepEqual(sent("remote_runbook_limits").at(-1), { perClient: 7, perPc: 10 });
+  replies.set("remote_status", rstatus({ ...on, remoteRunbooks: ["glim-check (cloud)"] }));
+  const listed = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.match(roleText(listed, "remote-runbooks")[0], /glim-check \(cloud\)/);
+  const line = activityLine({ at: 1_700_000_000, ok: true, kind: "runbook", reason: "", id: "x", client: "account-1", runbook: "glim-check" });
+  assert.match(line, /runbook glim-check/);
+});
