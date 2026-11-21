@@ -20,9 +20,10 @@ pub const KEPT: usize = 50;
 /// Runs one run-status answer lists, newest first.
 pub const LISTED: usize = 10;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RunState {
+    #[default]
     Running,
     Resumed,
     Paused,
@@ -34,7 +35,7 @@ pub enum RunState {
     ResumeChanged,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Run {
     /// 32 lower-case hex characters.
@@ -57,6 +58,15 @@ pub struct Run {
     pub updated: i64,
     /// While paused: when it expires (Unix seconds); 0 otherwise.
     pub expires: i64,
+    /// The paused step's kind ("run" …).
+    #[serde(default)]
+    pub step_kind: String,
+    /// While paused: the phone approval request's id (32 hex), "" none.
+    #[serde(default)]
+    pub approval: String,
+    /// Its match code ("ABC-DEF").
+    #[serde(default)]
+    pub code: String,
 }
 
 impl Run {
@@ -186,13 +196,39 @@ impl Runs {
     /// The kill switch: every open run (paused, or running a step now) ends
     /// `killed`. A run in the middle of a step stops before its next one
     /// (`killed`, exec's stop check) and is never paused or resumed after.
-    pub fn kill_all(&mut self, now: i64) {
+    /// Returns the approval requests it voided (the relay drops them too).
+    pub fn kill_all(&mut self, now: i64) -> Vec<String> {
+        let mut voided = Vec::new();
         for run in self.runs.iter_mut().filter(|r| r.open()) {
             run.state = RunState::Killed;
             run.expires = 0;
             run.updated = now;
+            if !run.approval.is_empty() {
+                voided.push(std::mem::take(&mut run.approval));
+            }
         }
         self.save();
+        voided
+    }
+
+    /// A paused run now waits on approval request `rid` (code `code`).
+    pub fn set_approval(&mut self, id: &str, rid: &str, code: &str) {
+        if let Some(run) = self.runs.iter_mut().find(|r| r.id == id && r.state == RunState::Paused) {
+            run.approval = rid.into();
+            run.code = code.into();
+            self.save();
+        }
+    }
+
+    /// The paused, unexpired run waiting on request `rid`, its request
+    /// used up (single use): whatever the answer, it can't be answered again.
+    pub fn take_approval(&mut self, rid: &str, now: i64) -> Option<Run> {
+        self.sweep(now);
+        let run = self.runs.iter_mut().find(|r| !rid.is_empty() && r.approval == rid && r.state == RunState::Paused)?;
+        let out = run.clone();
+        run.approval.clear();
+        self.save();
+        Some(out)
     }
 
     /// Records how a segment ended.
@@ -221,7 +257,9 @@ impl Runs {
             RemoteEnd::Paused { step } => {
                 run.state = RunState::Paused;
                 run.step = *step;
+                run.step_kind = seg.paused_kind.into();
                 run.expires = now + PAUSE_TTL_S;
+                run.approval.clear();
             }
             RemoteEnd::Stopped { .. } => run.state = RunState::Killed,
         }
@@ -236,7 +274,7 @@ impl Runs {
         if self.busy(now) {
             return Err("runbook-busy".into());
         }
-        self.push(Run { id: id.into(), name: name.into(), client: client.into(), hash: String::new(), total: 0, done: 0, state: RunState::Running, step: 0, kind: String::new(), started: now, updated: now, expires: 0 });
+        self.push(Run { id: id.into(), name: name.into(), client: client.into(), state: RunState::Running, started: now, updated: now, ..Run::default() });
         self.save();
         Ok(())
     }
@@ -315,8 +353,21 @@ impl Runs {
         self.resumed(id, r, now)
     }
 
+    /// An approval answer that didn't verify: the paused run ends failed
+    /// with that code (its request is used up; nothing more runs).
+    pub fn refuse(&mut self, id: &str, code: &str, now: i64) -> Result<Run, String> {
+        self.sweep(now);
+        let run = self.runs.iter_mut().find(|r| r.id == id && r.state == RunState::Paused).ok_or("not-paused")?;
+        run.state = RunState::Failed;
+        run.kind = code.into();
+        run.expires = 0;
+        run.updated = now;
+        let out = run.clone();
+        self.save();
+        Ok(out)
+    }
+
     /// The owner's Stop on the phone (PR 3): the paused run ends `declined`.
-    #[allow(dead_code)] // phone approval (PR 3)
     pub fn decline(&mut self, id: &str, now: i64) -> Result<Run, String> {
         self.sweep(now);
         let run = self.runs.iter_mut().find(|r| r.id == id && r.state == RunState::Paused).ok_or("not-paused")?;
@@ -371,7 +422,7 @@ mod tests {
     const ID2: &str = "fedcba9876543210fedcba9876543210";
 
     fn seg(ran_ok: usize, end: RemoteEnd) -> RemoteSegment {
-        RemoteSegment { hash: "h1".into(), total: 5, ran_ok, end }
+        RemoteSegment { hash: "h1".into(), total: 5, ran_ok, end, paused_kind: "run" }
     }
 
     #[test]
@@ -468,13 +519,31 @@ mod tests {
         {
             let mut r = Runs::load(path.clone(), NOW);
             r.start_with(ID, "a", "account-1", NOW, |_, _, _, _| Ok(seg(2, RemoteEnd::Paused { step: 3 }))).unwrap();
-            r.runs.push(Run { id: ID2.into(), name: "b".into(), client: "account-1".into(), hash: "h".into(), total: 4, done: 1, state: RunState::Running, step: 0, kind: String::new(), started: NOW, updated: NOW, expires: 0 });
+            r.runs.push(Run { id: ID2.into(), name: "b".into(), client: "account-1".into(), hash: "h".into(), total: 4, done: 1, state: RunState::Running, step: 0, kind: String::new(), started: NOW, updated: NOW, expires: 0, ..Run::default() });
             r.save();
         }
         let r = Runs::load(path.clone(), NOW + 5);
         assert_eq!(r.get(ID).unwrap().state, RunState::Paused);
         assert_eq!(r.get(ID2).unwrap().status(), "failed at step 2 of 4 (interrupted)");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_approval_request_is_single_use_and_the_kill_switch_voids_it() {
+        let mut r = Runs::default();
+        r.start_with(ID, "glim-check", "account-1", NOW, |_, _, _, _| Ok(seg(2, RemoteEnd::Paused { step: 3 }))).unwrap();
+        assert_eq!(r.get(ID).unwrap().step_kind, "run");
+        r.set_approval(ID, ID2, "ABC-DEF");
+        assert_eq!(r.take_approval(ID2, NOW + 1).unwrap().code, "ABC-DEF");
+        assert!(r.take_approval(ID2, NOW + 2).is_none(), "used up");
+        assert!(r.take_approval("", NOW + 2).is_none());
+        r.set_approval(ID, ID2, "ABC-DEF");
+        assert_eq!(r.kill_all(NOW + 3), vec![ID2.to_string()]);
+        assert!(r.take_approval(ID2, NOW + 4).is_none(), "voided");
+        // Expired with the run.
+        r.start_with("aa".repeat(16).as_str(), "x", "account-1", NOW + 5, |_, _, _, _| Ok(seg(0, RemoteEnd::Paused { step: 1 }))).unwrap();
+        r.set_approval(&"aa".repeat(16), &"bb".repeat(16), "XYZ-234");
+        assert!(r.take_approval(&"bb".repeat(16), NOW + 5 + PAUSE_TTL_S + 1).is_none());
     }
 
     #[test]

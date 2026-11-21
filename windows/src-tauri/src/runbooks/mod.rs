@@ -1003,6 +1003,8 @@ pub struct RemoteSegment {
     pub total: usize,
     pub ran_ok: usize,
     pub end: RemoteEnd,
+    /// The paused step's kind ("run" …), "" unless paused.
+    pub paused_kind: &'static str,
 }
 
 /// A remote run from step `from` (0-based): stops before any level-2
@@ -1016,10 +1018,10 @@ pub fn run_remote_steps(book: &Runbook, world: &dyn World, from: usize, approved
         // The kill switch, checked before every step (a step already
         // running finishes; nothing after it starts).
         if stopped() {
-            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Stopped { step: i + 1 } };
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Stopped { step: i + 1 }, paused_kind: "" };
         }
         if book.step_level(i) == RemoteLevel::Phone && !(approved && i == from) {
-            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Paused { step: i + 1 } };
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Paused { step: i + 1 }, paused_kind: book.steps[i].step.kind() };
         }
         let s = &book.steps[i];
         let (ok, detail) = match one(&book.name, i + 1, total, &s.step, world) {
@@ -1028,11 +1030,11 @@ pub fn run_remote_steps(book: &Runbook, world: &dyn World, from: usize, approved
         };
         progress(&Outcome { step: i + 1, total, kind: s.step.kind(), ok, detail });
         if !ok {
-            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Failed { step: i + 1, kind: s.step.kind() } };
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Failed { step: i + 1, kind: s.step.kind() }, paused_kind: "" };
         }
         ran_ok += 1;
     }
-    RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Done }
+    RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Done, paused_kind: "" }
 }
 
 /// The runbook `name`, checked as every run is: there, valid, approved and
