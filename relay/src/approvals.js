@@ -24,6 +24,29 @@ export const MAX_ANSWER_BYTES = 8 * 1024;
 export const MAX_APPROVAL_S = 24 * 3600;
 export const MAX_PAIR_S = 10 * 60;
 
+/** Phone routes carry no token, so anyone can call them: two Workers rate
+ * limits sit in front of the mailbox (owner 2026-11-21). PHONE_IP_LIMIT is
+ * keyed by the caller's IP (cf-connecting-ip, set by Cloudflare), and
+ * PHONE_ALL_LIMIT by one fixed key for everyone. The limits themselves live
+ * in wrangler.toml. Cloudflare's counters are approximate and per location:
+ * this stops floods from waking the one Durable Object, not a careful
+ * attacker spread worldwide (the slot id and the assertion still do the
+ * guarding). Fails CLOSED: a missing binding or a throwing limit() refuses
+ * the request. Returns null to go on, else {status, error}. */
+export async function phoneRateLimit(request, env) {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  try {
+    if (!env.PHONE_IP_LIMIT || !env.PHONE_ALL_LIMIT) return { status: 503, error: "rate-limit-unavailable" };
+    const one = await env.PHONE_IP_LIMIT.limit({ key: `ip:${ip}` });
+    if (!one || one.success !== true) return { status: 429, error: "rate-limited" };
+    const all = await env.PHONE_ALL_LIMIT.limit({ key: "phone-all" });
+    if (!all || all.success !== true) return { status: 429, error: "rate-limited" };
+    return null;
+  } catch {
+    return { status: 503, error: "rate-limit-unavailable" };
+  }
+}
+
 /** Reads a phone POST body with a hard cap, before anything else sees it
  * (review 2026-11-21: Content-Length alone can't be trusted). A body needs a
  * Content-Length (no chunked / unknown length), at most `max` bytes, and the

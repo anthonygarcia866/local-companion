@@ -34,7 +34,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, CLIENT_NAME, LEGACY_CLIENT, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
-import { Approvals, MAX_ANSWER_BYTES, readCapped } from "./approvals.js";
+import { Approvals, MAX_ANSWER_BYTES, phoneRateLimit, readCapped } from "./approvals.js";
 
 /** The approval page (GitHub Pages, approve/ in the repo): the only origin
  * a browser may call the phone routes from. */
@@ -63,6 +63,9 @@ export default {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
       const okMethod = request.method === "POST" || (request.method === "GET" && phone[1] === "approve");
       if (!okMethod) return phoneJson(405, { error: "method" });
+      // Rate limits before the body is read or the mailbox is woken.
+      const limited = await phoneRateLimit(request, env);
+      if (limited) return phoneJson(limited.status, { error: limited.error });
       // The body is read here, capped, before the mailbox sees it (a
       // chunked or oversized POST never reaches the Durable Object).
       let body = null;
