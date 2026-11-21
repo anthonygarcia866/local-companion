@@ -1,4 +1,4 @@
-// The remote command parser. Six commands, each with fixed, checked
+// The remote command parser. Seven commands, each with fixed, checked
 // arguments; anything else is refused.
 //
 //   session-status   {"repo"?: name}
@@ -7,8 +7,10 @@
 //   send-to-session  {"repo": name, "session": its id, "text": 1-4000 chars}
 //                    (owner 2026-11-17: the target session must be named;
 //                    its full id as session-status shows it)
-//   runbook          {"name": runbook name}  (approved, non-asking ones only,
-//                                             as `glim.exe --run` allows)
+//   runbook          {"name": runbook name}  (approved ones whose file gives
+//                    them a remote level; docs/remote-runbooks.md)
+//   run-status       {"run"?: run id}  this client's own remote runbook
+//                    runs (owner 2026-11-20, D2): status and times only
 //   keepalive-restart {"folder"?: name}      restarts "Keep Claude Code
 //                    reachable" sessions: the one whose folder has that name,
 //                    or all; only folders already on its list (owner
@@ -35,6 +37,8 @@ pub enum Command {
     /// `session`: a Claude Code session id (a lower-case UUID).
     SendToSession { repo: String, session: String, text: String },
     Runbook { name: String },
+    /// A remote runbook run's id (32 hex), or None for the client's recent runs.
+    RunStatus { run: Option<String> },
     /// A keep-alive folder's name (its last part), or None for all of them.
     KeepaliveRestart { folder: Option<String> },
 }
@@ -47,6 +51,7 @@ impl Command {
             Command::StartSession { .. } => "start-session",
             Command::SendToSession { .. } => "send-to-session",
             Command::Runbook { .. } => "runbook",
+            Command::RunStatus { .. } => "run-status",
             Command::KeepaliveRestart { .. } => "keepalive-restart",
         }
     }
@@ -142,6 +147,15 @@ pub fn parse(cmd: &str, args: &Map<String, Value>) -> Result<Command, Rejection>
         "runbook" => {
             only(args, &["name"])?;
             Ok(Command::Runbook { name: runbook_name(args)? })
+        }
+        "run-status" => {
+            only(args, &["run"])?;
+            let run = match args.get("run") {
+                None => None,
+                Some(Value::String(r)) if super::runs::id_ok(r) => Some(r.clone()),
+                Some(_) => return Err(Rejection::BadArgs),
+            };
+            Ok(Command::RunStatus { run })
         }
         "keepalive-restart" => {
             only(args, &["folder"])?;

@@ -51,6 +51,7 @@ use sha2::{Digest, Sha256};
 pub mod command;
 pub mod courier;
 pub mod exec;
+pub mod runs;
 pub mod seal;
 pub mod wake;
 #[cfg(test)]

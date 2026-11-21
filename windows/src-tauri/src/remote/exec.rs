@@ -26,7 +26,11 @@
 //                    never, refused `runbook-not-remote`; a "phone" or ask
 //                    step: `runbook-needs-phone`; docs/remote-runbooks.md),
 //                    as `glim.exe --run` runs it (Trigger::Remote in
-//                    runbooks.log); one at a time (`runbook-busy`).
+//                    runbooks.log); one at a time (`runbook-busy`). A
+//                    "phone" step pauses the run there (remote/runs.rs):
+//                    the answer names the run id.
+//   run-status       this client's own remote runbook runs (or the one it
+//                    names): "<id> <name>: paused at step 3 of 5 (…)".
 //   keepalive-restart stops and starts again the "Keep Claude Code reachable"
 //                    sessions (keepalive.rs) for folders already on its list,
 //                    with their fixed command; nothing when keep-alive is off.
@@ -629,24 +633,49 @@ impl Exec for RealExec {
                 Ok(restart_line(n, &scope.account.name).into())
             }
             Command::Runbook { name } => {
-                // One remote run at a time (owner 2026-11-20, D6).
+                // One remote run at a time (owner 2026-11-20, D6); a paused
+                // run counts (runs::Runs::busy).
                 let Some(_running) = RemoteRun::claim() else { return Err("runbook-busy".into()) };
-                let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});
-                match r {
-                    Ok(steps) => {
-                        let done = steps.iter().filter(|o| o.ok).count();
-                        let total = steps.first().map(|o| o.total).unwrap_or(0);
-                        if done == steps.len() {
-                            Ok(format!("{name}: OK ({done}/{total} steps)").into())
-                        } else {
-                            Err(format!("runbook-failed-{done}-of-{total}"))
-                        }
-                    }
-                    Err(e) => Err(format!("runbook-{}", e.code())),
+                let id = super::runs::new_id()?;
+                super::runs::with(|r| r.begin(&id, name, client, super::now_s()))?;
+                // Run outside the lock: the kill switch and run-status stay free.
+                let stopped = || super::runs::with(|r| r.killed(&id));
+                let seg = crate::runbooks::run_remote_now(name, None, 0, false, &stopped);
+                let run = super::runs::with(|r| r.began(&id, seg, super::now_s()))?;
+                runbook_answer(&run)
+            }
+            Command::RunStatus { run } => {
+                let mine = super::runs::with(|r| r.for_client(client, run.as_deref(), super::now_s()));
+                if mine.is_empty() {
+                    return Err(if run.is_some() { "no-such-run".into() } else { "no-runs".into() });
                 }
+                Ok(mine.iter().map(super::runs::line).collect::<Vec<_>>().join("\n").into())
             }
         }
     }
+}
+
+/// A runbook task's answer: codes and counts only (docs/remote-runbooks.md
+/// §3.4); the run id, so cloud Glim can follow it with run-status.
+pub fn runbook_answer(run: &super::runs::Run) -> Result<Ran, String> {
+    use super::runs::RunState;
+    match run.state {
+        RunState::Done => Ok(format!("{}: OK ({}/{} steps) (run {})", run.name, run.done, run.total, run.id).into()),
+        RunState::Paused => Ok(format!("{}: paused at step {} of {}, waiting for the owner's OK (run {})", run.name, run.step, run.total, run.id).into()),
+        RunState::Failed => Err(format!("runbook-failed-{}-of-{}", run.done, run.total)),
+        _ => Err(format!("runbook-{}", run.status())),
+    }
+}
+
+/// Resumes a paused remote run at its paused step, once the owner OK'd it
+/// (phone approval, PR 3, calls this after the phone's signature verified).
+#[allow(dead_code)] // called by phone approval (PR 3)
+pub fn resume_run(id: &str) -> Result<super::runs::Run, String> {
+    let Some(_running) = RemoteRun::claim() else { return Err("runbook-busy".into()) };
+    let (name, hash, from) = super::runs::with(|r| r.begin_resume(id, super::now_s()))?;
+    let stopped = || super::runs::with(|r| r.killed(id));
+    let seg = crate::runbooks::run_remote_now(&name, Some(&hash), from, true, &stopped);
+    super::runs::with(|r| r.resumed(id, seg, super::now_s()))
 }
 
 /// The one remote runbook run allowed at a time; released when dropped.
