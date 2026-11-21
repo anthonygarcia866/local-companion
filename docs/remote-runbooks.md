@@ -3,7 +3,7 @@
 Roadmap TOP item 5. The owner decided D1-D6 in chat on 2026-11-20 (§7). They replace the draft answers of 2026-11-19. Build order, one small PR each, merged per the rule:
 
 1. **Levels 1 and 3, plus editable limits** (§3.1, §3.5).
-2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3).
+2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3). Built 2026-11-20: `remote/runs.rs`. Until PR 3, nothing can approve a paused run: it only expires (24 h) or ends `killed`. A run still running when Glim stops ends `failed … (interrupted)` at the next start (its step may or may not have finished, so it is never resumed).
 3. **Phone approval (level 2)**, only after the owner has read and OK'd §8 in chat.
 
 No runbook is remote-allowed after any of these PRs. The owner picks levels afterwards, one runbook at a time, by editing its file and approving it again.

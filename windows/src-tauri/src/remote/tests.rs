@@ -245,6 +245,13 @@ fn the_command_parser_checks_every_argument() {
     for bad in [json!({ "name": "Glim Update" }), json!({ "name": "" }), json!({ "name": "a&b" }), json!({ "name": "glim-update", "extra": 1 })] {
         assert_eq!(parse("runbook", &m(bad.clone())), Err(Rejection::BadArgs), "{bad}");
     }
+    // run-status (owner 2026-11-20): a run id (32 hex) or nothing.
+    assert_eq!(parse("run-status", &m(json!({}))), Ok(Command::RunStatus { run: None }));
+    let run = "0123456789abcdef0123456789abcdef";
+    assert_eq!(parse("run-status", &m(json!({ "run": run }))), Ok(Command::RunStatus { run: Some(run.into()) }));
+    for bad in [json!({ "run": "..\\x" }), json!({ "run": run.to_uppercase() }), json!({ "run": 5 }), json!({ "run": run, "client": "account-2" })] {
+        assert_eq!(parse("run-status", &m(bad.clone())), Err(Rejection::BadArgs), "{bad}");
+    }
     assert_eq!(parse("session-status", &m(json!({ "cmd": "rm" }))), Err(Rejection::BadArgs), "no unknown keys");
     assert_eq!(parse("shell", &m(json!({ "line": "whoami" }))), Err(Rejection::UnknownCommand));
 }

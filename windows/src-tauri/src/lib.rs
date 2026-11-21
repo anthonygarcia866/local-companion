@@ -962,6 +962,10 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
         }
     });
     remote::with(|g| g.note_kill(remote::now_s(), killed));
+    // A paused remote runbook run ends `killed` (owner 2026-11-20, D2).
+    if killed {
+        remote::runs::with(|r| r.kill_all(remote::now_s()));
+    }
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
 }
 

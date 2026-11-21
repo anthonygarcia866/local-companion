@@ -333,12 +333,8 @@ impl Runbook {
         if self.remote == RemoteLevel::Never || self.steps.iter().any(|s| matches!(s.step, Step::LaunchDetached { .. })) {
             return Err(Refusal::NotRemote);
         }
-        let levels: Vec<RemoteLevel> = (0..self.steps.len()).map(|i| self.step_level(i)).collect();
-        if levels.contains(&RemoteLevel::Never) {
+        if (0..self.steps.len()).any(|i| self.step_level(i) == RemoteLevel::Never) {
             return Err(Refusal::NotRemote);
-        }
-        if levels.contains(&RemoteLevel::Phone) {
-            return Err(Refusal::NeedsPhone);
         }
         Ok(())
     }
@@ -909,8 +905,8 @@ pub enum Refusal {
     Asks(Vec<usize>),
     /// A remote run of a runbook (or a step) that isn't remote-allowed.
     NotRemote,
-    /// A remote run reaching a level-2 ("ask on my phone") step: refused
-    /// until phone approval is built (docs/remote-runbooks.md §8).
+    /// A remote run of a runbook's level-2 steps through `run_named`
+    /// (which can't pause): use `run_remote_named`.
     NeedsPhone,
 }
 
@@ -983,6 +979,119 @@ pub fn run_steps(book: &Runbook, world: &dyn World, confirmed: &[usize], progres
         }
     }
     Ok(out)
+}
+
+/// How a remote run segment ended (owner 2026-11-20, D2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteEnd {
+    /// Every step ran.
+    Done,
+    /// Step `step` (1-based) failed; its kind, never its text.
+    Failed { step: usize, kind: &'static str },
+    /// Stopped before step `step` (1-based), a level-2 step: it waits for
+    /// the owner's phone approval. Steps before it ran.
+    Paused { step: usize },
+}
+
+/// A remote run segment: the approved hash it ran under, the step count,
+/// how many steps ran OK in this segment, and how it ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteSegment {
+    pub hash: String,
+    pub total: usize,
+    pub ran_ok: usize,
+    pub end: RemoteEnd,
+}
+
+/// A remote run from step `from` (0-based): stops before any level-2
+/// ("phone") step, except `from` itself when `approved` (the owner just
+/// OK'd it). `hash`: the approved hash the run started under, for a resume;
+/// a different one now is `Changed` and nothing runs.
+pub fn run_remote_steps(book: &Runbook, world: &dyn World, from: usize, approved: bool, progress: &mut dyn FnMut(&Outcome)) -> RemoteSegment {
+    let total = book.steps.len();
+    let mut ran_ok = 0;
+    for i in from..total {
+        if book.step_level(i) == RemoteLevel::Phone && !(approved && i == from) {
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Paused { step: i + 1 } };
+        }
+        let s = &book.steps[i];
+        let (ok, detail) = match one(&book.name, i + 1, total, &s.step, world) {
+            Ok(d) => (true, d),
+            Err(d) => (false, d),
+        };
+        progress(&Outcome { step: i + 1, total, kind: s.step.kind(), ok, detail });
+        if !ok {
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Failed { step: i + 1, kind: s.step.kind() } };
+        }
+        ran_ok += 1;
+    }
+    RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Done }
+}
+
+/// The runbook `name`, checked as every run is: there, valid, approved and
+/// unchanged since.
+fn load_approved(dir: &Path, approvals: &Approvals, key: Option<&[u8]>, name: &str) -> Result<Runbook, Refusal> {
+    let (_, book) = load_from(dir, name).map_err(Refusal::NotFound)?;
+    let book = book.map_err(Refusal::Invalid)?;
+    match state(&book, approvals, key) {
+        State::Approved => Ok(book),
+        State::New => Err(Refusal::NotApproved),
+        _ => Err(Refusal::Changed),
+    }
+}
+
+/// A remote run (or its resume) of the runbook `name`: approved, unchanged
+/// (and, for a resume, still the `started_hash` it began under), remote
+/// level checked before any step. Audited to runbooks.log as `remote`.
+#[allow(clippy::too_many_arguments)]
+pub fn run_remote_named(
+    dir: &Path,
+    approvals: &Approvals,
+    key: Option<&[u8]>,
+    name: &str,
+    started_hash: Option<&str>,
+    from: usize,
+    approved: bool,
+    world: &dyn World,
+    audit: &mut dyn FnMut(String),
+) -> Result<RemoteSegment, Refusal> {
+    let shown = if name_ok(name) { name } else { "?" };
+    let refused = |r: Refusal, audit: &mut dyn FnMut(String)| {
+        audit(format!("{shown} remote refused {}", r.code()));
+        Err(r)
+    };
+    let book = match load_approved(dir, approvals, key, name) {
+        Ok(b) => b,
+        Err(r) => return refused(r, audit),
+    };
+    if started_hash.is_some_and(|h| h != book.hash) {
+        return refused(Refusal::Changed, audit);
+    }
+    if let Err(r) = book.remote_check() {
+        return refused(r, audit);
+    }
+    if from >= book.steps.len() {
+        return refused(Refusal::Invalid("no such step".into()), audit);
+    }
+    let what = if from == 0 { "start".to_string() } else { format!("resume at {}", from + 1) };
+    audit(format!("{name} remote {what} {} steps", book.steps.len()));
+    let seg = run_remote_steps(&book, world, from, approved, &mut |o| {
+        audit(format!("{name} remote step {}/{} {} {} ({})", o.step, o.total, o.kind, if o.ok { "OK" } else { "FAIL" }, o.detail));
+    });
+    let end = match &seg.end {
+        RemoteEnd::Done => "end OK".to_string(),
+        RemoteEnd::Failed { step, .. } => format!("end FAIL at {step}"),
+        RemoteEnd::Paused { step } => format!("paused at {step}"),
+    };
+    audit(format!("{name} remote {end} {}", seg.total));
+    Ok(seg)
+}
+
+/// `run_remote_named` for real, auditing to runbooks.log.
+pub fn run_remote_now(name: &str, started_hash: Option<&str>, from: usize, approved: bool) -> Result<RemoteSegment, Refusal> {
+    let here = Here::read();
+    let audit = audit_path();
+    run_remote_named(&here.dir, &here.approvals, here.key.as_deref(), name, started_hash, from, approved, &RealWorld, &mut |l| audit_line(&audit, &l))
 }
 
 fn needed_secret(world: &dyn World, name: &str) -> Result<secrets::SecretValue, String> {
@@ -1116,6 +1225,9 @@ pub fn run_named(
     if trigger == Trigger::Remote {
         if let Err(r) = book.remote_check() {
             return refused(r, audit);
+        }
+        if (0..book.steps.len()).any(|i| book.step_level(i) == RemoteLevel::Phone) {
+            return refused(Refusal::NeedsPhone, audit);
         }
     }
     let t = trigger.as_str();
