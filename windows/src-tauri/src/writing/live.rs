@@ -335,9 +335,11 @@ impl Session {
         if self.live.reviewing && self.live.shown.as_ref().is_some_and(|s| gone.contains(&s.id)) {
             self.live_hide("changed");
         }
-        // One on show that was re-anchored shows an old diff: it goes from
-        // the screen but stays kept (the review key shows it as it is now).
-        if self.live.shown.as_ref().is_some_and(|s| moved.contains(&s.id)) {
+        // One under review that was re-anchored shows an old diff: it goes
+        // from the screen but stays kept (the review key shows it as it is
+        // now). A fresh one on show is the caret's paragraph: typing hides
+        // it ("typing", `live_note`).
+        if self.live.reviewing && self.live.shown.as_ref().is_some_and(|s| moved.contains(&s.id)) {
             self.live_hide("changed");
         }
     }
