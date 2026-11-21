@@ -34,7 +34,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, CLIENT_NAME, LEGACY_CLIENT, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
-import { Approvals, MAX_ANSWER_BYTES } from "./approvals.js";
+import { Approvals, MAX_ANSWER_BYTES, readCapped } from "./approvals.js";
 
 /** The approval page (GitHub Pages, approve/ in the repo): the only origin
  * a browser may call the phone routes from. */
@@ -63,12 +63,19 @@ export default {
       if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
       const okMethod = request.method === "POST" || (request.method === "GET" && phone[1] === "approve");
       if (!okMethod) return phoneJson(405, { error: "method" });
+      // The body is read here, capped, before the mailbox sees it (a
+      // chunked or oversized POST never reaches the Durable Object).
+      let body = null;
+      if (request.method === "POST") {
+        const r = await readCapped(request, MAX_ANSWER_BYTES);
+        if (!r.ok) return phoneJson(r.status, { error: r.error });
+        body = r.text;
+      }
+      const headers = new Headers(request.headers);
+      for (const h of [CLIENT_HEADER, "authorization", "content-length", "transfer-encoding"]) headers.delete(h);
+      headers.set(PHONE_HEADER, "1");
       const stub = env.RELAY.get(env.RELAY.idFromName("mailbox"));
-      const forwarded = new Request(request);
-      forwarded.headers.delete(CLIENT_HEADER);
-      forwarded.headers.delete("authorization");
-      forwarded.headers.set(PHONE_HEADER, "1");
-      return stub.fetch(forwarded);
+      return stub.fetch(new Request(request.url, { method: request.method, headers, body }));
     }
     const who = await caller(request.headers.get("authorization"), env);
     if (!who) return json(401, { error: "unauthorized" });
@@ -208,10 +215,9 @@ export class Mailbox extends DurableObject {
         const r = this.approvals.read(kind, id, now());
         return phoneJson(r.status, r.body);
       }
-      const len = Number(request.headers.get("content-length") || "0");
-      if (len > MAX_ANSWER_BYTES) return phoneJson(413, { error: "too-big" });
-      const text = await request.text();
-      const r = this.approvals.answer(kind, id, text, now());
+      const body = await readCapped(request, MAX_ANSWER_BYTES);
+      if (!body.ok) return phoneJson(body.status, { error: body.error });
+      const r = this.approvals.answer(kind, id, body.text, now());
       return phoneJson(r.status, r.body);
     }
     const named = request.headers.get(CLIENT_HEADER) || "";

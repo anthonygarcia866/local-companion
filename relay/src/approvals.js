@@ -24,6 +24,41 @@ export const MAX_ANSWER_BYTES = 8 * 1024;
 export const MAX_APPROVAL_S = 24 * 3600;
 export const MAX_PAIR_S = 10 * 60;
 
+/** Reads a phone POST body with a hard cap, before anything else sees it
+ * (review 2026-11-21: Content-Length alone can't be trusted). A body needs a
+ * Content-Length (no chunked / unknown length), at most `max` bytes, and the
+ * stream is cut off the moment it goes past that. Returns {ok: true, text}
+ * or {ok: false, status, error}. */
+export async function readCapped(request, max) {
+  const raw = request.headers.get("content-length");
+  if (request.headers.has("transfer-encoding") || raw === null) return { ok: false, status: 411, error: "length-required" };
+  if (!/^[0-9]{1,9}$/.test(raw)) return { ok: false, status: 400, error: "bad-length" };
+  const declared = Number(raw);
+  if (declared > max) return { ok: false, status: 413, error: "too-big" };
+  if (!request.body) return declared === 0 ? { ok: true, text: "" } : { ok: false, status: 400, error: "bad-length" };
+  const reader = request.body.getReader();
+  const parts = [];
+  let total = 0;
+  for (;;) {
+    let step;
+    try { step = await reader.read(); } catch { return { ok: false, status: 400, error: "bad-body" }; }
+    if (step.done) break;
+    total += step.value.byteLength;
+    if (total > declared || total > max) {
+      try { await reader.cancel(); } catch { /* gone */ }
+      return { ok: false, status: 413, error: "too-big" };
+    }
+    parts.push(step.value);
+  }
+  if (total !== declared) return { ok: false, status: 400, error: "bad-length" };
+  const buf = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) { buf.set(p, at); at += p.byteLength; }
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch { return { ok: false, status: 400, error: "bad-body" }; }
+  return { ok: true, text };
+}
+
 const KINDS = ["approval", "pair"];
 
 /** The frame that hands an answer to the PC. */

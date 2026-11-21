@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES } from "../src/approvals.js";
+import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES, readCapped } from "../src/approvals.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 1_795_238_795;
@@ -69,6 +69,36 @@ test("the Worker routes phone requests without a token, with CORS only for the p
   const approvals = fs.readFileSync(path.join(here, "../src/approvals.js"), "utf8");
   assert.match(index, /PAGE_ORIGIN = "https:\/\/anthonygarcia866\.github\.io"/);
   assert.ok(!/access-control-allow-origin": "\*"/.test(index), "never a wildcard origin");
-  assert.match(index, /forwarded\.headers\.delete\("authorization"\)/, "a phone request never carries a token inward");
+  assert.match(index, /\[CLIENT_HEADER, "authorization", "content-length", "transfer-encoding"\]\) headers\.delete\(h\)/, "a phone request never carries a token (or a client name) inward");
   for (const src of [index, approvals]) assert.ok(!/console\./.test(src), "nothing printed");
+});
+
+// A request whose stream yields `chunks` and whose headers say what we like.
+function fakeRequest(headers, chunks) {
+  const enc = new TextEncoder();
+  let i = 0;
+  const body = chunks === null ? null : new ReadableStream({
+    pull(c) { if (i < chunks.length) c.enqueue(enc.encode(chunks[i++])); else c.close(); },
+  });
+  return { headers: new Headers(headers), body };
+}
+
+test("phone POST bodies: Content-Length required and checked against the stream, hard cap", async () => {
+  assert.deepEqual(await readCapped(fakeRequest({ "content-length": "2" }, ["{}"]), 10), { ok: true, text: "{}" });
+  assert.equal((await readCapped(fakeRequest({}, ["{}"]), 10)).status, 411, "no length");
+  assert.equal((await readCapped(fakeRequest({ "transfer-encoding": "chunked", "content-length": "2" }, ["{}"]), 10)).status, 411, "chunked");
+  assert.equal((await readCapped(fakeRequest({ "content-length": "-1" }, ["{}"]), 10)).status, 400);
+  assert.equal((await readCapped(fakeRequest({ "content-length": "11" }, ["x".repeat(11)]), 10)).status, 413, "declared too big");
+  // Lies about its length: the stream is cut as soon as it passes it.
+  assert.equal((await readCapped(fakeRequest({ "content-length": "2" }, ["{}", "x".repeat(100000)]), 10)).status, 413, "longer than declared");
+  assert.equal((await readCapped(fakeRequest({ "content-length": "5" }, ["{}"]), 10)).status, 400, "shorter than declared");
+  assert.deepEqual(await readCapped(fakeRequest({ "content-length": "0" }, null), 10), { ok: true, text: "" });
+  assert.equal(MAX_ANSWER_BYTES, 8 * 1024);
+});
+
+test("the Worker reads a phone body capped before forwarding it", () => {
+  const index = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
+  const entry = index.slice(index.indexOf("export default"), index.indexOf("class SqlStore"));
+  assert.match(entry, /readCapped\(request, MAX_ANSWER_BYTES\)/, "in the Worker, not only the Durable Object");
+  assert.ok(!/request\.text\(\)/.test(entry), "never an uncapped read");
 });
