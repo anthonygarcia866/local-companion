@@ -302,7 +302,16 @@ pub fn remove(vault: &dyn Vault) -> Result<KeysStatus, String> {
 /// One POST (`net::push_request` to ENDPOINT; a local fake server in tests)
 /// with exactly these fields; the answer's body is only read for an error.
 pub async fn send(post: RequestBuilder, keys: &Keys, text: &str) -> Result<(), String> {
-    let body = json!({ "token": keys.token, "user": keys.user, "title": "Glim", "message": text, "priority": 0 });
+    send_with(post, keys, text, None).await
+}
+
+/// `send`, with a link (Pushover's `url`; the approval page only).
+pub async fn send_with(post: RequestBuilder, keys: &Keys, text: &str, url: Option<&str>) -> Result<(), String> {
+    let mut body = json!({ "token": keys.token, "user": keys.user, "title": "Glim", "message": text, "priority": 0 });
+    if let Some(u) = url {
+        body["url"] = json!(u);
+        body["url_title"] = json!("Review in Glim approvals");
+    }
     let response = post
         .json(&body)
         .send()
@@ -346,6 +355,33 @@ pub async fn notify(settings: &Settings, kind: Kind, pill_id: &str, project: &st
         Ok(()) => crate::log::line(format!("phone: sent {}", kind.name())),
         Err(_) => crate::log::line(format!("phone: failed {}", kind.name())),
     }
+    sent
+}
+
+/// A paused remote runbook step's approval request (owner 2026-11-21,
+/// docs/remote-runbooks.md §8): the one ping whose text names a runbook, a
+/// step, a cloud client and a match code (built in remote/approve.rs from
+/// checked names), with a link to the approval page carrying only a request
+/// id and the relay's host SEALED to the phone's key. Only while Settings →
+/// Phone is on; not held back by quiet hours or idle-only (the owner asked
+/// to be asked).
+pub async fn send_approval(settings: &Settings, text: &str, url: &str) -> Result<(), String> {
+    if !settings.phone.enabled {
+        crate::log::line("phone: approval not sent (Phone is off)");
+        return Err(t("Phone notifications are off."));
+    }
+    let Some(keys) = load(&vault())? else {
+        return Err(t("Save your Pushover keys first."));
+    };
+    if !url.starts_with(crate::remote::approve::PAGE_URL) || text.chars().count() > 400 {
+        return Err("not an approval request".into());
+    }
+    let endpoint = Url::parse(ENDPOINT).map_err(|e| e.to_string())?;
+    let sent = match net::push_request(Method::POST, &endpoint, TIMEOUT) {
+        Ok(post) => send_with(post, &keys, text, Some(url)).await,
+        Err(e) => Err(e),
+    };
+    crate::log::line(if sent.is_ok() { "phone: sent approval request" } else { "phone: failed approval request" });
     sent
 }
 

@@ -17,7 +17,7 @@
 // client" takes the client's PUBLIC key and makes its own relay token,
 // shown exactly once; "Remove" refuses its tasks at once.
 
-import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus } from "../core/bridge";
+import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus, type PairView } from "../core/bridge";
 import { h, clear } from "../views/dom";
 import { t } from "../i18n/i18n";
 
@@ -236,6 +236,96 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     return saved === what ? [h("span", { class: "hint", "data-role": `remote-${what}-saved`, role: "status", style: "color:#3fb950", text: t("Saved") })] : [];
   }
 
+  let pair: PairView | null = null;
+  let pairName = "";
+  let pairTimer: ReturnType<typeof setInterval> | null = null;
+  let pairNote = "";
+
+  function stopPairPoll() {
+    if (pairTimer) clearInterval(pairTimer);
+    pairTimer = null;
+  }
+
+  async function pollPair() {
+    try {
+      pair = await Bridge.remotePairStatus();
+    } catch {
+      return;
+    }
+    if (!pair || pair.state !== "waiting") stopPairPoll();
+    draw();
+  }
+
+  function approversBox(): HTMLElement {
+    const box = h("div", { "data-role": "remote-approvers" }, h("h3", { text: t("Phone approvers") }));
+    const list = status.approvers ?? [];
+    if (list.length === 0) box.append(h("div", { class: "hint", text: t("No approver yet: a paused remote runbook step can't be approved.") }));
+    for (const a of list) {
+      const rm = h("button", { type: "button", "data-role": "remote-approver-remove", text: t("Remove") });
+      rm.addEventListener("click", () => void act(() => Bridge.remoteApproverRemove(a.id)));
+      box.append(h("div", { class: "row", "data-role": "remote-approver" },
+        h("span", { text: `${a.name} · ${a.fingerprint}` }),
+        ...(a.synced ? [h("span", { class: "hint", text: ` · ${t("synced passkey")}` })] : []),
+        rm,
+      ));
+    }
+    if (!pair || pair.state === "none") {
+      const start = h("button", { type: "button", "data-role": "remote-pair-start", text: t("Pair a phone") });
+      start.addEventListener("click", async () => {
+        pairNote = "";
+        try {
+          pair = await Bridge.remotePairStart();
+          stopPairPoll();
+          pairTimer = setInterval(() => void pollPair(), 2000);
+        } catch (e) {
+          pairNote = String(e);
+        }
+        draw();
+      });
+      box.append(h("div", { class: "row" }, start));
+    } else {
+      const cancel = h("button", { type: "button", "data-role": "remote-pair-cancel", text: t("Cancel") });
+      cancel.addEventListener("click", async () => {
+        stopPairPoll();
+        pair = await Bridge.remotePairCancel().catch(() => null);
+        draw();
+      });
+      const card = h("div", { class: "card", "data-role": "remote-pair" });
+      if (pair.state === "waiting") {
+        const qr = h("div", { "data-role": "remote-pair-qr" });
+        // Rust drew this SVG (qrcode crate) from the page's address only.
+        qr.innerHTML = pair.qrSvg;
+        card.append(
+          h("div", { class: "hint", text: t("Scan this with your iPhone's camera, then follow the page. It needs iOS 18.4 or later and a Face ID passkey.") }),
+          qr,
+          h("div", { class: "hint", text: t("Waiting for your phone…") }),
+          h("div", { class: "row" }, cancel),
+        );
+      } else if (pair.state === "ready") {
+        const name = h("input", { type: "text", "data-role": "remote-pair-name", value: pairName, placeholder: t("Name for this approver") }) as HTMLInputElement;
+        name.addEventListener("input", () => (pairName = name.value));
+        const yes = h("button", { class: "primary", type: "button", "data-role": "remote-pair-confirm", text: t("Fingerprints match: add") });
+        yes.addEventListener("click", async () => {
+          await act(() => Bridge.remotePairConfirm(name.value));
+          pair = null;
+          pairName = "";
+          draw();
+        });
+        card.append(
+          h("div", { class: "name", "data-role": "remote-pair-fingerprint", text: t("Fingerprint on your phone: {fingerprint}. Add it only if it's the same on both screens.", { fingerprint: pair.fingerprint }) }),
+          ...(pair.synced ? [h("div", { class: "hint", text: t("Synced passkey: it also works on your other Apple devices signed into the same Apple ID.") })] : []),
+          name,
+          h("div", { class: "row" }, yes, cancel),
+        );
+      } else {
+        card.append(h("div", { class: "hint", style: "color:#f4505e", text: pair.state === "expired" ? t("Pairing expired: start again.") : t("Pairing failed: start again.") }), h("div", { class: "row" }, cancel));
+      }
+      box.append(card);
+    }
+    if (pairNote) box.append(h("div", { class: "hint", style: "color:#f4505e", text: pairNote }));
+    return box;
+  }
+
   function runbookLimits(): HTMLElement {
     const perClient = h("input", { type: "number", min: "1", max: "20", "data-role": "remote-runbooks-client", value: String(status.runbooksPerHour ?? 5), style: "width:5em" }) as HTMLInputElement;
     const perPc = h("input", { type: "number", min: "1", max: "50", "data-role": "remote-runbooks-pc", value: String(status.runbooksPerHourPc ?? 10), style: "width:5em" }) as HTMLInputElement;
@@ -267,7 +357,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const prev = status;
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
-    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks"] as const).every(same);
+    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks", "approvers"] as const).every(same);
     if (!rest) return draw();
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
@@ -431,6 +521,8 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     // Remote runbooks (owner 2026-11-20, docs/remote-runbooks.md): the
     // limits are set here, on the PC, only; the list is read only.
     box.append(runbookLimits());
+    // Phone approvers (owner 2026-11-21): enrolled and removed only here.
+    box.append(approversBox());
     const remoteBooks = status.remoteRunbooks ?? [];
     box.append(h("div", { class: "hint", "data-role": "remote-runbooks", text: remoteBooks.length ? t("Runbooks cloud Glim may start: {names}", { names: remoteBooks.join(", ") }) : t("No runbook may run remotely. A runbook's file sets it: [remote] level.") }));
 

@@ -4,7 +4,7 @@ Roadmap TOP item 5. The owner decided D1-D6 in chat on 2026-11-20 (§7). They re
 
 1. **Levels 1 and 3, plus editable limits** (§3.1, §3.5).
 2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3). Built 2026-11-20: `remote/runs.rs`. Until PR 3, nothing can approve a paused run: it only expires (24 h) or ends `killed`. A run still running when Glim stops ends `failed … (interrupted)` at the next start (its step may or may not have finished, so it is never resumed).
-3. **Phone approval (level 2)**, only after the owner has read and OK'd §8 in chat.
+3. **Phone approval (level 2)**: owner answered §8 on 2026-11-21; built as PR 3 (the page in a PR of its own, owner-merge only).
 
 No runbook is remote-allowed after any of these PRs. The owner picks levels afterwards, one runbook at a time, by editing its file and approving it again.
 
@@ -122,7 +122,37 @@ No runbook is remote-allowed after any of these PRs. The owner picks levels afte
 - **D5:** no glim-update from the cloud for now.
 - **D6:** limits 5/h per client, 10/h on the PC, one at a time, editable in Settings → Remote, only on the PC.
 
-## 8. Phone approval (level 2): proposed design, NOT approved yet
+## 8. Phone approval (level 2): owner answers 2026-11-21, BUILT (PR 3)
+
+**Owner's answers (2026-11-21), which settle §8.3:**
+
+1. **(a) A synced Face ID passkey.** Built so a hardware security key can be added later as another approver with no rebuild: up to 3 approvers, each its own credential and key (`kind` = `passkey` / `security-key`).
+2. **The page is on GitHub Pages from this repo** (`approve/`, `.github/workflows/approve-pages.yml`, `https://anthonygarcia866.github.io/local-companion/`).
+   - Owner-merge only: `.github/CODEOWNERS`, plus the rule in CLAUDE.md "Merges". It covers the page and the PC's verification code (`remote/approve.rs`, `relay/src/approvals.js`).
+   - Match code: Pushover's text and the page both show the runbook, step, client and a random 6-character code. The page says not to approve if the code doesn't match. The passkey signs SHA-256 of the request id, run id, runbook, its approved hash, step, step kind, step count, client, expiry and code, and the PC rebuilds and checks every one of them.
+   - **Other Pages sites on the same origin, checked 2026-11-21:** none. Of the account's 6 repos (5 private, 1 public), none has Pages enabled, and there is no `anthonygarcia866.github.io` user site. So nothing else can use the passkey today. CLAUDE.md now forbids enabling Pages on another repo of this account. If one is ever needed, move the page to its own domain first.
+3. **No relay address in Pushover links.** The link carries the request id and the relay's host sealed to each approver's key. Request details are sealed (AES-256-GCM) to a key on the phone: the WebAuthn **PRF** output of the passkey (iOS 18+, reliable from 18.4, iCloud Keychain passkeys), via HKDF. No key is stored by the page: the phone re-derives it with Face ID each time. Pushover sees only the runbook name, step, client and match code.
+- Enrolling and removing approvers: **only on this PC** (Settings → Remote). No courier command reaches it. Approvals are single-use, expire with the request (24 h), and the kill switch voids pending ones (and ends a pairing).
+
+**As built:**
+
+- **Pairing.** The PC opens a 10-minute relay slot and shows a QR code: `…/local-companion/#pair=<slot>&relay=<host>&pk=<the PC's one-time P-256 key>`. A fragment never leaves the phone.
+  1. The page creates the passkey (ES256, discoverable, user verification required, PRF).
+  2. It signs `SHA-256("glim-pair-v1|<slot>")` with Face ID and gets the PRF output.
+  3. It derives the approver key: HKDF(PRF, info `glim-approve-v1 key`).
+  4. It seals {credential id, SPKI public key, approver key, assertion} to the PC's key: ECDH P-256, HKDF with salt = page key ‖ PC key and info `glim-pair-v1|<slot>`, then AES-256-GCM.
+  5. It posts the sealed bundle to `/v1/pair/<slot>`.
+  6. The PC opens it and verifies the assertion (Face ID, origin, RP id, challenge). Both screens show the key's fingerprint, and the owner confirms on the PC.
+  7. The approver goes into settings.json and its key into Credential Manager. One try per pairing: a bad answer ends it.
+- **A request.** The PC sends the relay `{t:"approval", id, exp, body}` (body = details sealed to each approver) and sends Pushover the text plus the link `#r=<id>&h=<host sealed per approver>`.
+  1. The page asks Face ID with PRF, opens the host, fetches `/v1/approve/<id>` and opens the details.
+  2. It shows them with the match code.
+  3. Approve asks Face ID again to sign the binding. Stop posts `{answer:"stop"}`.
+  4. The relay keeps the single answer until the PC acknowledges it.
+  5. The PC uses up the request (`take_approval`) whatever the answer, verifies, and resumes the run at the paused step under the same hash. Stop gives `declined`; anything that doesn't verify ends the run failed with its code.
+- **What stays the same:** there is still no remote approval of a runbook *file*, and the level is still set only in the file.
+
+### 8.0 Owner's original questions (kept for the record)
 
 ### 8.1 What the Phone channel can do today
 

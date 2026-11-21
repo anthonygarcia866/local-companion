@@ -782,6 +782,8 @@ struct RemoteStatus {
     runbooks_per_hour_pc: u32,
     /// Runbooks whose file gives them a remote level ("name (cloud)"), read only.
     remote_runbooks: Vec<String>,
+    /// Phone approvers: names, fingerprints, kinds (never a key).
+    approvers: Vec<ApproverView>,
     activity: Vec<remote::Activity>,
 }
 
@@ -816,8 +818,82 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         runbooks_per_hour,
         runbooks_per_hour_pc,
         remote_runbooks: runbooks::remote_names(),
+        approvers: s.approvers.iter().map(|a| ApproverView { id: a.id.clone(), name: a.name.clone(), fingerprint: a.fingerprint(), kind: a.kind.clone(), synced: a.synced, added: a.added }).collect(),
         activity,
     }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApproverView {
+    id: String,
+    name: String,
+    fingerprint: String,
+    kind: String,
+    synced: bool,
+    added: i64,
+}
+
+/// Settings → Remote → "Pair a phone" (owner 2026-11-21): ONLY here, on
+/// the PC; no courier command reaches pairing or the approver list.
+#[tauri::command]
+fn remote_pair_start(shared: State<Shared>) -> Result<remote::approve::PairView, String> {
+    let s = shared.settings.lock().unwrap().remote.clone();
+    if remote::courier::state() != "connected" {
+        return Err(i18n::t("Connect to the relay first (Remote tasks on and set up)."));
+    }
+    if s.approvers.len() >= remote::approve::MAX_APPROVERS {
+        return Err(i18n::t("At most 3 approvers: remove one first."));
+    }
+    let host = s.relay.trim_start_matches("https://").trim_end_matches('/').to_string();
+    remote::approve::pair_start(&host, remote::now_s(), &remote::courier::send_frame)
+}
+
+#[tauri::command]
+fn remote_pair_status() -> remote::approve::PairView {
+    remote::approve::pair_view(remote::now_s())
+}
+
+/// The owner compared the fingerprints on both screens: add the approver.
+#[tauri::command]
+fn remote_pair_confirm(app: AppHandle, shared: State<Shared>, name: String) -> Result<RemoteStatus, String> {
+    if remote::approve::pair_view(remote::now_s()).state != "ready" {
+        return Err(i18n::t("Nothing to confirm yet."));
+    }
+    let Some((mut approver, key)) = remote::approve::pair_take(&remote::courier::send_frame) else { return Err(i18n::t("Nothing to confirm yet.")) };
+    let clean: String = name.chars().filter(|c| c.is_alphanumeric() || " -'".contains(*c)).take(30).collect();
+    if !clean.trim().is_empty() {
+        approver.name = clean.trim().to_string();
+    }
+    let vault = remote::approve::keys_vault();
+    let mut keys = remote::approve::read_keys(&vault);
+    keys.insert(approver.id.clone(), remote::seal::to_hex(&key));
+    remote::approve::write_keys(&vault, &keys)?;
+    update_settings(&app, &shared, |s| {
+        s.remote.approvers.retain(|a| a.id != approver.id);
+        if s.remote.approvers.len() < remote::approve::MAX_APPROVERS {
+            s.remote.approvers.push(approver.clone());
+        }
+    });
+    log::line("remote: phone approver added");
+    Ok(remote_now(&shared))
+}
+
+#[tauri::command]
+fn remote_pair_cancel() -> remote::approve::PairView {
+    remote::approve::pair_cancel(&remote::courier::send_frame);
+    remote::approve::pair_view(remote::now_s())
+}
+
+#[tauri::command]
+fn remote_approver_remove(app: AppHandle, shared: State<Shared>, id: String) -> Result<RemoteStatus, String> {
+    let vault = remote::approve::keys_vault();
+    let mut keys = remote::approve::read_keys(&vault);
+    keys.remove(&id);
+    remote::approve::write_keys(&vault, &keys)?;
+    update_settings(&app, &shared, |s| s.remote.approvers.retain(|a| a.id != id));
+    log::line("remote: phone approver removed");
+    Ok(remote_now(&shared))
 }
 
 /// Remote runbook limits (owner 2026-11-20, D6): set here, on the PC, only.
@@ -964,7 +1040,12 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
     remote::with(|g| g.note_kill(remote::now_s(), killed));
     // A paused remote runbook run ends `killed` (owner 2026-11-20, D2).
     if killed {
-        remote::runs::with(|r| r.kill_all(remote::now_s()));
+        // ...and its phone approval request is void, at the relay too; a
+        // pairing in progress ends.
+        for rid in remote::runs::with(|r| r.kill_all(remote::now_s())) {
+            remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+        }
+        remote::approve::pair_cancel(&remote::courier::send_frame);
     }
     log::line(if killed { "remote: kill switch ON" } else { "remote: kill switch off" });
 }
@@ -2136,6 +2217,11 @@ pub fn run() {
             remote_relay,
             remote_require_sealed,
             remote_runbook_limits,
+            remote_pair_start,
+            remote_pair_status,
+            remote_pair_confirm,
+            remote_pair_cancel,
+            remote_approver_remove,
             remote_setup,
             runbooks_list,
             runbook_approve,
@@ -2359,12 +2445,20 @@ pub fn run() {
                 let remote_settings: std::sync::Arc<dyn Fn() -> remote::RemoteSettings + Send + Sync> =
                     std::sync::Arc::new(move || rc.try_state::<Shared>().map(|s| s.settings.lock().unwrap().remote.clone()).unwrap_or_default());
                 let ra = handle.clone();
+                let rphone = handle.clone();
                 remote::courier::start(
                     remote_settings.clone(),
                     Box::new(move || rk.try_state::<Shared>().map(|s| s.settings.lock().unwrap().keep_alive.folders.clone()).unwrap_or_default()),
                     Box::new(move || {
                         let saved = ra.try_state::<Shared>().map(|s| s.settings.lock().unwrap().claude_accounts.clone()).unwrap_or_default();
                         accounts::list(&saved, &platform::home_dir())
+                    }),
+                    // Phone approval requests (owner 2026-11-21).
+                    std::sync::Arc::new(move |text: String, url: String| {
+                        let Some(settings) = rphone.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()) else { return };
+                        tauri::async_runtime::spawn(async move {
+                            let _ = phone::send_approval(&settings, &text, &url).await;
+                        });
                     }),
                 );
                 // A relay line down 10 minutes, and back (owner 2026-11-15):

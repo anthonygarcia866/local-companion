@@ -203,3 +203,87 @@ pub fn inner_times(inner: &str) -> Option<Outer> {
 pub fn result_envelope(id: &str, s: &Sealed) -> String {
     json!({ "v": 2, "id": id, "epk": to_hex(&s.epk), "n": to_hex(&s.nonce), "ct": to_hex(&s.ct) }).to_string()
 }
+
+
+// ── Phone approvals (owner 2026-11-21, docs/remote-runbooks.md §8) ───────────
+//
+// The approval page and the PC share one key per approver: 32 bytes the page
+// derives from the passkey's PRF output (HKDF, "glim-approve-v1 key"), sent
+// ONCE, at pairing, sealed to the PC's one-time P-256 pairing key (its public
+// half only in the QR code on this PC's screen). Requests and the relay's
+// address are AES-256-GCM under that key, so the relay and Pushover read
+// neither. WebCrypto has P-256 and AES-GCM everywhere (X25519 not), hence
+// the different curve from the courier's.
+
+/// This PC's one-time pairing key: P-256, the private half in memory only.
+pub struct PairKey {
+    private: ring::agreement::EphemeralPrivateKey,
+    /// Uncompressed point (65 bytes): goes in the QR code.
+    pub public: Vec<u8>,
+}
+
+pub fn pair_key() -> Option<PairKey> {
+    let rng = ring::rand::SystemRandom::new();
+    let private = ring::agreement::EphemeralPrivateKey::generate(&ring::agreement::ECDH_P256, &rng).ok()?;
+    let public = private.compute_public_key().ok()?.as_ref().to_vec();
+    Some(PairKey { private, public })
+}
+
+fn aes(key: &[u8; 32]) -> Option<LessSafeKey> {
+    UnboundKey::new(&ring::aead::AES_256_GCM, key).ok().map(LessSafeKey::new)
+}
+
+/// The page's pairing answer: ECDH(P-256) of the page's ephemeral key `epk`
+/// with this PC's pairing key, HKDF-SHA256 (salt = epk || the PC's public
+/// key, info = "glim-pair-v1|<id>"), AES-256-GCM with that info as AAD.
+/// Uses up the pairing key. None if anything doesn't fit.
+pub fn pair_open(k: PairKey, id: &str, epk: &[u8], nonce: &[u8; 12], ct: &[u8]) -> Option<Vec<u8>> {
+    if epk.len() != 65 || epk[0] != 4 {
+        return None;
+    }
+    let info = format!("glim-pair-v1|{id}");
+    let mut salt = epk.to_vec();
+    salt.extend_from_slice(&k.public);
+    let peer = ring::agreement::UnparsedPublicKey::new(&ring::agreement::ECDH_P256, epk);
+    let key = ring::agreement::agree_ephemeral(k.private, &peer, |shared| hkdf32(shared, &salt, &info)).ok()?;
+    let mut buf = ct.to_vec();
+    let plain = aes(&key)?.open_in_place(Nonce::assume_unique_for_key(*nonce), Aad::from(info.as_bytes()), &mut buf).ok()?;
+    Some(plain.to_vec())
+}
+
+/// AES-256-GCM under an approver's key, a fresh random nonce; `aad` names
+/// what it is and the request it belongs to.
+pub fn approve_seal(key: &[u8; 32], aad: &str, plain: &[u8]) -> Option<([u8; 12], Vec<u8>)> {
+    let mut nonce = [0u8; 12];
+    ring::rand::SystemRandom::new().fill(&mut nonce).ok()?;
+    let mut buf = plain.to_vec();
+    aes(key)?.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(aad.as_bytes()), &mut buf).ok()?;
+    Some((nonce, buf))
+}
+
+/// Opens `approve_seal` (the page's side; tests).
+#[cfg(test)]
+pub fn approve_open(key: &[u8; 32], aad: &str, nonce: &[u8; 12], ct: &[u8]) -> Option<Vec<u8>> {
+    let mut buf = ct.to_vec();
+    let plain = aes(key)?.open_in_place(Nonce::assume_unique_for_key(*nonce), Aad::from(aad.as_bytes()), &mut buf).ok()?;
+    Some(plain.to_vec())
+}
+
+/// The page's side of pairing, for tests: seals `plain` to the PC's pairing
+/// public key with an ephemeral P-256 key; (epk, nonce, ct).
+#[cfg(test)]
+pub fn pair_seal_for_test(pc_public: &[u8], id: &str, plain: &[u8]) -> Option<(Vec<u8>, [u8; 12], Vec<u8>)> {
+    let rng = ring::rand::SystemRandom::new();
+    let eph = ring::agreement::EphemeralPrivateKey::generate(&ring::agreement::ECDH_P256, &rng).ok()?;
+    let epk = eph.compute_public_key().ok()?.as_ref().to_vec();
+    let info = format!("glim-pair-v1|{id}");
+    let mut salt = epk.clone();
+    salt.extend_from_slice(pc_public);
+    let peer = ring::agreement::UnparsedPublicKey::new(&ring::agreement::ECDH_P256, pc_public);
+    let key = ring::agreement::agree_ephemeral(eph, &peer, |shared| hkdf32(shared, &salt, &info)).ok()?;
+    let mut nonce = [0u8; 12];
+    rng.fill(&mut nonce).ok()?;
+    let mut buf = plain.to_vec();
+    aes(&key)?.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(info.as_bytes()), &mut buf).ok()?;
+    Some((epk, nonce, buf))
+}
