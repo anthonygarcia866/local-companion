@@ -1,0 +1,18 @@
+:root { color-scheme: light dark; --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --accent: #0f766e; --warn: #b91c1c; --card: #ffffff; --line: #e7e5e4; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1c1917; --fg: #fafaf9; --muted: #a8a29e; --accent: #2dd4bf; --warn: #f87171; --card: #292524; --line: #44403c; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width: 32rem; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 1.3rem; margin: 0 0 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 12px 0; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.code { font: 600 2rem/1.2 ui-monospace, Menlo, monospace; letter-spacing: 0.08em; text-align: center; margin: 12px 0 4px; }
+.fp { font: 600 1.25rem/1.3 ui-monospace, Menlo, monospace; text-align: center; margin: 12px 0; }
+.warn { color: var(--warn); font-weight: 600; }
+.small, .muted { color: var(--muted); font-size: 0.9rem; }
+button { font: inherit; font-weight: 600; width: 100%; padding: 14px; margin: 8px 0; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.stop { color: var(--warn); }
+button:disabled { opacity: 0.5; }

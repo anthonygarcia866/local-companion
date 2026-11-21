@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- Glim approvals (owner 2026-11-21, docs/remote-runbooks.md §8).
+     OWNER-MERGE ONLY: changes to this folder are merged by the owner, never
+     by cloud Glim + Claude (CLAUDE.md, .github/CODEOWNERS). Published by
+     GitHub Pages (.github/workflows/approve-pages.yml). It stores nothing:
+     the slot id, the relay's host and keys travel in the address's fragment,
+     which the browser never sends anywhere. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.workers.dev; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Glim approvals</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Glim approvals</h1>
+    <section id="view" aria-live="polite"></section>
+    <p class="small">Glim's approval page. It asks your passkey (Face ID) to unlock a request and, if you approve, to sign exactly what it shows. Glim on your PC checks that signature.</p>
+  </main>
+  <script src="approve.js"></script>
+</body>
+</html>
