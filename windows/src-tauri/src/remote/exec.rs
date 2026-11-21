@@ -730,8 +730,19 @@ pub fn ask_phone(run: &super::runs::Run) {
 /// resumes the run (on a thread of its own).
 pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
     use super::approve::{judge, Verdict};
-    let Some(h) = HOOKS.get() else { return };
-    (h.send)(serde_json::json!({ "t": "approval-ack", "id": rid }).to_string());
+    // Acknowledged first, whatever happens next (review 2026-11-21): the
+    // relay never hands the same answer over again.
+    super::courier::send_frame(serde_json::json!({ "t": "approval-ack", "id": rid }).to_string());
+    let Some(h) = HOOKS.get() else {
+        // Not set up yet (can't judge it): the request is used up and its
+        // run ends failed `not-ready`, visibly, rather than waiting on an
+        // answer that already came.
+        if let Some(run) = super::runs::with(|r| r.take_approval(rid, now)) {
+            let _ = super::runs::with(|r| r.refuse(&run.id, "not-ready", now));
+        }
+        crate::log::line("remote: phone approval refused not-ready");
+        return;
+    };
     let s = (h.settings)();
     if s.killed {
         crate::log::line("remote: phone approval refused killed");
@@ -746,7 +757,11 @@ pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
             crate::log::line("remote: phone approval verified; resuming");
             let id = run.id.clone();
             let _ = std::thread::Builder::new().name("remote-resume".into()).spawn(move || {
-                if let Err(e) = resume_run(&id) {
+                let wait = || std::thread::sleep(RESUME_WAIT);
+                if let Err(e) = resume_when_free(&id, &resume_run, &wait, RESUME_TRIES) {
+                    if e == "runbook-busy" {
+                        let _ = super::runs::with(|r| r.refuse(&id, "runbook-busy", super::now_s()));
+                    }
                     crate::log::line(format!("remote: resume refused {e}"));
                 }
             });
@@ -758,6 +773,30 @@ pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
         Verdict::Refused(code) => {
             let _ = super::runs::with(|r| r.refuse(&run.id, code, now));
             crate::log::line(format!("remote: phone approval refused {code}"));
+        }
+    }
+}
+
+/// A verified Approve can arrive while the segment before it still holds the
+/// one-run claim (it asked the phone just before returning): its resume
+/// waits for the claim, up to RESUME_TRIES x RESUME_WAIT (review 2026-11-21).
+const RESUME_TRIES: u32 = 120;
+const RESUME_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Resumes run `id`, trying again while the claim is busy. The run stays
+/// paused meanwhile, so the kill switch (or the expiry) still ends it and the
+/// next try is refused. Still busy after every try: `runbook-busy` (the
+/// caller then ends the run failed, rather than leaving it paused with its
+/// approval used up).
+fn resume_when_free(id: &str, resume: &dyn Fn(&str) -> Result<super::runs::Run, String>, wait: &dyn Fn(), tries: u32) -> Result<super::runs::Run, String> {
+    let mut left = tries;
+    loop {
+        match resume(id) {
+            Err(e) if e == "runbook-busy" && left > 0 => {
+                left -= 1;
+                wait();
+            }
+            r => return r,
         }
     }
 }
@@ -790,5 +829,37 @@ mod remote_run_tests {
         assert!(RemoteRun::claim().is_none(), "a second is busy");
         drop(first);
         assert!(RemoteRun::claim().is_some(), "free again once the first ends");
+    }
+
+    #[test]
+    fn a_verified_approve_waits_for_the_claim_instead_of_being_lost() {
+        use std::cell::Cell;
+        let calls = Cell::new(0u32);
+        let waits = Cell::new(0u32);
+        let run = super::super::runs::Run { id: "ab".repeat(16), ..Default::default() };
+        // Busy twice, then free: resumed, after two waits.
+        let resume = |_: &str| {
+            calls.set(calls.get() + 1);
+            if calls.get() <= 2 { Err("runbook-busy".to_string()) } else { Ok(run.clone()) }
+        };
+        let wait = || waits.set(waits.get() + 1);
+        assert_eq!(super::resume_when_free(&run.id, &resume, &wait, 5).unwrap().id, run.id);
+        assert_eq!((calls.get(), waits.get()), (3, 2));
+        // Any other refusal (killed meanwhile, expired) ends it at once.
+        calls.set(0);
+        let killed = |_: &str| {
+            calls.set(calls.get() + 1);
+            Err::<super::super::runs::Run, String>("run-killed".into())
+        };
+        assert_eq!(super::resume_when_free(&run.id, &killed, &wait, 5).unwrap_err(), "run-killed");
+        assert_eq!(calls.get(), 1);
+        // Busy every time: gives up after the tries, never loops forever.
+        calls.set(0);
+        let busy = |_: &str| {
+            calls.set(calls.get() + 1);
+            Err::<super::super::runs::Run, String>("runbook-busy".into())
+        };
+        assert_eq!(super::resume_when_free(&run.id, &busy, &wait, 3).unwrap_err(), "runbook-busy");
+        assert_eq!(calls.get(), 4);
     }
 }
