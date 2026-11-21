@@ -206,6 +206,7 @@ export const Bridge = {
   /** The relay's address (https://name.subdomain.workers.dev); "" removes it. */
   remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
   remoteRequireSealed: (on: boolean) => callOrThrow<RemoteStatus>("remote_require_sealed", { on }),
+  remoteRunbookLimits: (perClient: number, perPc: number) => callOrThrow<RemoteStatus>("remote_runbook_limits", { perClient, perPc }),
   /** A new PC relay token + result key (cloud tokens are each client's own). */
   remoteSetup: () => callOrThrow<RemoteStatus>("remote_setup"),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
@@ -469,6 +470,8 @@ export interface RemoteActivity {
   id: string;
   /** The cloud client that sent it ("account-2" ...), or "". */
   client: string;
+  /** The runbook a runbook task named, or "" (owner 2026-11-20). */
+  runbook?: string;
 }
 
 /** One Claude account: signed in = its login file exists (never read). */
@@ -507,6 +510,11 @@ export interface RemoteStatus {
   pcEncFingerprint: string;
   /** "Require sealed tasks" (off by default): unsealed tasks are refused as not-sealed. */
   requireSealed: boolean;
+  /** Remote runbook tasks an hour, per cloud client and on this PC (set on the PC only). */
+  runbooksPerHour?: number;
+  runbooksPerHourPc?: number;
+  /** Runbooks whose file gives them a remote level: "name (cloud)". */
+  remoteRunbooks?: string[];
   /** Newest first. */
   activity: RemoteActivity[];
 }
@@ -522,6 +530,8 @@ export interface RunbookStepView {
   kind: string;
   text: string;
   ask: boolean;
+  /** Asks on the phone when run remotely. */
+  phone?: boolean;
 }
 
 export interface RunbookView {
@@ -531,6 +541,8 @@ export interface RunbookView {
   error: string;
   hash: string;
   steps: RunbookStepView[];
+  /** The file's [remote] level: "cloud" | "phone" | "never". */
+  remote?: string;
   folders: string[];
   apps: string[];
   commands: string[];

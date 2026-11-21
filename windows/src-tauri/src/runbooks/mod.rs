@@ -103,7 +103,16 @@ struct RawBook {
     #[serde(default)]
     allow: RawAllow,
     #[serde(default)]
+    remote: RawRemote,
+    #[serde(default)]
     step: Vec<RawStep>,
+}
+
+/// `[remote]` (owner 2026-11-20, docs/remote-runbooks.md §3.1).
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RawRemote {
+    level: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -141,6 +150,42 @@ struct RawStep {
     require_prefix: Option<Vec<String>>,
     #[serde(default)]
     ask: bool,
+    /// This step's remote level (raises the runbook's, never lowers it).
+    remote: Option<String>,
+}
+
+/// How a runbook (or one of its steps) may run from a signed cloud task
+/// (owner 2026-11-20, docs/remote-runbooks.md §3.1). Ordered from the least
+/// strict: the stricter of a runbook's and a step's own level wins.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteLevel {
+    /// 1, "cloud may run": no ask.
+    Cloud,
+    /// 2, "ask on my phone": pauses for the owner's phone approval
+    /// (not built yet: refused remotely as `needs-phone`).
+    Phone,
+    /// 3, "never remotely": the default.
+    Never,
+}
+
+impl RemoteLevel {
+    fn parse(raw: &str) -> Result<RemoteLevel, String> {
+        match raw {
+            "cloud" => Ok(RemoteLevel::Cloud),
+            "phone" => Ok(RemoteLevel::Phone),
+            "never" => Ok(RemoteLevel::Never),
+            other => Err(format!("remote level {other:?} must be \"cloud\", \"phone\" or \"never\"")),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RemoteLevel::Cloud => "cloud",
+            RemoteLevel::Phone => "phone",
+            RemoteLevel::Never => "never",
+        }
+    }
 }
 
 /// What a `start_app` step may start.
@@ -243,6 +288,8 @@ pub fn show(p: &Path) -> String {
 pub struct BookStep {
     pub step: Step,
     pub ask: bool,
+    /// The step's own `remote` level, if it has one.
+    pub remote: Option<RemoteLevel>,
 }
 
 #[derive(Clone, Debug)]
@@ -260,8 +307,41 @@ pub struct Runbook {
     pub description: String,
     pub allow: Allow,
     pub steps: Vec<BookStep>,
+    /// `[remote] level`; Never when absent.
+    pub remote: RemoteLevel,
     /// SHA-256 of the file's bytes, hex.
     pub hash: String,
+}
+
+impl Runbook {
+    /// A step's level when run remotely: the stricter of the runbook's and
+    /// its own, and an `ask = true` step at least Phone (the phone replaces
+    /// the click on the PC).
+    pub fn step_level(&self, i: usize) -> RemoteLevel {
+        let s = &self.steps[i];
+        let mut l = self.remote.max(s.remote.unwrap_or(RemoteLevel::Cloud));
+        if s.ask {
+            l = l.max(RemoteLevel::Phone);
+        }
+        l
+    }
+
+    /// May a signed cloud task start it? Checked before step 1, before any
+    /// secret is read. A launch_detached step (glim-update restarts Glim
+    /// before its result could go out) is never remote, whatever the file says.
+    pub fn remote_check(&self) -> Result<(), Refusal> {
+        if self.remote == RemoteLevel::Never || self.steps.iter().any(|s| matches!(s.step, Step::LaunchDetached { .. })) {
+            return Err(Refusal::NotRemote);
+        }
+        let levels: Vec<RemoteLevel> = (0..self.steps.len()).map(|i| self.step_level(i)).collect();
+        if levels.contains(&RemoteLevel::Never) {
+            return Err(Refusal::NotRemote);
+        }
+        if levels.contains(&RemoteLevel::Phone) {
+            return Err(Refusal::NeedsPhone);
+        }
+        Ok(())
+    }
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -607,10 +687,12 @@ pub fn parse(name: &str, bytes: &[u8]) -> Result<Runbook, String> {
         if matches!(st, Step::LaunchDetached { .. }) && i + 1 != raw.step.len() {
             return Err(format!("step {}: a launch_detached step must be the last step (Glim doesn't wait for it)", i + 1));
         }
-        steps.push(BookStep { step: st, ask: s.ask });
+        let remote = s.remote.as_deref().map(RemoteLevel::parse).transpose().map_err(|e| format!("step {}: {e}", i + 1))?;
+        steps.push(BookStep { step: st, ask: s.ask, remote });
     }
+    let remote = raw.remote.level.as_deref().map(RemoteLevel::parse).transpose().map_err(|e| format!("[remote]: {e}"))?.unwrap_or(RemoteLevel::Never);
     let hash = book_hash(bytes, &steps);
-    Ok(Runbook { name: name.to_string(), description: raw.description.chars().take(200).collect(), allow, steps, hash })
+    Ok(Runbook { name: name.to_string(), description: raw.description.chars().take(200).collect(), allow, steps, remote, hash })
 }
 
 /// What approval covers: the file's bytes, plus each ps_script's path and
@@ -825,6 +907,11 @@ pub enum Refusal {
     Changed,
     /// Steps with ask = true that weren't confirmed for this run (1-based).
     Asks(Vec<usize>),
+    /// A remote run of a runbook (or a step) that isn't remote-allowed.
+    NotRemote,
+    /// A remote run reaching a level-2 ("ask on my phone") step: refused
+    /// until phone approval is built (docs/remote-runbooks.md §8).
+    NeedsPhone,
 }
 
 impl Refusal {
@@ -837,6 +924,8 @@ impl Refusal {
                 "step {} asks every run: run it from Glim (Settings → Runbooks, or say \"run <name>\")",
                 s.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
             ),
+            Refusal::NotRemote => "not remote-allowed: set [remote] level in its file and approve it again".into(),
+            Refusal::NeedsPhone => "a step asks on your phone, which isn't built yet: run it from Glim".into(),
         }
     }
 
@@ -847,6 +936,8 @@ impl Refusal {
             Refusal::NotApproved => "not-approved",
             Refusal::Changed => "changed",
             Refusal::Asks(_) => "asks",
+            Refusal::NotRemote => "not-remote",
+            Refusal::NeedsPhone => "needs-phone",
         }
     }
 }
@@ -1022,6 +1113,11 @@ pub fn run_named(
     if seen_hash.is_some_and(|h| h != book.hash) {
         return refused(Refusal::Changed, audit);
     }
+    if trigger == Trigger::Remote {
+        if let Err(r) = book.remote_check() {
+            return refused(r, audit);
+        }
+    }
     let t = trigger.as_str();
     audit(format!("{name} {t} start {} steps", book.steps.len()));
     let result = run_steps(&book, world, confirmed, &mut |o| {
@@ -1185,6 +1281,8 @@ pub struct StepView {
     /// The English one-liner (names, paths, commands; never a value).
     pub text: String,
     pub ask: bool,
+    /// Asks on the phone when run remotely (level 2).
+    pub phone: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1197,6 +1295,8 @@ pub struct BookView {
     pub error: String,
     pub hash: String,
     pub steps: Vec<StepView>,
+    /// "cloud" | "phone" | "never" (the file's `[remote] level`).
+    pub remote: &'static str,
     pub folders: Vec<String>,
     pub apps: Vec<String>,
     pub commands: Vec<String>,
@@ -1214,7 +1314,7 @@ fn last_output(name: &str) -> String {
 }
 
 pub fn view(name: &str, here: &Here) -> BookView {
-    let empty = |state, error: String| BookView { name: name.into(), description: String::new(), state, error, hash: String::new(), steps: vec![], folders: vec![], apps: vec![], commands: vec![], scripts: vec![], last_output: String::new() };
+    let empty = |state, error: String| BookView { name: name.into(), description: String::new(), state, error, hash: String::new(), steps: vec![], remote: "never", folders: vec![], apps: vec![], commands: vec![], scripts: vec![], last_output: String::new() };
     match load_from(&here.dir, name) {
         Err(e) => empty(State::Invalid, e),
         Ok((_, Err(e))) => empty(State::Invalid, e),
@@ -1224,7 +1324,8 @@ pub fn view(name: &str, here: &Here) -> BookView {
             state: state(&b, &here.approvals, here.key.as_deref()),
             error: String::new(),
             hash: b.hash.clone(),
-            steps: b.steps.iter().map(|s| StepView { kind: s.step.kind(), text: s.step.describe(), ask: s.ask }).collect(),
+            steps: b.steps.iter().enumerate().map(|(i, s)| StepView { kind: s.step.kind(), text: s.step.describe(), ask: s.ask, phone: b.remote != RemoteLevel::Never && b.step_level(i) == RemoteLevel::Phone }).collect(),
+            remote: b.remote.as_str(),
             folders: b.allow.folders.iter().map(|f| show(f)).collect(),
             apps: b.allow.apps.iter().map(|a| match a { App::Path(p) | App::Protocol(p) => p.clone() }).collect(),
             commands: b.allow.commands.clone(),
@@ -1237,6 +1338,19 @@ pub fn view(name: &str, here: &Here) -> BookView {
 pub fn views() -> Vec<BookView> {
     let here = Here::read();
     names_in(&here.dir).iter().map(|n| view(n, &here)).collect()
+}
+
+/// Runbooks whose file gives them a remote level, "name (cloud)": read from
+/// the files only (no approvals, no Credential Manager), for Settings → Remote.
+pub fn remote_names() -> Vec<String> {
+    let d = dir();
+    names_in(&d)
+        .iter()
+        .filter_map(|n| match load_from(&d, n) {
+            Ok((_, Ok(b))) if b.remote != RemoteLevel::Never => Some(format!("{} ({})", b.name, b.remote.as_str())),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn recent() -> Vec<RunView> {

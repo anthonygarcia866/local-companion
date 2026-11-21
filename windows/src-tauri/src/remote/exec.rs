@@ -21,8 +21,12 @@
 //                    (owner 2026-11-17): "no-such-session" / "not-your-
 //                    session" otherwise; "busy" while it wrote in the last
 //                    30 s.
-//   runbook          an approved, unchanged, non-asking runbook, exactly as
-//                    `glim.exe --run` runs it (Trigger::Remote in runbooks.log).
+//   runbook          an approved, unchanged runbook whose file gives it a
+//                    remote level (`[remote] level = "cloud"`; absent =
+//                    never, refused `runbook-not-remote`; a "phone" or ask
+//                    step: `runbook-needs-phone`; docs/remote-runbooks.md),
+//                    as `glim.exe --run` runs it (Trigger::Remote in
+//                    runbooks.log); one at a time (`runbook-busy`).
 //   keepalive-restart stops and starts again the "Keep Claude Code reachable"
 //                    sessions (keepalive.rs) for folders already on its list,
 //                    with their fixed command; nothing when keep-alive is off.
@@ -625,6 +629,8 @@ impl Exec for RealExec {
                 Ok(restart_line(n, &scope.account.name).into())
             }
             Command::Runbook { name } => {
+                // One remote run at a time (owner 2026-11-20, D6).
+                let Some(_running) = RemoteRun::claim() else { return Err("runbook-busy".into()) };
                 let r = crate::runbooks::run_now(name, None, crate::runbooks::Trigger::Remote, &[], &mut |_| {});
                 match r {
                     Ok(steps) => {
@@ -640,5 +646,36 @@ impl Exec for RealExec {
                 }
             }
         }
+    }
+}
+
+/// The one remote runbook run allowed at a time; released when dropped.
+struct RemoteRun;
+
+static REMOTE_RUN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+impl RemoteRun {
+    fn claim() -> Option<RemoteRun> {
+        use std::sync::atomic::Ordering;
+        REMOTE_RUN.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).ok().map(|_| RemoteRun)
+    }
+}
+
+impl Drop for RemoteRun {
+    fn drop(&mut self) {
+        REMOTE_RUN.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod remote_run_tests {
+    use super::RemoteRun;
+
+    #[test]
+    fn one_remote_runbook_run_at_a_time() {
+        let first = RemoteRun::claim().expect("free at first");
+        assert!(RemoteRun::claim().is_none(), "a second is busy");
+        drop(first);
+        assert!(RemoteRun::claim().is_some(), "free again once the first ends");
     }
 }

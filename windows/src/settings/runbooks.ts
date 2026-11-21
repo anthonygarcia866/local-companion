@@ -26,6 +26,13 @@ interface Live {
   voice: boolean;
 }
 
+/** The file's remote level (owner 2026-11-20), "" for never. */
+export function remoteText(b: RunbookView): string {
+  if (b.remote === "cloud") return t("Remote: cloud may run");
+  if (b.remote === "phone") return t("Remote: ask on my phone");
+  return "";
+}
+
 export function stateText(b: RunbookView): string {
   switch (b.state) {
     case "approved": return t("Approved");
@@ -112,6 +119,7 @@ export function runbooksSection(): HTMLElement {
       if (only && !only.includes(i + 1)) return;
       const li = h("li", { text: s.text });
       if (s.ask) li.append(h("span", { class: "hint", text: ` · ${t("asks every run")}` }));
+      if (s.phone) li.append(h("span", { class: "hint", text: ` · ${t("asks on your phone when run remotely")}` }));
       ol.append(li);
     });
     return ol;
@@ -151,6 +159,7 @@ export function runbooksSection(): HTMLElement {
         h("div", { class: "name", text: b.state === "changed" ? t("{name} changed since you approved it. It will now:", { name: b.name }) : t("Approve {name}? It will:", { name: b.name }) }),
         stepList(b),
         ...allowed,
+        ...(remoteText(b) ? [h("div", { class: "hint", "data-role": "runbook-remote", text: remoteText(b) })] : []),
         h("div", { class: "hint", text: t("Secrets are shown by name only. Any change to the file means approving it again.") }),
         h("div", { class: "row" }, yes, no),
       );
@@ -183,6 +192,7 @@ export function runbooksSection(): HTMLElement {
         h("div", { class: "pill-row" },
           h("span", { class: "name", text: b.name }),
           h("span", { class: "hint", "data-role": "runbook-state", text: stateText(b) }),
+          ...(remoteText(b) ? [h("span", { class: "hint", "data-role": "runbook-remote-tag", text: ` · ${remoteText(b)}` })] : []),
           run,
         ),
       );

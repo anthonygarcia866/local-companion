@@ -76,6 +76,12 @@ pub const MAX_START_PER_HOUR_PC: usize = 8;
 pub const MAX_COMMANDS_PER_HOUR_PC: usize = 50;
 /// keepalive-restart, per rolling hour, on this PC (owner 2026-11-15).
 pub const MAX_KEEPALIVE_RESTARTS_PER_HOUR: usize = 3;
+/// Remote runbook tasks an hour (owner 2026-11-20, D6): defaults, and the
+/// ranges Settings → Remote may set (on the PC only; no command carries them).
+pub const DEFAULT_RUNBOOKS_PER_HOUR: u32 = 5;
+pub const DEFAULT_RUNBOOKS_PER_HOUR_PC: u32 = 10;
+pub const RUNBOOKS_PER_HOUR_RANGE: std::ops::RangeInclusive<u32> = 1..=20;
+pub const RUNBOOKS_PER_HOUR_PC_RANGE: std::ops::RangeInclusive<u32> = 1..=50;
 /// The client a task from a relay without client names (or the signer key
 /// from before clients) belongs to.
 pub const LEGACY_CLIENT: &str = "account-1";
@@ -124,6 +130,18 @@ pub struct RemoteSettings {
     /// every cloud environment has GLIM_PC_ENC_KEY and the async cloud test
     /// passed for each account.
     pub require_sealed: bool,
+    /// Remote runbook tasks an hour per cloud client; 0 = the default (5).
+    pub runbooks_per_hour: u32,
+    /// Remote runbook tasks an hour on this PC; 0 = the default (10).
+    pub runbooks_per_hour_pc: u32,
+}
+
+impl RemoteSettings {
+    /// (per client, on the PC), defaults filled in and kept in range.
+    pub fn runbook_limits(&self) -> (u32, u32) {
+        let pick = |v: u32, d: u32, r: &std::ops::RangeInclusive<u32>| if v == 0 { d } else { v.clamp(*r.start(), *r.end()) };
+        (pick(self.runbooks_per_hour, DEFAULT_RUNBOOKS_PER_HOUR, &RUNBOOKS_PER_HOUR_RANGE), pick(self.runbooks_per_hour_pc, DEFAULT_RUNBOOKS_PER_HOUR_PC, &RUNBOOKS_PER_HOUR_PC_RANGE))
+    }
 }
 
 /// One cloud client: its name, its signer's PUBLIC key, the SHA-256 of its
@@ -346,6 +364,10 @@ pub struct Activity {
     /// The cloud client the relay said sent it (a checked name), "" none.
     #[serde(default)]
     pub client: String,
+    /// The runbook a `runbook` task named (owner 2026-11-20, D4), "" else.
+    /// The Remote activity list only: glim.log keeps kinds and codes.
+    #[serde(default)]
+    pub runbook: String,
 }
 
 /// One accepted command, for the rate limits.
@@ -354,6 +376,9 @@ pub struct Call {
     pub at: i64,
     pub start: bool,
     pub client: String,
+    /// A `runbook` task (added 2026-11-20; older entries weren't).
+    #[serde(default)]
+    pub runbook: bool,
 }
 
 /// Replay cache, rate counters and the activity list. `path` keeps the
@@ -390,7 +415,7 @@ impl Gate {
     /// The gate kept in `path` (`%LOCALAPPDATA%\Glim\remote-state.json`).
     pub fn load(path: std::path::PathBuf) -> Gate {
         let saved: Saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        let mut recent: Vec<Call> = saved.recent.iter().map(|(at, start)| Call { at: *at, start: *start, client: LEGACY_CLIENT.into() }).collect();
+        let mut recent: Vec<Call> = saved.recent.iter().map(|(at, start)| Call { at: *at, start: *start, client: LEGACY_CLIENT.into(), runbook: false }).collect();
         recent.extend(saved.calls);
         Gate { seen: saved.seen, recent, restarts: saved.restarts, activity: saved.activity, path: Some(path) }
     }
@@ -445,7 +470,7 @@ impl Gate {
                     Rejection::BadSeal
                 };
                 let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
-                self.note(Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: String::new(), client: named });
+                self.note(Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: String::new(), client: named, runbook: String::new() });
                 self.save();
                 Err(why)
             }
@@ -468,8 +493,8 @@ impl Gate {
         let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
         let r = self.check(s, &named, raw, now, sealed);
         let entry = match &r {
-            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone() },
-            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone() },
+            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone(), runbook: runbook_of(&a.command) },
+            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone(), runbook: String::new() },
         };
         self.note(entry);
         // A verified task's id gets exactly one outcome (review 2026-11-17):
@@ -482,7 +507,7 @@ impl Gate {
         }
         if let Ok(a) = &r {
             self.seen.insert(a.id.clone(), a.expires);
-            self.recent.push(Call { at: now, start: matches!(a.command, Command::StartSession { .. }), client: a.client.clone() });
+            self.recent.push(Call { at: now, start: matches!(a.command, Command::StartSession { .. }), client: a.client.clone(), runbook: matches!(a.command, Command::Runbook { .. }) });
             if matches!(a.command, Command::KeepaliveRestart { .. }) {
                 self.restarts.push(now);
             }
@@ -575,14 +600,30 @@ impl Gate {
         if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
+        // Remote runbooks (owner 2026-11-20, D6): the owner's limits from
+        // Settings, inside the command caps above.
+        if matches!(command, Command::Runbook { .. }) {
+            let (mine, pc) = s.runbook_limits();
+            if self.recent.iter().filter(|c| c.runbook).count() >= pc as usize || own().filter(|c| c.runbook).count() >= mine as usize {
+                return Err((Rejection::RateLimited, id));
+            }
+        }
         Ok(Accepted { id: p.id, expires: p.exp, iat: p.iat, command, client: client.to_string(), rk })
     }
 
     /// The kill switch was used: noted in the list (it refuses on its own,
     /// through the settings).
     pub fn note_kill(&mut self, now: i64, killed: bool) {
-        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new(), client: String::new() });
+        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new(), client: String::new(), runbook: String::new() });
         self.save();
+    }
+}
+
+/// The runbook a task names, for the Remote activity list.
+fn runbook_of(c: &Command) -> String {
+    match c {
+        Command::Runbook { name } => name.clone(),
+        _ => String::new(),
     }
 }
 

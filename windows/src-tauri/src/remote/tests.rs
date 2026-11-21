@@ -184,7 +184,7 @@ fn off_by_default_needs_consent_a_key_and_the_kill_switch_wins() {
     let kp = signer(7);
     let raw = envelope(&kp, &task(&id(30), "session-status", json!({})));
     let mut g = Gate::default();
-    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new(), pc_enc_key: String::new(), require_sealed: false });
+    assert_eq!(RemoteSettings::default(), RemoteSettings { on: false, consented: false, killed: false, allowed_since: 0, public_key: String::new(), clients: Vec::new(), relay: String::new(), pc_public_key: String::new(), pc_enc_key: String::new(), require_sealed: false, runbooks_per_hour: 0, runbooks_per_hour_pc: 0 });
     assert_eq!(g.accept(&RemoteSettings::default(), &raw, NOW), Err(Rejection::Off));
     let not_consented = RemoteSettings { consented: false, ..settings_for(&kp) };
     assert_eq!(g.accept(&not_consented, &raw, NOW), Err(Rejection::Off));
@@ -606,4 +606,59 @@ fn keep_alive_runs_one_server_per_account_and_restarts_only_the_asked_accounts()
     assert_eq!(want, vec![Spec::Folder(r"C:\x\example-repo".into()), Spec::AccountFolder(r"C:\x\example-repo".into(), accounts[1].clone())]);
     assert_ne!(want[0].id(), want[1].id(), "side by side");
     assert!(wanted_for(&KeepAliveSettings { on: false, ..s.clone() }, &accounts).is_empty());
+}
+
+#[test]
+fn remote_runbook_limits_come_from_settings_per_client_and_on_the_pc() {
+    let (k1, k2) = (signer(7), signer(8));
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    for (n, k) in [("account-1", &k1), ("account-2", &k2)] {
+        s.add_client(client(n, k)).unwrap();
+    }
+    // Defaults: 5 per client, 10 on the PC (owner 2026-11-20, D6).
+    assert_eq!(s.runbook_limits(), (DEFAULT_RUNBOOKS_PER_HOUR, DEFAULT_RUNBOOKS_PER_HOUR_PC));
+    assert_eq!((DEFAULT_RUNBOOKS_PER_HOUR, DEFAULT_RUNBOOKS_PER_HOUR_PC), (5, 10));
+    let mut g = Gate::default();
+    let mut n = 700;
+    let mut send = |g: &mut Gate, s: &RemoteSettings, who: &str, k: &Ed25519KeyPair, cmd: &str| {
+        n += 1;
+        let args = if cmd == "runbook" { json!({ "name": "glim-check" }) } else { json!({}) };
+        g.accept_from(s, who, &envelope(k, &task(&id(n), cmd, args)), NOW)
+    };
+    for _ in 0..5 {
+        send(&mut g, &s, "account-1", &k1, "runbook").unwrap();
+    }
+    assert_eq!(send(&mut g, &s, "account-1", &k1, "runbook"), Err(Rejection::RateLimited));
+    assert!(send(&mut g, &s, "account-1", &k1, "session-status").is_ok(), "other commands keep their own caps");
+    for _ in 0..5 {
+        send(&mut g, &s, "account-2", &k2, "runbook").unwrap();
+    }
+    assert_eq!(send(&mut g, &s, "account-2", &k2, "runbook"), Err(Rejection::RateLimited), "the PC's 10");
+    // The owner raises them in Settings (on the PC): more go through.
+    let raised = RemoteSettings { runbooks_per_hour: 7, runbooks_per_hour_pc: 12, ..s.clone() };
+    assert!(send(&mut g, &raised, "account-1", &k1, "runbook").is_ok());
+    assert!(send(&mut g, &raised, "account-2", &k2, "runbook").is_ok());
+    assert_eq!(send(&mut g, &raised, "account-2", &k2, "runbook"), Err(Rejection::RateLimited), "the PC's 12");
+    // Out of range is kept in range.
+    let wild = RemoteSettings { runbooks_per_hour: 999, runbooks_per_hour_pc: 999, ..Default::default() };
+    assert_eq!(wild.runbook_limits(), (20, 50));
+    // The runbook's name is in the activity list (D4), not in the log line.
+    let last = g.activity.iter().rev().find(|a| a.ok && a.kind == "runbook").unwrap();
+    assert_eq!(last.runbook, "glim-check");
+    assert!(g.activity.iter().filter(|a| a.kind != "runbook").all(|a| a.runbook.is_empty()));
+}
+
+#[test]
+fn no_command_can_carry_remote_limits_or_levels() {
+    let kp = signer(7);
+    let s = settings_for(&kp);
+    let mut g = Gate::default();
+    for (n, args) in [json!({ "name": "glim-check", "level": "cloud" }), json!({ "name": "glim-check", "runbooksPerHour": 20 }), json!({ "runbooksPerHour": 20 })].into_iter().enumerate() {
+        let r = g.accept(&s, &envelope(&kp, &task(&id(800 + n), "runbook", args)), NOW);
+        assert_eq!(r.err(), Some(Rejection::BadArgs));
+    }
+    for (n, cmd) in ["remote-limits", "set-limits", "runbook-level"].into_iter().enumerate() {
+        let r = g.accept(&s, &envelope(&kp, &task(&id(820 + n), cmd, json!({}))), NOW);
+        assert_eq!(r.err(), Some(Rejection::UnknownCommand));
+    }
 }

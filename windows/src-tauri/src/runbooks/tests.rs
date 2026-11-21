@@ -767,3 +767,84 @@ fn the_example_runbook_is_valid_and_has_placeholders_only() {
         assert!(line.contains(r"C:\path\to\"), "not a placeholder path: {line}");
     }
 }
+
+// ── Remote levels (owner 2026-11-20, docs/remote-runbooks.md §3.1) ───────────
+
+fn remote_book(folder: &str, head: &str, step_extra: &str) -> String {
+    format!("{head}\n[allow]\nfolders = ['{folder}']\ncommands = [\"npm test\"]\n[[step]]\ntype = \"run\"\ncommand = \"npm test\"\nfolder = '{folder}'\n{step_extra}\n[[step]]\ntype = \"check\"\nport = 5173\n")
+}
+
+#[test]
+fn an_unmarked_runbook_is_refused_remotely_before_any_step_and_still_runs_locally() {
+    let d = repo("remote-never");
+    let (books, approvals, key) = approved_dir("remote-never-books", &remote_book(&p(&d), "", ""));
+    let fake = Fake::default();
+    let mut audit = Vec::new();
+    let mut ran = 0;
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Remote, &[], &fake, &mut |l| audit.push(l), &mut |_| ran += 1);
+    assert_eq!(r, Err(Refusal::NotRemote));
+    assert_eq!(r.as_ref().unwrap_err().code(), "not-remote");
+    assert_eq!(ran, 0, "no step ran");
+    assert!(audit.iter().any(|l| l == "example remote refused not-remote"), "{audit:?}");
+    assert_eq!(cli::exit_code(&r), 5);
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Cli, &[], &fake, &mut |_| {}, &mut |_| {});
+    assert!(r.unwrap().iter().all(|o| o.ok), "local runs are unchanged");
+    // "never" written out is the same as absent.
+    let b = parse("example", remote_book(&p(&d), "[remote]\nlevel = \"never\"", "").as_bytes()).unwrap();
+    assert_eq!(b.remote, RemoteLevel::Never);
+    assert_eq!(b.remote_check(), Err(Refusal::NotRemote));
+}
+
+#[test]
+fn a_cloud_runbook_runs_remotely() {
+    let d = repo("remote-cloud");
+    let (books, approvals, key) = approved_dir("remote-cloud-books", &remote_book(&p(&d), "[remote]\nlevel = \"cloud\"", ""));
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Remote, &[], &Fake::default(), &mut |_| {}, &mut |_| {});
+    let r = r.unwrap();
+    assert_eq!(r.len(), 2);
+    assert!(r.iter().all(|o| o.ok));
+}
+
+#[test]
+fn a_stricter_step_refuses_the_whole_runbook_up_front() {
+    let d = repo("remote-steps");
+    let f = p(&d);
+    let cloud = "[remote]\nlevel = \"cloud\"";
+    for (extra, want) in [("remote = \"never\"", Refusal::NotRemote), ("remote = \"phone\"", Refusal::NeedsPhone), ("ask = true", Refusal::NeedsPhone)] {
+        let (books, approvals, key) = approved_dir(&format!("remote-steps-{}", extra.len()), &remote_book(&f, cloud, extra));
+        let mut ran = 0;
+        let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Remote, &[], &Fake::default(), &mut |_| {}, &mut |_| ran += 1);
+        assert_eq!(r, Err(want.clone()), "{extra}");
+        assert_eq!(ran, 0, "{extra}: nothing half-done");
+    }
+    // A step can't be less strict than its runbook.
+    let b = parse("example", remote_book(&f, "[remote]\nlevel = \"phone\"", "remote = \"cloud\"").as_bytes()).unwrap();
+    assert_eq!(b.step_level(0), RemoteLevel::Phone);
+    assert_eq!(b.remote_check(), Err(Refusal::NeedsPhone));
+    assert_eq!(Refusal::NeedsPhone.code(), "needs-phone");
+}
+
+#[test]
+fn launch_detached_is_never_remote_whatever_the_file_says() {
+    let d = repo("remote-detached");
+    let text = format!("[remote]\nlevel = \"cloud\"\n{}", detached_book(&p(&d), ""));
+    let b = parse("example", text.as_bytes()).unwrap();
+    assert_eq!(b.remote, RemoteLevel::Cloud);
+    assert_eq!(b.remote_check(), Err(Refusal::NotRemote));
+}
+
+#[test]
+fn a_bad_remote_level_is_refused_and_the_level_is_inside_the_approval() {
+    let d = repo("remote-bad");
+    let f = p(&d);
+    let e = parse("example", remote_book(&f, "[remote]\nlevel = \"always\"", "").as_bytes()).unwrap_err();
+    assert!(e.contains("[remote]") && e.contains("always"), "{e}");
+    let e = parse("example", remote_book(&f, "", "remote = \"sometimes\"").as_bytes()).unwrap_err();
+    assert!(e.starts_with("step 1:"), "{e}");
+    assert!(parse("example", remote_book(&f, "[remote]\nlevel = \"cloud\"\nextra = 1", "").as_bytes()).is_err(), "unknown [remote] keys refused");
+    // Approved without a level, then given one: approving again is needed.
+    let (books, approvals, key) = approved_dir("remote-reapprove", &remote_book(&f, "", ""));
+    book(&books, "example", &remote_book(&f, "[remote]\nlevel = \"cloud\"", ""));
+    let r = run_named(&books, &approvals, Some(&key), "example", None, Trigger::Remote, &[], &Fake::default(), &mut |_| {}, &mut |_| {});
+    assert_eq!(r, Err(Refusal::Changed));
+}
