@@ -1,5 +1,6 @@
 // Glim approvals: the phone's side (owner 2026-11-21, docs/remote-runbooks.md §8).
-// OWNER-MERGE ONLY (CLAUDE.md, .github/CODEOWNERS).
+// SECURITY-CRITICAL: merged only with CI green and a fresh-agent security
+// review finding nothing critical or high (CLAUDE.md, .github/CODEOWNERS).
 //
 // Pair:    #pair=<slot>&relay=<host>&pk=<the PC's one-time P-256 key>
 //          (from the QR code on the PC's screen). Creates a Face ID passkey,
