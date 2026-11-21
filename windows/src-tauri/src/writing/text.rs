@@ -86,6 +86,26 @@ pub fn paragraph_to_check(field: &str, caret: Option<usize>) -> Option<Paragraph
     (!text.trim().is_empty()).then_some(Paragraph { text, start })
 }
 
+/// The paragraphs of the user's own text (signature and quoted reply left
+/// out): each line between breaks that isn't blank, with where it starts
+/// (in characters), exactly as the field holds it.
+pub fn own_paragraphs(field: &str) -> Vec<Paragraph> {
+    let chars: Vec<char> = field.chars().collect();
+    let end = own_text_end(&chars);
+    let mut out = Vec::new();
+    let mut start = 0;
+    for i in 0..=end {
+        if i == end || is_break(chars[i]) {
+            let text: String = chars[start..i].iter().collect();
+            if !text.trim().is_empty() {
+                out.push(Paragraph { text, start });
+            }
+            start = i + 1;
+        }
+    }
+    out
+}
+
 fn is_break(c: char) -> bool {
     c == '\n' || c == '\r' || c == '\u{b}' || c == '\u{2029}'
 }

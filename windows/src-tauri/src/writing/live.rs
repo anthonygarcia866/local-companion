@@ -311,14 +311,35 @@ impl Session {
     pub(super) fn live_prune(&mut self, text: &str) {
         let field = self.live.field;
         let mut gone: Vec<u64> = Vec::new();
-        self.live.kept.retain(|k| {
-            let keep = k.field != field || crate::writing::text::holds_paragraph(text, &k.shown.paragraph);
-            if !keep {
-                gone.push(k.shown.id);
+        let mut paragraphs: Option<Vec<crate::writing::text::Paragraph>> = None;
+        let mut moved: Vec<u64> = Vec::new();
+        self.live.kept.retain_mut(|k| {
+            if k.field != field || crate::writing::text::holds_paragraph(text, &k.shown.paragraph) {
+                return true;
             }
-            keep
+            // Typed on or edited elsewhere in that paragraph (owner
+            // 2026-11-21, Grammarly-style): re-anchored when its edits'
+            // own words are untouched, else it goes.
+            let ps = paragraphs.get_or_insert_with(|| crate::writing::text::own_paragraphs(text));
+            if let Some((p, revised)) = rebase(ps, &k.shown.paragraph, &k.shown.revised) {
+                moved.push(k.shown.id);
+                k.shown.key = super::key_of(&p);
+                k.shown.start = p.start;
+                k.shown.paragraph = p.text;
+                k.shown.revised = revised;
+                return true;
+            }
+            gone.push(k.shown.id);
+            false
         });
         if self.live.reviewing && self.live.shown.as_ref().is_some_and(|s| gone.contains(&s.id)) {
+            self.live_hide("changed");
+        }
+        // One under review that was re-anchored shows an old diff: it goes
+        // from the screen but stays kept (the review key shows it as it is
+        // now). A fresh one on show is the caret's paragraph: typing hides
+        // it ("typing", `live_note`).
+        if self.live.reviewing && self.live.shown.as_ref().is_some_and(|s| moved.contains(&s.id)) {
             self.live_hide("changed");
         }
     }
@@ -901,6 +922,98 @@ pub fn changed_share(old: &str, new: &str) -> f64 {
         return 0.0;
     }
     1.0 - lcs(&a, &b).len() as f64 / longest as f64
+}
+
+/// A kept suggestion whose paragraph changed (owner 2026-11-21): the field's
+/// paragraph it most likely became (sharing at least 60 % of its words, in
+/// order), and the suggestion's edits carried over onto it. An edit carries
+/// over only when the words it changes AND the word on each side of it are
+/// still there, unchanged and next to each other (an edge of the paragraph
+/// counts as a side); the others are dropped. None when none carries over,
+/// or the paragraph was cut to the caret window (too long to anchor).
+pub(crate) fn rebase(paragraphs: &[super::text::Paragraph], old: &str, revised: &str) -> Option<(super::text::Paragraph, String)> {
+    if old.chars().count() >= crate::capture::AFTER_CARET {
+        return None;
+    }
+    let ow = words(old);
+    if ow.is_empty() {
+        return None;
+    }
+    // The likeliest paragraph: the most words in common, in order.
+    let mut best: Option<(usize, &super::text::Paragraph, Vec<(usize, usize)>)> = None;
+    for p in paragraphs {
+        if p.text.chars().count() >= crate::capture::AFTER_CARET {
+            continue;
+        }
+        let pw = words(&p.text);
+        let pairs = lcs(&ow, &pw);
+        if best.as_ref().is_none_or(|(n, _, _)| pairs.len() > *n) {
+            best = Some((pairs.len(), p, pairs));
+        }
+    }
+    let (common, para, pairs) = best?;
+    if (common as f64) < (ow.len() as f64 * 0.6).ceil() || para.text == old {
+        return None;
+    }
+    let nt = tokens(&para.text);
+    // old word i -> new word j
+    let mut map: Vec<Option<usize>> = vec![None; ow.len()];
+    for (i, j) in pairs {
+        map[i] = Some(j);
+    }
+    // The suggestion's edits: old words [i0, i1) become `add` (revised tokens).
+    let rt = tokens(revised);
+    let rw: Vec<&str> = rt.iter().map(|t| t.trim_end()).collect();
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    for (pi, pj) in lcs(&ow, &rw).into_iter().chain(std::iter::once((ow.len(), rw.len()))) {
+        if pi > i || pj > j {
+            edits.push((i, pi, rt[j..pj].concat()));
+        }
+        i = pi + 1;
+        j = pj + 1;
+    }
+    // Each edit's span in the new paragraph's tokens, if it still anchors.
+    let mut placed: Vec<(usize, usize, String)> = Vec::new();
+    for (i0, i1, add) in edits {
+        let left = if i0 == 0 { Some(0) } else { map[i0 - 1].map(|j| j + 1) };
+        let Some(l) = left else { continue };
+        let mut ok = true;
+        for (k, m) in map[i0..i1].iter().enumerate() {
+            ok &= *m == Some(l + k);
+        }
+        let r = l + (i1 - i0);
+        ok &= if i1 == ow.len() { r == nt.len() } else { map[i1] == Some(r) };
+        if ok {
+            placed.push((l, r, add));
+        }
+    }
+    if placed.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    let mut at = 0;
+    for (l, r, add) in placed {
+        out.push_str(&nt[at..l].concat());
+        let add = add.trim_end();
+        if !add.is_empty() {
+            if !out.is_empty() && !out.ends_with(char::is_whitespace) {
+                out.push(' ');
+            }
+            out.push_str(add);
+            // The spacing that followed what it replaced (or, an insertion,
+            // what it goes after).
+            let tail = if r > l { &nt[r - 1] } else if l > 0 { &nt[l - 1] } else { " " };
+            let ws = &tail[tail.trim_end().len()..];
+            out.push_str(if ws.is_empty() && r < nt.len() { " " } else { ws });
+        }
+        at = r;
+    }
+    out.push_str(&nt[at..].concat());
+    if !para.text.ends_with(char::is_whitespace) {
+        out.truncate(out.trim_end().len());
+    }
+    (out.trim() != para.text.trim()).then(|| (para.clone(), out))
 }
 
 /// The word-level diff from `old` to `new`: runs of kept, removed and added
