@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES, readCapped } from "../src/approvals.js";
+import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES, ipKey, phoneRateLimit, readCapped } from "../src/approvals.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 1_795_238_795;
@@ -106,4 +106,49 @@ test("the Worker reads a phone body capped before forwarding it", () => {
   const entry = index.slice(index.indexOf("export default"), index.indexOf("class SqlStore"));
   assert.match(entry, /readCapped\(request, MAX_ANSWER_BYTES\)/, "in the Worker, not only the Durable Object");
   assert.ok(!/request\.text\(\)/.test(entry), "never an uncapped read");
+});
+
+// A stand-in for a Workers rate-limit binding: `limit` calls per key.
+function fakeLimiter(limit) {
+  const seen = new Map();
+  return { keys: seen, async limit({ key }) { const n = (seen.get(key) || 0) + 1; seen.set(key, n); return { success: n <= limit }; } };
+}
+const ipReq = (ip) => ({ headers: new Headers(ip ? { "cf-connecting-ip": ip } : {}) });
+
+test("phone rate limits: per IP, then overall; fails closed", async () => {
+  const env = { PHONE_IP_LIMIT: fakeLimiter(2), PHONE_ALL_LIMIT: fakeLimiter(3) };
+  assert.equal(await phoneRateLimit(ipReq("192.0.2.1"), env), null);
+  assert.equal(await phoneRateLimit(ipReq("192.0.2.1"), env), null);
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.1"), env), { status: 429, error: "rate-limited" }, "per IP");
+  assert.equal(env.PHONE_IP_LIMIT.keys.get("ip:192.0.2.1"), 3);
+  assert.equal(env.PHONE_ALL_LIMIT.keys.get("phone-all"), 2, "an IP refusal doesn't count overall");
+  assert.equal(await phoneRateLimit(ipReq("192.0.2.2"), env), null);
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.3"), env), { status: 429, error: "rate-limited" }, "overall");
+  assert.equal(await phoneRateLimit(ipReq(null), { PHONE_IP_LIMIT: fakeLimiter(5), PHONE_ALL_LIMIT: fakeLimiter(5) }), null, "no IP header: one shared key");
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.1"), {}), { status: 503, error: "rate-limit-unavailable" }, "no binding");
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.1"), { PHONE_IP_LIMIT: fakeLimiter(5) }), { status: 503, error: "rate-limit-unavailable" }, "one binding missing");
+  const boom = { async limit() { throw new Error("x"); } };
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.1"), { PHONE_IP_LIMIT: boom, PHONE_ALL_LIMIT: fakeLimiter(5) }), { status: 503, error: "rate-limit-unavailable" }, "throws");
+  assert.deepEqual(await phoneRateLimit(ipReq("192.0.2.1"), { PHONE_IP_LIMIT: { async limit() { return {}; } }, PHONE_ALL_LIMIT: fakeLimiter(5) }), { status: 429, error: "rate-limited" }, "no success field");
+});
+
+test("the Worker rate-limits phone routes before reading the body or waking the mailbox", () => {
+  const index = fs.readFileSync(path.join(here, "../src/index.js"), "utf8");
+  const entry = index.slice(index.indexOf("export default"), index.indexOf("class SqlStore"));
+  const lim = entry.indexOf("phoneRateLimit(request, env)");
+  assert.ok(lim > 0, "called in the Worker");
+  assert.ok(lim < entry.indexOf("readCapped(request, MAX_ANSWER_BYTES)"), "before the body read");
+  assert.ok(lim < entry.indexOf("env.RELAY.get"), "before the mailbox");
+  const toml = fs.readFileSync(path.join(here, "../wrangler.toml"), "utf8");
+  assert.match(toml, /name = "PHONE_IP_LIMIT"/);
+  assert.match(toml, /name = "PHONE_ALL_LIMIT"/);
+});
+
+test("the per-IP key: IPv4 as is, IPv6 by its /64, junk shares one key", () => {
+  assert.equal(ipKey("192.0.2.7"), "192.0.2.7");
+  assert.equal(ipKey("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64");
+  assert.equal(ipKey("2001:0db8:0001:0002:ffff:ffff:ffff:ffff"), "2001:db8:1:2::/64", "same /64, other host");
+  assert.equal(ipKey("2001:db8::1"), "2001:db8:0:0::/64");
+  assert.equal(ipKey("::1"), "0:0:0:0::/64");
+  for (const bad of [null, "", "x", "1::2::3", "1:2:3", "12345::1", "a".repeat(80)]) assert.equal(ipKey(bad), "unknown", String(bad));
 });
