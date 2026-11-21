@@ -639,7 +639,8 @@ impl Exec for RealExec {
                 let id = super::runs::new_id()?;
                 super::runs::with(|r| r.begin(&id, name, client, super::now_s()))?;
                 // Run outside the lock: the kill switch and run-status stay free.
-                let seg = crate::runbooks::run_remote_now(name, None, 0, false);
+                let stopped = || super::runs::with(|r| r.killed(&id));
+                let seg = crate::runbooks::run_remote_now(name, None, 0, false, &stopped);
                 let run = super::runs::with(|r| r.began(&id, seg, super::now_s()))?;
                 runbook_answer(&run)
             }
@@ -672,7 +673,8 @@ pub fn runbook_answer(run: &super::runs::Run) -> Result<Ran, String> {
 pub fn resume_run(id: &str) -> Result<super::runs::Run, String> {
     let Some(_running) = RemoteRun::claim() else { return Err("runbook-busy".into()) };
     let (name, hash, from) = super::runs::with(|r| r.begin_resume(id, super::now_s()))?;
-    let seg = crate::runbooks::run_remote_now(&name, Some(&hash), from, true);
+    let stopped = || super::runs::with(|r| r.killed(id));
+    let seg = crate::runbooks::run_remote_now(&name, Some(&hash), from, true, &stopped);
     super::runs::with(|r| r.resumed(id, seg, super::now_s()))
 }
 

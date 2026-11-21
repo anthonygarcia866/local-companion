@@ -991,6 +991,8 @@ pub enum RemoteEnd {
     /// Stopped before step `step` (1-based), a level-2 step: it waits for
     /// the owner's phone approval. Steps before it ran.
     Paused { step: usize },
+    /// The kill switch was used: stopped before step `step` (1-based).
+    Stopped { step: usize },
 }
 
 /// A remote run segment: the approved hash it ran under, the step count,
@@ -1007,10 +1009,15 @@ pub struct RemoteSegment {
 /// ("phone") step, except `from` itself when `approved` (the owner just
 /// OK'd it). `hash`: the approved hash the run started under, for a resume;
 /// a different one now is `Changed` and nothing runs.
-pub fn run_remote_steps(book: &Runbook, world: &dyn World, from: usize, approved: bool, progress: &mut dyn FnMut(&Outcome)) -> RemoteSegment {
+pub fn run_remote_steps(book: &Runbook, world: &dyn World, from: usize, approved: bool, stopped: &dyn Fn() -> bool, progress: &mut dyn FnMut(&Outcome)) -> RemoteSegment {
     let total = book.steps.len();
     let mut ran_ok = 0;
     for i in from..total {
+        // The kill switch, checked before every step (a step already
+        // running finishes; nothing after it starts).
+        if stopped() {
+            return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Stopped { step: i + 1 } };
+        }
         if book.step_level(i) == RemoteLevel::Phone && !(approved && i == from) {
             return RemoteSegment { hash: book.hash.clone(), total, ran_ok, end: RemoteEnd::Paused { step: i + 1 } };
         }
@@ -1053,6 +1060,7 @@ pub fn run_remote_named(
     from: usize,
     approved: bool,
     world: &dyn World,
+    stopped: &dyn Fn() -> bool,
     audit: &mut dyn FnMut(String),
 ) -> Result<RemoteSegment, Refusal> {
     let shown = if name_ok(name) { name } else { "?" };
@@ -1075,23 +1083,24 @@ pub fn run_remote_named(
     }
     let what = if from == 0 { "start".to_string() } else { format!("resume at {}", from + 1) };
     audit(format!("{name} remote {what} {} steps", book.steps.len()));
-    let seg = run_remote_steps(&book, world, from, approved, &mut |o| {
+    let seg = run_remote_steps(&book, world, from, approved, stopped, &mut |o| {
         audit(format!("{name} remote step {}/{} {} {} ({})", o.step, o.total, o.kind, if o.ok { "OK" } else { "FAIL" }, o.detail));
     });
     let end = match &seg.end {
         RemoteEnd::Done => "end OK".to_string(),
         RemoteEnd::Failed { step, .. } => format!("end FAIL at {step}"),
         RemoteEnd::Paused { step } => format!("paused at {step}"),
+        RemoteEnd::Stopped { step } => format!("killed before {step}"),
     };
     audit(format!("{name} remote {end} {}", seg.total));
     Ok(seg)
 }
 
 /// `run_remote_named` for real, auditing to runbooks.log.
-pub fn run_remote_now(name: &str, started_hash: Option<&str>, from: usize, approved: bool) -> Result<RemoteSegment, Refusal> {
+pub fn run_remote_now(name: &str, started_hash: Option<&str>, from: usize, approved: bool, stopped: &dyn Fn() -> bool) -> Result<RemoteSegment, Refusal> {
     let here = Here::read();
     let audit = audit_path();
-    run_remote_named(&here.dir, &here.approvals, here.key.as_deref(), name, started_hash, from, approved, &RealWorld, &mut |l| audit_line(&audit, &l))
+    run_remote_named(&here.dir, &here.approvals, here.key.as_deref(), name, started_hash, from, approved, &RealWorld, stopped, &mut |l| audit_line(&audit, &l))
 }
 
 fn needed_secret(world: &dyn World, name: &str) -> Result<secrets::SecretValue, String> {

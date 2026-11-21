@@ -161,6 +161,11 @@ impl Runs {
         self.runs.iter().find(|r| r.id == id)
     }
 
+    /// The kill switch was used on this run (exec's stop check between steps).
+    pub fn killed(&self, id: &str) -> bool {
+        self.get(id).is_some_and(|r| r.state == RunState::Killed)
+    }
+
     /// `client`'s own runs, newest first (or just `id`, if it's theirs).
     pub fn for_client(&mut self, client: &str, id: Option<&str>, now: i64) -> Vec<Run> {
         self.sweep(now);
@@ -178,9 +183,11 @@ impl Runs {
         }
     }
 
-    /// The kill switch: every paused run ends `killed`.
+    /// The kill switch: every open run (paused, or running a step now) ends
+    /// `killed`. A run in the middle of a step stops before its next one
+    /// (`killed`, exec's stop check) and is never paused or resumed after.
     pub fn kill_all(&mut self, now: i64) {
-        for run in self.runs.iter_mut().filter(|r| r.state == RunState::Paused) {
+        for run in self.runs.iter_mut().filter(|r| r.open()) {
             run.state = RunState::Killed;
             run.expires = 0;
             run.updated = now;
@@ -195,6 +202,12 @@ impl Runs {
         run.total = seg.total;
         run.updated = now;
         run.expires = 0;
+        // Killed while a step ran: it stays killed, never paused or done.
+        if run.state == RunState::Killed {
+            let out = run.clone();
+            self.save();
+            return Some(out);
+        }
         match &seg.end {
             RemoteEnd::Done => {
                 run.state = RunState::Done;
@@ -210,6 +223,7 @@ impl Runs {
                 run.step = *step;
                 run.expires = now + PAUSE_TTL_S;
             }
+            RemoteEnd::Stopped { .. } => run.state = RunState::Killed,
         }
         let out = run.clone();
         self.save();
@@ -269,7 +283,9 @@ impl Runs {
             Err(e) => {
                 let run = self.runs.iter_mut().find(|x| x.id == id).ok_or("no-such-run")?;
                 run.updated = now;
-                if e == Refusal::Changed {
+                if run.state == RunState::Killed {
+                    // Killed meanwhile: stays killed.
+                } else if e == Refusal::Changed {
                     run.state = RunState::ResumeChanged;
                 } else {
                     run.state = RunState::Failed;
@@ -400,6 +416,27 @@ mod tests {
         r.start_with(ID2, "glim-check", "account-1", NOW + PAUSE_TTL_S + 3, |_, _, _, _| Ok(seg(0, RemoteEnd::Paused { step: 1 }))).unwrap();
         r.kill_all(NOW + PAUSE_TTL_S + 4);
         assert_eq!(r.get(ID2).unwrap().status(), "killed");
+    }
+
+    #[test]
+    fn a_kill_while_a_step_runs_is_never_undone_by_the_pause_that_follows() {
+        let mut r = Runs::default();
+        r.begin(ID, "glim-check", "account-1", NOW).unwrap();
+        r.kill_all(NOW + 1);
+        assert!(r.killed(ID), "exec's stop check sees it before the next step");
+        let out = r.began(ID, Ok(seg(1, RemoteEnd::Paused { step: 3 })), NOW + 2).unwrap();
+        assert_eq!(out.status(), "killed");
+        assert!(!r.busy(NOW + 3));
+        assert!(r.begin_resume(ID, NOW + 4).is_err(), "a killed run never resumes");
+        // Killed during a resumed segment too.
+        r.start_with(ID2, "glim-check", "account-1", NOW + 5, |_, _, _, _| Ok(seg(2, RemoteEnd::Paused { step: 3 }))).unwrap();
+        r.begin_resume(ID2, NOW + 6).unwrap();
+        r.kill_all(NOW + 7);
+        assert_eq!(r.resumed(ID2, Ok(seg(1, RemoteEnd::Paused { step: 5 })), NOW + 8).unwrap().status(), "killed");
+        assert_eq!(r.resumed(ID2, Err(Refusal::Changed), NOW + 9).unwrap().status(), "killed");
+        // A segment the stop check ended is killed as well.
+        r.start_with(ID, "glim-check", "account-1", NOW + 10, |_, _, _, _| Ok(seg(1, RemoteEnd::Stopped { step: 2 }))).unwrap();
+        assert_eq!(r.get(ID).unwrap().status(), "killed");
     }
 
     #[test]

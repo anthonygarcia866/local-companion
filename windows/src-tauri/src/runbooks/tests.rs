@@ -864,14 +864,14 @@ fn a_remote_run_pauses_before_a_phone_step_and_resumes_there_once() {
     let (books, approvals, key) = approved_dir("resume-books", &text);
     let fake = Fake::default();
     let mut audit = Vec::new();
-    let seg = run_remote_named(&books, &approvals, Some(&key), "example", None, 0, false, &fake, &mut |l| audit.push(l)).unwrap();
+    let seg = run_remote_named(&books, &approvals, Some(&key), "example", None, 0, false, &fake, &|| false, &mut |l| audit.push(l)).unwrap();
     assert_eq!(seg.end, RemoteEnd::Paused { step: 2 });
     assert_eq!(seg.ran_ok, 1, "only the step before it ran");
     assert!(audit.iter().any(|l| l == "example remote paused at 2 3"), "{audit:?}");
     // Resumed at step 2 (approved), under the same hash: steps 2 and 3 run, step 1 isn't redone.
     let mut ran = Vec::new();
     let mut audit2 = Vec::new();
-    let again = run_remote_named(&books, &approvals, Some(&key), "example", Some(&seg.hash), 1, true, &fake, &mut |l| {
+    let again = run_remote_named(&books, &approvals, Some(&key), "example", Some(&seg.hash), 1, true, &fake, &|| false, &mut |l| {
         if l.contains(" step ") {
             ran.push(l.clone());
         }
@@ -883,7 +883,7 @@ fn a_remote_run_pauses_before_a_phone_step_and_resumes_there_once() {
     assert!(ran.iter().all(|l| !l.contains("step 1/3")), "{ran:?}");
     assert!(audit2.iter().any(|l| l == "example remote resume at 2 3 steps"), "{audit2:?}");
     // Not approved: it pauses at that step again, nothing runs.
-    let still = run_remote_named(&books, &approvals, Some(&key), "example", Some(&seg.hash), 1, false, &fake, &mut |_| {}).unwrap();
+    let still = run_remote_named(&books, &approvals, Some(&key), "example", Some(&seg.hash), 1, false, &fake, &|| false, &mut |_| {}).unwrap();
     assert_eq!((still.end, still.ran_ok), (RemoteEnd::Paused { step: 2 }, 0));
 }
 
@@ -893,7 +893,7 @@ fn a_resume_under_another_hash_is_refused_and_runs_nothing() {
     let text = three_steps(&p(&d), "remote = \"phone\"");
     let (books, approvals, key) = approved_dir("resume-hash-books", &text);
     let mut steps = 0;
-    let r = run_remote_named(&books, &approvals, Some(&key), "example", Some("0000"), 1, true, &Fake::default(), &mut |l| {
+    let r = run_remote_named(&books, &approvals, Some(&key), "example", Some("0000"), 1, true, &Fake::default(), &|| false, &mut |l| {
         if l.contains(" step ") {
             steps += 1;
         }
@@ -909,7 +909,22 @@ fn a_resume_under_another_hash_is_refused_and_runs_nothing() {
 fn a_failing_remote_step_names_its_kind() {
     let d = repo("resume-fail");
     let (books, approvals, key) = approved_dir("resume-fail-books", &three_steps(&p(&d), ""));
-    let seg = run_remote_named(&books, &approvals, Some(&key), "example", None, 0, false, &Fake { exit: 1, ..Default::default() }, &mut |_| {}).unwrap();
+    let seg = run_remote_named(&books, &approvals, Some(&key), "example", None, 0, false, &Fake { exit: 1, ..Default::default() }, &|| false, &mut |_| {}).unwrap();
     assert_eq!(seg.end, RemoteEnd::Failed { step: 2, kind: "run" });
+    assert_eq!(seg.ran_ok, 1);
+}
+
+#[test]
+fn the_kill_switch_stops_a_remote_run_before_its_next_step() {
+    let d = repo("resume-kill");
+    let (books, approvals, key) = approved_dir("resume-kill-books", &three_steps(&p(&d), ""));
+    let checks = std::cell::Cell::new(0);
+    // Killed after the first step: steps 2 and 3 never start.
+    let stopped = || {
+        checks.set(checks.get() + 1);
+        checks.get() > 1
+    };
+    let seg = run_remote_named(&books, &approvals, Some(&key), "example", None, 0, false, &Fake::default(), &stopped, &mut |_| {}).unwrap();
+    assert_eq!(seg.end, RemoteEnd::Stopped { step: 2 });
     assert_eq!(seg.ran_ok, 1);
 }
