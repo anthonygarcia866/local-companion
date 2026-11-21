@@ -14,7 +14,10 @@
 // Nothing is stored on the phone. Every check that matters is the PC's.
 "use strict";
 
-const RP_ID = location.hostname;
+/** Fixed, never read from the address: the PC checks the same values
+ * (remote/approve.rs PAGE_ORIGIN, RP_ID). */
+const ORIGIN = "https://anthonygarcia866.github.io";
+const RP_ID = "anthonygarcia866.github.io";
 const RELAY_HOST = /^[a-z0-9-]{1,63}\.[a-z0-9-]{1,63}\.workers\.dev$/;
 const SLOT = /^[0-9a-f]{32}$/;
 const te = new TextEncoder();
@@ -217,6 +220,13 @@ async function unlock(rid, hints) {
 // ── start ────────────────────────────────────────────────────────────────────
 
 (function start() {
+  // Only on its own origin, and never inside another page's frame (the PC
+  // refuses cross-origin assertions too).
+  if (location.origin !== ORIGIN) return fail("This copy of the page isn't Glim's. Use the link Glim sent.");
+  if (window.top !== window.self) {
+    view.replaceChildren();
+    return;
+  }
   const f = new URLSearchParams(location.hash.slice(1));
   // The fragment held keys and ids: drop it from the address bar and history.
   history.replaceState(null, "", location.pathname);
