@@ -205,6 +205,7 @@ export const Bridge = {
   remoteKill: (killed: boolean) => callOrThrow<RemoteStatus>("remote_kill", { killed }),
   /** The relay's address (https://name.subdomain.workers.dev); "" removes it. */
   remoteRelay: (address: string) => callOrThrow<RemoteStatus>("remote_relay", { address }),
+  remoteRequireSealed: (on: boolean) => callOrThrow<RemoteStatus>("remote_require_sealed", { on }),
   /** A new PC relay token + result key (cloud tokens are each client's own). */
   remoteSetup: () => callOrThrow<RemoteStatus>("remote_setup"),
   /** Settings → Runbooks: the folder, the runbooks and the last runs. */
@@ -504,6 +505,8 @@ export interface RemoteStatus {
   /** The PC's encryption key (public, 64 hex): cloud Glim's GLIM_PC_ENC_KEY; "" before setup. */
   pcEncKey: string;
   pcEncFingerprint: string;
+  /** "Require sealed tasks" (off by default): unsealed tasks are refused as not-sealed. */
+  requireSealed: boolean;
   /** Newest first. */
   activity: RemoteActivity[];
 }

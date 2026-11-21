@@ -269,6 +269,11 @@ export function verifyFull(env, id, taskText, resultText) {
   const { inner, sealed } = openResult(seed, resultText, id);
   const r = verifyResult(pcKey, inner, id, taskText, Math.floor(Date.now() / 1000), { iat: p.iat, exp: p.exp });
   if (!sealed && p.rk && r.ok) throw new Error("bad-result");
+  // The result format (2026-11-19): a result that names when its task was
+  // made must name OUR task's signed iat, and its status must agree with ok
+  // (an older Glim names neither).
+  if (r.created !== undefined && r.created !== null && r.created !== p.iat) throw new Error("bad-result");
+  if (r.status !== undefined && (r.status === "done") !== (r.ok === true)) throw new Error("bad-result");
   return r;
 }
 

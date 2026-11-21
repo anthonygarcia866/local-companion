@@ -145,6 +145,28 @@ test("cloud clients: the next free name and the added date", () => {
   assert.match(addedText(client("account-2")), /^Added /);
 });
 
+test("require sealed tasks: off by default, shown with the encryption key, one click goes to Rust", async () => {
+  const keyed = { on: true, consented: true, pcEncKey: "45".repeat(32), pcEncFingerprint: FP };
+  replies.set("remote_status", rstatus(keyed));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  const row = role(el, "div", "remote-require-sealed");
+  assert.ok(row, "shown beside the encryption key");
+  const sw = row.find("button").find((b) => b.getAttribute("data-role") === "switch");
+  assert.equal(sw.getAttribute("aria-checked"), "false", "off by default");
+  replies.set("remote_require_sealed", rstatus({ ...keyed, requireSealed: true }));
+  sw.fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_require_sealed").at(-1), { on: true });
+  const on = role(el, "div", "remote-require-sealed").find("button").find((b) => b.getAttribute("data-role") === "switch");
+  assert.equal(on.getAttribute("aria-checked"), "true");
+  // No encryption key yet: no switch (nothing could be sealed).
+  replies.set("remote_status", rstatus({ on: true, consented: true }));
+  const bare = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.equal(role(bare, "div", "remote-require-sealed"), undefined);
+});
+
 test("remote tasks: the kill switch is one click, and Allow again undoes it", async () => {
   replies.set("remote_status", rstatus({ on: true, consented: true }));
   const el = remoteTasks(toggle);

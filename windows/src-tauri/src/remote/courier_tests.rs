@@ -31,7 +31,7 @@ fn seed_pair(seed: &str) -> Ed25519KeyPair {
 const CLOUD_SEED: &str = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 const PC_SEED: &str = "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb";
 const VECTOR_TASK: &str = r#"{"v":1,"payload":"{\"id\":\"vector-task-0000001\",\"iat\":1763140000,\"exp\":1763140300,\"cmd\":\"session-status\",\"args\":{}}","sig":"3f3122e3715f013f73c6dd9498fbef70e0802e6cd6e2831c736ac8a70b4e343dd5f8fe0cf735f6513243e088f5910da37336ad2396465cc762e648760ceb0803"}"#;
-const VECTOR_RESULT: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"task\":\"f39855e5975f49aac158e7d2bb272fe82a8ce7d07cfc1d5bf9c3cd6239f9792e\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"74c8f2725a5e382a8409de4dd599b745ffe9ba8fc205cba7870e58411b4b9404e3e9ef73a1f37e5494b207d2fae9dc3644f7f3a317a971a0555c6403d5e25409"}"#;
+const VECTOR_RESULT: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000001\",\"task\":\"f39855e5975f49aac158e7d2bb272fe82a8ce7d07cfc1d5bf9c3cd6239f9792e\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\",\"client\":\"\",\"status\":\"done\",\"created\":null,\"started\":null,\"finished\":1763140003,\"session\":null,\"capped\":false}","sig":"c23495eaf30f18b9fa68c99677fcc659c3a66536a60758a14f5915934a7816d1c40adce37385fdddffc69d19986459e4f34070d2e3df6d81d98f9c583d42a70b"}"#;
 
 #[test]
 fn the_shared_vectors_a_node_signed_task_verifies_and_glims_result_matches_byte_for_byte() {
@@ -93,10 +93,10 @@ struct Fake {
 }
 
 impl Exec for Fake {
-    fn run(&self, c: &Command, _client: &str) -> Result<String, String> {
+    fn run(&self, c: &Command, _client: &str) -> Result<super::exec::Ran, String> {
         std::thread::sleep(self.delay);
         self.runs.lock().unwrap().push(c.kind().to_string());
-        Ok(format!("did {}", c.kind()))
+        Ok(format!("did {}", c.kind()).into())
     }
 }
 
@@ -483,8 +483,8 @@ const RESULT_EPHEMERAL: &str = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992a
 const SEALED_RK: &str = "eb2187a344e922fe15692b2e64550738db75862a77eee972920926c21e6e672c";
 const SEALED_TASK: &str = r#"{"v":2,"id":"vector-task-0000002","iat":1763140000,"exp":1763226400,"epk":"75eaa546af013b14eace88be3b1fe5478f2f9a072e675516fd76fe6face3530f","n":"000102030405060708090a0b","ct":"b8ec532257db42bb3bd002f8b83b5e6dc4671c92936df8cb1f8884577b71402b097a9461cd7c08a02c89df156d4e774458d51b1988b8e0adfdeb656a793483237d94861e8f3b30a1e19125af008f10dda88e1b20d741793f89e1e49724da5ab1fb5ccbcedf30dbdf22180f6dab96d566ee7b57f03a7520299e8a8244050a138c0637687bd3692ea6039911d6cf7f1641b6fdd6fa123b7c14f1e1b807790e0cdfe7c50fad3913dd0146b2e4102bbefe1ffd6b9679d0f61387727b7cfc76f4bed6c1a2d7c2e463d46174b72e0fe934c3b8600e20ecb5b3c33f12bb2cb2066ab224e22f909015608d80bbd890a1d55a5e017c025e1a19c640b4aa7a37e667464d10ad0cb34378ea2dbbabffefe860a3f29feedae4a5c5d02c26bf2dd9bee39b110877cf7ffb092da75b53bad828b190104ff26aabcf0e1ba36dae8c8bf2f7d7be116976b516c3fa5aa1ce54abb657657475b89307588e68d5442ef6667ae37930c34d3250e0688c"}"#;
 const SEALED_TASK_INNER: &str = r#"{"v":1,"payload":"{\"id\":\"vector-task-0000002\",\"iat\":1763140000,\"exp\":1763226400,\"cmd\":\"session-status\",\"args\":{},\"rk\":\"eb2187a344e922fe15692b2e64550738db75862a77eee972920926c21e6e672c\"}","sig":"228126820638786f72d342d76c58bad75b08de897dd59c81d2f68b71b908d961b7db211b3299487f790277e93c4646c5bd89bbbe7f6f6fe736b6201d6f7f3b02"}"#;
-const SEALED_RESULT_INNER: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000002\",\"task\":\"7a28565ea45aa4568f31a15310d56e02c18afb1227ddf8098634cf3a053b6d4a\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\"}","sig":"5c5656aeedc84c9c20cab9a72ba70ed6311a359d0de7bbdc6fe1887ba8da8a5f7873d2e6f001b5030e26c53dff3c8ade27affec0570a800d49942f641f1ce102"}"#;
-const SEALED_RESULT: &str = r#"{"v":2,"id":"vector-task-0000002","epk":"8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a","n":"a0a1a2a3a4a5a6a7a8a9aaab","ct":"fca0f22cb2c91cbd459d82a6e49defa9053992c58a55fdee2e3ec880f92f29f2561391e2d28dd8ea2d8e4fbcf0f5c880c9c924ab7344635d43826ca5cdd14e073875e85face52a6f014562d741fd9196419c62e1b714a25949e02fd40e5787ecdb3717a4290f5a4c92026ff2f4189cea5baa3d2c01c3839a0d771a5fb8337eabe1c0a45c92dcd56f653449c4fb208b33099a783cc7e3a85a4c2e1d8f5a62bf421617c568d22ceb5b6170f2e6ed5c14b56bee7166d61418cc95c56c65b388dec1f72ab2160d0be0b500e1818b9e90c650b38386228f2242307b8b44fd9a3bf69f4714ad4675d39b8045841c7781e0b3ff2c45d1b6c68520d1863cfb5900e7d872959d5453f98eaf129b6abf29872749f057d996f16c40fd55c26fb11a73d347ee049a8f4320141312bf2986dbb30e8dcc8671952d7ce53f97a20e77fee6cbe994a782007ee1af63f053bbbcc63a92313a6d02c2ab3d43abe77dcfc580eb508fe7dc47f5e8dadc586942f373ac213a40fb2ef9ad24a99b1ae5e612a39593a60dec3d7d538e343fc8dfd216df4504f7221b58"}"#;
+const SEALED_RESULT_INNER: &str = r#"{"v":1,"payload":"{\"v\":1,\"id\":\"vector-task-0000002\",\"task\":\"7a28565ea45aa4568f31a15310d56e02c18afb1227ddf8098634cf3a053b6d4a\",\"at\":1763140003,\"ok\":true,\"kind\":\"session-status\",\"detail\":\"local-companion: idle\",\"error\":\"\",\"client\":\"\",\"status\":\"done\",\"created\":null,\"started\":null,\"finished\":1763140003,\"session\":null,\"capped\":false}","sig":"0101eb46fe4476e358192310d2fa6c27d4e387037c2bec6f386a827a9198532db164b165c2ac8529d574b78678a98d938a3d262ba18a0cd5f25e0ec33a5cd00b"}"#;
+const SEALED_RESULT: &str = r#"{"v":2,"id":"vector-task-0000002","epk":"8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a","n":"a0a1a2a3a4a5a6a7a8a9aaab","ct":"fca0f22cb2c91cbd459d82a6e49defa9053992c58a55fdee2e3ec880f92f29f2561391e2d28dd8ea2d8e4fbcf0f5c880c9c924ab7344635d43826ca5cdd14e073875e85face52a6f014562d741fd9196419c62e1b714a25949e02fd40e5787ecdb3717a4290f5a4c92026ff2f4189cea5baa3d2c01c3839a0d771a5fb8337eabe1c0a45c92dcd56f653449c4fb208b33099a783cc7e3a85a4c2e1d8f5a62bf421617c568d22ceb5b6170f2e6ed5c14b56bee7166d61418cc95c56c65b388dec1f72ab2160d0be0b500e1818b9e90c650b38386228f2242307b8b44fd9a3bf69f4714ad4675d39b8045841c7781e0b3ff2c45d1b6c6d45edfc723fb5b4ca9a665ccf4403aedc396558c7de669916d76e05de6d5f73a4faf3b8222da0875c514bc41ce8a2c37171957b7209de5f3199a9b9260c17118f06798ef067aeadbdce9caf1dc4072b6ae09b459baba923c93363a3800c7e45452bce4688fcfd7e468c8ef8553ffe293e34a3f14b362f1755606f571a1f565aad00cf8a250a99780ac1dfe71711fa36d4f7aa0e897de527cb261c0f19c02932d2fee198ccc159c6a2f3ebda82c11e68d8bc8ba1a0e5ad97f62d7c526b7537df5a385007f07636a2d862a68afa5ca4df40a013ae16a4a0718dd7d1cf7d53b4382f3f316c6501ff15bd707d0067f8f52637346d6063baaf18319d81b45098d6f01b5a6e42b65b6f0bebf838061a8ab9b081a9cc07d8440f3054f5bf825"}"#;
 const SEALED_ID: &str = "vector-task-0000002";
 
 fn arr<const N: usize>(h: &str) -> [u8; N] {
@@ -613,8 +613,13 @@ fn a_quote_heavy_transcript_tail_fits_under_the_cap_instead_of_failing() {
     // 50 messages of 230 characters, nearly all quotes and backslashes: well
     // under 12,000 characters, but each grows to 4-8 bytes once escaped twice
     // and sealed (hex).
-    // Unsealed, quotes grow only 4x: control characters (7x) overflow it.
-    for (rk, filler) in [(Some(&rk), "\"\\"), (None, "\u{1}\u{2}")] {
+    // Unsealed, quotes grow only 4x and every detail is redacted (control
+    // characters gone), so 12,000 characters always fit: no trimming.
+    let quotes = format!("you: {}", "\"\\".repeat(5_990));
+    let p = payload_of(&courier::answer(&pc, id, "hash", 5, &Ok(("transcript-tail".into(), quotes.clone())), None));
+    assert_eq!((p["detail"].as_str(), p["capped"].as_bool()), (Some(quotes.as_str()), Some(false)));
+    {
+        let (rk, filler) = (Some(&rk), "\"\\");
         let lines: Vec<String> = (0..50).map(|i| format!("you: msg{i:02} {}", filler.repeat(110))).collect();
         let detail = lines.join("\n");
         assert!(detail.chars().count() <= super::exec::MAX_DETAIL_CHARS);
@@ -663,6 +668,48 @@ fn a_refusal_that_cannot_fit_is_still_answered() {
     assert_eq!(open_result(&rk_secret, "result-test-000003", &out)["error"], "busy");
 }
 
+/// "Require sealed tasks" (owner 2026-11-19): off by default; on, only a
+/// sealed task naming its result key runs, and an unsealed one (or one
+/// with no result key) is refused as not-sealed, signed and burned.
+#[test]
+fn require_sealed_refuses_unsealed_tasks_and_ones_without_a_result_key() {
+    let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
+    let pc_pub = arr::<32>(&seal::public_hex(&pc_enc));
+    let cloud = seed_pair(CLOUD_SEED);
+    let now = super::now_s();
+    let payload = |id: &str, rk: bool| {
+        let mut p = json!({ "id": id, "iat": now, "exp": now + 3600, "cmd": "session-status", "args": {} });
+        if rk {
+            p["rk"] = json!(seal::public_hex(&seal::secret_from_hex(&"42".repeat(32)).unwrap()));
+        }
+        let p = p.to_string();
+        json!({ "v": 1, "payload": p, "sig": hex(cloud.sign(p.as_bytes()).as_ref()) }).to_string()
+    };
+    let sealed = |id: &str, rk: bool| {
+        let s = seal::seal(&pc_pub, "task", id, payload(id, rk).as_bytes()).unwrap();
+        json!({ "v": 2, "id": id, "iat": now, "exp": now + 3600, "epk": seal::to_hex(&s.epk), "n": seal::to_hex(&s.nonce), "ct": seal::to_hex(&s.ct) }).to_string()
+    };
+    let off = cloud_settings();
+    assert!(!off.require_sealed, "off by default");
+    assert!(!RemoteSettings::default().require_sealed);
+    let on = RemoteSettings { require_sealed: true, ..cloud_settings() };
+    let mut g = Gate::default();
+    let mut run = |s: &RemoteSettings, raw: String| g.accept_sealed(s, "account-1", raw.as_bytes(), now, Some(&pc_enc)).map(|a| a.id);
+    // Off: an older courier's unsealed task still runs.
+    assert_eq!(run(&off, payload("require-sealed-off-01", true)), Ok("require-sealed-off-01".to_string()));
+    // On: sealed and naming its result key, it runs.
+    assert_eq!(run(&on, sealed("require-sealed-on-001", true)), Ok("require-sealed-on-001".to_string()));
+    // On: unsealed, refused, and burned (never runs later, even with the switch off).
+    assert_eq!(run(&on, payload("require-sealed-plain1", true)), Err(Rejection::NotSealed));
+    assert_eq!(run(&off, payload("require-sealed-plain1", true)), Err(Rejection::Replay));
+    // On: sealed but naming no result key (its answer would go unsealed): refused.
+    assert_eq!(run(&on, sealed("require-sealed-no-rk1", false)), Err(Rejection::NotSealed));
+    assert_eq!(Rejection::NotSealed.code(), "not-sealed");
+    // The kill switch still comes first.
+    let killed = RemoteSettings { killed: true, ..on.clone() };
+    assert_eq!(run(&killed, payload("require-sealed-kill1", true)), Err(Rejection::Killed));
+}
+
 #[test]
 fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     let pc_enc = seal::secret_from_hex(PC_ENC_SECRET).unwrap();
@@ -696,12 +743,123 @@ fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     assert!(UnparsedPublicKey::new(&ED25519, seed_pair(PC_SEED).public_key().as_ref()).verify(payload.as_bytes(), &unhex(signed["sig"].as_str().unwrap())).is_ok());
     let r: Value = serde_json::from_str(payload).unwrap();
     assert_eq!((r["ok"].as_bool(), r["detail"].as_str(), r["task"].as_str()), (Some(true), Some("did session-status"), Some(courier::sha256_hex(&outer).as_str())));
+    // The result format (owner 2026-11-19): id, client, status, created /
+    // started / finished, capped, and no session for session-status.
+    assert_eq!((r["id"].as_str(), r["client"].as_str(), r["status"].as_str()), (Some(id), Some("account-1"), Some("done")));
+    assert_eq!(r["created"].as_i64(), Some(now), "the task's own iat");
+    let (started, finished) = (r["started"].as_i64().unwrap(), r["finished"].as_i64().unwrap());
+    assert!(started >= now && finished >= started && r["at"].as_i64() == Some(finished), "{r}");
+    assert_eq!((r["session"].is_null(), r["capped"].as_bool()), (true, Some(false)));
     // A seal that doesn't open: answered at once, signed, unsealed, with a fixed code.
     c.on_frame(&cloud_settings(), &json!({ "t": "task", "env": outer.replace("\"n\":\"", "\"n\":\"ff"), "client": "account-1" }).to_string(), now);
     let refused: Value = serde_json::from_str(&rx.blocking_recv().unwrap()).unwrap();
     let env: Value = serde_json::from_str(refused["env"].as_str().unwrap()).unwrap();
     assert_eq!(env["v"], 1);
     assert!(env["payload"].as_str().unwrap().contains("\"error\":\"bad-envelope\"") || env["payload"].as_str().unwrap().contains("\"error\":\"bad-seal\""));
+    // A refusal: it never ran, nothing of the task's is trusted but the client the relay named.
+    let r: Value = serde_json::from_str(env["payload"].as_str().unwrap()).unwrap();
+    assert_eq!((r["status"].as_str(), r["client"].as_str(), r["ok"].as_bool()), (Some("refused"), Some("account-1"), Some(false)));
+    assert!(r["created"].is_null() && r["started"].is_null() && r["session"].is_null() && r["finished"].as_i64() == Some(now), "{r}");
+}
+
+#[test]
+fn every_result_carries_status_times_session_and_a_redacted_capped_detail() {
+    let pc = seed_pair(PC_SEED);
+    let id = "format-test-000001";
+    let m = courier::Meta { client: "account-2".into(), created: Some(100), started: Some(110), session: Some("3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162".into()), capped: false };
+    let ok: Result<(String, String), String> = Ok(("start-session".into(), "started, session 3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162".into()));
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &ok, None, &m));
+    assert_eq!(p["status"], "done");
+    assert_eq!((p["created"].as_i64(), p["started"].as_i64(), p["finished"].as_i64(), p["at"].as_i64()), (Some(100), Some(110), Some(120), Some(120)));
+    assert_eq!(p["session"], "3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162");
+    assert_eq!(p["client"], "account-2");
+    assert!(p["detail"].as_str().unwrap().contains("3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162"), "session ids are never masked");
+    // It ran and failed: failed; never ran: refused.
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &Err("busy".into()), None, &m));
+    assert_eq!((p["status"].as_str(), p["error"].as_str(), p["detail"].as_str()), (Some("failed"), Some("busy"), Some("")));
+    let p = payload_of(&courier::sign_result(&pc, id, "hash", 120, &Err("killed".into())));
+    assert_eq!(p["status"], "refused");
+    // Capped: over 12,000 characters, or trimmed to fit the relay.
+    let long: Result<(String, String), String> = Ok(("transcript-tail".into(), "x".repeat(12_500)));
+    let p = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &long, None, &m));
+    assert_eq!((p["capped"].as_bool(), p["detail"].as_str().unwrap().chars().count()), (Some(true), 12_001));
+    let rk_secret = seal::secret_from_hex(&"42".repeat(32)).unwrap();
+    let rk = arr::<32>(&seal::public_hex(&rk_secret));
+    let quotes: Result<(String, String), String> = Ok(("transcript-tail".into(), "\"".repeat(13_000)));
+    let p = open_result(&rk_secret, id, &courier::answer_meta(&pc, id, "hash", 120, &quotes, Some(&rk), &m));
+    assert_eq!((p["capped"].as_bool(), p["ok"].as_bool(), p["session"].as_str()), (Some(true), Some(true), m.session.as_deref()));
+    // Redacted on the way out, whatever the command.
+    let leak: Result<(String, String), String> = Ok(("runbook".into(), format!("deploy: key sk-ant-api03-{} ok", "a1".repeat(20))));
+    let d = payload_of(&courier::answer_meta(&pc, id, "hash", 120, &leak, None, &m))["detail"].as_str().unwrap().to_string();
+    assert_eq!(d, "deploy: key [secret] ok");
+}
+
+#[test]
+fn result_details_are_redacted_but_ids_and_hashes_kept() {
+    use super::exec::redact_detail as r;
+    let gh = format!("ghp_{}", "Ab1".repeat(10));
+    assert_eq!(r(&format!("token {gh} here")), "token [secret] here");
+    assert_eq!(r("you: password: hunter2 please"), "you: password: [secret] please");
+    assert_eq!(r("DB_PASSWORD=hunter2"), "DB_PASSWORD=[secret]");
+    assert_eq!(r("api_key = abc123"), "api_key = [secret]");
+    assert_eq!(r("Authorization: Bearer abcdefghijklmnop1234"), "Authorization: Bearer [secret]");
+    assert_eq!(r(&format!("stripe sk_live_{} and whsec_{}", "x9".repeat(12), "y8".repeat(12))), "stripe [secret] and [secret]");
+    assert_eq!(r("you: here -----BEGIN PRIVATE KEY----- MIIEvQ abc -----END PRIVATE KEY----- thanks"), "you: here [secret] thanks");
+    // A BEGIN with no END (prose, or cut short): that line only, never the messages after it.
+    assert_eq!(r("you: grep for -----BEGIN in the file\nclaude: found it"), "you: grep for [secret]\nclaude: found it");
+    // JSON, hyphenated, compound and flag forms; URLs; tabs.
+    assert_eq!(r("{\"password\":\"hunter2\",\"user\":\"sam\"}"), "password\":[secret]");
+    assert_eq!(r("\"token\": \"abc\", \"user\": \"sam\""), "\"token\": [secret] \"user\": \"sam\"");
+    assert_eq!(r("x-api-key: abc123"), "x-api-key: [secret]");
+    assert_eq!(r("AWS_SECRET_ACCESS_KEY=abc123"), "AWS_SECRET_ACCESS_KEY=[secret]");
+    assert_eq!(r("run --password hunter2 now"), "run --password [secret] now");
+    assert_eq!(r("open https://x.example/cb?state=1&token=abc123&b=2"), "open https://x.example/cb?state=1&token=[secret]&b=2");
+    assert_eq!(r("db postgres://sam:pw123@db.example:5432/app"), "db postgres://sam:[secret]@db.example:5432/app");
+    assert_eq!(r(&format!("npm_{} and hf_{}", "a1".repeat(10), "b2".repeat(10))), "[secret] and [secret]");
+    assert_eq!(r("token\t=\tabc"), "token\t=\t[secret]");
+    // Security review 2026-11-19: every PEM block on a line, not just the first.
+    let two = "a -----BEGIN KEY----- AAA -----END KEY----- b -----BEGIN PRIVATE KEY----- BBB -----END PRIVATE KEY----- c";
+    assert_eq!(r(two), "a [secret] b [secret] c");
+    assert_eq!(r("x -----BEGIN KEY----- AAA -----END KEY----- y -----BEGIN KEY----- CCC"), "x [secret] y [secret]");
+    // A header with data on its line, the body on the next lines: all of it,
+    // up to END; the message after it is kept.
+    let body = "-----BEGIN PRIVATE KEY----- MIIEvQIBADAN\nBgkqhkiG9w0BAQEFAASC\nBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----\nclaude: done";
+    assert_eq!(r(body), "[secret]\nclaude: done");
+    let enc = "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,ABC\n\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY----- after";
+    assert_eq!(r(enc), "[secret]\n after");
+    // A URL is masked AND still checked as a word.
+    assert_eq!(r("password=hunter2&token=abc"), "password=[secret]");
+    // Fail closed inside a block (security review 2026-11-19): armor headers,
+    // short or odd lines, prose-looking lines are all masked until END.
+    let odd = "-----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: 1\nComment: hi there\n==\nlQOYBF\n-----END PGP PRIVATE KEY BLOCK-----\nok";
+    assert_eq!(r(odd), "[secret]\nok");
+    // Only the next transcript message ends a block that never ends.
+    assert_eq!(r("you: -----BEGIN X-----\nnot a message\nclaude: next"), "you: [secret]\nclaude: next");
+    assert_eq!(r("line1\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\nline5"), "line1\n[secret]\nline5");
+    assert_eq!(r("bell\u{7} and tab\tkept"), "bell and tab\tkept");
+    // Kept: prose, session ids, commit hashes, the courier's own fixed lines.
+    for fine in [
+        "the token works now and the secret is patience",
+        "local-companion: idle, last activity 3 min ago (session 3f2c1a9e-0b4d-4c8e-9a7b-1d2e3f405162) [Claude]",
+        "merged 5288756a0b2b7f4c1d9e8f7a6b5c4d3e2f1a0b9c",
+        "keep-alive: restarted 1 session(s) [Claude2]",
+    ] {
+        assert_eq!(r(fine), fine);
+    }
+}
+
+#[test]
+fn start_session_names_the_session_it_starts() {
+    for _ in 0..20 {
+        let id = super::exec::new_session_id().unwrap();
+        assert!(super::command::is_session_id(&id), "{id}");
+        assert_eq!(id.as_bytes()[14], b'4', "v4");
+    }
+    assert_ne!(super::exec::new_session_id().unwrap(), super::exec::new_session_id().unwrap());
+    // The real command: `--session-id <that id>`, and the result names it.
+    let src = include_str!("exec.rs");
+    assert!(src.contains(r#""-p", "-w", "--session-id", id.as_str()"#));
+    assert!(src.contains("session: Some(id)") && src.contains("session: Some(session.clone())"));
 }
 
 #[test]
@@ -832,8 +990,8 @@ fn transcript_tails_keep_only_messages_and_their_words() {
     let t = super::exec::tail_of(long.as_bytes(), 50);
     let n = t.chars().count();
     assert!(n > 11_000 && n <= super::exec::MAX_DETAIL_CHARS, "{n}");
-    assert!(t.starts_with("you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'));
-    assert!(t.lines().all(|l| l.starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
+    assert!(t.starts_with("…you: m") && t.contains("you: m49 ") && !t.contains('\u{7}'), "older ones left out, marked");
+    assert!(t.lines().all(|l| l.trim_start_matches('…').starts_with("you: m") && l.ends_with('…')), "whole (400-character) messages only");
     assert_eq!(super::exec::project_slug(std::path::Path::new(r"C:\Users\x\local-companion")), "C--Users-x-local-companion");
     // The folder as runbooks::allowed_folder hands it over: canonicalized,
     // with Windows' verbatim prefix (2026-11-14: session-status said "no

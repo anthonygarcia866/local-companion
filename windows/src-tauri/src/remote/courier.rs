@@ -160,19 +160,70 @@ pub fn pc_key_vault() -> impl Vault {
     crate::ai::key::CredentialManager { target: PC_KEY_TARGET }
 }
 
+/// What a result says about its task besides the outcome (result format,
+/// owner 2026-11-19): who sent it, when it was made, started and finished,
+/// and the Claude Code session it started or continued.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Meta {
+    /// The cloud client the relay named (a refusal's too: unverified, it's
+    /// the relay's word; a verified task's is the one whose key signed it).
+    pub client: String,
+    /// The task's own `iat`, once it verified; None for a refusal.
+    pub created: Option<i64>,
+    /// When its command began on this PC; None when it never ran.
+    pub started: Option<i64>,
+    /// The Claude Code session it started (start-session with a prompt) or
+    /// continued (send-to-session).
+    pub session: Option<String>,
+    /// The detail was cut to fit (12,000 characters, or the relay's 66 KiB).
+    pub capped: bool,
+}
+
 /// A signed result envelope: `{"v":1,"payload":"<json>","sig":"<hex>"}`,
-/// payload `{"v":1,"id","task","at","ok","kind","detail","error"}`. `task` is
+/// payload `{"v":1,"id","task","at","ok","kind","detail","error","client",
+/// "status","created","started","finished","session","capped"}`. `task` is
 /// the SHA-256 of the exact envelope answered: a refusal of an envelope the
 /// relay made up (with a real task's id) can't pass for an answer to the
 /// real task, because cloud Glim checks `task` against what it sent.
+/// `status`: done (ok), failed (it ran and failed) or refused (it never
+/// ran); `finished` = `at`. Every detail is redacted (`exec::redact_detail`)
+/// and capped at 12,000 characters.
 pub fn sign_result(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>) -> String {
-    let (ok, kind, detail, error) = match outcome {
-        Ok((kind, detail)) => (true, kind.as_str(), cap(detail.clone()), ""),
-        Err(code) => (false, "", String::new(), code.as_str()),
+    sign_result_meta(kp, id, task, at, outcome, &Meta::default())
+}
+
+pub fn sign_result_meta(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, m: &Meta) -> String {
+    let (ok, kind, detail, error, capped) = match outcome {
+        Ok((kind, detail)) => {
+            let clean = super::exec::redact_detail(detail);
+            // Cut here, or already cut before (tail_of's leading "…").
+            let over = clean.chars().count() > super::exec::MAX_DETAIL_CHARS || clean.starts_with('…');
+            (true, kind.as_str(), cap(clean), "", m.capped || over)
+        }
+        Err(code) => (false, "", String::new(), code.as_str(), false),
     };
-    let payload = json!({ "v": 1, "id": id, "task": task, "at": at, "ok": ok, "kind": kind, "detail": detail, "error": error }).to_string();
+    let status = if ok {
+        "done"
+    } else if m.started.is_some() {
+        "failed"
+    } else {
+        "refused"
+    };
+    let payload = json!({
+        "v": 1, "id": id, "task": task, "at": at, "ok": ok, "kind": kind, "detail": detail, "error": error,
+        "client": m.client, "status": status, "created": m.created, "started": m.started, "finished": at,
+        "session": m.session, "capped": capped,
+    })
+    .to_string();
     let sig = kp.sign(payload.as_bytes());
     json!({ "v": 1, "payload": payload, "sig": hex(sig.as_ref()) }).to_string()
+}
+
+/// A client name the relay gave, as a refusal may repeat it: a valid name
+/// (`parse_client_name`, at most 32 characters) or "" (review 2026-11-19:
+/// never an arbitrary relay string under the PC's signature).
+pub fn relay_named(raw: &str) -> String {
+    super::parse_client_name(raw).ok().filter(|n| n == raw).unwrap_or_default()
 }
 
 /// The frame that carries a result back to the relay.
@@ -191,16 +242,22 @@ pub fn result_frame(id: &str, envelope: &str) -> String {
 /// sealing doubles every byte (hex): a quote-heavy transcript-tail used to
 /// come back as `result-too-big` with nothing in it (review 2026-11-17).
 pub fn answer(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>) -> String {
-    let env = build(kp, id, task, at, outcome, rk);
+    answer_meta(kp, id, task, at, outcome, rk, &Meta::default())
+}
+
+pub fn answer_meta(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>, m: &Meta) -> String {
+    let env = build(kp, id, task, at, outcome, rk, m);
     if env.len() <= MAX_RESULT_BYTES {
         return env;
     }
     if let Ok((kind, detail)) = outcome {
-        if let Some(env) = fit_detail(&cap(detail.clone()), |d| build(kp, id, task, at, &Ok((kind.clone(), d.to_string())), rk)) {
+        let trimmed = Meta { capped: true, ..m.clone() };
+        let clean = cap(super::exec::redact_detail(detail));
+        if let Some(env) = fit_detail(&clean, |d| build(kp, id, task, at, &Ok((kind.clone(), d.to_string())), rk, &trimmed)) {
             return env;
         }
     }
-    build(kp, id, task, at, &Err("result-too-big".into()), rk)
+    build(kp, id, task, at, &Err("result-too-big".into()), rk, m)
 }
 
 /// The most a result envelope may be at the relay (its MAX_RESULT_BYTES),
@@ -208,11 +265,11 @@ pub fn answer(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Resu
 pub const MAX_RESULT_BYTES: usize = seal::MAX_SEALED_RESULT_BYTES;
 
 /// A result signed, then sealed when `rk` is given; no size check.
-fn build(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>) -> String {
-    let signed = sign_result(kp, id, task, at, outcome);
+fn build(kp: &Ed25519KeyPair, id: &str, task: &str, at: i64, outcome: &Result<(String, String), String>, rk: Option<&[u8; 32]>, m: &Meta) -> String {
+    let signed = sign_result_meta(kp, id, task, at, outcome, m);
     let Some(rk) = rk else { return signed };
     match seal::seal(rk, "result", id, signed.as_bytes()) {
-        None => sign_result(kp, id, task, at, &Err("bad-result-key".into())),
+        None => sign_result_meta(kp, id, task, at, &Err("bad-result-key".into()), m),
         Some(s) => seal::result_envelope(id, &s),
     }
 }
@@ -420,7 +477,8 @@ impl Courier {
                 return;
             }
             Some(Seen::Answered(None)) => {
-                let _ = self.tx.send(result_frame(&id, &sign_result(&self.signer, &id, &key, now, &Err("already-ran".into()))));
+                let m = Meta { client: relay_named(f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT)), ..Meta::default() };
+                let _ = self.tx.send(result_frame(&id, &sign_result_meta(&self.signer, &id, &key, now, &Err("already-ran".into()), &m)));
                 return;
             }
             None => {}
@@ -429,7 +487,8 @@ impl Courier {
         let client = f.get("client").and_then(Value::as_str).unwrap_or(super::LEGACY_CLIENT);
         match (self.accept)(settings, client, env.as_bytes(), now) {
             Err(why) => {
-                let frame = result_frame(&id, &sign_result(&self.signer, &id, &key, now, &Err(why.code().to_string())));
+                let m = Meta { client: relay_named(client), ..Meta::default() };
+                let frame = result_frame(&id, &sign_result_meta(&self.signer, &id, &key, now, &Err(why.code().to_string()), &m));
                 Self::remember(&self.answered, key.clone(), &frame);
                 // A fixed code only: kept, so the same envelope gets the same answer.
                 self.ledger.lock().unwrap_or_else(|e| e.into_inner()).finish(&key, now + super::MAX_LIFETIME_S, Some(frame.clone()));
@@ -441,11 +500,15 @@ impl Courier {
                 let (signer, exec, tx, answered) = (self.signer.clone(), self.exec.clone(), self.tx.clone(), self.answered.clone());
                 std::thread::spawn(move || {
                     let kind = task.command.kind().to_string();
-                    let out = exec.run(&task.command, &task.client).map(|d| (kind, d));
+                    let started = super::now_s();
+                    let ran = exec.run(&task.command, &task.client);
+                    let session = ran.as_ref().ok().and_then(|r| r.session.clone());
+                    let out = ran.map(|r| (kind, r.detail));
+                    let m = Meta { client: task.client.clone(), created: Some(task.iat), started: Some(started), session, capped: false };
                     if let Err(code) = &out {
                         crate::log::line(format!("remote: task failed {}", code.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect::<String>()));
                     }
-                    let frame = result_frame(&task.id, &answer(&signer, &task.id, &key, super::now_s(), &out, task.rk.as_ref()));
+                    let frame = result_frame(&task.id, &answer_meta(&signer, &task.id, &key, super::now_s(), &out, task.rk.as_ref(), &m));
                     // Sealed results are kept to send again; an unsealed one only as "it ran".
                     let keep = task.rk.is_some().then(|| frame.clone());
                     ledger.lock().unwrap_or_else(|e| e.into_inner()).finish(&key, task.expires, keep);

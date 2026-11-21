@@ -775,6 +775,8 @@ struct RemoteStatus {
     /// The PC's encryption key (public): cloud Glim's GLIM_PC_ENC_KEY.
     pc_enc_key: String,
     pc_enc_fingerprint: String,
+    /// "Require sealed tasks" (off by default).
+    require_sealed: bool,
     activity: Vec<remote::Activity>,
 }
 
@@ -804,8 +806,17 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         pc_public_key: s.pc_public_key,
         pc_enc_fingerprint: remote::fingerprint(&s.pc_enc_key),
         pc_enc_key: s.pc_enc_key,
+        require_sealed: s.require_sealed,
         activity,
     }
+}
+
+/// "Require sealed tasks" on or off (owner 2026-11-19).
+#[tauri::command]
+fn remote_require_sealed(app: AppHandle, shared: State<Shared>, on: bool) -> Result<RemoteStatus, String> {
+    update_settings(&app, &shared, |s| s.remote.require_sealed = on);
+    log::line(format!("remote: require sealed tasks {}", if on { "on" } else { "off" }));
+    Ok(remote_now(&shared))
 }
 
 /// The relay's address ("https://<name>.<subdomain>.workers.dev"); "" removes it.
@@ -2097,6 +2108,7 @@ pub fn run() {
             capture_hide_again,
             capture_status,
             remote_relay,
+            remote_require_sealed,
             remote_setup,
             runbooks_list,
             runbook_approve,

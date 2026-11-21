@@ -118,6 +118,12 @@ pub struct RemoteSettings {
     /// sealed to: cloud Glim's GLIM_PC_ENC_KEY ("" none). The private half
     /// is only in Credential Manager (courier::PC_ENC_TARGET).
     pub pc_enc_key: String,
+    /// "Require sealed tasks" (owner 2026-11-19; off by default): refuse
+    /// any task not sealed to the PC's encryption key, or not naming a key
+    /// its result is sealed to, as `not-sealed`. The owner turns it on once
+    /// every cloud environment has GLIM_PC_ENC_KEY and the async cloud test
+    /// passed for each account.
+    pub require_sealed: bool,
 }
 
 /// One cloud client: its name, its signer's PUBLIC key, the SHA-256 of its
@@ -231,6 +237,9 @@ pub enum Rejection {
     /// A sealed task this PC couldn't open, or whose outside doesn't match
     /// the signed task inside.
     BadSeal,
+    /// "Require sealed tasks" is on and the task came unsealed, or named no
+    /// result key.
+    NotSealed,
 }
 
 impl Rejection {
@@ -255,6 +264,7 @@ impl Rejection {
             Rejection::UnknownClient => "unknown-client",
             Rejection::WrongClient => "wrong-client",
             Rejection::BadSeal => "bad-seal",
+            Rejection::NotSealed => "not-sealed",
         }
     }
 }
@@ -310,6 +320,8 @@ struct Payload {
 pub struct Accepted {
     pub id: String,
     pub expires: i64,
+    /// Its signed `iat` (the result's `created`).
+    pub iat: i64,
     pub command: Command,
     /// The cloud client that sent it (its token queued it, its key signed it).
     pub client: String,
@@ -419,11 +431,11 @@ impl Gate {
     pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>) -> Result<Accepted, Rejection> {
         let text = std::str::from_utf8(raw).unwrap_or("");
         if seal::version(text) != Some(2) {
-            return self.accept_from(s, client, raw, now);
+            return self.accept_as(s, client, raw, now, false);
         }
         let opened = seal::open_task(enc, text).ok().filter(|(inner, outer)| seal::inner_times(inner).as_ref() == Some(outer));
         match opened {
-            Some((inner, _)) => self.accept_from(s, client, inner.as_bytes(), now),
+            Some((inner, _)) => self.accept_as(s, client, inner.as_bytes(), now, true),
             None => {
                 let why = if s.killed {
                     Rejection::Killed
@@ -443,12 +455,18 @@ impl Gate {
     /// Every check, in order, for a task the relay says `client` queued; the
     /// outcome is noted either way.
     pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
+        self.accept_as(s, client, raw, now, false)
+    }
+
+    /// `accept_from` for a task that came `sealed` (opened by accept_sealed)
+    /// or not.
+    fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool) -> Result<Accepted, Rejection> {
         // Forget what has expired (plus the skew) and counts over an hour old.
         self.seen.retain(|_, exp| *exp + SKEW_S >= now);
         self.recent.retain(|c| c.at > now - 3600);
         self.restarts.retain(|t| *t > now - 3600);
         let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
-        let r = self.check(s, &named, raw, now);
+        let r = self.check(s, &named, raw, now, sealed);
         let entry = match &r {
             Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone() },
             Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone() },
@@ -475,7 +493,7 @@ impl Gate {
 
     /// The checks. The id comes back with a rejection only once the
     /// signature verified.
-    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, (Rejection, Option<String>)> {
+    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool) -> Result<Accepted, (Rejection, Option<String>)> {
         if s.killed {
             return Err((Rejection::Killed, None));
         }
@@ -531,6 +549,12 @@ impl Gate {
         if self.seen.contains_key(&p.id) {
             return Err((Rejection::Replay, id));
         }
+        // "Require sealed tasks" (owner 2026-11-19): only a sealed task that
+        // names its result key. Checked once the signature verified and after
+        // killed / expired / replay (their codes say more), so the id is burned (one outcome per id) and the refusal is signed.
+        if s.require_sealed && (!sealed || p.rk.is_none()) {
+            return Err((Rejection::NotSealed, id));
+        }
         let rk = match p.rk.as_deref() {
             None => None,
             Some(h) => Some(seal::from_hex(h).and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or((Rejection::BadPayload, id.clone()))?),
@@ -551,7 +575,7 @@ impl Gate {
         if matches!(command, Command::KeepaliveRestart { .. }) && self.restarts.len() >= MAX_KEEPALIVE_RESTARTS_PER_HOUR {
             return Err((Rejection::RateLimited, id));
         }
-        Ok(Accepted { id: p.id, expires: p.exp, command, client: client.to_string(), rk })
+        Ok(Accepted { id: p.id, expires: p.exp, iat: p.iat, command, client: client.to_string(), rk })
     }
 
     /// The kill switch was used: noted in the list (it refuses on its own,

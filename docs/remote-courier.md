@@ -40,7 +40,7 @@ The relay holds only hashes: it tells the PC and each cloud client apart, and ea
 - `GET /v1/results/<id>?wait=1-25[&with=task]` (cloud token): the result of one of **that client's** tasks, kept until acknowledged; `with=task` answers `{task, result}` (the task envelope it answers too, so a later session can verify it). 202 = still pending, 404 = unknown, expired or acknowledged.
 - `DELETE /v1/results/<id>` (cloud token): acknowledge (delete) it. `courier.mjs` does this only after it has opened and verified it.
 - `GET /v1/results` (cloud token): that client's pending tasks and kept results, `[{id, state: "pending"|"ready", exp, readyAt}]`: ids, states and times only.
-- `GET /v1/status` (cloud token): `{"pc": connected?, "pending": n}` (n = that client's own tasks).
+- `GET /v1/status` (cloud token): `{"pc": connected?, "last_seen": <Unix s> | null, "pending": n}` (n = that client's own tasks). `last_seen` (owner 2026-11-19) = the PC's last sign of life: its last keep-alive ping (read from the socket's auto-response time when status is asked), frame, connect or close; kept in the Durable Object's SQLite (table `seen`, one row) so it survives a disconnect and a relay restart, and only moves forward. While `pc` is true it is at most ~30 s old; once the PC is gone it says since when. It tells every cloud client the same PC liveness the `pc` flag already did, nothing more.
 - What is stored: a task until its result arrives or its expiry (no grace after it: an expired task is never handed over); a result, with the task envelope it answers, until acknowledged or 72 h after it arrived. Sealed envelopes (`{"v":2,…}`): the relay reads only their id and times. Nothing else. No `console.*` (a test checks), and Workers Logs/observability are off in `wrangler.toml`. The relay checks neither signature nor seal; the two ends do.
 
 ## Task (cloud Glim → the Glim app)
@@ -114,14 +114,19 @@ Every task the relay hands over gets one result, accepted or refused:
 
 ```json
 { "v": 1, "payload": "<json string>", "sig": "<128 hex>" }
-payload: { "v": 1, "id": "<the task's id>", "task": "<SHA-256 hex of the exact task envelope answered>", "at": 1763140003, "ok": true, "kind": "session-status", "detail": "…", "error": "" }
+payload: { "v": 1, "id": "<the task's id>", "task": "<SHA-256 hex of the exact task envelope answered>", "at": 1763140003, "ok": true, "kind": "session-status", "detail": "…", "error": "",
+           "client": "account-1", "status": "done", "created": 1763140000, "started": 1763140001, "finished": 1763140003,
+           "session": null, "capped": false }
 ```
+
+- **Result format** (owner 2026-11-19, `remote::courier::Meta`): every result also carries `client` (for a task that ran, the client whose key signed it; for a refusal, the name the relay gave if it is a valid client name, else `""`), `status` (`done` = ok, and for `start-session` / `send-to-session` that means `claude -p` was LAUNCHED, not that its work is finished: follow it with `transcript-tail` or `session-status`; `failed` = it got past the gate and then failed: inside the command, before or after it acted (`no-folder`, `busy` …), or its result couldn't be delivered (`bad-result-key`, `result-too-big`; the command may have acted, so don't blindly resend a `start-session`); `refused` = the gate refused it, it never ran), `created` (the task's own signed `iat`; `null` for every refusal, even one that verified such as `rate-limited`), `started` (when its command began here; `null` if it never ran), `finished` (= `at`), `session` (the Claude Code session it started or continued: `start-session` with a prompt picks a fresh UUID and runs `claude -p -w --session-id <it>`; `send-to-session` names the one it resumed; `null` otherwise, including `start-session` without a prompt, whose remote-control session names its own sessions later) and `capped` (the detail was cut, at 12,000 characters or to fit 66 KiB). Every `detail` is redacted on the way out (`remote::exec::redact_detail`), BEST EFFORT, not a guarantee: control characters go; PEM blocks (one line, or a header line then up to 200 lines to END; a BEGIN with no END masks only its own line), known token prefixes (`sk-`, `sk_live_`, `ghp_`, `github_pat_`, `xoxb-`, `AKIA`, `AIza`, `eyJ`, `whsec_`, `npm_`, `hf_` …), a long word after `Bearer`, the value after a password / token / secret / api key / private, access or secret key label (`password: x`, `"token":"x"`, `API_KEY = x`, `x-api-key: x`, `--password x`), a URL's password and labelled query values become `[secret]`; session ids and commit hashes are kept. A secret with no label or known prefix (a bare random string) is NOT caught. `courier.mjs verifyFull` refuses a result whose `created` isn't its own task's `iat` or whose `status` disagrees with `ok`; an older Glim's result (no such fields) still verifies.
 
 - `sig` is Ed25519 over the payload's exact bytes, made with the **PC result key**. The PC sends it to the relay as `{"t":"result","id":…,"env":"<envelope>"}`. That frame answers and deletes the task.
 - **Sealed** (2026-11-17): when the verified task named `rk`, the signed envelope goes inside `{"v":2,"id","epk","n","ct"}`, sealed to `rk` with a fresh ephemeral key (label `glim-courier-v2 result|<id>`). Refusals of tasks that didn't verify stay unsealed: their `rk` can't be trusted, and they carry only a fixed code. A result too big for the relay (66 KiB, sealed or not) keeps its newest part that fits, from a whole line on, marked with a leading `…` (2026-11-19: quotes and backslashes grow 4x when escaped twice, then sealing doubles every byte, so a quote-heavy `transcript-tail` well under 12,000 characters used to come back as `result-too-big` with nothing); only when not even that fits does it answer `result-too-big`; an `rk` that can't be sealed to, `bad-result-key`. cloud Glim refuses an unsealed **success** for a task that named `rk` (no downgrade).
 - `ok: false` carries a fixed `error` code: a refusal (`bad-signature`, `expired`, `replay`, `rate-limited`, `killed` …) or a failure (`no-folder`, `no-claude`, `busy`, `no-transcript`, `runbook-not-approved`, `runbook-failed-N-of-M` …).
 - **cloud Glim must verify** (`courier.mjs verifyFull`): its **own** signature on the task envelope (the one it sent, or the relay's copy from `with=task`, re-opened if sealed), the result's seal, then the signature with `GLIM_PC_PUBLIC_KEY`, the `id` it asked about, `task` = SHA-256 of that envelope, and `at` within the task's lifetime. The `task` hash matters because the PC signs refusals of envelopes it couldn't verify too: without it, the relay could make up a look-alike with a real task's id and pass off the PC's refusal of it as the answer to the real task. A result failing any of these is refused (exit 2, `bad-result-signature` / `bad-result`).
 - A task delivered twice (after a reconnect) gets the same result again, without running a second time. Since 2026-11-17 this survives a restart: `%LOCALAPPDATA%\Glim\remote-answers.json` keeps each answer until its task's expiry (the last 100). Only sealed results and fixed-code refusals are kept, never result text in clear; an unsealed success (an older courier's task) is kept as a marker and answered `already-ran` (it ran, its result is gone). A task handed over again while it still runs gets nothing until its result is ready.
+- **Require sealed tasks** (owner 2026-11-19; Settings → Remote → Remote tasks, off by default): while on, a task that came unsealed (v1), or sealed but naming no `rk`, is refused as `not-sealed` once its signature verified (signed refusal, id burned). Turned on only after every cloud environment has GLIM_PC_ENC_KEY and the async cloud test passed for each account.
 - A verified task gets exactly one outcome: one refused for now (`rate-limited`, `not-yet-valid` …) is burned too, so a copy the relay kept can't run later (review 2026-11-17).
 - What the relay can still see: ids, times, sizes, which client, and the fixed code of an unsealed refusal (`killed`, `replay`, `bad-seal` …). Never a command, an argument or a result.
 
@@ -132,6 +137,22 @@ Both directions are pinned by shared test vectors: `relay/test/relay.test.mjs` a
 - Only while Remote tasks are on, consented, not stopped, a signer key and a relay address are saved, and the relay is set up. `net::relay::check` refuses anything but `wss://<name>.<subdomain>.workers.dev/v1/pc` on 443, the address typed in Settings, and only while allowed (`set_relay_allowed`).
 - TLS uses rustls (ring) with the webpki roots.
 - Pings every 25 s. When a pong is 10 s late, the socket closes, or the wall clock jumps (the PC slept), it reconnects at once, and then after 2, 4 … 60 s if connections keep dying within 5 s. Results that couldn't be sent wait and go first on the next connection. Settings shows the state (Connected / Reconnecting… / The relay refused this PC's token …).
+
+## Before using the courier (cloud Glim, owner 2026-11-20)
+
+A claude.ai/code session can start on an old branch (for example one from before 2026-11-17) whose `courier.mjs` can't seal tasks. With **Require sealed tasks** on, the PC refuses everything that copy sends (`not-sealed`). So always run `courier.mjs` from `origin/main`, in a temporary worktree, with `NODE_USE_ENV_PROXY=1`:
+
+```sh
+git fetch origin main
+git worktree add --detach ../courier-main origin/main
+cd ../courier-main
+export NODE_USE_ENV_PROXY=1
+node relay/courier.mjs status
+# ... send / result / results ...
+cd - && git worktree remove ../courier-main
+```
+
+`courier.mjs` needs only Node (no `npm install`). If `send` warns that the task goes unsealed, stop: `GLIM_PC_ENC_KEY` is missing from the environment.
 
 ## Setup
 
