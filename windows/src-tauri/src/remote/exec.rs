@@ -734,9 +734,10 @@ pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
     // relay never hands the same answer over again.
     super::courier::send_frame(serde_json::json!({ "t": "approval-ack", "id": rid }).to_string());
     let Some(h) = HOOKS.get() else {
-        // Not set up yet (can't judge it): the request is used up and its
-        // run ends failed `not-ready`, visibly, rather than waiting on an
-        // answer that already came.
+        // Defense in depth, unreachable today (courier::start sets the hooks
+        // before its loop can hand over a frame): if it ever happens, the
+        // request is used up and its run ends failed `not-ready`, visibly,
+        // rather than waiting on an answer that already came.
         if let Some(run) = super::runs::with(|r| r.take_approval(rid, now)) {
             let _ = super::runs::with(|r| r.refuse(&run.id, "not-ready", now));
         }
@@ -779,7 +780,8 @@ pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
 
 /// A verified Approve can arrive while the segment before it still holds the
 /// one-run claim (it asked the phone just before returning): its resume
-/// waits for the claim, up to RESUME_TRIES x RESUME_WAIT (review 2026-11-21).
+/// waits for the claim: RESUME_TRIES retries (one more attempt than that),
+/// RESUME_WAIT apart, about 60 s (review 2026-11-21).
 const RESUME_TRIES: u32 = 120;
 const RESUME_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 
