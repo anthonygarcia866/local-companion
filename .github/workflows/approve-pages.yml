@@ -1,0 +1,38 @@
+# The phone approval page (approve/, owner 2026-11-21, docs/remote-runbooks.md §8)
+# on GitHub Pages: https://anthonygarcia866.github.io/local-companion/
+# OWNER-MERGE ONLY (CLAUDE.md, .github/CODEOWNERS): it decides what the
+# owner's passkey signs. Publishes only approve/, only from main.
+name: Approval page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "approve/**"
+      - ".github/workflows/approve-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: approve-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: approve
+      - id: deploy
+        uses: actions/deploy-pages@v4
