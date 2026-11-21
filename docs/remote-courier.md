@@ -138,6 +138,22 @@ Both directions are pinned by shared test vectors: `relay/test/relay.test.mjs` a
 - TLS uses rustls (ring) with the webpki roots.
 - Pings every 25 s. When a pong is 10 s late, the socket closes, or the wall clock jumps (the PC slept), it reconnects at once, and then after 2, 4 … 60 s if connections keep dying within 5 s. Results that couldn't be sent wait and go first on the next connection. Settings shows the state (Connected / Reconnecting… / The relay refused this PC's token …).
 
+## Before using the courier (cloud Glim, owner 2026-11-20)
+
+A claude.ai/code session can start on an old branch (for example one from before 2026-11-17) whose `courier.mjs` can't seal tasks. With **Require sealed tasks** on, the PC refuses everything that copy sends (`not-sealed`). So always run `courier.mjs` from `origin/main`, in a temporary worktree, with `NODE_USE_ENV_PROXY=1`:
+
+```sh
+git fetch origin main
+git worktree add --detach ../courier-main origin/main
+cd ../courier-main
+export NODE_USE_ENV_PROXY=1
+node relay/courier.mjs status
+# ... send / result / results ...
+cd - && git worktree remove ../courier-main
+```
+
+`courier.mjs` needs only Node (no `npm install`). If `send` warns that the task goes unsealed, stop: `GLIM_PC_ENC_KEY` is missing from the environment.
+
 ## Setup
 
 The exact owner steps are in HANDOFF (local). In order:
