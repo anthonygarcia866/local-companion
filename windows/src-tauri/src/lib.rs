@@ -800,6 +800,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
     let s = shared.settings.lock().unwrap().remote.clone();
     let mut activity = remote::with(|g| g.activity.clone());
     activity.reverse();
+    let (runbooks_per_hour, runbooks_per_hour_pc) = s.runbook_limits();
     RemoteStatus {
         on: s.on,
         consented: s.consented,
@@ -812,8 +813,8 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         pc_enc_fingerprint: remote::fingerprint(&s.pc_enc_key),
         pc_enc_key: s.pc_enc_key,
         require_sealed: s.require_sealed,
-        runbooks_per_hour: s.runbook_limits().0,
-        runbooks_per_hour_pc: s.runbook_limits().1,
+        runbooks_per_hour,
+        runbooks_per_hour_pc,
         remote_runbooks: runbooks::remote_names(),
         activity,
     }
