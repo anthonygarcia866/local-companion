@@ -628,10 +628,52 @@ fn a_kept_suggestion_goes_only_when_its_own_paragraph_changes() {
     // A third paragraph, the second one edited: the first one's suggestion stays.
     see(&mut s, true, Some(&format!("{TYPED}\n{NEXT} today\nAnd a third")), now + ms(300));
     assert_eq!(s.live_kept_here(), 1);
-    // The first paragraph edited (a word typed on): gone, and the count says 0.
-    see(&mut s, true, Some(&format!("{TYPED} Thanks\n{NEXT} today\nAnd a third")), now + ms(600));
+    // The first paragraph's own words fixed by hand: nothing left to carry over, gone.
+    see(&mut s, true, Some(&format!("We received the payment and will deposit it tomorrow.\n{NEXT} today\nAnd a third")), now + ms(600));
     assert_eq!(s.live_kept_here(), 0);
     assert!(s.live_review(now + ms(700)).is_none());
+}
+
+#[test]
+fn typing_on_re_anchors_a_kept_suggestion_and_keeps_the_edits_still_in_place() {
+    let (mut s, now, id) = moved_on();
+    // Typed on after "tomorow.": that edit's right side changed, so it goes;
+    // "recieved" is untouched, so that edit carries over.
+    let first = format!("{TYPED} Thanks");
+    see(&mut s, true, Some(&format!("{first}\n{NEXT}")), now + ms(300));
+    assert_eq!(s.live_kept_here(), 1, "still kept");
+    let e = s.live_review(now + ms(400)).unwrap();
+    assert_eq!(e.id, id);
+    let revised: String = e.ops.iter().filter(|o| o.kind != "del").map(|o| o.text.as_str()).collect();
+    assert_eq!(revised, "We received the payment and will deposit it tomorow. Thanks");
+    // Accepting it applies to the paragraph as it is now.
+    let job = s.live_job().expect("applies to the re-anchored paragraph");
+    assert_eq!(job.paragraph, first);
+}
+
+#[test]
+fn rebase_carries_each_edit_only_where_its_words_and_sides_are_untouched() {
+    use crate::writing::text::own_paragraphs;
+    let old = "I has a dog and it are happy";
+    let rev = "I have a dog and it is happy";
+    let r = |field: &str| rebase(&own_paragraphs(field), old, rev).map(|(p, t)| (p.start, t));
+    // Typed on: both edits carry over.
+    assert_eq!(r("I has a dog and it are happy today"), Some((0, "I have a dog and it is happy today".into())));
+    // A word inserted between two of the edit's sides: that edit goes.
+    assert_eq!(r("I has a big dog and it really are happy"), Some((0, "I have a big dog and it really are happy".into())));
+    // In another paragraph, after another one: found and anchored there.
+    assert_eq!(r("Hello there\nI has a dog and it are happy, see"), Some((12, "I have a dog and it are happy, see".into())));
+    // The user fixed both: nothing to carry, None. Rewritten: None.
+    assert_eq!(r("I have a dog and it is happy"), None);
+    assert_eq!(r("Something else entirely here now"), None);
+    // An insertion and a deletion carry over with sane spacing.
+    let p = own_paragraphs("Please send it to me by friday ok");
+    assert_eq!(rebase(&p, "Please send it to me by friday", "Please send it to me by Friday.").map(|x| x.1), None, "end edit, typed on: its right side changed");
+    assert_eq!(rebase(&p, "Please send it me by friday", "Please send it to me by friday").map(|x| x.1), None, "already fixed by hand");
+    let p = own_paragraphs("Please please send it now and more");
+    assert_eq!(rebase(&p, "Please please send it now", "Please send it now").map(|x| x.1), Some("Please send it now and more".into()));
+    let p = own_paragraphs("Send it me now and more");
+    assert_eq!(rebase(&p, "Send it me now", "Send it to me now").map(|x| x.1), Some("Send it to me now and more".into()));
 }
 
 #[test]
