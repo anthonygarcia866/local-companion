@@ -1,0 +1,44 @@
+# The phone approval page (approve/, owner 2026-11-21, docs/remote-runbooks.md §8)
+# on GitHub Pages: https://anthonygarcia866.github.io/local-companion/
+# SECURITY-CRITICAL (CLAUDE.md, .github/CODEOWNERS): it decides what the
+# owner's passkey signs. Publishes only approve/, only from main.
+name: Approval page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "approve/**"
+      - ".github/workflows/approve-pages.yml"
+  workflow_dispatch:
+
+# Nothing at workflow level; the job asks for what it needs (review 2026-11-21).
+permissions: {}
+
+concurrency:
+  group: approve-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # Actions pinned to full commit SHAs (review 2026-11-21): a retagged
+      # action can't change what the page signs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: approve
+      - id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
