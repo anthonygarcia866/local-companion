@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES, phoneRateLimit, readCapped } from "../src/approvals.js";
+import { Approvals, MemorySlots, MAX_SLOTS, MAX_APPROVAL_S, MAX_PAIR_S, MAX_ANSWER_BYTES, ipKey, phoneRateLimit, readCapped } from "../src/approvals.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const NOW = 1_795_238_795;
@@ -142,4 +142,13 @@ test("the Worker rate-limits phone routes before reading the body or waking the 
   const toml = fs.readFileSync(path.join(here, "../wrangler.toml"), "utf8");
   assert.match(toml, /name = "PHONE_IP_LIMIT"/);
   assert.match(toml, /name = "PHONE_ALL_LIMIT"/);
+});
+
+test("the per-IP key: IPv4 as is, IPv6 by its /64, junk shares one key", () => {
+  assert.equal(ipKey("192.0.2.7"), "192.0.2.7");
+  assert.equal(ipKey("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64");
+  assert.equal(ipKey("2001:0db8:0001:0002:ffff:ffff:ffff:ffff"), "2001:db8:1:2::/64", "same /64, other host");
+  assert.equal(ipKey("2001:db8::1"), "2001:db8:0:0::/64");
+  assert.equal(ipKey("::1"), "0:0:0:0::/64");
+  for (const bad of [null, "", "x", "1::2::3", "1:2:3", "12345::1", "a".repeat(80)]) assert.equal(ipKey(bad), "unknown", String(bad));
 });

@@ -31,13 +31,15 @@ export const MAX_PAIR_S = 10 * 60;
  * in wrangler.toml. Cloudflare's counters are approximate and per location:
  * this stops floods from waking the one Durable Object, not a careful
  * attacker spread worldwide (the slot id and the assertion still do the
- * guarding). Fails CLOSED: a missing binding or a throwing limit() refuses
+ * guarding). Known tradeoff (owner asked for an overall cap): a flood from
+ * many IPs can fill the overall bucket and delay a real approval for as long
+ * as it lasts; an approval waits up to 24 h, so it is delayed, never lost or
+ * forged. Fails CLOSED: a missing binding or a throwing limit() refuses
  * the request. Returns null to go on, else {status, error}. */
 export async function phoneRateLimit(request, env) {
-  const ip = request.headers.get("cf-connecting-ip") || "unknown";
   try {
     if (!env.PHONE_IP_LIMIT || !env.PHONE_ALL_LIMIT) return { status: 503, error: "rate-limit-unavailable" };
-    const one = await env.PHONE_IP_LIMIT.limit({ key: `ip:${ip}` });
+    const one = await env.PHONE_IP_LIMIT.limit({ key: `ip:${ipKey(request.headers.get("cf-connecting-ip"))}` });
     if (!one || one.success !== true) return { status: 429, error: "rate-limited" };
     const all = await env.PHONE_ALL_LIMIT.limit({ key: "phone-all" });
     if (!all || all.success !== true) return { status: 429, error: "rate-limited" };
@@ -45,6 +47,24 @@ export async function phoneRateLimit(request, env) {
   } catch {
     return { status: 503, error: "rate-limit-unavailable" };
   }
+}
+
+/** The per-IP limit's key: an IPv4 address as is, an IPv6 address by its
+ * /64 (one subscriber usually holds a whole /64, so per-address keys could be
+ * rotated around the limit). Anything unparsable shares one key. */
+export function ipKey(ip) {
+  if (typeof ip !== "string" || ip.length === 0 || ip.length > 64) return "unknown";
+  if (/^[0-9.]+$/.test(ip)) return ip;
+  if (!/^[0-9a-fA-F:]+$/.test(ip) || !ip.includes(":")) return "unknown";
+  const halves = ip.toLowerCase().split("::");
+  if (halves.length > 2) return "unknown";
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0 || (halves.length === 1 && missing !== 0)) return "unknown";
+  const groups = [...head, ...Array(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (groups.length !== 8 || groups.some((g) => g.length === 0 || g.length > 4)) return "unknown";
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 
 /** Reads a phone POST body with a hard cap, before anything else sees it
