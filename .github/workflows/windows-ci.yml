@@ -115,9 +115,10 @@ jobs:
         run: npm test
 
       # The remote courier's relay Worker logic and cloud Glim's client
-      # (relay/): tokens, delivery, expiry, signatures both ways.
+      # (relay/): tokens, delivery, expiry, signatures both ways; phone
+      # approval slots, capped bodies and rate limits (approvals.test.mjs).
       - name: Relay tests
-        run: node --test ../relay/test/relay.test.mjs
+        run: node --test ../relay/test/relay.test.mjs ../relay/test/approvals.test.mjs
 
       # The mascot in a real Chromium (headless Edge): pixels against the
       # approved design, and prefers-reduced-motion emulated.
