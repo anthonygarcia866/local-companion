@@ -1340,6 +1340,19 @@ pub fn views() -> Vec<BookView> {
     names_in(&here.dir).iter().map(|n| view(n, &here)).collect()
 }
 
+/// Runbooks whose file gives them a remote level, "name (cloud)": read from
+/// the files only (no approvals, no Credential Manager), for Settings → Remote.
+pub fn remote_names() -> Vec<String> {
+    let d = dir();
+    names_in(&d)
+        .iter()
+        .filter_map(|n| match load_from(&d, n) {
+            Ok((_, Ok(b))) if b.remote != RemoteLevel::Never => Some(format!("{} ({})", b.name, b.remote.as_str())),
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn recent() -> Vec<RunView> {
     history(&std::fs::read_to_string(audit_path()).unwrap_or_default(), HISTORY)
 }

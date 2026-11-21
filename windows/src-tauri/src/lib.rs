@@ -814,7 +814,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         require_sealed: s.require_sealed,
         runbooks_per_hour: s.runbook_limits().0,
         runbooks_per_hour_pc: s.runbook_limits().1,
-        remote_runbooks: runbooks::views().into_iter().filter(|b| b.remote != "never").map(|b| format!("{} ({})", b.name, b.remote)).collect(),
+        remote_runbooks: runbooks::remote_names(),
         activity,
     }
 }
