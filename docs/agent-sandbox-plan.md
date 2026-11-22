@@ -1,4 +1,4 @@
-# Agent sandbox: proposal (owner 2026-11-21, design item 1). Nothing has been created yet.
+# Agent sandbox: plan (owner 2026-11-21, design item 1; decided 2026-11-22, §6). Being built in small PRs (§7); nothing on this PC is created until the owner runs the step shown to them.
 
 Goal: an agent client such as Muse, while it holds a lease, can start or message Claude Code sessions only as a separate low-privilege Windows user, `glim-agent`.
 - **What that user can't reach:** your profile, your Credential Manager, your gh/wrangler/Supabase logins, other folders.
@@ -62,7 +62,7 @@ It must fail on every path except `C:\GlimAgent`. I'll also list every folder on
 
 **Network: GitHub only (owner 2026-11-21).** glim-agent's processes may reach GitHub and nothing else.
 - **Allowed hosts:** `github.com`, `api.github.com`, `codeload.github.com`, `objects.githubusercontent.com` (git over https on 443).
-- **Open point, your call:** Claude Code itself must reach `api.anthropic.com`, or a sandbox session can't think at all. Either allow that one host too (recommended), or sandbox sessions are git-only.
+- **Plus `api.anthropic.com`** (owner 2026-11-22, §6 e): Claude Code must reach it to think. Nothing else.
 - **How, by hostname:** a small local allowlisting proxy (HTTPS CONNECT only, checks the host name against the list above, no TLS interception) listens on 127.0.0.1. glim-agent's environment points `HTTPS_PROXY` at it.
 - **Enforced by the firewall, not by the env var:** a Windows Firewall outbound rule blocks every connection from glim-agent's SID except to 127.0.0.1 on the proxy port. A process that ignores `HTTPS_PROXY` then simply can't connect. (Firewall rules match IPs, and GitHub's change, so the hostname check lives in the proxy.)
 - **Verify before relying on it** (CLAUDE.md: enforcement is checked by trying): as glim-agent, `curl.exe https://example.com` direct and through the proxy must both fail; `git ls-remote https://github.com/<fork>` must work. Per-user outbound rules (`-LocalUser`) must be proven on this Windows edition first. If they don't hold, sandbox sessions stay off (`no-sandbox`) until another enforcement works.
@@ -70,13 +70,11 @@ It must fail on every path except `C:\GlimAgent`. I'll also list every folder on
 
 ## 3. Its Claude login
 
-Sessions run `claude` as glim-agent, so it needs its own login in `C:\Users\glim-agent\.claude`. Glim would add "Sign the sandbox in to Claude", which opens a console as glim-agent for `claude /login`.
+**Decided (owner 2026-11-22, §6 b): a dedicated Anthropic API key, not a Claude login.** Not the owner's Claude or Claude2 login: a sandbox holding Claude2's login could reach account-2's cloud environment, where that account's courier key lives.
 
-**Your call:** which Claude account it signs into.
-- **A separate account or seat:** nothing of yours is reachable.
-- **Your own account:** its token in the sandbox can reach your claude.ai chats.
-
-I recommend a separate one.
+- The owner creates it in the Anthropic Console (console.anthropic.com): a workspace of its own (e.g. `glim-agent`) with a **monthly spend limit of $50**, and one API key in that workspace. The key can spend only within that workspace's limit.
+- It is stored **only for glim-agent**: in glim-agent's own Credential Manager, written by a console started as glim-agent into which the owner pastes it (never chat, never the owner's vault, never a file). Claude Code in the sandbox gets it as `ANTHROPIC_API_KEY` from a small launcher that reads glim-agent's vault; it never reaches the owner's environment.
+- If it leaks, the damage is that workspace's $50/month; the owner revokes it in the Console.
 
 ## 4. Its GitHub credential
 
@@ -120,22 +118,35 @@ No review approval is required (you're the only reviewer, and GitHub won't let y
 
 **What this account's GitHub plan allows (checked 2026-11-21, read-only API calls):**
 - The account is on GitHub **Free**. For a private repo, both branch protection and rulesets answer `403 Upgrade to GitHub Pro or make this repository public to enable this feature` (tried on dale-cuts). So **none of the 5 private repos can have main protected** on this plan.
-- local-companion is public, so it can. Today it has **no** branch protection and no rulesets on main.
+- local-companion is public, so it can. **Done 2026-11-22 (owner §6 f):** ruleset `main: PRs only, no force-push, no deletion` (id 27855361), active, no bypass list, target the default branch: deletion and force pushes blocked, a pull request required (0 approvals, merge commits only). `GET /rules/branches/main` lists all three. Required status checks were left out on purpose: Windows CI runs only on `windows/**`/`relay/**` changes, so a docs-only PR would wait forever for it. Changing or removing the ruleset later is a Face ID runbook (§7), never a plain `gh api` call.
 
 **So, until you decide otherwise:**
 - **Muse works on public repos only** (local-companion to start). No private repo is forked, shared with the machine account, or reachable from the sandbox.
 - Before the sandbox's first session, local-companion's main gets the protection above. You turn it on in GitHub (Settings → Rules → Rulesets → New branch ruleset, target `main`: Restrict deletions, Require a pull request before merging with 0 approvals, Require status checks to pass (Windows CI, Docs check), Block force pushes, no bypass list), or approve a Face ID runbook that sets it through `gh api`. Then I check it holds: a direct push to main must be refused.
 - **Private repos later need one of:** GitHub Pro on this account (paid), making the repo public, or moving it to an organization on a plan that protects private branches. Your call; nothing changes until then.
 
-## 6. What you'd decide
+## 6. Decisions (owner 2026-11-22)
 
-1. Create `glim-agent` as above. **Yes / no / changes**
-2. Which Claude account the sandbox signs into. **Separate (recommended) / yours**
-3. The GitHub machine account plus forks. **Yes / App instead**
-   - Which repos? local-companion only to start (public repos only until 7 is settled).
-4. Turn on "Require approval for all outside collaborators" for Actions on those repos. **Yes / no**
-5. Sandbox network: GitHub only, plus `api.anthropic.com` so Claude Code can run? **Plus Anthropic (recommended) / GitHub only**
-6. Protect local-companion's main (section 5): **you in GitHub's UI / a Face ID runbook**
-7. Private repos: **stay out (default) / GitHub Pro / other**
+a. **Create `glim-agent`** as in §1-2. Claude shows the exact steps first and says when the owner's Windows password (UAC) is needed.
+b. **Dedicated Anthropic API key** with a $50/month workspace spend limit, stored only for glim-agent (§3).
+c. **GitHub machine account plus forks** (§4). It never gets write access to the owner's repos; its PRs reach main only through the Face ID merge runbook.
+d. **Actions on its PRs:** run without asking unless the PR touches `.github/`; those need a Face ID runbook. Checked 2026-11-22: every local-companion workflow is triggered by `pull_request`, `push`, `schedule`, `workflow_dispatch` or a tag, none by `pull_request_target` or `workflow_run`, and the one secret (`GLIM_VOICE_API_KEY`) is passed only on `schedule`/`workflow_dispatch` runs, so fork PRs never see it. How (GitHub has no "auto-approve unless a path" setting): the repo keeps "Require approval for all outside collaborators", and Glim approves a waiting fork run itself (`POST /actions/runs/<id>/approve`, through the owner's gh, from a runbook) only when the PR's changed files include nothing under `.github/`; otherwise it asks Face ID with the file list.
+e. **Network:** GitHub + `api.anthropic.com` only (§2).
+f. **Main ruleset:** set 2026-11-22 (§5). Changing or removing it needs a Face ID runbook.
+g. **Private repos stay out** for now.
 
-Until (b) is approved and built, an agent client's session commands stay refused even with a lease (`no-sandbox`). Runbooks it starts still run as you, as every remote runbook does: only those whose file allows it, each `phone` step waiting for your Face ID.
+Also decided: **no Pushover.** Muse forwards approval links; until Muse is connected, pending approvals are shown in Settings → Remote (§7, PR 1).
+
+## 7. Build order (small PRs; security-critical rule)
+
+Each PR: CI green, a fresh-agent security review with no critical/high, merge commit. Owner steps are shown in full before they're needed.
+
+1. **Pending approvals in Settings → Remote.** A card listing each paused run's and each lease request's approval as a QR code of its link plus the match code, so the owner can approve without Pushover. Nothing new leaves the PC.
+2. **Agent user setup script** (`scripts/agent-sandbox/setup.ps1`, run by the owner, elevated): §1 user (random password into the owner's vault), §2 folder ACLs, sign-in hiding, the logon-right denials. Plus `check.ps1` (§2's proofs). **Owner: one UAC prompt (Windows password).**
+3. **Network limit:** the allowlisting proxy (GitHub hosts + `api.anthropic.com`, CONNECT only) and the per-user firewall rule, with the empirical checks (`example.com` refused direct and via proxy; GitHub and the API reachable). **Owner: one UAC prompt** for the firewall rule.
+4. **API key for glim-agent:** the launcher that reads glim-agent's vault. **Owner: create the workspace + $50 limit + key in the Console, then paste the key into the console window opened as glim-agent.**
+5. **Machine account + fork + PAT:** **Owner: sign up the machine account** (its own email; GitHub allows one free machine account per person), then create its fine-grained PAT (only its forks; Contents + Pull requests read/write; 30 days) and paste it into the glim-agent console. Then the cross-owner PR check (§4).
+6. **Sandbox sessions:** `start-session`/`send-to-session` for a leased agent run as glim-agent in `C:\GlimAgent\work` (CreateProcessWithLogonW, own environment, job object killed with the lease); `no-sandbox` goes away only after 2-5 are verified.
+7. **Face ID runbooks:** merge a fork PR; approve a fork PR's Actions run when it touches `.github/` (and the no-ask approval otherwise, d); change or remove the main ruleset.
+
+Until 6 is merged and verified, an agent client's session commands stay refused even with a lease (`no-sandbox`). Runbooks it starts still run as the owner, as every remote runbook does: only approved ones whose file gives them a remote level, each `phone` step waiting for Face ID.
