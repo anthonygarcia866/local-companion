@@ -92,7 +92,7 @@ Every decision goes to Settings → Remote → **Remote activity** and glim.log:
 
 ## Accounts: which Claude account a task acts for (owner, 2026-11-15)
 
-Each cloud client acts for one Claude account on the PC (Settings → Claude Code & Agents → **Accounts**, `accounts.rs`): `account-1` → **Claude** (Claude Code's default config folder, `~\.claude`), `account-2` → **Claude2** (`~\.claude2`), prefilled. The list shows each account's config folder and whether it's signed in: only whether its login file (`.credentials.json`) exists. Glim never opens it.
+Each cloud client acts for one Claude account on the PC (Settings → Claude Code & Agents → **Accounts**, `accounts.rs`): `account-1` → **Claude** (Claude Code's default config folder, `~\.claude`), `account-2` → **Claude2** (`~\.claude2`), prefilled. Adding (or removing) a cloud client clears any account mapped to its name, so a client added since 2026-11-21 starts with none: pick it on the client's row (Setup, step 2). The list shows each account's config folder and whether it's signed in: only whether its login file (`.credentials.json`) exists. Glim never opens it.
 
 - `session-status`, `transcript-tail`: only the transcripts in that account's own config folder (the repo's, and its worktrees' under `<repo>\.claude\worktrees\`). Lines name the account (`local-companion: idle … [Claude2]`).
 - `start-session`: with that account's `CLAUDE_CONFIG_DIR` (removed for the default one, never inherited). With a prompt, `claude -p -w`: a git worktree of its own. Without one, the remote-control command named `(PC, <account>)` for any account but the default one.

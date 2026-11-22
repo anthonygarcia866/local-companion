@@ -4,7 +4,7 @@
 // - The PC connects OUT to the relay (net::relay, the one WebSocket Glim
 //   opens) with its own relay token, only while Remote tasks are on,
 //   consented, not stopped, and set up (relay address, token, keys).
-// - Each task the relay hands over goes through `Gate::accept` (signature,
+// - Each task the relay hands over goes through `Gate::accept_sealed` (signature,
 //   expiry, replay, command, repo, rate limits, kill switch), then exec.rs.
 // - Every answer, accepted or refused, is a RESULT signed with the PC's own
 //   Ed25519 key (made here, its private half only in Credential Manager as
