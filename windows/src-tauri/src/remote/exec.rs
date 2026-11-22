@@ -754,19 +754,23 @@ fn ask_lease(client: &str, hours: u32) -> Result<Ran, String> {
         detail: format!("lease request for {} h: forward this to the owner. Approve at {} · match code {} · lapses {}", p.hours, p.url, p.code, super::runs::utc(p.expires)),
         session: None,
     };
-    // One open request at a time (the same one again, no new ping) and
-    // MAX_REQUESTS_PER_HOUR an hour (review 2026-11-21: no push-bombing).
-    match lease::with(|l| l.may_ask(client, now)) {
-        lease::Ask::Open(p) => return Ok(answer(&p)),
-        lease::Ask::Limited => return Err("lease-request-limit".into()),
-        lease::Ask::New => {}
-    }
     let (Some(rid), Some(code), Some(lock)) = (approve::new_slot_id(), approve::new_match_code(), approve::new_slot_id()) else { return Err("no-randomness".into()) };
     let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock };
     let req = approve::lease_request(&p, &approvers, &host).ok_or("seal-failed")?;
     p.url = req.url.clone();
-    if let Some(old) = lease::with(|l| l.request(p.clone(), now)) {
-        (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string());
+    // One open request at a time (the same one again, no new ping) and
+    // MAX_REQUESTS_PER_HOUR an hour (review 2026-11-21: no push-bombing).
+    // The check and the new request share ONE lease lock (review 2026-11-21):
+    // two lease-requests at once can't both pass may_ask.
+    let opened = lease::with(|l| match l.may_ask(client, now) {
+        lease::Ask::New => Ok(l.request(p.clone(), now)),
+        other => Err(other),
+    });
+    match opened {
+        Err(lease::Ask::Open(open)) => return Ok(answer(&open)),
+        Err(_) => return Err("lease-request-limit".into()),
+        Ok(Some(old)) => (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string()),
+        Ok(None) => {}
     }
     (h.send)(req.frame);
     (h.phone)(req.text, req.url.clone());
@@ -807,6 +811,12 @@ fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings)
             };
             if let Some(old) = old {
                 super::lease_ended(&old, lease::Ended::Replaced, now);
+            }
+            // Killed right after the grant (review 2026-11-21): the kill switch
+            // has ended the lease, so no lock slot and no "unlocked" ping.
+            if killed_now() {
+                crate::log::line("remote: lease ended killed right after the grant");
+                return true;
             }
             let until = now + i64::from(p.hours) * 3600;
             let (approvers, host) = approvers_and_host(s);

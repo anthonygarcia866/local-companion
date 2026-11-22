@@ -840,8 +840,11 @@ fn lease_request_is_for_agent_clients_only_with_one_of_the_listed_lengths() {
     for bad in [json!({ "hours": 2 }), json!({ "hours": 24 }), json!({ "hours": "4" }), json!({ "hours": 4, "until": 9 })] {
         n_bad(&mut g, &s, &k2, bad);
     }
-    // A token client's `leased` flag (never set by the courier) changes nothing.
-    assert!(g.accept_leased(&s, "account-1", &envelope(&k1, &task(&id(1110), "start-session", json!({ "repo": "local-companion" }))), NOW, true).is_ok());
+    // A token client's `leased` flag (never set by the courier) changes nothing:
+    // with its Claude account mapped, a session command still runs (no sandbox
+    // check), and without one it is still no-account.
+    assert!(g.accept_mapped_leased(&s, "account-1", &envelope(&k1, &task(&id(1110), "start-session", json!({ "repo": "local-companion" }))), NOW, true).is_ok());
+    assert_eq!(g.accept_leased(&s, "account-1", &envelope(&k1, &task(&id(1111), "start-session", json!({ "repo": "local-companion" }))), NOW, true), Err(Rejection::NoAccount));
 }
 
 fn n_bad(g: &mut Gate, s: &RemoteSettings, kp: &Ed25519KeyPair, args: Value) {

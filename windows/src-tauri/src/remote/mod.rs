@@ -586,6 +586,12 @@ impl Gate {
         self.accept_as(s, client, raw, now, false, false, leased)
     }
 
+    /// `accept_leased` for a client a Claude account is mapped to.
+    #[cfg(test)]
+    pub fn accept_mapped_leased(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, leased: bool) -> Result<Accepted, Rejection> {
+        self.accept_as(s, client, raw, now, false, true, leased)
+    }
+
     /// `accept_from` for a task that came `sealed` (opened by accept_sealed)
     /// or not.
     fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool, leased: bool) -> Result<Accepted, Rejection> {
