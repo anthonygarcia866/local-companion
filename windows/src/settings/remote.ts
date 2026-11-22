@@ -199,6 +199,11 @@ export function connectionText(code: string): string {
   }
 }
 
+/** Commands refused at the gate without a Claude account (remote::ACCOUNT_COMMANDS). */
+export const SESSION_COMMANDS = ["transcript-tail", "start-session", "send-to-session"];
+/** Commands that do anything only with a Claude account (the others answer not-your-session). */
+export const NEEDS_ACCOUNT = [...SESSION_COMMANDS, "session-status", "keepalive-restart"];
+
 /** How often Remote tasks reads the connection's state again. */
 export const REMOTE_POLL_MS = 2000;
 /** How long "Saved" stays beside Save key / Save address. */
@@ -283,6 +288,45 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     if (JSON.stringify(next) === JSON.stringify(pair)) return;
     pair = next;
     later(draw);
+  }
+
+  /**
+   * A client's commands (owner 2026-11-21): a checkbox per command, saved at
+   * once; refused ones answer not-allowed. Its Claude account: session
+   * commands need one (no-account otherwise).
+   */
+  function clientAccess(c: RemoteClient): HTMLElement {
+    const all = status.commands ?? [];
+    const mine = new Set(c.commands ?? all);
+    const row = h("div", { class: "row", "data-role": "remote-client-commands", style: "flex-wrap:wrap;gap:4px 12px" });
+    const boxes: HTMLInputElement[] = [];
+    for (const kind of all) {
+      const box = h("input", { type: "checkbox", "data-role": "remote-client-command", "data-command": kind }) as HTMLInputElement;
+      box.checked = mine.has(kind);
+      boxes.push(box);
+      box.addEventListener("change", () => {
+        // From the boxes as they are now (review 2026-11-21): two quick
+        // clicks can't send a list that brings back the first one's change.
+        const next = boxes.filter((b) => b.checked).map((b) => b.getAttribute("data-command") ?? "");
+        void act(() => Bridge.remoteClientCommands(c.name, next));
+      });
+      row.append(h("label", { style: "display:inline-flex;gap:4px;align-items:center" }, box, h("span", { text: kind })));
+    }
+    const pick = h("select", { "data-role": "remote-client-account" }) as HTMLSelectElement;
+    pick.append(h("option", { value: "", text: t("None") }));
+    for (const a of status.accounts ?? []) {
+      const taken = a.client && a.client !== c.name ? ` (${t("now {client}'s", { client: a.client })})` : "";
+      pick.append(h("option", { value: a.name, text: `${a.name}${taken}` }));
+    }
+    pick.value = c.account ?? "";
+    pick.addEventListener("change", () => void act(() => Bridge.remoteClientAccount(c.name, pick.value)));
+    const noAccount = !c.account && [...mine].some((k) => NEEDS_ACCOUNT.includes(k));
+    return h("div", { "data-role": "remote-client-access" },
+      h("label", { text: t("Commands it may send") }),
+      row,
+      h("div", { class: "row" }, h("label", { text: t("Claude account for its sessions") }), pick),
+      ...(noAccount ? [h("div", { class: "hint", "data-role": "remote-client-no-account", text: t("No Claude account: its transcript-tail, start-session and send-to-session are refused, and session-status and keepalive-restart answer not-your-session.") })] : []),
+    );
   }
 
   function approversBox(): HTMLElement {
@@ -448,6 +492,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         h("div", { class: "pill-row" }, h("span", { class: "name", text: c.name }), remove),
         h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: c.fingerprint }) }),
         h("div", { class: "hint", text: addedText(c) }),
+        clientAccess(c),
       ));
     }
     box.append(clients);

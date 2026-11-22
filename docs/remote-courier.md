@@ -85,19 +85,21 @@ Envelope, as carried:
 5. **Ed25519 signature** with **that client's** public key. One that verifies only with another client's key is refused as `wrong-client`; one that verifies with none, `bad-signature`.
 6. **Payload**: id shape, lifetime, not yet valid, expired, then replay.
 7. **Command and arguments**, including the repo allowlist.
+7a. **The client may send it** (owner 2026-11-21): only the commands ticked for that client in Settings → Remote → Cloud clients, else `not-allowed`. A client saved before the list existed (account-1, account-2) keeps all seven; a client added since starts with `session-status` and `run-status` only. `transcript-tail`, `start-session` and `send-to-session` also need a Claude account mapped to the client (below), else `no-account`. Both refusals come after the signature verified: signed, the id burned, listed in Remote activity with the client.
 8. **Rate limits**, per rolling hour: per client 5 `start-session` and 30 commands; on this PC, all clients together, 8 `start-session`, 50 commands and 3 `keepalive-restart`.
 
 Every decision goes to Settings → Remote → **Remote activity** and glim.log: the time, the client, accepted or refused, the command kind or the refusal code. The id appears only once the signature has verified. Never a payload, an argument, a signature, a token or a key.
 
 ## Accounts: which Claude account a task acts for (owner, 2026-11-15)
 
-Each cloud client acts for one Claude account on the PC (Settings → Claude Code & Agents → **Accounts**, `accounts.rs`): `account-1` → **Claude** (Claude Code's default config folder, `~\.claude`), `account-2` → **Claude2** (`~\.claude2`), prefilled. The list shows each account's config folder and whether it's signed in: only whether its login file (`.credentials.json`) exists. Glim never opens it.
+Each cloud client acts for one Claude account on the PC (Settings → Claude Code & Agents → **Accounts**, `accounts.rs`): `account-1` → **Claude** (Claude Code's default config folder, `~\.claude`), `account-2` → **Claude2** (`~\.claude2`), prefilled. Adding (or removing) a cloud client clears any account mapped to its name, so a client added since 2026-11-21 starts with none: pick it on the client's row (Setup, step 2). The list shows each account's config folder and whether it's signed in: only whether its login file (`.credentials.json`) exists. Glim never opens it.
 
 - `session-status`, `transcript-tail`: only the transcripts in that account's own config folder (the repo's, and its worktrees' under `<repo>\.claude\worktrees\`). Lines name the account (`local-companion: idle … [Claude2]`).
 - `start-session`: with that account's `CLAUDE_CONFIG_DIR` (removed for the default one, never inherited). With a prompt, `claude -p -w`: a git worktree of its own. Without one, the remote-control command named `(PC, <account>)` for any account but the default one.
 - `send-to-session`: that account's latest session only, continued where it works (the repo folder or one of its worktrees, checked); busy within 30 s.
 - `keepalive-restart`: that account's keep-alive servers only.
-- A repo whose sessions are only another account's answers `not-your-session`; a client no account acts for gets `not-your-session` for all of these. `runbook` doesn't depend on the account.
+- A repo whose sessions are only another account's answers `not-your-session`; a client no account acts for gets `no-account` at the gate for `transcript-tail`, `start-session` and `send-to-session` (owner 2026-11-21), and `not-your-session` for the rest.
+- The mapping is set in Accounts or on the client's own row in Settings → Remote → Cloud clients ("Claude account for its sessions"; None = no session commands). An account acts for one client: choosing it for another client takes it from the first. `runbook` doesn't depend on the account.
 - Keep Claude Code reachable runs one remote-control server per account (the default one always, the others once signed in), side by side, each with its own `CLAUDE_CONFIG_DIR` and `--spawn worktree`, so every session it spawns works in its own git worktree.
 
 ## Staying connected (owner, 2026-11-15)
@@ -173,11 +175,26 @@ The exact owner steps are in HANDOFF (local). In order:
 Each Claude account's cloud sessions get their own client: their own relay token and task-signing key, so one can be revoked without touching the other, and each is rate-limited on its own.
 
 1. On the PC: `node relay/courier.mjs keygen <file>` (a new file, not the first account's; same folder rules), note the printed public key.
-2. Glim: Settings → Remote → Remote tasks → Cloud clients: name `account-2` (filled in) + that public key → **Add cloud client**. Copy the token shown once.
+2. Glim: Settings → Remote → Remote tasks → Cloud clients: name `account-2` (filled in) + that public key → **Add cloud client**. Copy the token shown once. On its row, set **Claude account for its sessions** to the account it acts for (a new client starts with None, and with only `session-status` and `run-status` ticked: tick the rest it needs).
 3. Run the `relay-tokens` runbook: the relay now takes both tokens.
 4. In the second account's claude.ai/code: a new environment for this repo with the same `RELAY_URL`, `GLIM_PC_PUBLIC_KEY`, `GLIM_PC_ENC_KEY` and `NODE_USE_ENV_PROXY=1` as the first, **its own** `GLIM_TASK_SIGNING_KEY` (step 1's file; then delete the file) and **its own** network secret (the token from step 2; exact relay host, path `/v1/`, `Authorization: Bearer <token>`).
 5. From a session there: `node relay/courier.mjs status`, then `send session-status`. Remote activity shows `account-2 · Accepted: session-status`.
 
 Lesson (2026-11-17): the **relay token** goes in the environment's **network secret**; the **signing key file**'s contents go in `GLIM_TASK_SIGNING_KEY`, and that key's public half must be the one Settings shows for that client (compare fingerprints). Glim can't change a client's key without a new token, so never generate a fresh key for an existing client.
+
+## Using the courier from a non-Claude agent (owner 2026-11-21)
+
+Any agent that can run Node 20+ can use `relay/courier.mjs`, Meta's Muse for example. It is one more cloud client, with its own key and its own limits; it doesn't need a Claude account.
+
+What it needs:
+- **A client of its own** in Settings → Remote → Cloud clients, with its own signing key made by `node relay/courier.mjs keygen <file>` (never another client's key). Give it a name of its own, like `muse`.
+- **Only the commands it needs.** A new client may send only `session-status` and `run-status`; tick more on its row, one at a time, only when you mean it. Anything else is refused `not-allowed`.
+- **No Claude account** unless you want it in your Claude Code sessions: with "Claude account for its sessions" on None, `transcript-tail`, `start-session` and `send-to-session` are refused `no-account` even if ticked, and `session-status` / `keepalive-restart` answer `not-your-session`. So without an account it can use `run-status` (its own runs) and, if ticked, `runbook`. A client added (or removed) under a name an account still pointed at starts with None: the account is never inherited.
+- Unticking `runbook` doesn't stop a run that is already paused: a phone approval still resumes it (stop it from the phone, or use the kill switch).
+- **The same settings as cloud Glim**: `RELAY_URL`, `GLIM_PC_PUBLIC_KEY`, `GLIM_PC_ENC_KEY` (public values), plus its own signing key and relay credential.
+
+Secrets go **only in the agent's own secret store** (its environment's secrets or the platform's vault): the signing key file's contents as `GLIM_TASK_SIGNING_KEY`, and the relay credential. Never paste them into the agent's chat, a prompt, a file in a repo or a log; then delete the key file on the PC. If one was ever shown in a chat, remove the client in Settings and make a new one.
+
+The agent only asks; this PC decides. Every task is still checked here (signature, expiry, replay, the client's commands, rate limits), runbooks still need their own remote level, and a `phone` step still waits for your phone: an agent can't approve.
 
 **Remove** in Cloud clients refuses that client's tasks at once; run `relay-tokens` again so the relay stops taking its token as well. The other clients keep working.

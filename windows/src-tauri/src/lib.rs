@@ -784,7 +784,20 @@ struct RemoteStatus {
     remote_runbooks: Vec<String>,
     /// Phone approvers: names, fingerprints, kinds (never a key).
     approvers: Vec<ApproverView>,
+    /// Every command kind, in order (the clients' checkboxes).
+    commands: Vec<String>,
+    /// The Claude accounts and the cloud client each acts for (the
+    /// clients' account choice; owner 2026-11-21).
+    accounts: Vec<RemoteAccountView>,
     activity: Vec<remote::Activity>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteAccountView {
+    name: String,
+    /// "" when no client acts for it.
+    client: String,
 }
 
 /// One cloud client in Settings: never more of its key than the fingerprint,
@@ -796,9 +809,21 @@ struct RemoteClientView {
     fingerprint: String,
     /// Unix seconds; 0 = from before cloud clients.
     added: i64,
+    /// The commands it may send (owner 2026-11-21).
+    commands: Vec<String>,
+    /// The Claude account mapped to it, "" none (then no transcript-tail,
+    /// start-session or send-to-session).
+    account: String,
+}
+
+/// The Claude accounts as the courier sees them (accounts::list).
+fn claude_accounts(shared: &Shared) -> Vec<accounts::ClaudeAccount> {
+    let saved = shared.settings.lock().unwrap().claude_accounts.clone();
+    accounts::list(&saved, &platform::home_dir())
 }
 
 fn remote_now(shared: &Shared) -> RemoteStatus {
+    let accounts_list = claude_accounts(shared);
     let s = shared.settings.lock().unwrap().remote.clone();
     let mut activity = remote::with(|g| g.activity.clone());
     activity.reverse();
@@ -807,7 +832,17 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         on: s.on,
         consented: s.consented,
         killed: s.killed,
-        clients: s.clients().iter().map(|c| RemoteClientView { name: c.name.clone(), fingerprint: remote::fingerprint(&c.public_key), added: c.added }).collect(),
+        clients: s
+            .clients()
+            .iter()
+            .map(|c| RemoteClientView {
+                name: c.name.clone(),
+                fingerprint: remote::fingerprint(&c.public_key),
+                added: c.added,
+                commands: c.allowed(),
+                account: accounts::for_client(&accounts_list, &c.name).map(|a| a.name.clone()).unwrap_or_default(),
+            })
+            .collect(),
         relay: s.relay.clone(),
         connection: remote::courier::state().to_string(),
         pc_fingerprint: remote::fingerprint(&s.pc_public_key),
@@ -819,6 +854,8 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         runbooks_per_hour_pc,
         remote_runbooks: runbooks::remote_names(),
         approvers: s.approvers.iter().map(|a| ApproverView { id: a.id.clone(), name: a.name.clone(), fingerprint: a.fingerprint(), kind: a.kind.clone(), synced: a.synced, added: a.added }).collect(),
+        commands: remote::COMMANDS.iter().map(|k| k.to_string()).collect(),
+        accounts: accounts_list.iter().map(|a| RemoteAccountView { name: a.name.clone(), client: a.client.clone() }).collect(),
         activity,
     }
 }
@@ -962,16 +999,26 @@ fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: S
     let key = remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))?;
     let (token, hash) = remote::courier::new_cloud_token().map_err(|_| i18n::t("Couldn't make a token."))?;
     let mut next = shared.settings.lock().unwrap().remote.clone();
-    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: hash, added: remote::now_s() }).map_err(|why| match why {
+    // A new client may send only session-status and run-status until the
+    // owner ticks more (owner 2026-11-21).
+    let commands = Some(remote::DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect());
+    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: hash, added: remote::now_s(), commands }).map_err(|why| match why {
         "name-taken" => i18n::t("There's already a client by that name."),
         "key-taken" => i18n::t("Another client already uses that key."),
         _ => i18n::t("That's as many clients as Glim keeps."),
     })?;
     // The relay's list first: if it can't be saved, nothing changed.
     remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    // A new client starts with no Claude account, whatever an account
+    // remembered for that name (review 2026-11-21): the owner picks one.
+    let mut accounts_list = claude_accounts(&shared);
+    let unmapped = accounts::unmap(&mut accounts_list, &name);
     update_settings(&app, &shared, |s| {
         s.remote.clients = next.clients.clone();
         s.remote.public_key = next.public_key.clone();
+        if unmapped {
+            s.claude_accounts = accounts_list.clone();
+        }
     });
     log::line("remote: cloud client added");
     Ok(RemoteClientAnswer { status: remote_now(&shared), cloud_token: token })
@@ -986,11 +1033,60 @@ fn remote_client_remove(app: AppHandle, shared: State<Shared>, name: String) -> 
         return Err(i18n::t("There's no client by that name."));
     }
     remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    // Its Claude account is freed, so a client added later under the same
+    // name doesn't inherit it (review 2026-11-21).
+    let mut accounts_list = claude_accounts(&shared);
+    let unmapped = accounts::unmap(&mut accounts_list, &name);
+    update_settings(&app, &shared, |s| {
+        s.remote.clients = next.clients.clone();
+        s.remote.public_key = next.public_key.clone();
+        if unmapped {
+            s.claude_accounts = accounts_list.clone();
+        }
+    });
+    log::line("remote: cloud client removed");
+    Ok(remote_now(&shared))
+}
+
+/// The commands a cloud client may send (owner 2026-11-21): set here, on
+/// the PC, only; no command carries them.
+#[tauri::command]
+fn remote_client_commands(app: AppHandle, shared: State<Shared>, name: String, commands: Vec<String>) -> Result<RemoteStatus, String> {
+    let list = remote::parse_commands(&commands).map_err(|_| i18n::t("That isn't a command Glim knows."))?;
+    let mut next = shared.settings.lock().unwrap().remote.clone();
+    if !next.set_client_commands(&name, list) {
+        return Err(i18n::t("There's no client by that name."));
+    }
     update_settings(&app, &shared, |s| {
         s.remote.clients = next.clients.clone();
         s.remote.public_key = next.public_key.clone();
     });
-    log::line("remote: cloud client removed");
+    log::line("remote: a cloud client's commands changed");
+    Ok(remote_now(&shared))
+}
+
+/// The Claude account a cloud client acts for (owner 2026-11-21); ""
+/// leaves it with none. An account acts for one client: choosing it here
+/// takes it from the client it acted for before.
+#[tauri::command]
+fn remote_client_account(app: AppHandle, shared: State<Shared>, name: String, account: String) -> Result<RemoteStatus, String> {
+    if !shared.settings.lock().unwrap().remote.clients().iter().any(|c| c.name == name) {
+        return Err(i18n::t("There's no client by that name."));
+    }
+    let mut list = claude_accounts(&shared);
+    if !account.is_empty() && !list.iter().any(|a| a.name == account) {
+        return Err(i18n::t("There's no account by that name."));
+    }
+    for a in list.iter_mut() {
+        if a.client == name {
+            a.client = String::new();
+        }
+        if !account.is_empty() && a.name == account {
+            a.client = name.clone();
+        }
+    }
+    update_settings(&app, &shared, |s| s.claude_accounts = list.clone());
+    log::line("remote: a cloud client's Claude account changed");
     Ok(remote_now(&shared))
 }
 
@@ -2210,6 +2306,8 @@ pub fn run() {
             accounts_add,
             accounts_remove,
             remote_client_remove,
+            remote_client_commands,
+            remote_client_account,
             remote_kill,
             capture_allow,
             capture_hide_again,

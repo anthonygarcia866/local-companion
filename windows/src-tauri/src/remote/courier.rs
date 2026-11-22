@@ -4,7 +4,7 @@
 // - The PC connects OUT to the relay (net::relay, the one WebSocket Glim
 //   opens) with its own relay token, only while Remote tasks are on,
 //   consented, not stopped, and set up (relay address, token, keys).
-// - Each task the relay hands over goes through `Gate::accept` (signature,
+// - Each task the relay hands over goes through `Gate::accept_sealed` (signature,
 //   expiry, replay, command, repo, rate limits, kill switch), then exec.rs.
 // - Every answer, accepted or refused, is a RESULT signed with the PC's own
 //   Ed25519 key (made here, its private half only in Credential Manager as
@@ -730,6 +730,10 @@ pub fn start(
     phone: Arc<dyn Fn(String, String) + Send + Sync>,
 ) {
     super::exec::set_hooks(super::exec::Hooks { settings: settings.clone(), send: Arc::new(send_frame), phone });
+    // The gate asks whether a Claude account is mapped to a task's client
+    // (session commands, owner 2026-11-21); exec reads the same list.
+    let accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::from(accounts);
+    let gate_accounts = accounts.clone();
     let link = Arc::new(|s: &RemoteSettings| -> Result<Link, &'static str> {
         let url = relay::endpoint(&s.relay).map_err(|_| "no-relay")?;
         let token = pc_token_vault().read().ok().flatten().filter(|t| t.len() == 64).ok_or("not-set-up")?;
@@ -741,11 +745,12 @@ pub fn start(
         link,
         // A sealed task is opened with the PC's encryption key, read from
         // Credential Manager when one arrives (never kept in memory between).
-        accept: Arc::new(|s: &RemoteSettings, client: &str, raw: &[u8], now: i64| {
+        accept: Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| {
             let enc = if seal::version(std::str::from_utf8(raw).unwrap_or("")) == Some(2) { load_enc(&pc_enc_vault()) } else { None };
-            super::with(|g| g.accept_sealed(s, client, raw, now, enc.as_ref()))
+            let mapped = !client.is_empty() && crate::accounts::for_client(&gate_accounts(), client).is_some();
+            super::with(|g| g.accept_sealed(s, client, raw, now, enc.as_ref(), mapped))
         }),
-        exec: Arc::new(super::exec::RealExec { keepalive_folders, accounts }),
+        exec: Arc::new(super::exec::RealExec { keepalive_folders, accounts: Box::new(move || accounts()) }),
         timing: Timing::default(),
         backoff_max: Duration::from_secs(60),
         idle: Duration::from_secs(2),

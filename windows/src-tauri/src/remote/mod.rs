@@ -28,6 +28,14 @@
 //   task must verify with THAT client's key (signed with another client's
 //   key: "wrong-client"). The single signer key from before clients is
 //   "account-1" (`public_key`, read as that client: nothing to re-enter).
+// - Per-client commands (owner 2026-11-21, for non-Claude agents such as
+//   "muse"): each client may send only the commands ticked for it in
+//   Settings → Remote → Cloud clients (`CloudClient::commands`; none saved =
+//   all seven, the clients from before; a new client starts with
+//   session-status and run-status). Any other is refused `not-allowed`.
+//   transcript-tail, start-session and send-to-session also need a Claude
+//   account mapped to the client (Settings → Claude Code & Agents →
+//   Accounts, or the client's row): refused `no-account` otherwise.
 // - Rate limits, per rolling hour: per client at most 5 start-session and
 //   30 commands; on this PC in all, 8 start-session and 50 commands; 3
 //   keepalive-restart.
@@ -96,6 +104,13 @@ pub const LEGACY_TOKEN: &str = "legacy";
 pub const MAX_ENVELOPE_BYTES: usize = 16 * 1024;
 /// Activity entries kept.
 pub const ACTIVITY_KEPT: usize = 50;
+/// Every command kind, in Settings' order.
+pub const COMMANDS: &[&str] = &["session-status", "run-status", "transcript-tail", "start-session", "send-to-session", "runbook", "keepalive-restart"];
+/// What a new cloud client may send until the owner ticks more (owner 2026-11-21).
+pub const DEFAULT_COMMANDS: &[&str] = &["session-status", "run-status"];
+/// Commands that act in a Claude account's sessions: refused `no-account`
+/// for a client no account is mapped to (owner 2026-11-21).
+pub const ACCOUNT_COMMANDS: &[&str] = &["transcript-tail", "start-session", "send-to-session"];
 
 /// Settings → Remote's "Remote tasks", as settings.json keeps it. Rust-owned
 /// (a page's save never changes it).
@@ -160,6 +175,35 @@ pub struct CloudClient {
     pub public_key: String,
     pub token_sha256: String,
     pub added: i64,
+    /// The commands it may send (owner 2026-11-21). None (nothing saved): all
+    /// of them, as for every client from before the list existed; a client
+    /// added since starts with DEFAULT_COMMANDS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commands: Option<Vec<String>>,
+}
+
+impl CloudClient {
+    /// It may send a command of this kind.
+    pub fn allows(&self, kind: &str) -> bool {
+        match &self.commands {
+            None => COMMANDS.contains(&kind),
+            Some(list) => COMMANDS.contains(&kind) && list.iter().any(|k| k == kind),
+        }
+    }
+
+    /// The kinds it may send, in Settings' order.
+    pub fn allowed(&self) -> Vec<String> {
+        COMMANDS.iter().filter(|k| self.allows(k)).map(|k| k.to_string()).collect()
+    }
+}
+
+/// A command list as Settings sends it: only known kinds, each once, in
+/// Settings' order; anything else refuses the whole list.
+pub fn parse_commands(list: &[String]) -> Result<Vec<String>, &'static str> {
+    if list.iter().any(|k| !COMMANDS.contains(&k.as_str())) {
+        return Err("unknown-command");
+    }
+    Ok(COMMANDS.iter().filter(|k| list.iter().any(|x| x == *k)).map(|k| k.to_string()).collect())
 }
 
 /// A client's name as typed: 1-32 of a-z 0-9 -, starting with a letter or
@@ -179,7 +223,7 @@ impl RemoteSettings {
     /// signer key as "account-1".
     pub fn clients(&self) -> Vec<CloudClient> {
         if self.clients.is_empty() && !self.public_key.is_empty() {
-            return vec![CloudClient { name: LEGACY_CLIENT.into(), public_key: self.public_key.clone(), token_sha256: LEGACY_TOKEN.into(), added: 0 }];
+            return vec![CloudClient { name: LEGACY_CLIENT.into(), public_key: self.public_key.clone(), token_sha256: LEGACY_TOKEN.into(), added: 0, commands: None }];
         }
         self.clients.clone()
     }
@@ -200,6 +244,17 @@ impl RemoteSettings {
         self.clients = list;
         self.public_key.clear();
         Ok(())
+    }
+
+    /// The commands a client may send (Settings); false when there is no
+    /// client by that name.
+    pub fn set_client_commands(&mut self, name: &str, commands: Vec<String>) -> bool {
+        let mut list = self.clients();
+        let Some(c) = list.iter_mut().find(|c| c.name == name) else { return false };
+        c.commands = Some(commands);
+        self.clients = list;
+        self.public_key.clear();
+        true
     }
 
     /// Removes a client; false when there was none by that name.
@@ -264,6 +319,10 @@ pub enum Rejection {
     /// "Require sealed tasks" is on and the task came unsealed, or named no
     /// result key.
     NotSealed,
+    /// A command not ticked for this client (owner 2026-11-21).
+    NotAllowed,
+    /// A session command from a client no Claude account is mapped to.
+    NoAccount,
 }
 
 impl Rejection {
@@ -289,6 +348,8 @@ impl Rejection {
             Rejection::WrongClient => "wrong-client",
             Rejection::BadSeal => "bad-seal",
             Rejection::NotSealed => "not-sealed",
+            Rejection::NotAllowed => "not-allowed",
+            Rejection::NoAccount => "no-account",
         }
     }
 }
@@ -449,7 +510,9 @@ impl Gate {
         self.activity.drain(..extra);
     }
 
-    /// A task from the single signer of before cloud clients ("account-1").
+    /// A task from the single signer of before cloud clients ("account-1"),
+    /// as if a Claude account were mapped to it (tests only).
+    #[cfg(test)]
     pub fn accept(&mut self, s: &RemoteSettings, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
         self.accept_from(s, LEGACY_CLIENT, raw, now)
     }
@@ -458,15 +521,16 @@ impl Gate {
     /// opened with `enc`, its outside checked against the signed task
     /// inside) or not; then every check of `accept_from` on the signed task.
     /// A seal that doesn't open is noted and refused as `bad-seal` (or, as
-    /// for any task, `killed` / `off` first).
-    pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>) -> Result<Accepted, Rejection> {
+    /// for any task, `killed` / `off` first). `mapped`: a Claude account is
+    /// mapped to `client` (accounts::for_client); the app's only entry.
+    pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>, mapped: bool) -> Result<Accepted, Rejection> {
         let text = std::str::from_utf8(raw).unwrap_or("");
         if seal::version(text) != Some(2) {
-            return self.accept_as(s, client, raw, now, false);
+            return self.accept_as(s, client, raw, now, false, mapped);
         }
         let opened = seal::open_task(enc, text).ok().filter(|(inner, outer)| seal::inner_times(inner).as_ref() == Some(outer));
         match opened {
-            Some((inner, _)) => self.accept_as(s, client, inner.as_bytes(), now, true),
+            Some((inner, _)) => self.accept_as(s, client, inner.as_bytes(), now, true, mapped),
             None => {
                 let why = if s.killed {
                     Rejection::Killed
@@ -484,20 +548,28 @@ impl Gate {
     }
 
     /// Every check, in order, for a task the relay says `client` queued; the
-    /// outcome is noted either way.
+    /// outcome is noted either way. As if a Claude account were mapped to
+    /// `client` (tests only; the app goes through `accept_sealed`).
+    #[cfg(test)]
     pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
-        self.accept_as(s, client, raw, now, false)
+        self.accept_as(s, client, raw, now, false, true)
+    }
+
+    /// `accept_from` for a client with (`mapped`) or without a Claude account.
+    #[cfg(test)]
+    pub fn accept_mapped(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, mapped: bool) -> Result<Accepted, Rejection> {
+        self.accept_as(s, client, raw, now, false, mapped)
     }
 
     /// `accept_from` for a task that came `sealed` (opened by accept_sealed)
     /// or not.
-    fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool) -> Result<Accepted, Rejection> {
+    fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool) -> Result<Accepted, Rejection> {
         // Forget what has expired (plus the skew) and counts over an hour old.
         self.seen.retain(|_, exp| *exp + SKEW_S >= now);
         self.recent.retain(|c| c.at > now - 3600);
         self.restarts.retain(|t| *t > now - 3600);
         let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
-        let r = self.check(s, &named, raw, now, sealed);
+        let r = self.check(s, &named, raw, now, sealed, mapped);
         let entry = match &r {
             Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone(), runbook: runbook_of(&a.command) },
             Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone(), runbook: String::new() },
@@ -524,7 +596,7 @@ impl Gate {
 
     /// The checks. The id comes back with a rejection only once the
     /// signature verified.
-    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool) -> Result<Accepted, (Rejection, Option<String>)> {
+    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool) -> Result<Accepted, (Rejection, Option<String>)> {
         if s.killed {
             return Err((Rejection::Killed, None));
         }
@@ -591,6 +663,14 @@ impl Gate {
             Some(h) => Some(seal::from_hex(h).and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or((Rejection::BadPayload, id.clone()))?),
         };
         let command = command::parse(&p.cmd, &p.args).map_err(|e| (e, id.clone()))?;
+        // Per-client commands (owner 2026-11-21): signed, so the id is burned
+        // and the refusal is signed and listed like any other.
+        if !mine.allows(command.kind()) {
+            return Err((Rejection::NotAllowed, id));
+        }
+        if ACCOUNT_COMMANDS.contains(&command.kind()) && !mapped {
+            return Err((Rejection::NoAccount, id));
+        }
         if matches!(command, Command::StartSession { .. } | Command::SendToSession { .. }) && p.exp - p.iat > MAX_LIVE_LIFETIME_S {
             return Err((Rejection::TooLong, id));
         }

@@ -79,7 +79,7 @@ fn a_new_cloud_client_token_is_random_and_only_its_hash_reaches_the_relay_list()
     assert_ne!(t1, t2);
     assert_eq!(h1, courier::sha256_hex(&t1));
     let mut s = RemoteSettings { public_key: "ab".repeat(32), ..Default::default() };
-    s.add_client(super::CloudClient { name: "account-2".into(), public_key: "cd".repeat(32), token_sha256: h1.clone(), added: 5 }).unwrap();
+    s.add_client(super::CloudClient { name: "account-2".into(), public_key: "cd".repeat(32), token_sha256: h1.clone(), added: 5, commands: None }).unwrap();
     let store = crate::secrets::MemoryStore::default();
     courier::save_client_list(&s, &store).unwrap();
     let list = store.0.borrow().iter().find(|(k, _)| k.ends_with(courier::CLOUD_CLIENTS_SECRET)).map(|(_, (v, _))| v.clone()).unwrap();
@@ -226,7 +226,7 @@ fn from_client(kp: &Ed25519KeyPair, id: &str, client: &str) -> String {
 fn two_cloud_clients_work_at_the_same_time_each_with_its_own_key_and_removing_one_leaves_the_other() {
     with_courier(Duration::from_millis(200), quick(), |server, rig| async move {
         let second = Ed25519KeyPair::from_seed_unchecked(&[11; 32]).unwrap();
-        rig.settings.lock().unwrap().add_client(super::CloudClient { name: "account-2".into(), public_key: hex(second.public_key().as_ref()), token_sha256: "ab".repeat(32), added: 1 }).unwrap();
+        rig.settings.lock().unwrap().add_client(super::CloudClient { name: "account-2".into(), public_key: hex(second.public_key().as_ref()), token_sha256: "ab".repeat(32), added: 1, commands: None }).unwrap();
         let mut c = accept(&server).await;
         // Both at once: each runs (the exec is slow, so they overlap).
         c.send(&from_client(&rig.cloud, "two-clients-a-0001", "account-1")).await;
@@ -502,7 +502,7 @@ fn the_seal_vectors_a_node_sealed_task_opens_and_glims_sealed_result_matches_byt
     let (inner, outer) = seal::open_task(Some(&pc_enc), SEALED_TASK).unwrap();
     assert_eq!(inner, SEALED_TASK_INNER);
     assert_eq!(outer, seal::Outer { id: SEALED_ID.into(), iat: 1_763_140_000, exp: 1_763_226_400 });
-    let a = Gate::default().accept_sealed(&cloud_settings(), "account-1", SEALED_TASK.as_bytes(), 1_763_140_010, Some(&pc_enc)).unwrap();
+    let a = Gate::default().accept_sealed(&cloud_settings(), "account-1", SEALED_TASK.as_bytes(), 1_763_140_010, Some(&pc_enc), true).unwrap();
     assert_eq!((a.id.as_str(), a.command.kind(), a.rk), (SEALED_ID, "session-status", Some(arr::<32>(SEALED_RK))));
     // Signed over the hash of the SEALED envelope (what cloud Glim sent), then
     // sealed to the task's result key: byte for byte what relay/test opens.
@@ -520,8 +520,8 @@ fn a_sealed_task_altered_misaddressed_or_relabelled_is_refused_as_bad_seal_and_n
     let t = 1_763_140_010;
     let mut g = Gate::default();
     let other = seal::secret_from_hex(&"11".repeat(32)).unwrap();
-    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&other)), Err(Rejection::BadSeal), "another PC's key");
-    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, None), Err(Rejection::BadSeal), "no key on this PC");
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&other), true), Err(Rejection::BadSeal), "another PC's key");
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, None, true), Err(Rejection::BadSeal), "no key on this PC");
     let edit = |f: &dyn Fn(&mut Value)| {
         let mut v: Value = serde_json::from_str(SEALED_TASK).unwrap();
         f(&mut v);
@@ -538,24 +538,24 @@ fn a_sealed_task_altered_misaddressed_or_relabelled_is_refused_as_bad_seal_and_n
     let stretched = edit(&|v| v["exp"] = json!(1_763_226_400 + 3600));
     let renamed = edit(&|v| v["id"] = json!("vector-task-0000003"));
     for bad in [&flipped, &stretched, &renamed] {
-        assert_eq!(g.accept_sealed(&s, "account-1", bad.as_bytes(), t, Some(&pc_enc)), Err(Rejection::BadSeal));
+        assert_eq!(g.accept_sealed(&s, "account-1", bad.as_bytes(), t, Some(&pc_enc), true), Err(Rejection::BadSeal));
     }
     assert_eq!(g.activity.iter().filter(|a| a.reason == "bad-seal").count(), 5, "every one noted");
     assert!(g.activity.iter().all(|a| a.id.is_empty()), "no id from an unopened seal");
     // The kill switch comes first, sealed or not.
     let killed = RemoteSettings { killed: true, ..s.clone() };
-    assert_eq!(g.accept_sealed(&killed, "account-1", flipped.as_bytes(), t, Some(&pc_enc)), Err(Rejection::Killed));
-    assert_eq!(g.accept_sealed(&killed, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc)), Err(Rejection::Killed));
+    assert_eq!(g.accept_sealed(&killed, "account-1", flipped.as_bytes(), t, Some(&pc_enc), true), Err(Rejection::Killed));
+    assert_eq!(g.accept_sealed(&killed, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc), true), Err(Rejection::Killed));
     // Anyone can seal to the PC's public key, but not sign as the client.
     let forger = Ed25519KeyPair::from_seed_unchecked(&[5; 32]).unwrap();
     let frame: Value = serde_json::from_str(&task(&forger, "forged-task-0000001", t - 5, t + 300)).unwrap();
     let inner = frame["env"].as_str().unwrap().to_string();
     let sealed = seal::seal(&arr::<32>(&seal::public_hex(&pc_enc)), "task", "forged-task-0000001", inner.as_bytes()).unwrap();
     let outer = json!({ "v": 2, "id": "forged-task-0000001", "iat": t - 5, "exp": t + 300, "epk": seal::to_hex(&sealed.epk), "n": seal::to_hex(&sealed.nonce), "ct": seal::to_hex(&sealed.ct) }).to_string();
-    assert_eq!(g.accept_sealed(&s, "account-1", outer.as_bytes(), t, Some(&pc_enc)), Err(Rejection::BadSignature));
+    assert_eq!(g.accept_sealed(&s, "account-1", outer.as_bytes(), t, Some(&pc_enc), true), Err(Rejection::BadSignature));
     // The genuine one still goes, once.
-    assert!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc)).is_ok());
-    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t + 1, Some(&pc_enc)), Err(Rejection::Replay));
+    assert!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t, Some(&pc_enc), true).is_ok());
+    assert_eq!(g.accept_sealed(&s, "account-1", SEALED_TASK.as_bytes(), t + 1, Some(&pc_enc), true), Err(Rejection::Replay));
 }
 
 #[test]
@@ -694,7 +694,7 @@ fn require_sealed_refuses_unsealed_tasks_and_ones_without_a_result_key() {
     assert!(!RemoteSettings::default().require_sealed);
     let on = RemoteSettings { require_sealed: true, ..cloud_settings() };
     let mut g = Gate::default();
-    let mut run = |s: &RemoteSettings, raw: String| g.accept_sealed(s, "account-1", raw.as_bytes(), now, Some(&pc_enc)).map(|a| a.id);
+    let mut run = |s: &RemoteSettings, raw: String| g.accept_sealed(s, "account-1", raw.as_bytes(), now, Some(&pc_enc), true).map(|a| a.id);
     // Off: an older courier's unsealed task still runs.
     assert_eq!(run(&off, payload("require-sealed-off-01", true)), Ok("require-sealed-off-01".to_string()));
     // On: sealed and naming its result key, it runs.
@@ -728,7 +728,7 @@ fn a_sealed_task_through_the_courier_gets_a_sealed_signed_result() {
     let c = Courier::new(
         Arc::new(seed_pair(PC_SEED)),
         Arc::new(Fake { delay: Duration::ZERO, runs: Arc::default() }),
-        Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g2.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc2))),
+        Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g2.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc2), true)),
         tx,
         Arc::default(),
     );
@@ -887,7 +887,7 @@ fn a_task_that_ran_gets_its_first_answer_again_after_a_restart_never_replay() {
         Courier::new(
             Arc::new(seed_pair(PC_SEED)),
             Arc::new(Fake { delay: Duration::from_millis(300), runs: runs.clone() }),
-            Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc))),
+            Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| g.lock().unwrap().accept_sealed(s, client, raw, now, Some(&enc), true)),
             tx,
             Arc::default(),
         )

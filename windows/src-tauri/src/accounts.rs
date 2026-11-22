@@ -59,7 +59,21 @@ pub fn signed_in(a: &ClaudeAccount, home: &Path) -> bool {
 
 /// The account a cloud client acts for.
 pub fn for_client<'a>(list: &'a [ClaudeAccount], client: &str) -> Option<&'a ClaudeAccount> {
+    if client.is_empty() {
+        return None;
+    }
     list.iter().find(|a| a.client == client)
+}
+
+/// No account acts for `client` any more (a client added or removed under
+/// that name: review 2026-11-21). True when one did.
+pub fn unmap(list: &mut [ClaudeAccount], client: &str) -> bool {
+    let mut any = false;
+    for a in list.iter_mut().filter(|a| a.client == client) {
+        a.client.clear();
+        any = true;
+    }
+    any
 }
 
 /// What a process started for this account gets: its CLAUDE_CONFIG_DIR, or
@@ -95,7 +109,9 @@ pub fn parse_folder(raw: &str, home: &Path) -> Result<String, &'static str> {
     Ok(p.to_string_lossy().trim_end_matches(['\\', '/']).to_string())
 }
 
-/// Adds an account; its cloud client is the first "account-N" no other uses.
+/// Adds an account, acting for no cloud client until the owner picks one
+/// (Settings → Remote → Cloud clients; review 2026-11-21: an invented
+/// "account-N" could silently map a cloud client added later under that name).
 pub fn add(list: &mut Vec<ClaudeAccount>, name: String, config_dir: String, home: &Path) -> Result<(), &'static str> {
     if list.len() >= MAX_ACCOUNTS {
         return Err("too-many");
@@ -107,8 +123,7 @@ pub fn add(list: &mut Vec<ClaudeAccount>, name: String, config_dir: String, home
     if list.iter().any(|a| dir(&a.config_dir) == dir(&config_dir)) {
         return Err("folder-taken");
     }
-    let client = (1..).map(|n| format!("account-{n}")).find(|c| !list.iter().any(|a| &a.client == c)).unwrap_or_default();
-    list.push(ClaudeAccount { name, config_dir, client });
+    list.push(ClaudeAccount { name, config_dir, client: String::new() });
     Ok(())
 }
 
@@ -178,7 +193,7 @@ mod tests {
         std::fs::create_dir_all(h.join(".claude3")).unwrap();
         let f = parse_folder(&h.join(".claude3").to_string_lossy(), &h).unwrap();
         add(&mut l, parse_name(" Claude3 ").unwrap(), f.clone(), &h).unwrap();
-        assert_eq!(l[2].client, "account-3");
+        assert_eq!(l[2].client, "", "no cloud client until the owner picks one");
         assert_eq!(add(&mut l, "claude3".into(), String::new(), &h), Err("name-taken"));
         assert_eq!(add(&mut l, "Other".into(), f.to_ascii_uppercase(), &h), Err("folder-taken"));
         assert_eq!(add(&mut l, "Other".into(), h.join(".claude").to_string_lossy().into_owned(), &h), Err("folder-taken"), "the default folder spelled out");
@@ -187,11 +202,25 @@ mod tests {
         assert_eq!(parse_folder(&h.join("missing").to_string_lossy(), &h), Err("no-folder"));
         assert_eq!(parse_folder("", &h), Ok(String::new()));
         assert!(parse_name("bad/name").is_err());
-        // Removing one frees its client name for the next.
+        // Removing one never hands its client to the next.
         l.retain(|a| a.name != "Claude2");
         std::fs::create_dir_all(h.join(".claude4")).unwrap();
         add(&mut l, "Claude4".into(), h.join(".claude4").to_string_lossy().into_owned(), &h).unwrap();
-        assert_eq!(l.last().unwrap().client, "account-2");
+        assert_eq!(l.last().unwrap().client, "");
         let _ = std::fs::remove_dir_all(&h);
+    }
+
+    #[test]
+    fn a_client_name_is_unmapped_on_add_or_remove_and_an_empty_name_is_never_mapped() {
+        let h = std::env::temp_dir();
+        let mut l = defaults(&h);
+        assert_eq!(for_client(&l, "account-2").unwrap().name, "Claude2");
+        assert!(unmap(&mut l, "account-2"));
+        assert!(for_client(&l, "account-2").is_none());
+        assert!(!unmap(&mut l, "account-2"), "nothing left to unmap");
+        // Claude2 now has no client: an empty name never matches it.
+        assert_eq!(l[1].client, "");
+        assert!(for_client(&l, "").is_none());
+        assert_eq!(for_client(&l, "account-1").unwrap().name, "Claude");
     }
 }
