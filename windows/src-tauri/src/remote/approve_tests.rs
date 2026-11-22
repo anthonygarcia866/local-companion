@@ -164,3 +164,45 @@ fn fingerprints_are_four_groups_of_four() {
     assert_eq!(f.len(), 19);
     assert_eq!(f.split(' ').count(), 4);
 }
+
+#[test]
+fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval() {
+    use super::super::lease::Pending;
+    let phone = Phone::new();
+    let approver = Approver { id: "Y3JlZC0x".into(), name: "Example phone".into(), public_key: seal::to_hex(&phone.point()), kind: "passkey".into(), synced: true, added: NOW };
+    let key = [5u8; 32];
+    let p = Pending { rid: RID.into(), code: "ABC-DEF".into(), client: "muse".into(), hours: 4, expires: NOW + 1800, url: String::new(), lock: "ee".repeat(16) };
+    let req = lease_request(&p, &[(approver.clone(), key)], "task-relay.example.workers.dev").unwrap();
+    // Pushover: client, length, code; never the relay host. The relay: sealed details only.
+    assert!(req.text.contains("muse") && req.text.contains("4 h") && req.text.contains("ABC-DEF"));
+    assert!(!req.text.contains("workers.dev") && !req.url.contains("workers.dev"));
+    let frame: Value = serde_json::from_str(&req.frame).unwrap();
+    assert!(!frame["body"].as_str().unwrap().contains("muse"), "details sealed");
+    let body: Value = serde_json::from_str(frame["body"].as_str().unwrap()).unwrap();
+    let item = &body["items"][0];
+    let n: [u8; 12] = from_b64url(item["n"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let d: Value = serde_json::from_slice(&seal::approve_open(&key, &format!("glim-approve-v1|{RID}"), &n, &from_b64url(item["ct"].as_str().unwrap()).unwrap()).unwrap()).unwrap();
+    assert_eq!((d["kind"].as_str(), d["client"].as_str(), d["hours"].as_u64(), d["lock"].as_str()), (Some("lease"), Some("muse"), Some(4), Some(p.lock.as_str())));
+    assert!(lease_binding(&p).starts_with("glim-lease-v1\n"));
+
+    let approve = |a: Assertion| json!({ "answer": "approve", "cred": a.cred, "ad": a.ad, "cd": a.cd, "sig": a.sig }).to_string();
+    assert_eq!(judge_lease(&approve(phone.assert(&lease_challenge(&p))), &p, std::slice::from_ref(&approver)), Verdict::Approve);
+    assert_eq!(judge_lease(r#"{"answer":"stop"}"#, &p, std::slice::from_ref(&approver)), Verdict::Stop);
+    // Signed for more hours, another client, another request or lock slot: refused.
+    for (name, other) in [("hours", Pending { hours: 12, ..p.clone() }), ("client", Pending { client: "bot".into(), ..p.clone() }), ("rid", Pending { rid: "ff".repeat(16), ..p.clone() }), ("lock", Pending { lock: "dd".repeat(16), ..p.clone() }), ("code", Pending { code: "XXX-XXX".into(), ..p.clone() })] {
+        assert_eq!(judge_lease(&approve(phone.assert(&lease_challenge(&other))), &p, std::slice::from_ref(&approver)), Verdict::Refused("bad-challenge"), "{name}");
+    }
+    // A runbook approval's signature never grants a lease, and a lease's never resumes a run.
+    let run = paused_run();
+    assert_eq!(judge_lease(&approve(phone.assert(&challenge(RID, &run, "ABC-DEF"))), &p, std::slice::from_ref(&approver)), Verdict::Refused("bad-challenge"));
+    assert_eq!(judge(&approve(phone.assert(&lease_challenge(&p))), RID, &run, "ABC-DEF", std::slice::from_ref(&approver)), Verdict::Refused("bad-challenge"));
+    // Another passkey, or none enrolled.
+    assert_eq!(judge_lease(&approve(Phone::new().assert(&lease_challenge(&p))), &p, std::slice::from_ref(&approver)), Verdict::Refused("bad-signature"));
+    assert_eq!(judge_lease(&approve(phone.assert(&lease_challenge(&p))), &p, &[]), Verdict::Refused("unknown-approver"));
+    assert!(lease_request(&p, &[], "x").is_none());
+    // The lock slot: sealed, lives until the lease's end.
+    let (lf, lurl) = lock_slot(&p.lock, "muse", NOW + 4 * 3600, &[(approver, key)], "task-relay.example.workers.dev").unwrap();
+    let lv: Value = serde_json::from_str(&lf).unwrap();
+    assert_eq!((lv["id"].as_str(), lv["exp"].as_i64()), (Some(p.lock.as_str()), Some(NOW + 4 * 3600)));
+    assert!(!lf.contains("muse") && lurl.contains(&p.lock));
+}

@@ -226,6 +226,10 @@ pub struct PhoneSettings {
     pub quiet_hours: bool,
     pub quiet_from: String,
     pub quiet_to: String,
+    /// Remote approval and lease requests (Face ID links) by Pushover (owner
+    /// 2026-11-21: optional; off, the agent forwards the link from run-status
+    /// or lease-request instead). On by default.
+    pub remote_approvals: bool,
 }
 
 impl Default for PhoneSettings {
@@ -243,6 +247,7 @@ impl Default for PhoneSettings {
             quiet_hours: false,
             quiet_from: "22:00".into(),
             quiet_to: "07:00".into(),
+            remote_approvals: true,
         }
     }
 }

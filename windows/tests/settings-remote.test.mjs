@@ -335,3 +335,25 @@ test("cloud clients: Add agent client sends the name and key only, shows no toke
   assert.match(roleText(el, "remote-agent-added")[0], /relay-tokens runbook/);
   assert.match(roleText(el, "remote-client-agent")[0], /public key only/);
 });
+
+test("agent clients: locked by default; a lease shows its end and Lock now; lease events read as summaries", async () => {
+  const until = Math.floor(new Date(2026, 10, 21, 18, 5).getTime() / 1000);
+  const locked = { ...client("muse"), agent: true, commands: ["session-status", "run-status"], account: "", leaseUntil: 0 };
+  replies.set("remote_status", rstatus({ clients: [locked] }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.match(roleText(el, "remote-lease")[0], /Locked/);
+  assert.equal(role(el, "button", "remote-lease-lock"), undefined);
+  replies.set("remote_status", rstatus({ clients: [{ ...locked, leaseUntil: until }] }));
+  const el2 = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.match(el2.find("span").map((s) => s.textContent).join(" | "), /Unlocked until 18:05/);
+  replies.set("remote_lease_lock", rstatus({ clients: [locked] }));
+  role(el2, "button", "remote-lease-lock").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_lease_lock").at(-1), { name: "muse" });
+  assert.match(roleText(el2, "remote-lease")[0], /Locked/);
+  const at = new Date(2026, 10, 21, 14, 5).getTime() / 1000;
+  assert.equal(activityLine({ at, ok: true, kind: "lease-ended", reason: "", id: "", client: "muse", summary: "4 h lease ended (locked): runbook 1; runbooks: phone-test; sessions 0; PRs not tracked (no sandbox yet)" }),
+    "14:05 muse · 4 h lease ended (locked): runbook 1; runbooks: phone-test; sessions 0; PRs not tracked (no sandbox yet)");
+});

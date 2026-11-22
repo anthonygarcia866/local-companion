@@ -370,6 +370,12 @@ pub async fn send_approval(settings: &Settings, text: &str, url: &str) -> Result
         crate::log::line("phone: approval not sent (Phone is off)");
         return Err(t("Phone notifications are off."));
     }
+    // Optional (owner 2026-11-21): the request is open either way; the agent
+    // can forward its link (run-status, lease-request).
+    if !settings.phone.remote_approvals {
+        crate::log::line("phone: approval not sent (remote approvals by Pushover are off)");
+        return Ok(());
+    }
     let Some(keys) = load(&vault())? else {
         return Err(t("Save your Pushover keys first."));
     };

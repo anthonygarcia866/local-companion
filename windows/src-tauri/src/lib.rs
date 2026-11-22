@@ -816,6 +816,8 @@ struct RemoteClientView {
     account: String,
     /// A token-less agent client (public key only).
     agent: bool,
+    /// An agent client's lease: its end (Unix s), 0 = locked.
+    lease_until: i64,
 }
 
 /// The Claude accounts as the courier sees them (accounts::list).
@@ -844,6 +846,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
                 commands: c.allowed(),
                 account: accounts::for_client(&accounts_list, &c.name).map(|a| a.name.clone()).unwrap_or_default(),
                 agent: c.agent,
+                lease_until: remote::lease::with(|l| l.active_for(&c.name, remote::now_s()).map(|x| x.until).unwrap_or(0)),
             })
             .collect(),
         relay: s.relay.clone(),
@@ -1083,6 +1086,10 @@ fn remote_client_remove(app: AppHandle, shared: State<Shared>, name: String) -> 
             s.claude_accounts = accounts_list.clone();
         }
     });
+    // A removed agent client's lease ends with it.
+    if let Some(l) = remote::lease::with(|x| x.end(&name)) {
+        remote::lease_ended(&l, remote::lease::Ended::Removed, remote::now_s());
+    }
     log::line("remote: cloud client removed");
     Ok(remote_now(&shared))
 }
@@ -1126,6 +1133,17 @@ fn remote_client_account(app: AppHandle, shared: State<Shared>, name: String, ac
     }
     update_settings(&app, &shared, |s| s.claude_accounts = list.clone());
     log::line("remote: a cloud client's Claude account changed");
+    Ok(remote_now(&shared))
+}
+
+/// "Lock now" (owner 2026-11-21): an agent client's lease ends at once, its
+/// summary in Remote activity. On this PC only.
+#[tauri::command]
+fn remote_lease_lock(shared: State<Shared>, name: String) -> Result<RemoteStatus, String> {
+    if let Some(l) = remote::lease::with(|x| x.end(&name)) {
+        remote::lease_ended(&l, remote::lease::Ended::Locked, remote::now_s());
+        log::line("remote: lease locked in Settings");
+    }
     Ok(remote_now(&shared))
 }
 
@@ -1179,6 +1197,15 @@ fn set_remote_killed(app: &AppHandle, shared: &Shared, killed: bool) {
         // pairing in progress ends.
         for rid in remote::runs::with(|r| r.kill_all(remote::now_s())) {
             remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+        }
+        // Every lease ends `killed` (owner 2026-11-21), its summary noted;
+        // waiting lease requests and lock slots are voided at the relay.
+        let (leases, slots) = remote::lease::with(|l| l.end_all());
+        for rid in slots {
+            remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+        }
+        for l in leases {
+            remote::with(|g| g.note_lease(&l.client, "lease-ended", &remote::lease::summary(&l, remote::lease::Ended::Killed), now));
         }
         remote::approve::pair_cancel(&remote::courier::send_frame);
     }
@@ -2346,6 +2373,7 @@ pub fn run() {
             accounts_remove,
             remote_client_remove,
             remote_client_commands,
+            remote_lease_lock,
             remote_agent_client_add,
             remote_client_account,
             remote_kill,

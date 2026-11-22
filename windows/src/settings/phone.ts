@@ -160,6 +160,7 @@ export async function phoneSection(host: PhoneHost): Promise<HTMLElement> {
       h("div", { class: "hint", text: t("Make a user key and an app token at pushover.net (the iPhone app is a one-time $4.99).") }),
       h("div", { class: "hint", text: t("Notify me when:") }),
       switchRow("phone-approval", t("An approval waits"), s.approval, (v) => change({ approval: v })),
+      switchRow("phone-remote-approvals", t("A remote runbook step or an agent's lease request waits for Face ID"), s.remoteApprovals ?? true, (v) => change({ remoteApprovals: v }), t("Off: nothing goes by Pushover; the agent forwards the approval link instead (run-status, lease-request).")),
       delayRow(),
       switchRow("phone-finished", t("A session finishes"), s.finished, (v) => change({ finished: v })),
       switchRow("phone-limit", t("A usage or spend limit is hit"), s.limit, (v) => change({ limit: v })),

@@ -196,6 +196,20 @@ What it needs:
 
 Secrets go **only in the agent's own secret store** (its environment's secrets or the platform's vault): the signing key file's contents as `GLIM_TASK_SIGNING_KEY` (and, for a token client only, the relay token). Never paste them into the agent's chat, a prompt, a file in a repo or a log; then delete the key file on the PC. If one was ever shown in a chat, remove the client in Settings and make a new one.
 
+### Leases: locked by default (owner 2026-11-21, `remote/lease.rs`)
+
+An agent client is **locked** by default: it may send only its ticked commands, plus `lease-request`, which only agent clients may send.
+
+- `lease-request {"hours": 1|4|8|12}` (1 if left out) opens a Face ID request for "unlock <client> for N h".
+  - It answers, in the PC-signed result, with the **approval link and match code** for the agent to forward to you. The link carries only the request id, plus the relay host sealed to your approvers.
+  - Pushover sends it too while Settings → Phone → "A remote runbook step or an agent's lease request waits for Face ID" is on. Turn that off to rely on the agent alone.
+  - A newer request replaces an older one; a request lapses after 30 minutes.
+- **The lease starts** only when your passkey signs exactly that request (`glim-lease-v1` binding: request id, client, hours, lapse time, lock slot, match code), checked on this PC. A runbook approval's signature can never grant a lease, and the other way round.
+- **While leased**, the agent may send all seven commands, still within the rate limits. Session commands (`transcript-tail`, `start-session`, `send-to-session`) answer `no-sandbox` until the agent sandbox exists (`docs/agent-sandbox-plan.md`, a proposal), so nothing an agent starts ever runs as you.
+- **It ends** at its hour, on the kill switch, with **Lock now** (on the client's row in Settings → Remote, or the phone page's lock button), or when the client is removed. It is never renewed by itself; the agent has to ask again.
+- **When it ends**, Remote activity gets one line: the lease's length, why it ended, the command kinds and counts, the runbook names and the number of sessions. PRs aren't tracked yet (no sandbox).
+- **`run-status`** shows, for a paused run, its approval link and match code (the "doorbell"), so the agent can forward a runbook step's request too. It never approves anything.
+
 The agent only asks; this PC decides. Every task is still checked here (signature, expiry, replay, the client's commands, rate limits), runbooks still need their own remote level, and a `phone` step still waits for your phone: an agent can't approve.
 
 **Remove** in Cloud clients refuses that client's tasks at once; run `relay-tokens` again so the relay stops taking its token as well. The other clients keep working.

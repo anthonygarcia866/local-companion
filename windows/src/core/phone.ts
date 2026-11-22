@@ -22,6 +22,8 @@ export interface PhoneSettings {
   quietHours: boolean;
   quietFrom: string;
   quietTo: string;
+  /** Remote approval and lease requests (Face ID links) by Pushover. */
+  remoteApprovals?: boolean;
 }
 
 export const DEFAULT_PHONE: PhoneSettings = {

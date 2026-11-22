@@ -60,6 +60,7 @@ pub mod approve;
 pub mod command;
 pub mod courier;
 pub mod exec;
+pub mod lease;
 pub mod runs;
 pub mod seal;
 pub mod wake;
@@ -109,7 +110,10 @@ pub const COMMANDS: &[&str] = &["session-status", "run-status", "transcript-tail
 /// What a new cloud client may send until the owner ticks more (owner 2026-11-21).
 pub const DEFAULT_COMMANDS: &[&str] = &["session-status", "run-status"];
 /// Commands that act in a Claude account's sessions: refused `no-account`
-/// for a client no account is mapped to (owner 2026-11-21).
+/// for a client no account is mapped to (owner 2026-11-21), and `no-sandbox`
+/// for an agent client, leased or not, until the agent sandbox exists
+/// (owner 2026-11-21, design item 1: an agent's sessions run only as the
+/// glim-agent user, never as the owner).
 pub const ACCOUNT_COMMANDS: &[&str] = &["transcript-tail", "start-session", "send-to-session"];
 
 /// Settings → Remote's "Remote tasks", as settings.json keeps it. Rust-owned
@@ -331,6 +335,9 @@ pub enum Rejection {
     NotAllowed,
     /// A session command from a client no Claude account is mapped to.
     NoAccount,
+    /// A session command from an agent client: its sessions may only run in
+    /// the agent sandbox, which doesn't exist yet.
+    NoSandbox,
 }
 
 impl Rejection {
@@ -358,6 +365,7 @@ impl Rejection {
             Rejection::NotSealed => "not-sealed",
             Rejection::NotAllowed => "not-allowed",
             Rejection::NoAccount => "no-account",
+            Rejection::NoSandbox => "no-sandbox",
         }
     }
 }
@@ -443,6 +451,9 @@ pub struct Activity {
     /// The Remote activity list only: glim.log keeps kinds and codes.
     #[serde(default)]
     pub runbook: String,
+    /// A lease's summary (owner 2026-11-21, lease::summary), "" else.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
 }
 
 /// One accepted command, for the rate limits.
@@ -531,14 +542,14 @@ impl Gate {
     /// A seal that doesn't open is noted and refused as `bad-seal` (or, as
     /// for any task, `killed` / `off` first). `mapped`: a Claude account is
     /// mapped to `client` (accounts::for_client); the app's only entry.
-    pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>, mapped: bool) -> Result<Accepted, Rejection> {
+    pub fn accept_sealed(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, enc: Option<&seal::Secret>, mapped: bool, leased: bool) -> Result<Accepted, Rejection> {
         let text = std::str::from_utf8(raw).unwrap_or("");
         if seal::version(text) != Some(2) {
-            return self.accept_as(s, client, raw, now, false, mapped);
+            return self.accept_as(s, client, raw, now, false, mapped, leased);
         }
         let opened = seal::open_task(enc, text).ok().filter(|(inner, outer)| seal::inner_times(inner).as_ref() == Some(outer));
         match opened {
-            Some((inner, _)) => self.accept_as(s, client, inner.as_bytes(), now, true, mapped),
+            Some((inner, _)) => self.accept_as(s, client, inner.as_bytes(), now, true, mapped, leased),
             None => {
                 let why = if s.killed {
                     Rejection::Killed
@@ -548,7 +559,7 @@ impl Gate {
                     Rejection::BadSeal
                 };
                 let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
-                self.note(Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: String::new(), client: named, runbook: String::new() });
+                self.note(Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: String::new(), client: named, runbook: String::new(), summary: String::new() });
                 self.save();
                 Err(why)
             }
@@ -560,27 +571,33 @@ impl Gate {
     /// `client` (tests only; the app goes through `accept_sealed`).
     #[cfg(test)]
     pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
-        self.accept_as(s, client, raw, now, false, true)
+        self.accept_as(s, client, raw, now, false, true, false)
     }
 
     /// `accept_from` for a client with (`mapped`) or without a Claude account.
     #[cfg(test)]
     pub fn accept_mapped(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, mapped: bool) -> Result<Accepted, Rejection> {
-        self.accept_as(s, client, raw, now, false, mapped)
+        self.accept_as(s, client, raw, now, false, mapped, false)
+    }
+
+    /// `accept_from` for an agent client with (`leased`) or without a lease.
+    #[cfg(test)]
+    pub fn accept_leased(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, leased: bool) -> Result<Accepted, Rejection> {
+        self.accept_as(s, client, raw, now, false, false, leased)
     }
 
     /// `accept_from` for a task that came `sealed` (opened by accept_sealed)
     /// or not.
-    fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool) -> Result<Accepted, Rejection> {
+    fn accept_as(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool, leased: bool) -> Result<Accepted, Rejection> {
         // Forget what has expired (plus the skew) and counts over an hour old.
         self.seen.retain(|_, exp| *exp + SKEW_S >= now);
         self.recent.retain(|c| c.at > now - 3600);
         self.restarts.retain(|t| *t > now - 3600);
         let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
-        let r = self.check(s, &named, raw, now, sealed, mapped);
+        let r = self.check(s, &named, raw, now, sealed, mapped, leased);
         let entry = match &r {
-            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone(), runbook: runbook_of(&a.command) },
-            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone(), runbook: String::new() },
+            Ok(a) => Activity { at: now, ok: true, kind: a.command.kind().into(), reason: String::new(), id: a.id.clone(), client: named.clone(), runbook: runbook_of(&a.command), summary: String::new() },
+            Err((why, id)) => Activity { at: now, ok: false, kind: String::new(), reason: why.code().into(), id: id.clone().unwrap_or_default(), client: named.clone(), runbook: String::new(), summary: String::new() },
         };
         self.note(entry);
         // A verified task's id gets exactly one outcome (review 2026-11-17):
@@ -604,7 +621,7 @@ impl Gate {
 
     /// The checks. The id comes back with a rejection only once the
     /// signature verified.
-    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool) -> Result<Accepted, (Rejection, Option<String>)> {
+    fn check(&self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, sealed: bool, mapped: bool, leased: bool) -> Result<Accepted, (Rejection, Option<String>)> {
         if s.killed {
             return Err((Rejection::Killed, None));
         }
@@ -673,11 +690,24 @@ impl Gate {
         let command = command::parse(&p.cmd, &p.args).map_err(|e| (e, id.clone()))?;
         // Per-client commands (owner 2026-11-21): signed, so the id is burned
         // and the refusal is signed and listed like any other.
-        if !mine.allows(command.kind()) {
+        // Leases (owner 2026-11-21, lease.rs): only an agent client may ask
+        // for one; an agent client holding one may send all seven commands,
+        // one without may send only its ticked ones. Other clients: their
+        // ticked commands, as before.
+        if matches!(command, Command::LeaseRequest { .. }) {
+            if !mine.agent {
+                return Err((Rejection::NotAllowed, id));
+            }
+        } else if !(mine.agent && leased) && !mine.allows(command.kind()) {
             return Err((Rejection::NotAllowed, id));
         }
-        if ACCOUNT_COMMANDS.contains(&command.kind()) && !mapped {
-            return Err((Rejection::NoAccount, id));
+        if ACCOUNT_COMMANDS.contains(&command.kind()) {
+            if mine.agent {
+                return Err((Rejection::NoSandbox, id));
+            }
+            if !mapped {
+                return Err((Rejection::NoAccount, id));
+            }
         }
         if matches!(command, Command::StartSession { .. } | Command::SendToSession { .. }) && p.exp - p.iat > MAX_LIVE_LIFETIME_S {
             return Err((Rejection::TooLong, id));
@@ -705,10 +735,18 @@ impl Gate {
         Ok(Accepted { id: p.id, expires: p.exp, iat: p.iat, command, client: client.to_string(), rk })
     }
 
+    /// A lease event (granted / ended) in the list: the client and a fixed
+    /// summary (lease::summary: kinds, counts, runbook names).
+    pub fn note_lease(&mut self, client: &str, kind: &str, summary: &str, now: i64) {
+        let named = parse_client_name(client).ok().filter(|n| n == client).unwrap_or_default();
+        self.note(Activity { at: now, ok: true, kind: kind.into(), reason: String::new(), id: String::new(), client: named, runbook: String::new(), summary: summary.into() });
+        self.save();
+    }
+
     /// The kill switch was used: noted in the list (it refuses on its own,
     /// through the settings).
     pub fn note_kill(&mut self, now: i64, killed: bool) {
-        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new(), client: String::new(), runbook: String::new() });
+        self.note(Activity { at: now, ok: !killed, kind: if killed { "kill-switch".into() } else { "allowed-again".into() }, reason: String::new(), id: String::new(), client: String::new(), runbook: String::new(), summary: String::new() });
         self.save();
     }
 }
@@ -719,6 +757,22 @@ fn runbook_of(c: &Command) -> String {
         Command::Runbook { name } => name.clone(),
         _ => String::new(),
     }
+}
+
+/// Leases past their end: each ends `expired`, its summary in Remote activity
+/// and its lock slot voided at the relay.
+pub fn lease_sweep(now: i64) {
+    for l in lease::with(|x| x.sweep(now)) {
+        lease_ended(&l, lease::Ended::Expired, now);
+    }
+}
+
+/// A lease ended (any way): noted with its summary; its lock slot voided.
+pub fn lease_ended(l: &lease::Lease, why: lease::Ended, now: i64) {
+    if !l.lock.is_empty() {
+        courier::send_frame(serde_json::json!({ "t": "approval-void", "id": l.lock }).to_string());
+    }
+    with(|g| g.note_lease(&l.client, "lease-ended", &lease::summary(l, why), now));
 }
 
 /// The process's gate, loaded on first use.

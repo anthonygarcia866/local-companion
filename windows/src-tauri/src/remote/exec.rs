@@ -647,6 +647,7 @@ impl Exec for RealExec {
                 }
                 runbook_answer(&run)
             }
+            Command::LeaseRequest { hours } => ask_lease(client, *hours),
             Command::RunStatus { run } => {
                 let mine = super::runs::with(|r| r.for_client(client, run.as_deref(), super::now_s()));
                 if mine.is_empty() {
@@ -719,10 +720,89 @@ pub fn ask_phone(run: &super::runs::Run) {
     let host = s.relay.trim_start_matches("https://").trim_end_matches('/').to_string();
     let (Some(rid), Some(code)) = (approve::new_slot_id(), approve::new_match_code()) else { return };
     let Some(req) = approve::request(&rid, &code, run, &approvers, &host) else { return };
-    super::runs::with(|r| r.set_approval(&run.id, &rid, &code));
+    super::runs::with(|r| r.set_approval(&run.id, &rid, &code, &req.url));
     (h.send)(req.frame);
     (h.phone)(req.text, req.url);
     crate::log::line("remote: phone approval requested");
+}
+
+/// The enrolled approvers with their sealing keys, and the relay's host.
+fn approvers_and_host(s: &super::RemoteSettings) -> (Vec<(super::approve::Approver, [u8; 32])>, String) {
+    let keys = super::approve::read_keys(&super::approve::keys_vault());
+    let approvers = s
+        .approvers
+        .iter()
+        .filter_map(|a| keys.get(&a.id).and_then(|k| super::seal::from_hex(k)).and_then(|k| <[u8; 32]>::try_from(k).ok()).map(|k| (a.clone(), k)))
+        .collect();
+    (approvers, s.relay.trim_start_matches("https://").trim_end_matches('/').to_string())
+}
+
+/// `lease-request` (owner 2026-11-21, lease.rs): a request sealed to every
+/// approver, a Pushover ping (only while Settings → Phone is on), and the
+/// link and match code in the PC-signed answer, for the agent to forward.
+/// It grants nothing: only a verified Approve does (on_approval_answer).
+fn ask_lease(client: &str, hours: u32) -> Result<Ran, String> {
+    use super::{approve, lease};
+    let Some(h) = HOOKS.get() else { return Err("not-ready".into()) };
+    let s = (h.settings)();
+    let (approvers, host) = approvers_and_host(&s);
+    if approvers.is_empty() {
+        return Err("no-approver".into());
+    }
+    let now = super::now_s();
+    let (Some(rid), Some(code), Some(lock)) = (approve::new_slot_id(), approve::new_match_code(), approve::new_slot_id()) else { return Err("no-randomness".into()) };
+    let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock };
+    let req = approve::lease_request(&p, &approvers, &host).ok_or("seal-failed")?;
+    p.url = req.url.clone();
+    if let Some(old) = lease::with(|l| l.request(p.clone())) {
+        (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string());
+    }
+    (h.send)(req.frame);
+    (h.phone)(req.text, req.url.clone());
+    crate::log::line("remote: lease requested");
+    Ok(Ran {
+        detail: format!("lease request for {hours} h: forward this to the owner. Approve at {} · match code {} · lapses {}", p.url, p.code, super::runs::utc(p.expires)),
+        session: None,
+    })
+}
+
+/// An answer to a lease request or a lease's lock slot. True when `rid` was
+/// one (handled here), false to look for a paused run.
+fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings) -> bool {
+    use super::approve::{judge_lease, Verdict};
+    use super::lease;
+    // A lock slot: any answer locks (like Stop, it needs no signature).
+    if let Some(client) = lease::with(|l| l.lock_slot_client(rid)) {
+        if let Some(l) = lease::with(|x| x.end(&client)) {
+            super::lease_ended(&l, lease::Ended::LockedPhone, now);
+        }
+        crate::log::line("remote: lease locked from the phone");
+        return true;
+    }
+    let Some(p) = lease::with(|l| l.take_pending(rid, now)) else {
+        return false;
+    };
+    match judge_lease(answer, &p, &s.approvers) {
+        Verdict::Approve => {
+            if s.killed {
+                crate::log::line("remote: lease refused killed");
+                return true;
+            }
+            if let Some(old) = lease::with(|l| l.grant(&p, now)) {
+                super::lease_ended(&old, lease::Ended::Replaced, now);
+            }
+            let until = now + i64::from(p.hours) * 3600;
+            let (approvers, host) = approvers_and_host(s);
+            if let Some((frame, _)) = super::approve::lock_slot(&p.lock, &p.client, until, &approvers, &host) {
+                super::courier::send_frame(frame);
+            }
+            super::with(|g| g.note_lease(&p.client, "lease-granted", &format!("{} h lease, until {}", p.hours, super::runs::utc(until)), now));
+            crate::log::line("remote: lease granted");
+        }
+        Verdict::Stop => crate::log::line("remote: lease declined"),
+        Verdict::Refused(code) => crate::log::line(format!("remote: lease refused {code}")),
+    }
+    true
 }
 
 /// The approval page's answer to request `rid`, as the relay hands it over.
@@ -747,6 +827,9 @@ pub fn on_approval_answer(rid: &str, answer: &str, now: i64) {
     let s = (h.settings)();
     if s.killed {
         crate::log::line("remote: phone approval refused killed");
+        return;
+    }
+    if on_lease_answer(rid, answer, now, &s) {
         return;
     }
     let Some(run) = super::runs::with(|r| r.take_approval(rid, now)) else {

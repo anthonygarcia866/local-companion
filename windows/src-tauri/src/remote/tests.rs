@@ -795,3 +795,57 @@ fn an_agent_client_goes_to_the_relay_as_its_public_key_and_has_no_token() {
     assert!(g.accept_from(&s, "muse", &envelope(&kp, &task(&id(800), "session-status", json!({}))), NOW).is_ok());
     assert_eq!(g.accept_from(&s, "muse", &envelope(&signer(1), &task(&id(801), "session-status", json!({}))), NOW), Err(Rejection::WrongClient));
 }
+
+fn agent(name: &str, kp: &Ed25519KeyPair) -> CloudClient {
+    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: String::new(), added: NOW, commands: Some(DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect()), agent: true }
+}
+
+#[test]
+fn an_agent_client_is_locked_to_its_ticked_commands_plus_lease_request_until_leased() {
+    let kp = signer(7);
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    s.add_client(agent("muse", &kp)).unwrap();
+    let mut g = Gate::default();
+    let mut n = 0;
+    let mut send = |g: &mut Gate, cmd: &str, args: Value, leased: bool| {
+        n += 1;
+        g.accept_leased(&s, "muse", &envelope(&kp, &task(&id(1000 + n), cmd, args)), NOW, leased)
+    };
+    // Locked: its ticked ones and lease-request.
+    assert!(send(&mut g, "session-status", json!({}), false).is_ok());
+    assert!(send(&mut g, "run-status", json!({}), false).is_ok());
+    assert!(send(&mut g, "lease-request", json!({ "hours": 4 }), false).is_ok());
+    assert_eq!(send(&mut g, "runbook", json!({ "name": "phone-test" }), false), Err(Rejection::NotAllowed));
+    assert_eq!(send(&mut g, "keepalive-restart", json!({}), false), Err(Rejection::NotAllowed));
+    // Leased: all seven, but sessions only in the sandbox (none yet).
+    assert!(send(&mut g, "runbook", json!({ "name": "phone-test" }), true).is_ok());
+    assert!(send(&mut g, "keepalive-restart", json!({}), true).is_ok());
+    for (cmd, args) in [("transcript-tail", json!({ "repo": "local-companion" })), ("start-session", json!({ "repo": "local-companion" })), ("send-to-session", json!({ "repo": "local-companion", "session": SESSION, "text": "hi" }))] {
+        assert_eq!(send(&mut g, cmd, args.clone(), true), Err(Rejection::NoSandbox), "{cmd} leased");
+        assert_eq!(send(&mut g, cmd, args, false), Err(Rejection::NotAllowed), "{cmd} locked");
+    }
+    assert_eq!(Rejection::NoSandbox.code(), "no-sandbox");
+}
+
+#[test]
+fn lease_request_is_for_agent_clients_only_with_one_of_the_listed_lengths() {
+    let (k1, k2) = (signer(7), signer(8));
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    s.add_client(client("account-1", &k1)).unwrap(); // a token client with every command
+    s.add_client(agent("muse", &k2)).unwrap();
+    let mut g = Gate::default();
+    assert_eq!(g.accept_leased(&s, "account-1", &envelope(&k1, &task(&id(1100), "lease-request", json!({}))), NOW, true), Err(Rejection::NotAllowed));
+    let a = g.accept_leased(&s, "muse", &envelope(&k2, &task(&id(1101), "lease-request", json!({}))), NOW, false).unwrap();
+    assert_eq!(a.command, Command::LeaseRequest { hours: 1 });
+    for bad in [json!({ "hours": 2 }), json!({ "hours": 24 }), json!({ "hours": "4" }), json!({ "hours": 4, "until": 9 })] {
+        n_bad(&mut g, &s, &k2, bad);
+    }
+    // A token client's `leased` flag (never set by the courier) changes nothing.
+    assert!(g.accept_leased(&s, "account-1", &envelope(&k1, &task(&id(1110), "start-session", json!({ "repo": "local-companion" }))), NOW, true).is_ok());
+}
+
+fn n_bad(g: &mut Gate, s: &RemoteSettings, kp: &Ed25519KeyPair, args: Value) {
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1200);
+    let i = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(g.accept_leased(s, "muse", &envelope(kp, &task(&id(i), "lease-request", args.clone())), NOW, false), Err(Rejection::BadArgs), "{args}");
+}
