@@ -1,35 +1,87 @@
 # Undoes setup.ps1. Run by the owner, ELEVATED (one UAC prompt):
 #   powershell -ExecutionPolicy Bypass -File scripts\agent-sandbox\remove.ps1 -DryRun
 #   powershell -ExecutionPolicy Bypass -File scripts\agent-sandbox\remove.ps1
-# Removes: the deny ACE on your profile, the logon-right denials, the
-# sign-in hiding value, the glim-agent user, its profile folder, C:\GlimAgent
-# and Glim/AgentUserPassword from your Credential Manager.
+#
+# Order (review 2026-11-22): first the account goes (disabled, its processes
+# stopped, deleted), then its folders are deleted without following any link
+# it may have planted (rd /s /q), and only then are the protections lifted
+# (the deny entries on your profile and the locked folders, the logon-right
+# denials), so a failure part way never leaves a live glim-agent unfenced.
+# Its SID comes from the account, else from HKCU:\Software\Glim\AgentSandbox
+# (written by setup.ps1), else -Sid, so a half-removed setup still cleans up.
 
 [CmdletBinding()]
-param([switch]$DryRun)
+param([switch]$DryRun, [string]$Sid = '')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 . (Join-Path $PSScriptRoot 'cred.ps1')
+. (Join-Path $PSScriptRoot 'targets.ps1')
 $AgentName = 'glim-agent'
+$RegKey = 'HKCU:\Software\Glim\AgentSandbox'
 function Act([string]$what, [scriptblock]$do) {
     if ($DryRun) { Write-Host ("would: " + $what) -ForegroundColor Yellow } else { Write-Host ("doing: " + $what); & $do }
 }
+
 $u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
+if ($u) { $Sid = $u.SID.Value }
+elseif (-not $Sid) {
+    $saved = Get-ItemProperty -Path $RegKey -Name Sid -ErrorAction SilentlyContinue
+    if ($saved) { $Sid = $saved.Sid }
+}
+if ($Sid -and $Sid -notmatch '^S-1-5-21-\d+-\d+-\d+-\d+$') { throw "Not a local account SID: $Sid" }
+Write-Host ("glim-agent: " + $(if ($u) { "exists ($Sid)" } elseif ($Sid) { "gone; cleaning up after SID $Sid" } else { 'gone and no SID known: only the non-SID parts are cleaned' }))
+
+# ── 1. The account ──────────────────────────────────────────────────────────
+$profilePath = $null
+if ($Sid) {
+    $prof = Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $Sid }
+    if ($prof) { $profilePath = $prof.LocalPath }
+}
 if ($u) {
+    Act "disable $AgentName" { Disable-LocalUser -Name $AgentName }
     Act "stop every $AgentName process" {
         Get-CimInstance Win32_Process | Where-Object { try { ($_ | Invoke-CimMethod -MethodName GetOwner).User -eq $AgentName } catch { $false } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     }
-    $sid = $u.SID.Value
-    Act "remove the deny ACE for $AgentName on $env:USERPROFILE" { icacls $env:USERPROFILE /remove:d $AgentName | Out-Null; if ($LASTEXITCODE -ne 0) { throw "icacls failed ($LASTEXITCODE)" } }
+    Act "delete user $AgentName" { Remove-LocalUser -Name $AgentName }
+}
+
+# ── 2. Its folders, links removed and never followed ───────────────────────
+if ($profilePath -and $profilePath -match '^C:\\Users\\[^\\]+$' -and $profilePath -notlike "$env:USERPROFILE*") {
+    if (Test-Path -LiteralPath $profilePath) {
+        Act "delete its profile folder $profilePath (rd /s /q)" {
+            cmd /c rd /s /q "$profilePath"
+            if (Test-Path -LiteralPath $profilePath) { Write-Warning "  $profilePath is still there (a file in use?): run remove.ps1 again after a restart" }
+        }
+    }
+    Act 'remove its profile entry' { Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $Sid } | ForEach-Object { try { $_ | Remove-CimInstance } catch { Write-Warning "  profile entry: $($_.Exception.Message)" } } }
+}
+if (Test-Path 'C:\GlimAgent') {
+    Act 'delete C:\GlimAgent (rd /s /q)' { cmd /c rd /s /q 'C:\GlimAgent'; if (Test-Path 'C:\GlimAgent') { throw 'C:\GlimAgent is still there' } }
+}
+
+# ── 3. Lift the protections ─────────────────────────────────────────────────
+if ($Sid) {
+    $fenced = @($env:USERPROFILE) + @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE | ForEach-Object { $_.Path }) + @($GlimNamed | Where-Object { Test-Path -LiteralPath $_ })
+    foreach ($p in ($fenced | Sort-Object -Unique)) {
+        $has = [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
+        if ($has) {
+            Act "remove its deny entry on $p" {
+                icacls $p /remove:d "*$Sid" /C | Out-Null
+                if ($LASTEXITCODE -ne 0) { Write-Warning "  icacls $p exit $LASTEXITCODE" }
+            }
+        }
+    }
     Act 'remove its logon-right denials' {
         $tmp = Join-Path $env:TEMP ('glim-secedit-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $tmp | Out-Null
         try {
             secedit /export /cfg "$tmp\cur.inf" /areas USER_RIGHTS /quiet | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "secedit export failed ($LASTEXITCODE)" }
             $set = foreach ($right in 'SeDenyRemoteInteractiveLogonRight', 'SeDenyNetworkLogonRight') {
                 $line = Get-Content "$tmp\cur.inf" | Where-Object { $_ -match "^$right\s*=" }
                 if ($line) {
-                    $keep = @((($line -split '=', 2)[1].Trim() -split ',') | Where-Object { $_.Trim() -and $_.Trim() -ne "*$sid" })
-                    "$right = " + ($keep -join ',')
+                    $all = @((($line -split '=', 2)[1].Trim() -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                    $keep = @($all | Where-Object { $_ -ne "*$Sid" -and $_ -ne $AgentName -and $_ -ne "$env:COMPUTERNAME\$AgentName" })
+                    if ($keep.Count -ne $all.Count) { "$right = " + ($keep -join ',') }
                 }
             }
             if ($set) {
@@ -39,14 +91,8 @@ if ($u) {
             }
         } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
     }
-    $prof = (Get-CimInstance Win32_UserProfile | Where-Object { $_.SID -eq $sid })
-    if ($prof) { Act "remove its profile $($prof.LocalPath)" { $prof | Remove-CimInstance } }
-    Act "remove user $AgentName" { Remove-LocalUser -Name $AgentName }
 }
 Act 'remove the sign-in hiding value' { Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList' -Name $AgentName -ErrorAction SilentlyContinue }
-# After the user is gone (nothing of it runs). rd /s /q removes a junction or
-# symlink glim-agent may have planted as the link itself, never following it
-# (Remove-Item -Recurse in Windows PowerShell 5.1 can follow one).
-if (Test-Path 'C:\GlimAgent') { Act 'remove C:\GlimAgent (links removed, never followed)' { cmd /c rd /s /q 'C:\GlimAgent'; if (Test-Path 'C:\GlimAgent') { throw 'C:\GlimAgent is still there' } } }
 if (Test-GlimCredential 'Glim/AgentUserPassword') { Act 'remove Glim/AgentUserPassword from your Credential Manager' { Remove-GlimCredential 'Glim/AgentUserPassword' } }
+if (Test-Path $RegKey) { Act "remove $RegKey" { Remove-Item -Path $RegKey -Recurse -Force } }
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }

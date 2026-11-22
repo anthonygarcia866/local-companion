@@ -1,94 +1,128 @@
 # Agent sandbox check (docs/agent-sandbox-plan.md §2): proves what glim-agent
-# can't reach, by trying it AS glim-agent. Run by the owner, NOT elevated:
+# can't reach. Run by the owner, NOT elevated:
 #   powershell -ExecutionPolicy Bypass -File scripts\agent-sandbox\check.ps1
 #
-# It reads glim-agent's password from YOUR Credential Manager
-# (Glim/AgentUserPassword, written by setup.ps1), starts probe.ps1 as
-# glim-agent (Windows' secondary logon, its own profile and environment), and
-# reports PASS/FAIL per check. Nothing is changed. The probe never sits on
-# disk where glim-agent can write (it goes in as -EncodedCommand) and its
-# answer comes back on stdout into YOUR temp folder, which glim-agent can't
-# open; any glim-agent process still running is stopped first so nothing of
-# its can race the check.
+# Every PASS/FAIL is computed on YOUR side, from glim-agent's SID and each
+# object's own permissions, with Windows' AuthZ access check (authz.ps1).
+# Nothing runs as glim-agent for these, so nothing glim-agent left in its own
+# profile (a profiler DLL, a planted module, a running process) can change
+# the answer (review 2026-11-22: an earlier probe that ran as glim-agent
+# could be made to lie). The one thing run as glim-agent is `whoami`, to show
+# its logon works; that line is information only and never counts as a PASS.
+#
+# It FAILS unless:
+#   - glim-agent is in no local group but Users;
+#   - it can't read your profile, your gh / wrangler / Claude / Claude2 / Glim
+#     folders, the login files in them, or G:\;
+#   - it can't write or delete in your profile, any PATH folder (system or
+#     yours), or any folder setup.ps1 locks (targets.ps1), nor in the
+#     immediate subfolders of a locked tree;
+#   - none of CLOUDFLARE_API_TOKEN, SUPABASE_ACCESS_TOKEN, ANTHROPIC_API_KEY,
+#     GH_TOKEN, GITHUB_TOKEN is set machine-wide (every user would get it);
+#   - it CAN write C:\GlimAgent\work.
+# Nothing is changed.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 . (Join-Path $PSScriptRoot 'cred.ps1')
+. (Join-Path $PSScriptRoot 'authz.ps1')
+. (Join-Path $PSScriptRoot 'targets.ps1')
 
 $AgentName = 'glim-agent'
-$plain = Read-GlimCredential 'Glim/AgentUserPassword'
-if (-not $plain) { throw 'Glim/AgentUserPassword is not in your Credential Manager: run setup.ps1 first.' }
-$cred = New-Object Management.Automation.PSCredential (".\$AgentName", (ConvertTo-SecureString $plain -AsPlainText -Force))
-$plain = $null
-
-# What must fail (owner's logins and vault-adjacent folders; Google Drive if mounted).
-$mustFail = @(
-    $env:USERPROFILE,
-    (Join-Path $env:USERPROFILE '.config\gh'),
-    (Join-Path $env:APPDATA 'xdg.config\.wrangler'),
-    (Join-Path $env:APPDATA 'GitHub CLI'),
-    (Join-Path $env:USERPROFILE '.claude'),
-    (Join-Path $env:USERPROFILE '.claude2'),
-    (Join-Path $env:LOCALAPPDATA 'Glim'),
-    (Join-Path $env:APPDATA 'Glim'),
-    # The login files themselves, opened directly (a file whose inheritance is
-    # off could miss the profile's deny and still open by full path).
-    (Join-Path $env:APPDATA 'GitHub CLI\hosts.yml'),
-    (Join-Path $env:USERPROFILE '.config\gh\hosts.yml'),
-    (Join-Path $env:APPDATA 'xdg.config\.wrangler\config\default.toml'),
-    (Join-Path $env:USERPROFILE '.claude\.credentials.json'),
-    (Join-Path $env:USERPROFILE '.claude2\.credentials.json'),
-    (Join-Path $env:USERPROFILE '.claude.json')
-)
-if (Test-Path 'G:\') { $mustFail += 'G:\' }
-$envMustBeAbsent = 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN'
-
-# Nothing of glim-agent's may be running while it is checked.
-Get-CimInstance Win32_Process | Where-Object { try { ($_ | Invoke-CimMethod -MethodName GetOwner).User -eq $AgentName } catch { $false } } | ForEach-Object {
-    Write-Host "Stopping glim-agent process $($_.Name) ($($_.ProcessId))"
-    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-}
-
-$q = { param($s) "'" + ($s -replace "'", "''") + "'" }
-$probe = Get-Content -Raw (Join-Path $PSScriptRoot 'probe.ps1')
-$cmd = '& {' + "`n" + $probe + "`n" + '} -MustFail ' + (& $q ($mustFail -join '|')) + ' -EnvMustBeAbsent ' + (& $q ($envMustBeAbsent -join '|'))
-$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
-$out = Join-Path $env:TEMP ('glim-probe-' + [guid]::NewGuid().ToString('N') + '.txt')
-$err = "$out.err"
-$ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-try {
-    $p = Start-Process -FilePath $ps -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) -Credential $cred -LoadUserProfile -WorkingDirectory 'C:\GlimAgent\work' -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
-    $text = if (Test-Path $out) { Get-Content $out -Raw } else { '' }
-} finally { Remove-Item $out, $err -Force -ErrorAction SilentlyContinue }
-$m = [regex]::Match([string]$text, 'GLIM-PROBE-BEGIN\s*(\{.*\})\s*GLIM-PROBE-END', 'Singleline')
-if (-not $m.Success) { throw "The probe gave no result (exit $($p.ExitCode))." }
-$r = $m.Groups[1].Value | ConvertFrom-Json
-# Nothing may pass by being left out.
-if (@($r.paths.PSObject.Properties).Count -ne @($mustFail | Sort-Object -Unique).Count) { throw 'The probe checked a different number of paths than asked: not trusted.' }
-if (@($r.env.PSObject.Properties).Count -ne $envMustBeAbsent.Count) { throw 'The probe checked a different number of variables than asked: not trusted.' }
+$u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
+if (-not $u) { throw "$AgentName doesn't exist: run setup.ps1 first." }
+$sid = $u.SID.Value
 
 $fail = 0
+$checked = 0
 function Report([bool]$ok, [string]$what) {
+    $script:checked++
     if ($ok) { Write-Host "PASS  $what" -ForegroundColor Green } else { Write-Host "FAIL  $what" -ForegroundColor Red; $script:fail++ }
 }
-Report ($r.whoami -match "\\$AgentName$") "runs as $AgentName ($($r.whoami))"
-foreach ($prop in $r.paths.PSObject.Properties) { Report ($prop.Value -ne 'readable') "can't read $($prop.Name) ($($prop.Value))" }
-foreach ($prop in $r.env.PSObject.Properties) { Report ($prop.Value -eq 'absent') "no $($prop.Name) in its environment" }
-Report (@($r.glimCredentials | Where-Object { $_ }).Count -eq 0) "its Credential Manager has no Glim/ entries"
-# Groups: Everyone, Users, INTERACTIVE, CONSOLE LOGON, LOCAL, Authenticated
-# Users, This Organization, Local account, its logon session, NTLM, medium
-# integrity and the machine's own domain users only. Anything else
-# (Administrators, Backup Operators ...) fails.
-$okGroups = '^(S-1-1-0|S-1-5-32-545|S-1-5-4|S-1-2-1|S-1-2-0|S-1-5-11|S-1-5-15|S-1-5-113|S-1-5-5-.*|S-1-5-64-10|S-1-16-8192|S-1-5-21-.*-513)$'
-$odd = @($r.groups | Where-Object { $_ -notmatch $okGroups })
-Report ($odd.Count -eq 0) ("no groups beyond Users and the standard logon ones" + $(if ($odd) { ': ' + ($odd -join ', ') } else { '' }))
-$badPriv = @($r.privileges | Where-Object { $_ -in 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeImpersonatePrivilege', 'SeLoadDriverPrivilege', 'SeTcbPrivilege', 'SeSecurityPrivilege', 'SeManageVolumePrivilege' })
-Report ($badPriv.Count -eq 0) ("no powerful privileges" + $(if ($badPriv) { ': ' + ($badPriv -join ', ') } else { '' }))
-Report ($r.workWritable -eq 'yes') "can write C:\GlimAgent\work"
+function Access([string]$p) {
+    try { return Get-GlimAccess $sid $p } catch { return $null }
+}
+
+# ── Groups (from the account database, not from a token it controls) ───────
+$adsiUser = [ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user"
+$groupSids = @(foreach ($g in @($adsiUser.Groups())) {
+    (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value
+})
+Report ($groupSids -contains 'S-1-5-32-545') 'is a member of Users'
+$other = @($groupSids | Where-Object { $_ -ne 'S-1-5-32-545' })
+Report ($other.Count -eq 0) ('is in no other local group' + $(if ($other) { ': ' + ($other -join ', ') } else { '' }))
+
+# ── Must not read ────────────────────────────────────────────────────────────
+$mustNotRead = @(
+    $env:USERPROFILE,
+    (Join-Path $env:USERPROFILE '.config\gh'),
+    (Join-Path $env:USERPROFILE '.config\gh\hosts.yml'),
+    (Join-Path $env:APPDATA 'GitHub CLI'),
+    (Join-Path $env:APPDATA 'GitHub CLI\hosts.yml'),
+    (Join-Path $env:APPDATA 'xdg.config\.wrangler'),
+    (Join-Path $env:APPDATA 'xdg.config\.wrangler\config\default.toml'),
+    (Join-Path $env:USERPROFILE '.claude'),
+    (Join-Path $env:USERPROFILE '.claude\.credentials.json'),
+    (Join-Path $env:USERPROFILE '.claude2'),
+    (Join-Path $env:USERPROFILE '.claude2\.credentials.json'),
+    (Join-Path $env:USERPROFILE '.claude.json'),
+    (Join-Path $env:LOCALAPPDATA 'Glim'),
+    (Join-Path $env:APPDATA 'Glim')
+)
+if (Test-Path 'G:\') { $mustNotRead += 'G:\' }
+foreach ($p in $mustNotRead) {
+    if (-not (Test-Path -LiteralPath $p)) { Write-Host "n/a   $p (not on this PC)" -ForegroundColor DarkGray; continue }
+    $m = Access $p
+    if ($null -eq $m) { Report $false "can't read $p (its permissions couldn't be read: not verified)"; continue }
+    Report (($m -band $GlimRead) -eq 0) "can't read $p"
+}
+
+# ── Must not write ───────────────────────────────────────────────────────────
+$mustNotWrite = [ordered]@{}
+$mustNotWrite[$env:USERPROFILE.ToLowerInvariant()] = $env:USERPROFILE
+foreach ($p in (Get-GlimPathFolders)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
+$targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
+foreach ($t in $targets) {
+    $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
+    if ($t.Scope -eq 'tree') {
+        foreach ($c in (Get-ChildItem -LiteralPath $t.Path -Directory -Force -ErrorAction SilentlyContinue)) { $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName }
+    }
+}
+# The named folders must be on the list even if they're no longer writable by all.
+foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n) { $mustNotWrite[$n.ToLowerInvariant()] = $n } }
+foreach ($p in $mustNotWrite.Values) {
+    if ($p -like 'C:\GlimAgent*') { continue }
+    $m = Access $p
+    if ($null -eq $m) { Report $false "can't write $p (its permissions couldn't be read: not verified)"; continue }
+    $w = $m -band $GlimWrite
+    Report ($w -eq 0) ("can't write or delete in $p" + $(if ($w) { ' (has 0x{0:X})' -f $w } else { '' }))
+}
+
+# ── Its own environment can't hold your tokens machine-wide ─────────────────
+foreach ($v in 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN') {
+    Report (-not [Environment]::GetEnvironmentVariable($v, 'Machine')) "$v is not set machine-wide"
+}
+
+# ── Its work folder ──────────────────────────────────────────────────────────
+$wm = Access 'C:\GlimAgent\work'
+Report ($null -ne $wm -and ($wm -band 0x6) -eq 0x6) 'can write C:\GlimAgent\work'
+
+# ── Information only: its logon works ───────────────────────────────────────
+$plain = Read-GlimCredential 'Glim/AgentUserPassword'
+if ($plain) {
+    $cred = New-Object Management.Automation.PSCredential (".\$AgentName", (ConvertTo-SecureString $plain -AsPlainText -Force))
+    $plain = $null
+    $out = Join-Path $env:TEMP ('glim-whoami-' + [guid]::NewGuid().ToString('N') + '.txt')
+    try {
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\whoami.exe') -Credential $cred -WorkingDirectory 'C:\GlimAgent\work' -WindowStyle Hidden -RedirectStandardOutput $out -Wait
+        $who = if (Test-Path $out) { (Get-Content $out -Raw).Trim() } else { '' }
+        Write-Host "info  logon as $AgentName works: $who" -ForegroundColor DarkGray
+    } catch { Write-Host "info  logon as $AgentName failed: $($_.Exception.Message)" -ForegroundColor Yellow }
+    finally { Remove-Item $out -Force -ErrorAction SilentlyContinue }
+} else { Write-Host "info  Glim/AgentUserPassword is not in your Credential Manager" -ForegroundColor Yellow }
+
 Write-Host ''
-Write-Host 'Drive roots it can list (info: C:\ is normal; review any other):'
-foreach ($prop in $r.drives.PSObject.Properties) { Write-Host "  $($prop.Name)  $($prop.Value)" }
-Write-Host ''
-if ($fail -eq 0) { Write-Host 'All checks passed.' -ForegroundColor Green; exit 0 }
-Write-Host "$fail check(s) failed: sandbox sessions must stay off." -ForegroundColor Red
+if ($checked -lt 10) { Write-Host "Only $checked checks ran: not trusted." -ForegroundColor Red; exit 1 }
+if ($fail -eq 0) { Write-Host "All $checked checks passed." -ForegroundColor Green; exit 0 }
+Write-Host "$fail of $checked check(s) failed: sandbox sessions must stay off." -ForegroundColor Red
 exit 1

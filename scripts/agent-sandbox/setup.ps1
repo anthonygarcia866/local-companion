@@ -15,8 +15,12 @@
 #   4. Creates C:\GlimAgent\work: only SYSTEM, Administrators, the owner
 #      (full) and glim-agent (modify).
 #   5. Adds a deny ACE for glim-agent on the owner's profile folder.
-#   6. Lists folders on fixed drives (two levels down) where Users,
-#      Authenticated Users or Everyone can write, for the owner to review.
+#   6. Denies glim-agent (only) write + delete on every folder in
+#      targets.ps1's list: C:\tests, C:\glimtest, C:\c, C:\Drivers, every
+#      top-level folder on a fixed/removable drive and every PATH folder
+#      outside your profile that all users can write, and each drive root
+#      (that folder only). The dry run prints the exact list. Your access
+#      and other users' don't change.
 #
 # Safe to run again: an existing glim-agent keeps its password (use
 # -RotatePassword to make a new one), and each step checks before it acts.
@@ -37,6 +41,7 @@ $Work = Join-Path $Root 'work'
 $CredTarget = 'Glim/AgentUserPassword'
 
 . (Join-Path $PSScriptRoot 'cred.ps1')
+. (Join-Path $PSScriptRoot 'targets.ps1')
 
 function Step([string]$what) { Write-Host ("- " + $what) }
 function Act([string]$what, [scriptblock]$do) {
@@ -134,7 +139,7 @@ else {
         foreach ($right in 'SeDenyRemoteInteractiveLogonRight', 'SeDenyNetworkLogonRight') {
             $line = $lines | Where-Object { $_ -match "^$right\s*=" }
             $held = if ($line) { @((($line -split '=', 2)[1]) -split ',' | ForEach-Object { $_.Trim() }) } else { @() }
-            if ($held -notcontains "*$agentSid") {
+            if ($held -notcontains "*$agentSid" -and $held -notcontains $AgentName -and $held -notcontains "$env:COMPUTERNAME\$AgentName") {
                 $existing = if ($line) { ($line -split '=', 2)[1].Trim() } else { '' }
                 $value = if ($existing) { "$existing,*$agentSid" } else { "*$agentSid" }
                 $need += "$right = $value"
@@ -163,43 +168,56 @@ Act "create $Work and set its ACL" {
 Step "5. Deny $AgentName on $OwnerProfile"
 $hasDeny = $false
 if ($agentSid) {
-    $hasDeny = [bool]((Get-Acl $OwnerProfile).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid })
+    $hasDeny = [bool]((Get-Acl $OwnerProfile).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) })
 }
 if ($hasDeny) { Write-Host '  already denied' }
 else {
     Act "icacls $OwnerProfile /deny ${AgentName}:(OI)(CI)F" {
         # icacls puts the deny on the folder and propagates it to every child
         # that inherits (it can take a while on a big profile). A file or
-        # folder with inheritance turned off doesn't get it: check.ps1 tries
-        # to open the actual login files to catch that.
+        # folder with inheritance turned off doesn't get it: check.ps1 computes
+        # glim-agent's access to the actual login files to catch that.
         icacls $OwnerProfile /deny "${AgentName}:(OI)(CI)F" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "icacls $OwnerProfile failed ($LASTEXITCODE)" }
     }
 }
 
-# ── 6. Writable by everyone: for you to review ──────────────────────────────
-Step '6. Folders (2 levels) on fixed drives that Users / Authenticated Users / Everyone can write'
-$broad = 'S-1-5-32-545', 'S-1-5-11', 'S-1-1-0'
-# Write-only bits (Modify/FullControl include read bits, so they can't be the
-# mask): create files, create folders, delete, change permissions, take
-# ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.
-$writeBits = [int64](2 -bor 4 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
-$drives = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { $_.DeviceID + '\' }
-$found = foreach ($d in $drives) {
-    $dirs = @(Get-Item -LiteralPath $d) + @(Get-ChildItem -LiteralPath $d -Directory -Force -ErrorAction SilentlyContinue)
-    $dirs += $dirs | Where-Object { $_.FullName -ne $d -and $_.FullName -notlike "$OwnerProfile*" } | ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -Directory -Force -ErrorAction SilentlyContinue }
-    foreach ($dir in $dirs) {
-        try { $acl = Get-Acl -LiteralPath $dir.FullName } catch { continue }
-        foreach ($a in $acl.Access) {
-            if ($a.AccessControlType -ne 'Allow') { continue }
-            try { $sid = $a.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
-            if ($broad -contains $sid -and (([int64]$a.FileSystemRights) -band $writeBits)) { $dir.FullName; break }
-        }
+# ── 6. Lock what everyone can write (owner 2026-11-22) ──────────────────────
+Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
+$targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
+foreach ($t in $targets) {
+    $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }
+    $done = $false
+    if ($agentSid) {
+        $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
+            $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
+            $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
+            ((([int64]$_.FileSystemRights) -band 0x10056) -eq 0x10056) -and
+            ($t.Scope -ne 'tree' -or ($_.InheritanceFlags -band [Security.AccessControl.InheritanceFlags]::ContainerInherit))
+        })
+    }
+    $label = "{0}  [{1}]  ({2})" -f $t.Path, $t.Scope, $t.Why
+    if ($done) { Write-Host "  already locked: $label"; continue }
+    Act "lock $label" {
+        # /C: keep going past a file it can't change; the count is reported.
+        $outText = icacls $t.Path /deny "${AgentName}:$flags$GlimDenyRights" /C 2>&1 | Out-String
+        $bad = ([regex]::Matches($outText, 'Failed processing (\d+) files')).Groups | Select-Object -Last 1
+        if ($LASTEXITCODE -ne 0 -and -not $bad) { throw "icacls $($t.Path) failed ($LASTEXITCODE)" }
+        if ($bad -and [int]$bad.Value -gt 0) { Write-Warning "  $($bad.Value) item(s) under $($t.Path) couldn't be changed (check.ps1 tests the folder itself)" }
     }
 }
-$found = $found | Sort-Object -Unique
-if ($found) { $found | ForEach-Object { Write-Host "  $_" } } else { Write-Host '  none' }
+if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
+
+# glim-agent's SID, kept in YOUR registry (only you can write it), so
+# remove.ps1 can clean up even after the user is gone.
+if ($agentSid) {
+    Act "remember $AgentName's SID in HKCU:\Software\Glim\AgentSandbox" {
+        $k = 'HKCU:\Software\Glim\AgentSandbox'
+        if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
+        New-ItemProperty -Path $k -Name Sid -Value $agentSid -PropertyType String -Force | Out-Null
+    }
+}
+
 Write-Host ''
-Write-Host 'Normal ones: C:\Users\Public, C:\ProgramData (and some of its children), C:\Windows\Temp-like folders. Tell Claude about any others you did not expect.'
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }
 else { Write-Host 'Done. Next: scripts\agent-sandbox\check.ps1 (no UAC needed).' -ForegroundColor Green }
