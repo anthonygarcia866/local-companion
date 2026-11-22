@@ -85,6 +85,13 @@ export function cloudClients(env) {
   return list;
 }
 
+/** CLOUD_CLIENTS names at least one token-less agent client ("name=key:<hex>";
+ * agentauth.js keyClients has the full rules). */
+function hasAgentEntry(env) {
+  if (env.CLOUD_CLIENTS === undefined || env.CLOUD_CLIENTS === null) return false;
+  return String(env.CLOUD_CLIENTS).split(",").some((p) => /^[a-z0-9][a-z0-9-]{0,31}=key:[0-9a-f]{64}$/.test(p.trim()));
+}
+
 /** Lower-case hex SHA-256 of a string. */
 export async function sha256Hex(text) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -103,14 +110,16 @@ export function sameHex(a, b) {
  * Who is asking: { role: "pc" }, { role: "cloud", client: "<name>" } or
  * null. The PC has one token, each cloud client its own; the Worker holds
  * only their hashes (PC_TOKEN_SHA256; CLOUD_CLIENTS / CLOUD_TOKEN_SHA256,
- * cloudClients). No PC hash, or no cloud client, refuses everyone.
+ * cloudClients). No PC hash, or no cloud client at all (token or agent
+ * key: review 2026-11-21, a relay with only agent clients must still let
+ * the PC in), refuses everyone.
  */
 export async function caller(authorization, env) {
   const m = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(authorization || "");
   if (!m) return null;
   const pc = hex64(env.PC_TOKEN_SHA256);
   const clients = cloudClients(env);
-  if (!pc || clients.size === 0) return null;
+  if (!pc || (clients.size === 0 && !hasAgentEntry(env))) return null;
   const h = await sha256Hex(m[1]);
   if (sameHex(h, pc)) return { role: "pc" };
   // Every entry is compared (no early exit on a match).
@@ -297,6 +306,18 @@ export class Relay {
     if (cur === null || ms > cur) this.store.setSeenMs(Math.floor(ms));
   }
 
+  /**
+   * A signed agent request's nonce (agentauth.js): true the first time a
+   * client uses it within the window, false for a replay. Old ones go first.
+   */
+  useNonce(client, nonce, now, keepS) {
+    this.store.deleteNonces(now);
+    const key = `${client}:${nonce}`;
+    if (this.store.hasNonce(key)) return false;
+    this.store.putNonce(key, now + keepS);
+    return true;
+  }
+
   /** When the alarm should next clear expired rows (ms), or null. */
   nextPurgeMs() {
     const e = this.store.earliestExp();
@@ -355,4 +376,8 @@ export class MemoryStore {
   /** When the PC was last seen (ms), or null. */
   seenMs() { return this.seen === undefined ? null : this.seen; }
   setSeenMs(ms) { this.seen = ms; }
+  /** Agent request nonces: key -> expiry (Unix s). */
+  hasNonce(key) { return (this.n || new Map()).has(key); }
+  putNonce(key, exp) { (this.n ||= new Map()).set(key, exp); }
+  deleteNonces(now) { for (const [k, exp] of this.n || []) if (exp < now) this.n.delete(k); }
 }

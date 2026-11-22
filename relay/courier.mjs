@@ -5,9 +5,10 @@
 //   node relay/courier.mjs keygen [<file>]      new task-signing key: the
 //        private seed goes to <file> (default %LOCALAPPDATA%\Glim\
 //        task-signing-key.txt; refused if it exists or sits in a synced
-//        folder: OneDrive, Desktop, Documents), the PUBLIC key is printed
-//        (paste it in Glim: Settings → Remote → Remote tasks). Delete the
-//        file once its contents are in cloud Glim's environment.
+//        folder: OneDrive, Desktop, Documents), owner-only (0600). Only the
+//        PUBLIC key and its fingerprint are printed (paste the key in
+//        Glim: Settings → Remote → Remote tasks, and compare fingerprints).
+//        Delete the file once its contents are in the agent's secret store.
 //   node relay/courier.mjs send <cmd> ['<args json>'] [--wait 60] [--ttl 24h]
 //        sign a task, seal it to the PC, queue it, wait for the PC's result,
 //        open and verify it, print it, acknowledge it (the relay deletes
@@ -35,6 +36,11 @@
 //
 // Environment (cloud Glim's environment settings, never a repo or chat):
 //   RELAY_URL              https://task-relay.<subdomain>.workers.dev
+//   RELAY_CLIENT           token-less agent client (owner 2026-11-21): its
+//                          name as Glim shows it ("muse"). Set = every relay
+//                          request is signed with GLIM_TASK_SIGNING_KEY
+//                          (GlimSig, relay/src/agentauth.js) and no token is
+//                          sent; RELAY_CLOUD_TOKEN is ignored.
 //   RELAY_CLOUD_TOKEN      OPTIONAL. Recommended instead: a claude.ai/code
 //                          network secret for the relay's exact host, path
 //                          /v1/, so the agent proxy adds "Authorization:
@@ -55,6 +61,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
+class SetupError extends Error {}
 
 const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
@@ -338,6 +346,27 @@ export function authHeaders(env = process.env) {
   return t ? { authorization: `Bearer ${t}` } : {};
 }
 
+/** What Glim shows for a public key: SHA-256's first 16 bytes, "3F2A 91C0 …". */
+export function fingerprint(pubHex) {
+  const d = crypto.createHash("sha256").update(Buffer.from(pubHex, "hex")).digest();
+  return [...Array(8).keys()].map((i) => d.subarray(2 * i, 2 * i + 2).toString("hex").toUpperCase()).join(" ");
+}
+
+/** The text a token-less agent client signs (relay/src/agentauth.js signedString). */
+export function relaySignedString({ client, method, host, path: p, body, ts, nonce }) {
+  const bodyHash = crypto.createHash("sha256").update(body || "", "utf8").digest("hex");
+  return ["glim-relay-v1", client, method, host, p, bodyHash, String(ts), nonce].join("\n");
+}
+
+/** "GlimSig client=…,ts=…,nonce=…,sig=…" for one request (agent clients). */
+export function signRequest(seedHex, client, method, url, body, now = Math.floor(Date.now() / 1000), nonce = crypto.randomBytes(16).toString("hex")) {
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(client || "")) throw new SetupError("RELAY_CLIENT must be the client's name as Glim shows it (a-z, 0-9, -)");
+  const u = new URL(url);
+  const text = relaySignedString({ client, method, host: u.host, path: u.pathname + u.search, body, ts: now, nonce });
+  const sig = crypto.sign(null, Buffer.from(text, "utf8"), privateKey(seedHex)).toString("hex");
+  return `GlimSig client=${client},ts=${now},nonce=${nonce},sig=${sig}`;
+}
+
 /** keygen's default file: %LOCALAPPDATA%\Glim\task-signing-key.txt (not synced). */
 export function defaultKeyFile(env = process.env) {
   return env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Glim", "task-signing-key.txt") : null;
@@ -355,7 +384,6 @@ export function keyFileProblem(file, env = process.env) {
   return null;
 }
 
-class SetupError extends Error {}
 
 function need(env, name) {
   const v = (env[name] || "").trim();
@@ -367,9 +395,14 @@ function need(env, name) {
 export async function call(route, init = {}, env = process.env, fetchFn = fetch) {
   const base = (env.RELAY_URL || "").trim().replace(/\/+$/, "");
   if (!RELAY_URL_SHAPE.test(base)) throw new SetupError("RELAY_URL must be https://<name>.<subdomain>.workers.dev");
-  const headers = { ...authHeaders(env), ...(init.headers || {}) };
-  const r = await fetchFn(base + route, { ...init, headers });
-  if (r.status === 401 && !headers.authorization) {
+  const agent = (env.RELAY_CLIENT || "").trim();
+  const method = (init.method || "GET").toUpperCase();
+  const auth = agent ? { authorization: signRequest(need(env, "GLIM_TASK_SIGNING_KEY"), agent, method, base + route, typeof init.body === "string" ? init.body : "") } : authHeaders(env);
+  const headers = { ...(init.headers || {}), ...auth };
+  const r = await fetchFn(base + route, { ...init, method, headers });
+  if (r.status === 401 && agent) {
+    console.error(`relay: 401 for agent client ${agent}: check that Glim lists it as an agent client with this key (compare fingerprints), that the relay-tokens runbook ran since it was added, and this machine's clock`);
+  } else if (r.status === 401 && !headers.authorization) {
     console.error("relay: 401 and no token was sent from here: check the network secret (the relay's exact host, path /v1/) and that NODE_USE_ENV_PROXY=1 is set, or set RELAY_CLOUD_TOKEN");
   }
   return r;
@@ -388,8 +421,12 @@ export async function main(argv, env = process.env, fetchFn = fetch) {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const k = keygen();
       fs.writeFileSync(file, k.seed + "\n", { mode: 0o600, flag: "wx" });
-      console.log(`public key (paste in Glim): ${k.pub}`);
-      console.log(`private seed written to ${file}: put it in cloud Glim's environment as GLIM_TASK_SIGNING_KEY, then DELETE the file.`);
+      // Owner-only even under an unusual umask (a no-op on Windows, where
+      // %LOCALAPPDATA% is the user's own).
+      fs.chmodSync(file, 0o600);
+      console.log(`public key: ${k.pub}`);
+      console.log(`fingerprint: ${fingerprint(k.pub)}`);
+      console.error(`The private key is in ${file} (owner-only). Put its contents in the agent's secret store as GLIM_TASK_SIGNING_KEY, never in a chat, then delete the file.`);
       return 0;
     }
     if (what === "status") {

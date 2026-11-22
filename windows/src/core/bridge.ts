@@ -198,6 +198,8 @@ export const Bridge = {
   /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
   remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
   remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
+  /** "Add agent client (public key only)": no token; the relay checks its signatures. */
+  remoteAgentClientAdd: (name: string, key: string) => callOrThrow<RemoteStatus>("remote_agent_client_add", { name, key }),
   /** The commands a cloud client may send (owner 2026-11-21): set on the PC only. */
   remoteClientCommands: (name: string, commands: string[]) => callOrThrow<RemoteStatus>("remote_client_commands", { name, commands }),
   /** The Claude account a cloud client acts for; "" = none. */
@@ -502,6 +504,8 @@ export interface RemoteClient {
   commands?: string[];
   /** The Claude account mapped to it, "" none (no transcript-tail, start-session, send-to-session). */
   account?: string;
+  /** A token-less agent client: public key only, its relay requests signed. */
+  agent?: boolean;
 }
 
 /** Settings → Remote → Remote tasks: never more of the key than its fingerprint. */

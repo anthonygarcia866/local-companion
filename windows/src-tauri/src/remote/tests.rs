@@ -380,14 +380,14 @@ fn an_older_gate_file_still_keeps_its_seen_ids() {
 }
 
 fn client(name: &str, kp: &Ed25519KeyPair) -> CloudClient {
-    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "ab".repeat(32), added: NOW, commands: None }
+    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "ab".repeat(32), added: NOW, commands: None, agent: false }
 }
 
 #[test]
 fn the_old_single_key_is_account_1_and_keeps_working_without_re_entering_anything() {
     let kp = signer(7);
     let s = settings_for(&kp);
-    assert_eq!(s.clients(), vec![CloudClient { name: "account-1".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "legacy".into(), added: 0, commands: None }]);
+    assert_eq!(s.clients(), vec![CloudClient { name: "account-1".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "legacy".into(), added: 0, commands: None, agent: false }]);
     assert_eq!(s.relay_list(), "account-1=legacy");
     let mut g = Gate::default();
     let a = g.accept_from(&s, "account-1", &envelope(&kp, &task(&id(400), "session-status", json!({}))), NOW).unwrap();
@@ -775,4 +775,23 @@ fn command_lists_from_settings_take_known_kinds_only_once_each_in_order() {
         assert!(COMMANDS.contains(&parsed.kind()), "{cmd}");
     }
     assert_eq!(COMMANDS.len(), 7);
+}
+
+#[test]
+fn an_agent_client_goes_to_the_relay_as_its_public_key_and_has_no_token() {
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    s.add_client(client("account-1", &signer(1))).unwrap();
+    let kp = signer(2);
+    let muse = CloudClient { name: "muse".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: String::new(), added: NOW, commands: None, agent: true };
+    s.add_client(muse).unwrap();
+    assert_eq!(s.relay_list(), format!("account-1={},muse=key:{}", "ab".repeat(32), hex(kp.public_key().as_ref())));
+    // Saved with the flag; a client from before reads back as a token client.
+    let saved = serde_json::to_string(&s.clients).unwrap();
+    assert!(saved.contains("\"agent\":true") && saved.matches("agent").count() == 1, "{saved}");
+    let old: CloudClient = serde_json::from_str(r#"{"name":"account-2","publicKey":"ab","tokenSha256":"cd","added":5}"#).unwrap();
+    assert!(!old.agent);
+    // Its tasks are checked like any other client's: signed with its key.
+    let mut g = Gate::default();
+    assert!(g.accept_from(&s, "muse", &envelope(&kp, &task(&id(800), "session-status", json!({}))), NOW).is_ok());
+    assert_eq!(g.accept_from(&s, "muse", &envelope(&signer(1), &task(&id(801), "session-status", json!({}))), NOW), Err(Rejection::WrongClient));
 }

@@ -320,3 +320,18 @@ test("cloud clients: two quick unticks both stick (the list comes from the boxes
   b.fire("change");
   assert.deepEqual(sent("remote_client_commands").at(-1).commands, ["session-status", "run-status", "transcript-tail", "runbook", "keepalive-restart"]);
 });
+
+test("cloud clients: Add agent client sends the name and key only, shows no token, and is marked on its row", async () => {
+  replies.set("remote_status", rstatus({ clients: [] }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  role(el, "input", "remote-client-name").value = "muse";
+  role(el, "input", "remote-key").value = "ab".repeat(32);
+  replies.set("remote_agent_client_add", rstatus({ clients: [{ ...client("muse"), agent: true, commands: ["session-status", "run-status"], account: "" }] }));
+  role(el, "button", "remote-agent-client-add").fire("click");
+  await tick();
+  assert.deepEqual(sent("remote_agent_client_add").at(-1), { name: "muse", key: "ab".repeat(32) });
+  assert.equal(role(el, "input", "remote-cloud-token"), undefined, "no token to show");
+  assert.match(roleText(el, "remote-agent-added")[0], /relay-tokens runbook/);
+  assert.match(roleText(el, "remote-client-agent")[0], /public key only/);
+});

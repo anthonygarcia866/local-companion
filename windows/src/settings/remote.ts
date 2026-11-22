@@ -221,6 +221,8 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   let cloudToken = "";
   /** A client was just removed: the runbook reminder. */
   let removed = false;
+  /** An agent client was just added: the runbook reminder. */
+  let agentAdded = false;
   /** What was typed but not saved yet: kept across redraws. */
   let keyDraft = "";
   let nameDraft: string | null = null;
@@ -489,7 +491,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         return next;
       }));
       clients.append(h("div", { "data-role": "remote-client" },
-        h("div", { class: "pill-row" }, h("span", { class: "name", text: c.name }), remove),
+        h("div", { class: "pill-row" }, h("span", { class: "name", text: c.name }), ...(c.agent ? [h("span", { class: "hint", "data-role": "remote-client-agent", text: t("agent client · public key only") })] : []), remove),
         h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: c.fingerprint }) }),
         h("div", { class: "hint", text: addedText(c) }),
         clientAccess(c),
@@ -510,10 +512,25 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         const r = await Bridge.remoteClientAdd(n, key);
         cloudToken = r.cloudToken;
         removed = false;
+        agentAdded = false;
         return r.status;
       }, "key");
     });
-    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, name, input, save, ...savedMark("key")));
+    // Token-less agent clients (owner 2026-11-21): the same name and key,
+    // no token; the relay checks a signature on each of its requests.
+    const saveAgent = h("button", { type: "button", "data-role": "remote-agent-client-add", text: t("Add agent client (public key only)") });
+    saveAgent.addEventListener("click", () => {
+      const [n, key] = [name.value, input.value];
+      void act(async () => {
+        const next = await Bridge.remoteAgentClientAdd(n, key);
+        cloudToken = "";
+        removed = false;
+        agentAdded = true;
+        return next;
+      }, "key");
+    });
+    box.append(h("label", { text: t("Signer's public key") }), h("div", { class: "row" }, name, input, save, saveAgent, ...savedMark("key")));
+    if (agentAdded) box.append(h("div", { class: "hint", "data-role": "remote-agent-added", text: t("Agent client added: no token. Run the relay-tokens runbook so the relay knows its key, then set RELAY_CLIENT to its name in the agent's environment.") }));
 
     const relay = h("input", { type: "text", "data-role": "remote-relay", placeholder: "https://name.subdomain.workers.dev", spellcheck: "false", autocomplete: "off" }) as HTMLInputElement;
     relay.value = relayDraft ?? status.relay;
