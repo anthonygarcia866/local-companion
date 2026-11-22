@@ -29,6 +29,12 @@ elseif (-not $Sid) {
     if ($saved) { $Sid = $saved.Sid }
 }
 if ($Sid -and $Sid -notmatch '^S-1-5-21-\d+-\d+-\d+-\d+$') { throw "Not a local account SID: $Sid" }
+# A SID given by hand (or remembered) must not belong to anyone else still here.
+if ($Sid -and -not $u) {
+    $owner = Get-LocalUser | Where-Object { $_.SID.Value -eq $Sid }
+    if ($owner) { throw "SID $Sid belongs to the existing account '$($owner.Name)', not glim-agent: refusing." }
+    if ($Sid -eq ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value)) { throw 'That is your own SID: refusing.' }
+}
 Write-Host ("glim-agent: " + $(if ($u) { "exists ($Sid)" } elseif ($Sid) { "gone; cleaning up after SID $Sid" } else { 'gone and no SID known: only the non-SID parts are cleaned' }))
 
 # ── 1. The account ──────────────────────────────────────────────────────────
@@ -46,7 +52,8 @@ if ($u) {
 }
 
 # ── 2. Its folders, links removed and never followed ───────────────────────
-if ($profilePath -and $profilePath -match '^C:\\Users\\[^\\]+$' -and $profilePath -notlike "$env:USERPROFILE*") {
+# Only a profile folder named after glim-agent (glim-agent, glim-agent.PC, ...).
+if ($profilePath -and $profilePath -match '^C:\\Users\\glim-agent(\.[^\\]+)?$' -and $profilePath -ine $env:USERPROFILE) {
     if (Test-Path -LiteralPath $profilePath) {
         Act "delete its profile folder $profilePath (rd /s /q)" {
             cmd /c rd /s /q "$profilePath"

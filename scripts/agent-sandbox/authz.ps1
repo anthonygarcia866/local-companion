@@ -57,7 +57,7 @@ public static class GlimAuthz {
     }
     public static string[] LogonSids() { return (string[])Logon.Clone(); }
     [DllImport("authz.dll")] static extern bool AuthzFreeResourceManager(IntPtr rm);
-    static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113" };
+    static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113", "S-1-5-64-10" };
 
     // The access mask `sid` gets on an object with security descriptor `sd` (MAXIMUM_ALLOWED).
     public static uint Granted(string sid, byte[] sd) {
@@ -99,15 +99,18 @@ function Get-GlimAccess([string]$Sid, [string]$Path) {
     [GlimAuthz]::Granted($Sid, $sd)
 }
 
-# Powerful user rights glim-agent must not hold, directly or through any SID
-# its logon carries. Listing account rights needs elevation (LSA).
-$GlimPowerful = 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeImpersonatePrivilege',
-    'SeLoadDriverPrivilege', 'SeTcbPrivilege', 'SeSecurityPrivilege', 'SeManageVolumePrivilege', 'SeCreateTokenPrivilege',
-    'SeAssignPrimaryTokenPrivilege', 'SeCreateSymbolicLinkPrivilege', 'SeRelabelPrivilege', 'SeSystemEnvironmentPrivilege', 'SeCreateGlobalPrivilege'
+# User rights glim-agent may hold (an allowlist: anything else is flagged),
+# directly or through any SID its logon carries. Deny rights are fine (they
+# only take away). Listing account rights needs elevation (LSA).
+$GlimHarmless = 'SeChangeNotifyPrivilege', 'SeIncreaseWorkingSetPrivilege', 'SeTimeZonePrivilege', 'SeShutdownPrivilege', 'SeUndockPrivilege',
+    'SeInteractiveLogonRight', 'SeNetworkLogonRight', 'SeBatchLogonRight', 'SeRemoteInteractiveLogonRight'
 
 function Get-GlimPowerfulRights([string]$Sid, [string[]]$GroupSids) {
     $all = @($Sid) + @($GroupSids) + @([GlimAuthz]::LogonSids()) | Sort-Object -Unique
     foreach ($s in $all) {
-        foreach ($r in [GlimAuthz]::Rights($s)) { if ($GlimPowerful -contains $r) { "$r (via $s)" } }
+        foreach ($r in [GlimAuthz]::Rights($s)) {
+            if ($r -like 'SeDeny*' -or $GlimHarmless -contains $r) { continue }
+            "$r (via $s)"
+        }
     }
 }

@@ -15,13 +15,17 @@
 #   - it can't read your profile, your gh / wrangler / Claude / Claude2 / Glim
 #     folders, the login files in them, or G:\;
 #   - it can't write or delete in your profile, any PATH folder (system or
-#     yours), any drive root or top-level folder on any drive, any folder
-#     setup.ps1 locks (targets.ps1), nor in a locked tree's immediate
-#     subfolders;
-#   - (when run elevated) it holds no powerful user right (backup, restore,
-#     debug, take ownership, impersonate, create symbolic links ...) directly
-#     or through any group or logon SID; not elevated, this is skipped and
-#     said so;
+#     yours), any drive root, top-level folder or root file on any drive, any
+#     folder setup.ps1 locks (targets.ps1, which includes subfolders deep in
+#     a locked tree whose inheritance is off), nor in a locked tree's
+#     immediate subfolders;
+#   - no local group but Users includes Everyone, INTERACTIVE or another SID
+#     every logon carries;
+#   - it holds no user right beyond a short harmless allowlist (change
+#     notify, working set, time zone, shutdown, undock, the ordinary logon
+#     rights, any deny right), directly or through any group or logon SID.
+#     This needs elevation: not elevated, the run ends INCOMPLETE (exit 2),
+#     never as a pass;
 #   - none of CLOUDFLARE_API_TOKEN, SUPABASE_ACCESS_TOKEN, ANTHROPIC_API_KEY,
 #     GH_TOKEN, GITHUB_TOKEN is set machine-wide (every user would get it);
 #   - it CAN write C:\GlimAgent\work.
@@ -40,6 +44,7 @@ $sid = $u.SID.Value
 
 $fail = 0
 $checked = 0
+$incomplete = $false
 function Report([bool]$ok, [string]$what) {
     $script:checked++
     if ($ok) { Write-Host "PASS  $what" -ForegroundColor Green } else { Write-Host "FAIL  $what" -ForegroundColor Red; $script:fail++ }
@@ -56,6 +61,18 @@ $groupSids = @(foreach ($g in @($adsiUser.Groups())) {
 Report ($groupSids -contains 'S-1-5-32-545') 'is a member of Users'
 $other = @($groupSids | Where-Object { $_ -ne 'S-1-5-32-545' })
 Report ($other.Count -eq 0) ('is in no other local group' + $(if ($other) { ': ' + ($other -join ', ') } else { '' }))
+# A group can also hold a SID every logon carries (Everyone, INTERACTIVE ...),
+# which makes every user a member: only Users may.
+$logonSids = [GlimAuthz]::LogonSids()
+$viaLogon = @(foreach ($g in @(([ADSI]"WinNT://$env:COMPUTERNAME").Children | Where-Object { $_.SchemaClassName -eq 'group' })) {
+    $gSid = (New-Object Security.Principal.SecurityIdentifier ($g.objectSid.Value), 0).Value
+    if ($gSid -eq 'S-1-5-32-545') { continue }
+    foreach ($m in @($g.Invoke('Members'))) {
+        try { $mSid = (New-Object Security.Principal.SecurityIdentifier ($m.GetType().InvokeMember('objectSid', 'GetProperty', $null, $m, $null)), 0).Value } catch { continue }
+        if ($logonSids -contains $mSid) { "$($g.Name.Value) holds $mSid" }
+    }
+})
+Report ($viaLogon.Count -eq 0) ('no other local group includes Everyone, INTERACTIVE or another logon SID' + $(if ($viaLogon) { ': ' + ($viaLogon -join '; ') } else { '' }))
 
 # ── Powerful user rights (LSA; needs elevation) ─────────────────────────────
 $elevated = (New-Object Security.Principal.WindowsPrincipal ([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -63,7 +80,8 @@ if ($elevated) {
     $pow = @(Get-GlimPowerfulRights -Sid $sid -GroupSids $groupSids)
     Report ($pow.Count -eq 0) ('holds no powerful user right' + $(if ($pow) { ': ' + ($pow -join ', ') } else { '' }))
 } else {
-    Write-Host 'skip  powerful user rights: listing them needs elevation (setup.ps1 checks them; run check.ps1 elevated to include them). Not counted as a pass.' -ForegroundColor Yellow
+    Write-Host 'NOT VERIFIED  user rights: listing them needs elevation (run check.ps1 elevated). The result below is INCOMPLETE, never a pass.' -ForegroundColor Yellow
+    $script:incomplete = $true
 }
 
 # ── Must not read ────────────────────────────────────────────────────────────
@@ -99,6 +117,7 @@ $targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
 foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
     if ($t.Scope -eq 'tree') {
+        # (protected subfolders deeper down are targets of their own, so they're on this list too)
         foreach ($c in (Get-ChildItem -LiteralPath $t.Path -Directory -Force -ErrorAction SilentlyContinue)) { $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName }
     }
 }
@@ -109,14 +128,15 @@ foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType 
     if (-not (Test-Path -LiteralPath $root)) { continue }
     $mustNotWrite[$root.ToLowerInvariant()] = $root
     foreach ($c in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
-        if ($c.FullName -like 'C:\GlimAgent*') { continue }
+        if ($c.FullName -ieq 'C:\GlimAgent') { continue }
         $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName
     }
+    foreach ($f in (Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue)) { $mustNotWrite[$f.FullName.ToLowerInvariant()] = $f.FullName }
 }
 # The named folders must be on the list even if they're no longer writable by all.
 foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n) { $mustNotWrite[$n.ToLowerInvariant()] = $n } }
 foreach ($p in $mustNotWrite.Values) {
-    if ($p -like 'C:\GlimAgent*') { continue }
+    if ($p -ieq 'C:\GlimAgent' -or $p -like 'C:\GlimAgent\*') { continue }
     $m = Access $p
     if ($null -eq $m) { Report $false "can't write $p (its permissions couldn't be read: not verified)"; continue }
     $w = $m -band $GlimWrite
@@ -148,6 +168,7 @@ if ($plain) {
 
 Write-Host ''
 if ($checked -lt 10) { Write-Host "Only $checked checks ran: not trusted." -ForegroundColor Red; exit 1 }
-if ($fail -eq 0) { Write-Host "All $checked checks passed." -ForegroundColor Green; exit 0 }
-Write-Host "$fail of $checked check(s) failed: sandbox sessions must stay off." -ForegroundColor Red
-exit 1
+if ($fail -gt 0) { Write-Host "$fail of $checked check(s) failed: sandbox sessions must stay off." -ForegroundColor Red; exit 1 }
+if ($incomplete) { Write-Host "INCOMPLETE: $checked checks passed, but user rights were not verified. Run check.ps1 elevated for a full result." -ForegroundColor Yellow; exit 2 }
+Write-Host "All $checked checks passed." -ForegroundColor Green
+exit 0

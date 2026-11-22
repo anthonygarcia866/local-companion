@@ -187,14 +187,14 @@ else {
 Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
 $targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
 foreach ($t in $targets) {
-    $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }
+    $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }   # folder or file: that object only
     $done = $false
     if ($agentSid) {
         $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
             $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
             $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
             ((([int64]$_.FileSystemRights) -band 0x10056) -eq 0x10056) -and
-            ($t.Scope -ne 'tree' -or ($_.InheritanceFlags -band [Security.AccessControl.InheritanceFlags]::ContainerInherit))
+            ($t.Scope -ne 'tree' -or (($_.InheritanceFlags -band 3) -eq 3))  # both ContainerInherit and ObjectInherit
         })
     }
     $label = "{0}  [{1}]  ({2})" -f $t.Path, $t.Scope, $t.Why
@@ -202,9 +202,11 @@ foreach ($t in $targets) {
     Act "lock $label" {
         # /C: keep going past a file it can't change; the count is reported.
         $outText = icacls $t.Path /deny "${AgentName}:$flags$GlimDenyRights" /C 2>&1 | Out-String
-        $bad = ([regex]::Matches($outText, 'Failed processing (\d+) files')).Groups | Select-Object -Last 1
-        if ($LASTEXITCODE -ne 0 -and -not $bad) { throw "icacls $($t.Path) failed ($LASTEXITCODE)" }
-        if ($bad -and [int]$bad.Value -gt 0) { Write-Warning "  $($bad.Value) item(s) under $($t.Path) couldn't be changed (check.ps1 tests the folder itself)" }
+        $code = $LASTEXITCODE
+        $m = [regex]::Match($outText, 'Failed processing (\d+) files')
+        $failed = if ($m.Success) { [int]$m.Groups[1].Value } else { -1 }
+        if ($code -ne 0 -and $failed -le 0) { throw "icacls $($t.Path) failed ($code): $($outText.Trim())" }
+        if ($failed -gt 0) { Write-Warning "  $failed item(s) under $($t.Path) couldn't be changed (check.ps1 tests every locked folder)" }
     }
 }
 if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
@@ -220,11 +222,11 @@ if ($agentSid) {
 }
 
 # ── 7. No powerful user rights (read back, elevated) ─────────────────────────
-Step "7. $AgentName holds no powerful user right"
+Step "7. $AgentName holds no user right beyond the harmless allowlist"
 if ($agentSid -and $isAdmin) {
     $gs = @(foreach ($g in @(([ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user").Groups())) { (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value })
     $pow = @(Get-GlimPowerfulRights -Sid $agentSid -GroupSids $gs)
-    if ($pow.Count) { Write-Warning ("  it holds: " + ($pow -join ', ') + ". Remove them in secpol.msc (Local Policies > User Rights Assignment) before any sandbox session.") }
+    if ($pow.Count) { throw ("$AgentName holds: " + ($pow -join ', ') + ". Remove them in secpol.msc (Local Policies > User Rights Assignment), then run setup.ps1 again. No sandbox session until then.") }
     else { Write-Host '  none' }
 } else { Write-Host '  (checked after step 1 creates the user, in an elevated run)' }
 

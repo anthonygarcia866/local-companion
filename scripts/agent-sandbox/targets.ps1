@@ -8,6 +8,7 @@
 #   tree   = the folder and everything in it ((OI)(CI))
 #   folder = the folder itself only (it can't create or delete entries there,
 #            nothing below changes)
+#   file   = one file (at a drive root)
 # It is: the owner's named folders (C:\tests, C:\glimtest, C:\c, C:\Drivers),
 # every top-level folder on a fixed or removable drive that any of those
 # logon SIDs can write (allow entries; a deny added by setup doesn't take it
@@ -21,8 +22,8 @@
 
 # Every SID an interactive glim-agent logon carries besides its own and its
 # groups' (the same set authz.ps1 adds): Everyone, Users, INTERACTIVE, CONSOLE
-# LOGON, LOCAL, Authenticated Users, This Organization, Local account.
-$GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113'
+# LOGON, LOCAL, Authenticated Users, This Organization, Local account, NTLM.
+$GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113', 'S-1-5-64-10'
 # Write-only bits (Modify/FullControl include read bits, so they can't be the
 # mask): create files, create folders, delete, change permissions, take
 # ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.
@@ -56,11 +57,37 @@ function Get-GlimPathFolders {
     }
 }
 
+# $Path is $Base itself or inside it (not merely sharing a prefix:
+# C:\Users\antho2 is not inside C:\Users\antho).
+function Test-GlimUnder([string]$Path, [string]$Base) {
+    $b = $Base.TrimEnd('\')
+    $Path -ieq $b -or $Path -like "$b\*"
+}
+
+# Folders under $Root whose inheritance is turned off (protected DACL) and
+# that all users can write: a tree deny on $Root never reaches them, so each
+# gets its own. Walked by hand, never following a junction or symlink.
+function Get-GlimProtectedWritable([string]$Root) {
+    $queue = New-Object System.Collections.Generic.Queue[string]
+    $queue.Enqueue($Root)
+    while ($queue.Count) {
+        $dir = $queue.Dequeue()
+        foreach ($c in (Get-ChildItem -LiteralPath $dir -Directory -Force -ErrorAction SilentlyContinue)) {
+            if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            $acl = $null
+            try { $acl = Get-Acl -LiteralPath $c.FullName } catch { }
+            if ($acl -and $acl.AreAccessRulesProtected -and (Test-GlimBroadWrite $c.FullName)) { $c.FullName }
+            $queue.Enqueue($c.FullName)
+        }
+    }
+}
+
 function Get-GlimLockTargets([string]$OwnerProfile) {
     $out = [ordered]@{}
     function Add-Target([string]$p, [string]$scope, [string]$why) {
         $k = $p.ToLowerInvariant()
-        if ($p -like 'C:\GlimAgent*') { return }
+        if (Test-GlimUnder $p 'C:\GlimAgent') { return }
+        if (Test-GlimUnder $p $OwnerProfile) { return }
         if (-not $out.Contains($k)) { $out[$k] = [pscustomobject]@{ Path = $p; Scope = $scope; Why = $why } }
     }
     foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n -PathType Container) { Add-Target $n 'tree' 'named by you' } }
@@ -69,16 +96,22 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         if (-not (Test-Path -LiteralPath $root)) { continue }
         if (Test-GlimBroadWrite $root) { Add-Target $root 'folder' 'drive root, writable by all users' }
         foreach ($c in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
-            if ($c.FullName -like "$OwnerProfile*") { continue }
             if (Test-GlimBroadWrite $c.FullName) {
                 $scope = if ($c.Name -eq '$Recycle.Bin') { 'folder' } else { 'tree' }
                 Add-Target $c.FullName $scope 'top-level folder, writable by all users'
             }
         }
+        # Files directly at the root (a folder-only deny on the root doesn't reach them).
+        foreach ($f in (Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue)) {
+            if (Test-GlimBroadWrite $f.FullName) { Add-Target $f.FullName 'file' 'file at the drive root, writable by all users' }
+        }
     }
     foreach ($p in (Get-GlimPathFolders)) {
-        if ($p -like "$OwnerProfile*") { continue }
         if (Test-GlimBroadWrite $p) { Add-Target $p 'tree' 'on PATH, writable by all users' }
+    }
+    # Inside every tree: subfolders with inheritance off that all users can write.
+    foreach ($t in @($out.Values | Where-Object { $_.Scope -eq 'tree' })) {
+        foreach ($sub in (Get-GlimProtectedWritable $t.Path)) { Add-Target $sub 'tree' "inside $($t.Path), inheritance off, writable by all users" }
     }
     $out.Values
 }
