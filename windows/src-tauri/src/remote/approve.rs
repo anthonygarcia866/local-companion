@@ -461,9 +461,17 @@ fn sealed_slot(rid: &str, exp: i64, details: &str, approvers: &[(Approver, [u8; 
     Some((frame, url))
 }
 
+/// Runbook names a lease card lists at most (the rest as "+N more").
+pub const LEASE_RUNBOOKS_SHOWN: usize = 20;
+
 /// A lease request's slot: the frame, Pushover's text and the link.
-pub fn lease_request(p: &super::lease::Pending, approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<Request> {
-    let details = json!({ "v": 1, "kind": "lease", "rid": p.rid, "client": p.client, "hours": p.hours, "exp": p.expires, "lock": p.lock, "code": p.code }).to_string();
+/// `runbooks`: the cloud-level runbooks a leased agent could start as the
+/// owner right now (PC-built, owner 2026-11-22: the card must say so); shown
+/// on the card, not part of the signed binding.
+pub fn lease_request(p: &super::lease::Pending, runbooks: &[String], approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<Request> {
+    let shown: Vec<&String> = runbooks.iter().take(LEASE_RUNBOOKS_SHOWN).collect();
+    let more = runbooks.len().saturating_sub(shown.len());
+    let details = json!({ "v": 1, "kind": "lease", "rid": p.rid, "client": p.client, "hours": p.hours, "exp": p.expires, "lock": p.lock, "code": p.code, "runbooks": shown, "more": more }).to_string();
     let (frame, url) = sealed_slot(&p.rid, p.expires, &details, approvers, relay_host)?;
     let text = format!("Glim: agent client {} asks for a {} h lease. Match code {}. The request lapses in 30 min.", p.client, p.hours, p.code);
     Some(Request { frame, text, url })

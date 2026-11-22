@@ -192,6 +192,13 @@ function lockButton(host, lock, client) {
 }
 
 /** A lease request (an agent client asks to be unlocked) or a lease's lock link. */
+// The cloud-level runbooks the PC listed (sealed details, never the binding).
+function leaseRunbooks(d) {
+  const names = Array.isArray(d.runbooks) ? d.runbooks.filter((x) => typeof x === "string") : [];
+  const more = Number.isInteger(d.more) && d.more > 0 ? ` and ${d.more} more` : "";
+  return names.length ? `Cloud-level runbooks today: ${names.join(", ")}${more}` : "No cloud-level runbooks today";
+}
+
 function leaseCard(d, rid, host, got) {
   if (d.kind === "lease-lock") {
     return el("div", { class: "card" },
@@ -203,7 +210,9 @@ function leaseCard(d, rid, host, got) {
       el("dt", { text: "Agent client" }), el("dd", { text: d.client }),
       el("dt", { text: "Unlock for" }), el("dd", { text: `${d.hours} h (all seven commands; sessions only in the agent sandbox)` }),
       el("dt", { text: "Request lapses" }), el("dd", { text: new Date(d.exp * 1000).toLocaleString() }),
+      el("dt", { text: "Runs as you" }), el("dd", { text: leaseRunbooks(d) }),
     ),
+    el("p", { class: "warn", text: `While unlocked, ${d.client} can start any runbook whose file says level = "cloud", as you (with your secrets and your Windows account), including ones you approve later. Each of their phone steps still asks you. Approving replaces any lease ${d.client} has now.` }),
     el("div", { class: "code", text: d.code }),
     el("p", { class: "warn", text: "Compare this match code with the one the agent or Pushover gave you. Don't approve if it doesn't match, or if you didn't expect this request." }),
     button("Approve lease (Face ID)", "primary", async () => {

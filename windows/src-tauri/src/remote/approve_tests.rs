@@ -172,7 +172,8 @@ fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval()
     let approver = Approver { id: "Y3JlZC0x".into(), name: "Example phone".into(), public_key: seal::to_hex(&phone.point()), kind: "passkey".into(), synced: true, added: NOW };
     let key = [5u8; 32];
     let p = Pending { rid: RID.into(), code: "ABC-DEF".into(), client: "muse".into(), hours: 4, expires: NOW + 1800, url: String::new(), lock: "ee".repeat(16), key: "ab".repeat(32) };
-    let req = lease_request(&p, &[(approver.clone(), key)], "task-relay.example.workers.dev").unwrap();
+    let many: Vec<String> = (0..LEASE_RUNBOOKS_SHOWN + 3).map(|i| format!("book-{i}")).collect();
+    let req = lease_request(&p, &many, &[(approver.clone(), key)], "task-relay.example.workers.dev").unwrap();
     // Pushover: client, length, code; never the relay host. The relay: sealed details only.
     assert!(req.text.contains("muse") && req.text.contains("4 h") && req.text.contains("ABC-DEF"));
     assert!(!req.text.contains("workers.dev") && !req.url.contains("workers.dev"));
@@ -183,7 +184,12 @@ fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval()
     let n: [u8; 12] = from_b64url(item["n"].as_str().unwrap()).unwrap().try_into().unwrap();
     let d: Value = serde_json::from_slice(&seal::approve_open(&key, &format!("glim-approve-v1|{RID}"), &n, &from_b64url(item["ct"].as_str().unwrap()).unwrap()).unwrap()).unwrap();
     assert_eq!((d["kind"].as_str(), d["client"].as_str(), d["hours"].as_u64(), d["lock"].as_str()), (Some("lease"), Some("muse"), Some(4), Some(p.lock.as_str())));
+    // The card lists the cloud-level runbooks it could start as the owner
+    // (owner 2026-11-22), capped, the rest counted; never part of the binding.
+    assert_eq!(d["runbooks"].as_array().unwrap().len(), LEASE_RUNBOOKS_SHOWN);
+    assert_eq!((d["runbooks"][0].as_str(), d["more"].as_u64()), (Some("book-0"), Some(3)));
     assert!(lease_binding(&p).starts_with("glim-lease-v1\n"));
+    assert!(!lease_binding(&p).contains("book-0"));
 
     let approve = |a: Assertion| json!({ "answer": "approve", "cred": a.cred, "ad": a.ad, "cd": a.cd, "sig": a.sig }).to_string();
     assert_eq!(judge_lease(&approve(phone.assert(&lease_challenge(&p))), &p, std::slice::from_ref(&approver)), Verdict::Approve);
@@ -199,7 +205,7 @@ fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval()
     // Another passkey, or none enrolled.
     assert_eq!(judge_lease(&approve(Phone::new().assert(&lease_challenge(&p))), &p, std::slice::from_ref(&approver)), Verdict::Refused("bad-signature"));
     assert_eq!(judge_lease(&approve(phone.assert(&lease_challenge(&p))), &p, &[]), Verdict::Refused("unknown-approver"));
-    assert!(lease_request(&p, &[], "x").is_none());
+    assert!(lease_request(&p, &[], &[], "x").is_none());
     // The lock slot: sealed, lives until the lease's end.
     let (lf, lurl) = lock_slot(&p.lock, "muse", NOW + 4 * 3600, &[(approver, key)], "task-relay.example.workers.dev").unwrap();
     let lv: Value = serde_json::from_str(&lf).unwrap();
