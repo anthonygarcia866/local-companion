@@ -15,6 +15,9 @@ function Act([string]$what, [scriptblock]$do) {
 }
 $u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
 if ($u) {
+    Act "stop every $AgentName process" {
+        Get-CimInstance Win32_Process | Where-Object { try { ($_ | Invoke-CimMethod -MethodName GetOwner).User -eq $AgentName } catch { $false } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
     $sid = $u.SID.Value
     Act "remove the deny ACE for $AgentName on $env:USERPROFILE" { icacls $env:USERPROFILE /remove:d $AgentName | Out-Null }
     Act 'remove its logon-right denials' {
@@ -39,6 +42,9 @@ if ($u) {
     Act "remove user $AgentName" { Remove-LocalUser -Name $AgentName }
 }
 Act 'remove the sign-in hiding value' { Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList' -Name $AgentName -ErrorAction SilentlyContinue }
-if (Test-Path 'C:\GlimAgent') { Act 'remove C:\GlimAgent' { Remove-Item -Recurse -Force 'C:\GlimAgent' } }
+# After the user is gone (nothing of it runs). rd /s /q removes a junction or
+# symlink glim-agent may have planted as the link itself, never following it
+# (Remove-Item -Recurse in Windows PowerShell 5.1 can follow one).
+if (Test-Path 'C:\GlimAgent') { Act 'remove C:\GlimAgent (links removed, never followed)' { cmd /c rd /s /q 'C:\GlimAgent' } }
 if (Test-GlimCredential 'Glim/AgentUserPassword') { Act 'remove Glim/AgentUserPassword from your Credential Manager' { Remove-GlimCredential 'Glim/AgentUserPassword' } }
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }

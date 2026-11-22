@@ -5,14 +5,17 @@
 # It reads glim-agent's password from YOUR Credential Manager
 # (Glim/AgentUserPassword, written by setup.ps1), starts probe.ps1 as
 # glim-agent (Windows' secondary logon, its own profile and environment), and
-# reports PASS/FAIL per check. Nothing is changed except C:\GlimAgent\check.
+# reports PASS/FAIL per check. Nothing is changed. The probe never sits on
+# disk where glim-agent can write (it goes in as -EncodedCommand) and its
+# answer comes back on stdout into YOUR temp folder, which glim-agent can't
+# open; any glim-agent process still running is stopped first so nothing of
+# its can race the check.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 . (Join-Path $PSScriptRoot 'cred.ps1')
 
 $AgentName = 'glim-agent'
-$CheckDir = 'C:\GlimAgent\check'
 $plain = Read-GlimCredential 'Glim/AgentUserPassword'
 if (-not $plain) { throw 'Glim/AgentUserPassword is not in your Credential Manager: run setup.ps1 first.' }
 $cred = New-Object Management.Automation.PSCredential (".\$AgentName", (ConvertTo-SecureString $plain -AsPlainText -Force))
@@ -32,16 +35,27 @@ $mustFail = @(
 if (Test-Path 'G:\') { $mustFail += 'G:\' }
 $envMustBeAbsent = 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN'
 
-New-Item -ItemType Directory -Path $CheckDir -Force | Out-Null
-Copy-Item (Join-Path $PSScriptRoot 'probe.ps1') (Join-Path $CheckDir 'probe.ps1') -Force
-$out = Join-Path $CheckDir ('result-' + [guid]::NewGuid().ToString('N') + '.json')
+# Nothing of glim-agent's may be running while it is checked.
+Get-CimInstance Win32_Process | Where-Object { try { ($_ | Invoke-CimMethod -MethodName GetOwner).User -eq $AgentName } catch { $false } } | ForEach-Object {
+    Write-Host "Stopping glim-agent process $($_.Name) ($($_.ProcessId))"
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+$q = { param($s) "'" + ($s -replace "'", "''") + "'" }
+$probe = Get-Content -Raw (Join-Path $PSScriptRoot 'probe.ps1')
+$cmd = '& {' + "`n" + $probe + "`n" + '} -MustFail ' + (& $q ($mustFail -join '|')) + ' -EnvMustBeAbsent ' + (& $q ($envMustBeAbsent -join '|'))
+$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+$out = Join-Path $env:TEMP ('glim-probe-' + [guid]::NewGuid().ToString('N') + '.txt')
+$err = "$out.err"
 $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $CheckDir 'probe.ps1'), '-Out', $out,
-    '-MustFail', ('"' + ($mustFail -join '|') + '"'), '-EnvMustBeAbsent', ($envMustBeAbsent -join '|'))
-$p = Start-Process -FilePath $ps -ArgumentList $argList -Credential $cred -LoadUserProfile -WorkingDirectory 'C:\GlimAgent\work' -WindowStyle Hidden -Wait -PassThru
-if (-not (Test-Path $out)) { throw "The probe wrote no result (exit $($p.ExitCode))." }
-$r = Get-Content $out -Raw | ConvertFrom-Json
-Remove-Item $out -Force
+try {
+    $p = Start-Process -FilePath $ps -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', $enc) -Credential $cred -LoadUserProfile -WorkingDirectory 'C:\GlimAgent\work' -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
+    $text = if (Test-Path $out) { Get-Content $out -Raw } else { '' }
+} finally { Remove-Item $out, $err -Force -ErrorAction SilentlyContinue }
+$m = [regex]::Match([string]$text, 'GLIM-PROBE-BEGIN\s*(\{.*\})\s*GLIM-PROBE-END', 'Singleline')
+if (-not $m.Success) { throw "The probe gave no result (exit $($p.ExitCode))." }
+$r = $m.Groups[1].Value | ConvertFrom-Json
+if (@($r.paths.PSObject.Properties).Count -ne $mustFail.Count) { throw 'The probe checked a different number of paths than asked: not trusted.' }
 
 $fail = 0
 function Report([bool]$ok, [string]$what) {
