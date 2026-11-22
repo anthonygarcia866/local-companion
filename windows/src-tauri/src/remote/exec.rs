@@ -737,6 +737,18 @@ fn approvers_and_host(s: &super::RemoteSettings) -> (Vec<(super::approve::Approv
     (approvers, s.relay.trim_start_matches("https://").trim_end_matches('/').to_string())
 }
 
+/// Whether `client` may be asking for or given a lease right now, settings
+/// read fresh (review 2026-11-22): the kill switch is off and it is still an
+/// agent client with public key `key` (so one removed and re-added under the
+/// same name never gets the old one's request or lease). Called inside the
+/// lease lock.
+fn may_lease_now(client: &str, key: &str) -> bool {
+    HOOKS.get().is_some_and(|h| {
+        let s = (h.settings)();
+        !s.killed && !key.is_empty() && s.clients().iter().any(|c| c.agent && c.name == client && c.public_key == key)
+    })
+}
+
 /// `lease-request` (owner 2026-11-21, lease.rs): a request sealed to every
 /// approver, a Pushover ping (only while Settings → Phone is on), and the
 /// link and match code in the PC-signed answer, for the agent to forward.
@@ -754,25 +766,40 @@ fn ask_lease(client: &str, hours: u32) -> Result<Ran, String> {
         detail: format!("lease request for {} h: forward this to the owner. Approve at {} · match code {} · lapses {}", p.hours, p.url, p.code, super::runs::utc(p.expires)),
         session: None,
     };
+    let Some(key) = s.clients().into_iter().find(|c| c.agent && c.name == client).map(|c| c.public_key) else { return Err("not-agent".into()) };
     let (Some(rid), Some(code), Some(lock)) = (approve::new_slot_id(), approve::new_match_code(), approve::new_slot_id()) else { return Err("no-randomness".into()) };
-    let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock };
+    let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock, key };
     let req = approve::lease_request(&p, &approvers, &host).ok_or("seal-failed")?;
     p.url = req.url.clone();
     // One open request at a time (the same one again, no new ping) and
     // MAX_REQUESTS_PER_HOUR an hour (review 2026-11-21: no push-bombing).
     // The check and the new request share ONE lease lock (review 2026-11-21):
-    // two lease-requests at once can't both pass may_ask.
-    let opened = lease::with(|l| match l.may_ask(client, now) {
-        lease::Ask::New => Ok(l.request(p.clone(), now)),
-        other => Err(other),
+    // two lease-requests at once can't both pass may_ask. The kill switch and
+    // the client being this agent are read again in that lock, and the slot
+    // is opened at the relay in it (review 2026-11-22): a request opened
+    // after Stop or a removal is never stored, and one stored just before is
+    // voided by it after its slot was opened.
+    let opened = lease::with(|l| {
+        if !may_lease_now(client, &p.key) {
+            return Err(None);
+        }
+        match l.may_ask(client, now) {
+            lease::Ask::New => {
+                if let Some(old) = l.request(p.clone(), now) {
+                    (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string());
+                }
+                (h.send)(req.frame.clone());
+                Ok(())
+            }
+            other => Err(Some(other)),
+        }
     });
     match opened {
-        Err(lease::Ask::Open(open)) => return Ok(answer(&open)),
-        Err(_) => return Err("lease-request-limit".into()),
-        Ok(Some(old)) => (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string()),
-        Ok(None) => {}
+        Err(None) => return Err("killed".into()),
+        Err(Some(lease::Ask::Open(open))) => return Ok(answer(&open)),
+        Err(Some(_)) => return Err("lease-request-limit".into()),
+        Ok(()) => {}
     }
-    (h.send)(req.frame);
     (h.phone)(req.text, req.url.clone());
     crate::log::line("remote: lease requested");
     Ok(answer(&p))
@@ -800,28 +827,41 @@ fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings)
     };
     match judge_lease(answer, &p, &s.approvers) {
         Verdict::Approve => {
-            // The kill switch is read again INSIDE the lease lock (review
-            // 2026-11-21): it sets `killed` before it ends every lease under
-            // that lock, so a grant either sees it or is ended by it.
-            let killed_now = || HOOKS.get().map(|h| (h.settings)().killed).unwrap_or(true);
-            let granted = lease::with(|l| if s.killed || killed_now() { None } else { Some(l.grant(&p, now)) });
+            // The kill switch, and the client still being the same agent
+            // (same key), are read again INSIDE the lease lock (reviews
+            // 2026-11-21/22): the kill switch, client removal and client add
+            // change settings before they end the name's lease under that
+            // lock, so a grant either sees the change or is ended by it.
+            let granted = lease::with(|l| if s.killed || !may_lease_now(&p.client, &p.key) { None } else { Some(l.grant(&p, now)) });
             let Some(old) = granted else {
-                crate::log::line("remote: lease refused killed");
+                crate::log::line("remote: lease refused (killed, or the client is gone)");
                 return true;
             };
             if let Some(old) = old {
                 super::lease_ended(&old, lease::Ended::Replaced, now);
             }
-            // Killed right after the grant (review 2026-11-21): the kill switch
-            // has ended the lease, so no lock slot and no "unlocked" ping.
-            if killed_now() {
-                crate::log::line("remote: lease ended killed right after the grant");
-                return true;
-            }
             let until = now + i64::from(p.hours) * 3600;
             let (approvers, host) = approvers_and_host(s);
-            if let Some((frame, lock_url)) = super::approve::lock_slot(&p.lock, &p.client, until, &approvers, &host) {
-                super::courier::send_frame(frame);
+            let slot = super::approve::lock_slot(&p.lock, &p.client, until, &approvers, &host);
+            // The lock slot is opened only while THIS lease is still held, in
+            // the lease lock (review 2026-11-22): whatever ends it (kill
+            // switch, Lock now, removal) does so under that lock and voids its
+            // slot after, so no slot is left behind and no "unlocked" ping
+            // goes for a lease already ended.
+            let live = lease::with(|l| {
+                let live = l.active_for(&p.client, now).is_some_and(|x| x.lock == p.lock) && may_lease_now(&p.client, &p.key);
+                if live {
+                    if let Some((frame, _)) = &slot {
+                        super::courier::send_frame(frame.clone());
+                    }
+                }
+                live
+            });
+            if !live {
+                crate::log::line("remote: lease ended right after the grant");
+                return true;
+            }
+            if let Some((_, lock_url)) = slot {
                 // The lock link reaches the owner's phone (review 2026-11-21):
                 // Pushover, when on; the page after Approve shows it too.
                 if let Some(h) = HOOKS.get() {

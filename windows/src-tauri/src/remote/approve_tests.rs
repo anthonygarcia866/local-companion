@@ -171,7 +171,7 @@ fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval()
     let phone = Phone::new();
     let approver = Approver { id: "Y3JlZC0x".into(), name: "Example phone".into(), public_key: seal::to_hex(&phone.point()), kind: "passkey".into(), synced: true, added: NOW };
     let key = [5u8; 32];
-    let p = Pending { rid: RID.into(), code: "ABC-DEF".into(), client: "muse".into(), hours: 4, expires: NOW + 1800, url: String::new(), lock: "ee".repeat(16) };
+    let p = Pending { rid: RID.into(), code: "ABC-DEF".into(), client: "muse".into(), hours: 4, expires: NOW + 1800, url: String::new(), lock: "ee".repeat(16), key: "ab".repeat(32) };
     let req = lease_request(&p, &[(approver.clone(), key)], "task-relay.example.workers.dev").unwrap();
     // Pushover: client, length, code; never the relay host. The relay: sealed details only.
     assert!(req.text.contains("muse") && req.text.contains("4 h") && req.text.contains("ABC-DEF"));

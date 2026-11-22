@@ -69,6 +69,10 @@ pub struct Pending {
     pub url: String,
     /// The lock slot the lease will use once granted.
     pub lock: String,
+    /// The asking client's Ed25519 public key (64 hex) when it asked: a grant
+    /// goes only to that same client (review 2026-11-22: one removed and
+    /// re-added under the name gets nothing of the old one's).
+    pub key: String,
 }
 
 /// Why a lease ended.
@@ -223,12 +227,18 @@ impl Leases {
     }
 
     /// `client`'s lease ends now, and any request it has waiting goes. The
-    /// requests' slots are returned, for the caller to void at the relay.
+    /// requests' slots and the lease's lock slot are returned, for the caller
+    /// to void at the relay (review 2026-11-22: no lock slot left behind).
     pub fn end(&mut self, client: &str) -> (Option<Lease>, Vec<String>) {
-        let dropped: Vec<String> = self.pending.iter().filter(|p| p.client == client).map(|p| p.rid.clone()).collect();
+        let mut dropped: Vec<String> = self.pending.iter().filter(|p| p.client == client).map(|p| p.rid.clone()).collect();
         self.pending.retain(|p| p.client != client);
         let i = self.active.iter().position(|l| l.client == client);
         let out = i.map(|i| self.active.remove(i));
+        if let Some(l) = &out {
+            if !l.lock.is_empty() {
+                dropped.push(l.lock.clone());
+            }
+        }
         self.save();
         (out, dropped)
     }
@@ -284,7 +294,7 @@ mod tests {
     const NOW: i64 = 1_795_238_795;
 
     fn pending(client: &str, rid: &str, hours: u32) -> Pending {
-        Pending { rid: rid.into(), code: "ABC-DEF".into(), client: client.into(), hours, expires: NOW + REQUEST_TTL_S, url: "https://example.invalid/#r".into(), lock: format!("{rid}-lock") }
+        Pending { rid: rid.into(), code: "ABC-DEF".into(), client: client.into(), hours, expires: NOW + REQUEST_TTL_S, url: "https://example.invalid/#r".into(), lock: format!("{rid}-lock"), key: "ab".repeat(32) }
     }
 
     #[test]
@@ -338,7 +348,7 @@ mod tests {
         l.request(pending("muse", "r1b", 1), NOW);
         let (ended, voided) = l.end("muse");
         assert!(ended.is_some());
-        assert_eq!(voided, vec!["r1b".to_string()], "its waiting request is voided too");
+        assert_eq!(voided, vec!["r1b".to_string(), "r1-lock".to_string()], "its waiting request and its lock slot are voided too");
         assert!(l.active_for("muse", NOW + 1).is_none());
         assert!(l.end("muse").0.is_none());
         l.grant(&pending("muse", "r2", 1), NOW);

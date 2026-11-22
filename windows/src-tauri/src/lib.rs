@@ -1062,6 +1062,15 @@ fn remote_agent_client_add(app: AppHandle, shared: State<Shared>, name: String, 
             s.claude_accounts = accounts_list.clone();
         }
     });
+    // Nothing left under this name from a client removed before it (review
+    // 2026-11-22): any lease or waiting request ends, its slots voided.
+    let (ended, dropped) = remote::lease::with(|x| x.end(&name));
+    for rid in dropped {
+        remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+    }
+    if let Some(l) = ended {
+        remote::lease_ended(&l, remote::lease::Ended::Removed, remote::now_s());
+    }
     log::line("remote: agent client added");
     Ok(remote_now(&shared))
 }
