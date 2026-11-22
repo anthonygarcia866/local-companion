@@ -732,7 +732,15 @@ pub fn start(
     super::exec::set_hooks(super::exec::Hooks { settings: settings.clone(), send: Arc::new(send_frame), phone });
     // The gate asks whether a Claude account is mapped to a task's client
     // (session commands, owner 2026-11-21); exec reads the same list.
-    let accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::from(accounts);
+    // An agent client never acts as one of the owner's Claude accounts
+    // (review 2026-11-21), whatever settings.json says: accounts mapped to an
+    // agent client's name are dropped here, for the gate and exec alike.
+    let raw_accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::from(accounts);
+    let agent_settings = settings.clone();
+    let accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::new(move || {
+        let agents: Vec<String> = agent_settings().clients().into_iter().filter(|c| c.agent).map(|c| c.name).collect();
+        raw_accounts().into_iter().filter(|a| !agents.contains(&a.client)).collect()
+    });
     let gate_accounts = accounts.clone();
     let link = Arc::new(|s: &RemoteSettings| -> Result<Link, &'static str> {
         let url = relay::endpoint(&s.relay).map_err(|_| "no-relay")?;
