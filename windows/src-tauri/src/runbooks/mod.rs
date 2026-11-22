@@ -163,7 +163,8 @@ pub enum RemoteLevel {
     /// 1, "cloud may run": no ask.
     Cloud,
     /// 2, "ask on my phone": pauses for the owner's phone approval
-    /// (not built yet: refused remotely as `needs-phone`).
+    /// (remote runs pause there, `run_remote_now`; `run_named`, which can't
+    /// pause, refuses it as `needs-phone`).
     Phone,
     /// 3, "never remotely": the default.
     Never,
@@ -921,7 +922,7 @@ impl Refusal {
                 s.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
             ),
             Refusal::NotRemote => "not remote-allowed: set [remote] level in its file and approve it again".into(),
-            Refusal::NeedsPhone => "a step asks on your phone, which isn't built yet: run it from Glim".into(),
+            Refusal::NeedsPhone => "a step asks on your phone, which this way of running can't wait for: run it from Glim".into(),
         }
     }
 
