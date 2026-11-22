@@ -19,6 +19,7 @@
 
 import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus, type PairView } from "../core/bridge";
 import { h, clear } from "../views/dom";
+import { deferWhileTyping, redrawKeeping } from "../views/typing";
 import { t } from "../i18n/i18n";
 
 /** "14:05" from seconds since 1970, local time. */
@@ -41,6 +42,10 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => void) => HTMLElement): HTMLElement {
   const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  // Remote tasks sits after the keep-alive part and is never detached by its
+  // redraw: moving a node takes focus from the field being typed in
+  // (owner 2026-11-21: fields lost focus every 5 s while pairing a phone).
+  const tasks = remoteTasks(toggle);
   const section = h(
     "section",
     { id: "settings-remote" },
@@ -49,12 +54,15 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
       class: "hint",
       text: t("Keeps Claude Code's remote control running for the folders below, so you can reach this PC's Claude Code from your phone or claude.ai. Each one starts when Glim starts, in a terminal window you can see, and starts again if it stops. Nothing else is ever run."),
     }),
-    body,
+    h("div", { style: "display:flex;flex-direction:column;gap:12px" }, body, tasks),
   );
   let status: KeepAliveStatus = { settings: { on: false, consented: false, folders: [], desktopApp: false }, entries: [] };
   let consenting = false;
   let note = "";
-  const tasks = remoteTasks(toggle);
+  /** The folder typed but not added yet: kept across redraws. */
+  let folderDraft = "";
+  /** The 5 s refresh waits while a field here has focus. */
+  const later = deferWhileTyping(body);
 
   async function act(f: () => Promise<KeepAliveStatus | null>) {
     try {
@@ -85,6 +93,10 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
   }
 
   function draw() {
+    redrawKeeping(body, fill);
+  }
+
+  function fill() {
     clear(body);
     const s = status.settings;
     const sw = toggle(s.on, (v) => {
@@ -112,10 +124,16 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
       ));
     }
     const input = h("input", { type: "text", "data-role": "remote-folder", placeholder: t("Project folder, like C:\\path\\to\\project"), spellcheck: "false" }) as HTMLInputElement;
+    input.value = folderDraft;
+    input.addEventListener("input", () => { folderDraft = input.value; });
     const add = h("button", { type: "button", "data-role": "remote-add", text: t("Add") });
     add.addEventListener("click", () => {
       const folder = input.value;
-      void act(() => Bridge.keepAliveAdd(folder));
+      void act(async () => {
+        const next = await Bridge.keepAliveAdd(folder);
+        folderDraft = "";
+        return next;
+      });
     });
     list.append(h("div", { class: "row" }, input, add));
     if (note) list.append(h("div", { class: "hint", "data-role": "remote-note", style: "color:#f4505e", text: note }));
@@ -127,12 +145,14 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
       toggle(s.desktopApp, (v) => void act(() => Bridge.keepAliveDesktop(v))),
       ...(desktop ? [h("span", { class: "hint", text: entryState(desktop, s.on && s.consented) })] : []),
     ));
-    body.append(tasks);
   }
 
+  /** The 5 s refresh: redraws only when something changed, and never under a field with focus. */
   async function load() {
-    status = (await Bridge.keepAliveStatus()) ?? status;
-    draw();
+    const next = (await Bridge.keepAliveStatus()) ?? status;
+    if (JSON.stringify(next) === JSON.stringify(status)) return;
+    status = next;
+    later(draw);
   }
 
   draw();
@@ -206,6 +226,11 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   /** Updated in place by the poll, so typing isn't interrupted. */
   let connectionLine: HTMLElement | null = null;
   let activityBox: HTMLElement | null = null;
+  /** Runbook limits typed but not saved yet (they save on change). */
+  let perClientDraft: string | null = null;
+  let perPcDraft: string | null = null;
+  /** Polls (status 2 s, pairing 2 s) wait while a field here has focus. */
+  const later = deferWhileTyping(box);
 
   async function act(f: () => Promise<RemoteStatus | null>, what = "") {
     try {
@@ -221,7 +246,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         if (savedTimer) clearTimeout(savedTimer);
         savedTimer = setTimeout(() => {
           saved = "";
-          draw();
+          later(draw);
         }, SAVED_MS);
         (savedTimer as { unref?: () => void }).unref?.();
       }
@@ -247,13 +272,17 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   }
 
   async function pollPair() {
+    let next: PairView | null;
     try {
-      pair = await Bridge.remotePairStatus();
+      next = await Bridge.remotePairStatus();
     } catch {
       return;
     }
-    if (!pair || pair.state !== "waiting") stopPairPoll();
-    draw();
+    if (!next || next.state !== "waiting") stopPairPoll();
+    // Still waiting with the same QR code: nothing to redraw.
+    if (JSON.stringify(next) === JSON.stringify(pair)) return;
+    pair = next;
+    later(draw);
   }
 
   function approversBox(): HTMLElement {
@@ -327,9 +356,16 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   }
 
   function runbookLimits(): HTMLElement {
-    const perClient = h("input", { type: "number", min: "1", max: "20", "data-role": "remote-runbooks-client", value: String(status.runbooksPerHour ?? 5), style: "width:5em" }) as HTMLInputElement;
-    const perPc = h("input", { type: "number", min: "1", max: "50", "data-role": "remote-runbooks-pc", value: String(status.runbooksPerHourPc ?? 10), style: "width:5em" }) as HTMLInputElement;
-    const save = () => void act(() => Bridge.remoteRunbookLimits(Number(perClient.value) || 5, Number(perPc.value) || 10));
+    const perClient = h("input", { type: "number", min: "1", max: "20", "data-role": "remote-runbooks-client", value: perClientDraft ?? String(status.runbooksPerHour ?? 5), style: "width:5em" }) as HTMLInputElement;
+    const perPc = h("input", { type: "number", min: "1", max: "50", "data-role": "remote-runbooks-pc", value: perPcDraft ?? String(status.runbooksPerHourPc ?? 10), style: "width:5em" }) as HTMLInputElement;
+    perClient.addEventListener("input", () => { perClientDraft = perClient.value; });
+    perPc.addEventListener("input", () => { perPcDraft = perPc.value; });
+    const save = () => void act(async () => {
+      const next = await Bridge.remoteRunbookLimits(Number(perClient.value) || 5, Number(perPc.value) || 10);
+      perClientDraft = null;
+      perPcDraft = null;
+      return next;
+    });
     perClient.addEventListener("change", save);
     perPc.addEventListener("change", save);
     return h("div", { "data-role": "remote-runbook-limits" },
@@ -358,12 +394,16 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
     const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks", "approvers"] as const).every(same);
-    if (!rest) return draw();
+    if (!rest) return later(draw);
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
   }
 
   function draw() {
+    redrawKeeping(box, fill);
+  }
+
+  function fill() {
     clear(box);
     box.append(h("h3", { text: t("Remote tasks") }));
     box.append(h("div", { class: "hint", text: t("Lets tasks you sign reach this PC through your relay. Only tasks signed with the key below are accepted, each once and within 10 minutes; every answer is signed with this PC's own key.") }));
@@ -544,7 +584,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   draw();
   void (async () => {
     status = (await Bridge.remoteStatus()) ?? status;
-    draw();
+    later(draw);
   })();
   // The connection changes on its own (connects, drops, the PC wakes): read
   // it again every 2 s while this page is open.
