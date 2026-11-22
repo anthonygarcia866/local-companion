@@ -198,6 +198,10 @@ export const Bridge = {
   /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
   remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
   remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
+  /** The commands a cloud client may send (owner 2026-11-21): set on the PC only. */
+  remoteClientCommands: (name: string, commands: string[]) => callOrThrow<RemoteStatus>("remote_client_commands", { name, commands }),
+  /** The Claude account a cloud client acts for; "" = none. */
+  remoteClientAccount: (name: string, account: string) => callOrThrow<RemoteStatus>("remote_client_account", { name, account }),
   /** Settings → Claude Code & Agents → Accounts (accounts.rs). */
   accountsStatus: () => call<ClaudeAccountView[]>("accounts_status"),
   accountsAdd: (name: string, folder: string) => callOrThrow<ClaudeAccountView[]>("accounts_add", { name, folder }),
@@ -494,6 +498,10 @@ export interface RemoteClient {
   fingerprint: string;
   /** Seconds since 1970; 0 = from before cloud clients. */
   added: number;
+  /** The commands it may send (others are refused not-allowed). */
+  commands?: string[];
+  /** The Claude account mapped to it, "" none (no transcript-tail, start-session, send-to-session). */
+  account?: string;
 }
 
 /** Settings → Remote → Remote tasks: never more of the key than its fingerprint. */
@@ -522,6 +530,10 @@ export interface RemoteStatus {
   remoteRunbooks?: string[];
   /** Phone approvers (owner 2026-11-21): added and removed only here. */
   approvers?: RemoteApprover[];
+  /** Every command kind, in order (the clients' checkboxes). */
+  commands?: string[];
+  /** The Claude accounts and the cloud client each acts for ("" none). */
+  accounts?: { name: string; client: string }[];
   /** Newest first. */
   activity: RemoteActivity[];
 }

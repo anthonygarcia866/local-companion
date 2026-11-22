@@ -380,14 +380,14 @@ fn an_older_gate_file_still_keeps_its_seen_ids() {
 }
 
 fn client(name: &str, kp: &Ed25519KeyPair) -> CloudClient {
-    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "ab".repeat(32), added: NOW }
+    CloudClient { name: name.into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "ab".repeat(32), added: NOW, commands: None }
 }
 
 #[test]
 fn the_old_single_key_is_account_1_and_keeps_working_without_re_entering_anything() {
     let kp = signer(7);
     let s = settings_for(&kp);
-    assert_eq!(s.clients(), vec![CloudClient { name: "account-1".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "legacy".into(), added: 0 }]);
+    assert_eq!(s.clients(), vec![CloudClient { name: "account-1".into(), public_key: hex(kp.public_key().as_ref()), token_sha256: "legacy".into(), added: 0, commands: None }]);
     assert_eq!(s.relay_list(), "account-1=legacy");
     let mut g = Gate::default();
     let a = g.accept_from(&s, "account-1", &envelope(&kp, &task(&id(400), "session-status", json!({}))), NOW).unwrap();
@@ -668,4 +668,111 @@ fn no_command_can_carry_remote_limits_or_levels() {
         let r = g.accept(&s, &envelope(&kp, &task(&id(820 + n), cmd, json!({}))), NOW);
         assert_eq!(r.err(), Some(Rejection::UnknownCommand));
     }
+}
+
+/// One task of each kind, with arguments the parser takes.
+fn each_kind() -> Vec<(&'static str, Value)> {
+    vec![
+        ("session-status", json!({})),
+        ("run-status", json!({})),
+        ("transcript-tail", json!({ "repo": "local-companion", "lines": 5 })),
+        ("start-session", json!({ "repo": "local-companion" })),
+        ("send-to-session", json!({ "repo": "local-companion", "session": SESSION, "text": "hi" })),
+        ("runbook", json!({ "name": "phone-test" })),
+        ("keepalive-restart", json!({})),
+    ]
+}
+
+#[test]
+fn a_client_from_before_the_command_list_keeps_every_command() {
+    // Saved before 2026-11-21: no "commands" key at all.
+    let saved: CloudClient = serde_json::from_str(r#"{"name":"account-2","publicKey":"ab","tokenSha256":"cd","added":5}"#).unwrap();
+    assert_eq!(saved.commands, None);
+    assert_eq!(saved.allowed(), COMMANDS.iter().map(|k| k.to_string()).collect::<Vec<_>>());
+    // ... and it is saved back without one (still "all").
+    assert!(!serde_json::to_string(&saved).unwrap().contains("commands"));
+    let kp = signer(7);
+    let s = settings_for(&kp); // the old single key: account-1
+    let mut g = Gate::default();
+    for (n, (cmd, args)) in each_kind().into_iter().enumerate() {
+        let r = g.accept_mapped(&s, "account-1", &envelope(&kp, &task(&id(900 + n), cmd, args)), NOW, true);
+        assert!(r.is_ok(), "{cmd}: {r:?}");
+    }
+}
+
+#[test]
+fn a_client_sends_only_its_ticked_commands_and_the_rest_are_refused_not_allowed_signed_and_listed() {
+    let kp = signer(7);
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    let mut muse = client("muse", &kp);
+    muse.commands = Some(DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect());
+    s.add_client(muse).unwrap();
+    let mut g = Gate::default();
+    for (n, (cmd, args)) in each_kind().into_iter().enumerate() {
+        let tid = id(920 + n);
+        let r = g.accept_mapped(&s, "muse", &envelope(&kp, &task(&tid, cmd, args)), NOW, true);
+        if DEFAULT_COMMANDS.contains(&cmd) {
+            assert!(r.is_ok(), "{cmd}: {r:?}");
+        } else {
+            assert_eq!(r, Err(Rejection::NotAllowed), "{cmd}");
+            let last = g.activity.last().unwrap();
+            // Listed with its id (it verified) and the client, never its arguments.
+            assert_eq!((last.ok, last.reason.as_str(), last.id.as_str(), last.client.as_str()), (false, "not-allowed", tid.as_str(), "muse"));
+            // One outcome per id: the same task can't go through later.
+            assert_eq!(g.accept_mapped(&s, "muse", &envelope(&kp, &task(&tid, "session-status", json!({}))), NOW, true), Err(Rejection::Replay));
+        }
+    }
+    assert_eq!(Rejection::NotAllowed.code(), "not-allowed");
+    // Ticking one more lets it through; unticking takes it away again.
+    let mut more = DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+    more.push("runbook".into());
+    assert!(s.set_client_commands("muse", parse_commands(&more).unwrap()));
+    assert!(g.accept_mapped(&s, "muse", &envelope(&kp, &task(&id(940), "runbook", json!({ "name": "phone-test" }))), NOW, true).is_ok());
+    assert!(s.set_client_commands("muse", vec![]));
+    assert_eq!(g.accept_mapped(&s, "muse", &envelope(&kp, &task(&id(941), "session-status", json!({}))), NOW, true), Err(Rejection::NotAllowed));
+    assert!(!s.set_client_commands("nobody", vec![]));
+    // Refusals don't count against the client's hourly commands.
+    assert_eq!(g.recent.iter().filter(|c| c.client == "muse").count(), 3);
+}
+
+#[test]
+fn session_commands_need_a_claude_account_mapped_to_the_client() {
+    let kp = signer(7);
+    let mut s = RemoteSettings { on: true, consented: true, ..Default::default() };
+    s.add_client(client("muse", &kp)).unwrap(); // every command ticked
+    let mut g = Gate::default();
+    for (n, (cmd, args)) in each_kind().into_iter().enumerate() {
+        let r = g.accept_mapped(&s, "muse", &envelope(&kp, &task(&id(950 + n), cmd, args.clone())), NOW, false);
+        if ACCOUNT_COMMANDS.contains(&cmd) {
+            assert_eq!(r, Err(Rejection::NoAccount), "{cmd}");
+            assert_eq!(g.activity.last().unwrap().reason, "no-account");
+            // With an account mapped, the same kind goes.
+            assert!(g.accept_mapped(&s, "muse", &envelope(&kp, &task(&id(970 + n), cmd, args)), NOW, true).is_ok(), "{cmd}");
+        } else {
+            assert!(r.is_ok(), "{cmd}: {r:?}");
+        }
+    }
+    // Not ticked AND no account: not-allowed (the list is checked first).
+    s.set_client_commands("muse", vec!["session-status".into()]);
+    assert_eq!(g.accept_mapped(&s, "muse", &envelope(&kp, &task(&id(990), "start-session", json!({ "repo": "local-companion" }))), NOW, false), Err(Rejection::NotAllowed));
+}
+
+#[test]
+fn command_lists_from_settings_take_known_kinds_only_once_each_in_order() {
+    let l = |v: &[&str]| v.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+    assert_eq!(parse_commands(&l(&["run-status", "session-status", "run-status"])), Ok(l(&["session-status", "run-status"])));
+    assert_eq!(parse_commands(&l(&[])), Ok(vec![]));
+    assert_eq!(parse_commands(&l(&["session-status", "rm -rf"])), Err("unknown-command"));
+    assert_eq!(parse_commands(&l(&["Session-Status"])), Err("unknown-command"));
+    // A saved list naming something unknown never allows it.
+    let mut c = client("muse", &signer(1));
+    c.commands = Some(l(&["session-status", "format-disk"]));
+    assert!(!c.allows("format-disk"));
+    assert_eq!(c.allowed(), l(&["session-status"]));
+    // COMMANDS covers every kind the parser knows.
+    for (cmd, args) in each_kind() {
+        let parsed = command::parse(cmd, args.as_object().unwrap()).unwrap();
+        assert!(COMMANDS.contains(&parsed.kind()), "{cmd}");
+    }
+    assert_eq!(COMMANDS.len(), 7);
 }
