@@ -175,7 +175,7 @@ The exact owner steps are in HANDOFF (local). In order:
 Each Claude account's cloud sessions get their own client: their own relay token and task-signing key, so one can be revoked without touching the other, and each is rate-limited on its own.
 
 1. On the PC: `node relay/courier.mjs keygen <file>` (a new file, not the first account's; same folder rules), note the printed public key.
-2. Glim: Settings → Remote → Remote tasks → Cloud clients: name `account-2` (filled in) + that public key → **Add cloud client**. Copy the token shown once.
+2. Glim: Settings → Remote → Remote tasks → Cloud clients: name `account-2` (filled in) + that public key → **Add cloud client**. Copy the token shown once. On its row, set **Claude account for its sessions** to the account it acts for (a new client starts with None, and with only `session-status` and `run-status` ticked: tick the rest it needs).
 3. Run the `relay-tokens` runbook: the relay now takes both tokens.
 4. In the second account's claude.ai/code: a new environment for this repo with the same `RELAY_URL`, `GLIM_PC_PUBLIC_KEY`, `GLIM_PC_ENC_KEY` and `NODE_USE_ENV_PROXY=1` as the first, **its own** `GLIM_TASK_SIGNING_KEY` (step 1's file; then delete the file) and **its own** network secret (the token from step 2; exact relay host, path `/v1/`, `Authorization: Bearer <token>`).
 5. From a session there: `node relay/courier.mjs status`, then `send session-status`. Remote activity shows `account-2 · Accepted: session-status`.
@@ -189,7 +189,8 @@ Any agent that can run Node 20+ can use `relay/courier.mjs`, Meta's Muse for exa
 What it needs:
 - **A client of its own** in Settings → Remote → Cloud clients, with its own signing key made by `node relay/courier.mjs keygen <file>` (never another client's key). Give it a name of its own, like `muse`.
 - **Only the commands it needs.** A new client may send only `session-status` and `run-status`; tick more on its row, one at a time, only when you mean it. Anything else is refused `not-allowed`.
-- **No Claude account** unless you want it in your Claude Code sessions: with "Claude account for its sessions" on None, `transcript-tail`, `start-session` and `send-to-session` are refused `no-account` even if ticked.
+- **No Claude account** unless you want it in your Claude Code sessions: with "Claude account for its sessions" on None, `transcript-tail`, `start-session` and `send-to-session` are refused `no-account` even if ticked, and `session-status` / `keepalive-restart` answer `not-your-session`. So without an account it can use `run-status` (its own runs) and, if ticked, `runbook`. A client added (or removed) under a name an account still pointed at starts with None: the account is never inherited.
+- Unticking `runbook` doesn't stop a run that is already paused: a phone approval still resumes it (stop it from the phone, or use the kill switch).
 - **The same settings as cloud Glim**: `RELAY_URL`, `GLIM_PC_PUBLIC_KEY`, `GLIM_PC_ENC_KEY` (public values), plus its own signing key and relay credential.
 
 Secrets go **only in the agent's own secret store** (its environment's secrets or the platform's vault): the signing key file's contents as `GLIM_TASK_SIGNING_KEY`, and the relay credential. Never paste them into the agent's chat, a prompt, a file in a repo or a log; then delete the key file on the PC. If one was ever shown in a chat, remove the client in Settings and make a new one.

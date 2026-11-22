@@ -199,8 +199,10 @@ export function connectionText(code: string): string {
   }
 }
 
-/** Commands that act in a Claude account's sessions (remote::ACCOUNT_COMMANDS). */
+/** Commands refused at the gate without a Claude account (remote::ACCOUNT_COMMANDS). */
 export const SESSION_COMMANDS = ["transcript-tail", "start-session", "send-to-session"];
+/** Commands that do anything only with a Claude account (the others answer not-your-session). */
+export const NEEDS_ACCOUNT = [...SESSION_COMMANDS, "session-status", "keepalive-restart"];
 
 /** How often Remote tasks reads the connection's state again. */
 export const REMOTE_POLL_MS = 2000;
@@ -297,11 +299,15 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const all = status.commands ?? [];
     const mine = new Set(c.commands ?? all);
     const row = h("div", { class: "row", "data-role": "remote-client-commands", style: "flex-wrap:wrap;gap:4px 12px" });
+    const boxes: HTMLInputElement[] = [];
     for (const kind of all) {
       const box = h("input", { type: "checkbox", "data-role": "remote-client-command", "data-command": kind }) as HTMLInputElement;
       box.checked = mine.has(kind);
+      boxes.push(box);
       box.addEventListener("change", () => {
-        const next = all.filter((k) => (k === kind ? box.checked : mine.has(k)));
+        // From the boxes as they are now (review 2026-11-21): two quick
+        // clicks can't send a list that brings back the first one's change.
+        const next = boxes.filter((b) => b.checked).map((b) => b.getAttribute("data-command") ?? "");
         void act(() => Bridge.remoteClientCommands(c.name, next));
       });
       row.append(h("label", { style: "display:inline-flex;gap:4px;align-items:center" }, box, h("span", { text: kind })));
@@ -314,12 +320,12 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     }
     pick.value = c.account ?? "";
     pick.addEventListener("change", () => void act(() => Bridge.remoteClientAccount(c.name, pick.value)));
-    const noAccount = !c.account && [...mine].some((k) => SESSION_COMMANDS.includes(k));
+    const noAccount = !c.account && [...mine].some((k) => NEEDS_ACCOUNT.includes(k));
     return h("div", { "data-role": "remote-client-access" },
       h("label", { text: t("Commands it may send") }),
       row,
       h("div", { class: "row" }, h("label", { text: t("Claude account for its sessions") }), pick),
-      ...(noAccount ? [h("div", { class: "hint", "data-role": "remote-client-no-account", text: t("No Claude account: its transcript-tail, start-session and send-to-session are refused.") })] : []),
+      ...(noAccount ? [h("div", { class: "hint", "data-role": "remote-client-no-account", text: t("No Claude account: its transcript-tail, start-session and send-to-session are refused, and session-status and keepalive-restart answer not-your-session.") })] : []),
     );
   }
 

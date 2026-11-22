@@ -34,16 +34,16 @@
    "ru": "сейчас у {client}",
    "id": "kini milik {client}"
   },
-  "No Claude account: its transcript-tail, start-session and send-to-session are refused.": {
-   "zh-Hans": "没有 Claude 账户：它的 transcript-tail、start-session 和 send-to-session 会被拒绝。",
-   "hi": "कोई Claude खाता नहीं: इसके transcript-tail, start-session और send-to-session अस्वीकार किए जाते हैं।",
-   "es": "Sin cuenta de Claude: se rechazan sus transcript-tail, start-session y send-to-session.",
-   "ar": "لا يوجد حساب Claude: تُرفض أوامره transcript-tail وstart-session وsend-to-session.",
-   "fr": "Aucun compte Claude : ses transcript-tail, start-session et send-to-session sont refusés.",
-   "bn": "কোনো Claude অ্যাকাউন্ট নেই: এর transcript-tail, start-session ও send-to-session প্রত্যাখ্যাত হয়।",
-   "pt-BR": "Sem conta Claude: os transcript-tail, start-session e send-to-session dele são recusados.",
-   "ru": "Нет аккаунта Claude: его transcript-tail, start-session и send-to-session отклоняются.",
-   "id": "Tidak ada akun Claude: transcript-tail, start-session, dan send-to-session-nya ditolak."
+  "No Claude account: its transcript-tail, start-session and send-to-session are refused, and session-status and keepalive-restart answer not-your-session.": {
+   "zh-Hans": "没有 Claude 账户：它的 transcript-tail、start-session 和 send-to-session 会被拒绝，session-status 和 keepalive-restart 会回答 not-your-session。",
+   "hi": "कोई Claude खाता नहीं: इसके transcript-tail, start-session और send-to-session अस्वीकार किए जाते हैं, और session-status व keepalive-restart का उत्तर not-your-session होता है।",
+   "es": "Sin cuenta de Claude: se rechazan sus transcript-tail, start-session y send-to-session, y session-status y keepalive-restart responden not-your-session.",
+   "ar": "لا يوجد حساب Claude: تُرفض أوامره transcript-tail وstart-session وsend-to-session، ويُجيب session-status وkeepalive-restart بـ not-your-session.",
+   "fr": "Aucun compte Claude : ses transcript-tail, start-session et send-to-session sont refusés, et session-status et keepalive-restart répondent not-your-session.",
+   "bn": "কোনো Claude অ্যাকাউন্ট নেই: এর transcript-tail, start-session ও send-to-session প্রত্যাখ্যাত হয়, আর session-status ও keepalive-restart-এর উত্তর not-your-session।",
+   "pt-BR": "Sem conta Claude: os transcript-tail, start-session e send-to-session dele são recusados, e session-status e keepalive-restart respondem not-your-session.",
+   "ru": "Нет аккаунта Claude: его transcript-tail, start-session и send-to-session отклоняются, а session-status и keepalive-restart отвечают not-your-session.",
+   "id": "Tidak ada akun Claude: transcript-tail, start-session, dan send-to-session-nya ditolak, dan session-status serta keepalive-restart menjawab not-your-session."
   },
   "That isn't a command Glim knows.": {
    "zh-Hans": "Glim 不认识这个命令。",
