@@ -770,8 +770,10 @@ fn ask_lease(client: &str, hours: u32) -> Result<Ran, String> {
     let (Some(rid), Some(code), Some(lock)) = (approve::new_slot_id(), approve::new_match_code(), approve::new_slot_id()) else { return Err("no-randomness".into()) };
     let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock, key };
     // The card lists what a leased agent could start as the owner (low 4,
-    // owner 2026-11-22): runbooks whose file says `[remote] level = "cloud"`.
-    let runbooks: Vec<String> = crate::runbooks::remote_names().into_iter().filter_map(|n| n.strip_suffix(" (cloud)").map(str::to_string)).collect();
+    // owner 2026-11-22): every runbook whose file gives it a remote level,
+    // "name (cloud)" or "name (phone)" (review 2026-11-22: phone-level ones
+    // can be started too, each such step then asking the phone).
+    let runbooks = crate::runbooks::remote_names();
     let req = approve::lease_request(&p, &runbooks, &approvers, &host).ok_or("seal-failed")?;
     p.url = req.url.clone();
     // One open request at a time (the same one again, no new ping) and
