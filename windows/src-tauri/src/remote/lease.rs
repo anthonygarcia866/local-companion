@@ -27,6 +27,9 @@ pub const HOURS: &[u32] = &[1, 4, 8, 12];
 pub const REQUEST_TTL_S: i64 = 30 * 60;
 /// Runbook names kept in a lease's summary (the rest only counted).
 const RUNBOOKS_KEPT: usize = 10;
+/// Lease requests a client may open in a rolling hour (review 2026-11-21:
+/// no wearing the owner down with pings).
+pub const MAX_REQUESTS_PER_HOUR: usize = 3;
 
 /// What the client did while leased: command kinds and counts, runbook
 /// names, sessions started or continued.
@@ -100,6 +103,8 @@ impl Ended {
 pub struct Leases {
     pub active: Vec<Lease>,
     pub pending: Vec<Pending>,
+    /// When each client opened a request (Unix s), the last hour's.
+    pub asked: BTreeMap<String, Vec<i64>>,
     path: Option<std::path::PathBuf>,
 }
 
@@ -109,6 +114,19 @@ struct Saved {
     active: Vec<Lease>,
     #[serde(default)]
     pending: Vec<Pending>,
+    #[serde(default)]
+    asked: BTreeMap<String, Vec<i64>>,
+}
+
+/// What a lease-request gets.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Ask {
+    /// Open a new request (none open, under the hourly cap).
+    New,
+    /// One is still open: the same link and code again, no new ping.
+    Open(Pending),
+    /// MAX_REQUESTS_PER_HOUR reached.
+    Limited,
 }
 
 /// The lease length asked for: one of HOURS (default the first).
@@ -122,7 +140,7 @@ pub fn parse_hours(v: Option<u64>) -> Option<u32> {
 impl Leases {
     pub fn load(path: std::path::PathBuf) -> Leases {
         let saved: Saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-        Leases { active: saved.active, pending: saved.pending, path: Some(path) }
+        Leases { active: saved.active, pending: saved.pending, asked: saved.asked, path: Some(path) }
     }
 
     pub fn default_path() -> std::path::PathBuf {
@@ -131,7 +149,7 @@ impl Leases {
 
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        if let Ok(bytes) = serde_json::to_vec(&Saved { active: self.active.clone(), pending: self.pending.clone() }) {
+        if let Ok(bytes) = serde_json::to_vec(&Saved { active: self.active.clone(), pending: self.pending.clone(), asked: self.asked.clone() }) {
             let tmp = path.with_extension("json.tmp");
             if std::fs::write(&tmp, bytes).is_ok() {
                 let _ = std::fs::rename(&tmp, path);
@@ -158,10 +176,25 @@ impl Leases {
         self.active.iter().find(|l| !client.is_empty() && l.client == client && now < l.until)
     }
 
-    /// A new request from `client`: it replaces the client's earlier one
-    /// (whose slot the caller voids: returned).
-    pub fn request(&mut self, p: Pending) -> Option<Pending> {
+    /// Whether `client` may open a request now: never a second one while one
+    /// is open (it gets that one again), at most MAX_REQUESTS_PER_HOUR an hour.
+    pub fn may_ask(&mut self, client: &str, now: i64) -> Ask {
+        if let Some(p) = self.pending.iter().find(|p| p.client == client && now < p.expires) {
+            return Ask::Open(p.clone());
+        }
+        let times = self.asked.entry(client.to_string()).or_default();
+        times.retain(|t| *t > now - 3600);
+        if times.len() >= MAX_REQUESTS_PER_HOUR {
+            return Ask::Limited;
+        }
+        Ask::New
+    }
+
+    /// A new request from `client` (after `may_ask` said New). A lapsed one
+    /// it replaces is returned (the caller voids its slot).
+    pub fn request(&mut self, p: Pending, now: i64) -> Option<Pending> {
         let old = self.pending.iter().position(|x| x.client == p.client).map(|i| self.pending.remove(i));
+        self.asked.entry(p.client.clone()).or_default().push(now);
         self.pending.push(p);
         self.save();
         old
@@ -189,13 +222,15 @@ impl Leases {
         self.active.iter().find(|l| !rid.is_empty() && l.lock == rid).map(|l| l.client.clone())
     }
 
-    /// `client`'s lease ends now (and any request it has waiting goes).
-    pub fn end(&mut self, client: &str) -> Option<Lease> {
+    /// `client`'s lease ends now, and any request it has waiting goes. The
+    /// requests' slots are returned, for the caller to void at the relay.
+    pub fn end(&mut self, client: &str) -> (Option<Lease>, Vec<String>) {
+        let dropped: Vec<String> = self.pending.iter().filter(|p| p.client == client).map(|p| p.rid.clone()).collect();
         self.pending.retain(|p| p.client != client);
         let i = self.active.iter().position(|l| l.client == client);
         let out = i.map(|i| self.active.remove(i));
         self.save();
-        out
+        (out, dropped)
     }
 
     /// The kill switch: every lease and request ends. Returns the leases
@@ -267,7 +302,7 @@ mod tests {
     fn a_lease_exists_only_after_a_granted_request_and_ends_at_its_hour() {
         let mut l = Leases::default();
         assert!(l.active_for("muse", NOW).is_none(), "locked by default");
-        l.request(pending("muse", "r1", 4));
+        l.request(pending("muse", "r1", 4), NOW);
         assert!(l.active_for("muse", NOW).is_none(), "a request is not a lease");
         let p = l.take_pending("r1", NOW + 10).unwrap();
         assert!(l.take_pending("r1", NOW + 11).is_none(), "single use");
@@ -284,10 +319,10 @@ mod tests {
     #[test]
     fn a_late_answer_finds_no_request_and_a_new_request_replaces_the_old() {
         let mut l = Leases::default();
-        l.request(pending("muse", "r1", 1));
+        l.request(pending("muse", "r1", 1), NOW);
         assert!(l.take_pending("r1", NOW + REQUEST_TTL_S).is_none(), "lapsed");
-        l.request(pending("muse", "r2", 1));
-        let old = l.request(pending("muse", "r3", 8)).unwrap();
+        l.request(pending("muse", "r2", 1), NOW);
+        let old = l.request(pending("muse", "r3", 8), NOW).unwrap();
         assert_eq!(old.rid, "r2");
         assert!(l.take_pending("r2", NOW).is_none(), "replaced");
         assert_eq!(l.take_pending("r3", NOW).unwrap().hours, 8);
@@ -300,11 +335,14 @@ mod tests {
         l.grant(&p, NOW);
         assert_eq!(l.lock_slot_client("r1-lock").as_deref(), Some("muse"));
         assert!(l.lock_slot_client("").is_none());
-        assert!(l.end("muse").is_some());
+        l.request(pending("muse", "r1b", 1), NOW);
+        let (ended, voided) = l.end("muse");
+        assert!(ended.is_some());
+        assert_eq!(voided, vec!["r1b".to_string()], "its waiting request is voided too");
         assert!(l.active_for("muse", NOW + 1).is_none());
-        assert!(l.end("muse").is_none());
+        assert!(l.end("muse").0.is_none());
         l.grant(&pending("muse", "r2", 1), NOW);
-        l.request(pending("bot", "r3", 1));
+        l.request(pending("bot", "r3", 1), NOW);
         let (leases, slots) = l.end_all();
         assert_eq!(leases.len(), 1);
         assert_eq!(slots, vec!["r3".to_string(), "r2-lock".to_string()]);
@@ -325,7 +363,7 @@ mod tests {
         l.note("muse", "runbook", "phone-test", NOW + 4);
         l.note("muse", "start-session", "", NOW + 5);
         l.note("bot", "runbook", "other", NOW + 5);
-        let lease = l.end("muse").unwrap();
+        let lease = l.end("muse").0.unwrap();
         assert_eq!(summary(&lease, Ended::Locked), "4 h lease ended (locked): runbook 2, session-status 2, start-session 1; runbooks: phone-test; sessions 1; PRs not tracked (no sandbox yet)");
         assert_eq!(summary(&Lease { hours: 1, ..Default::default() }, Ended::Expired), "1 h lease ended (expired): no commands; sessions 0; PRs not tracked (no sandbox yet)");
         // A command after the lease's end isn't counted on it.
@@ -336,12 +374,35 @@ mod tests {
     }
 
     #[test]
+    fn one_open_request_at_a_time_and_three_an_hour() {
+        let mut l = Leases::default();
+        assert_eq!(l.may_ask("muse", NOW), Ask::New);
+        l.request(pending("muse", "r1", 1), NOW);
+        // Asked again while open: the same request, nothing new to ping.
+        match l.may_ask("muse", NOW + 60) {
+            Ask::Open(p) => assert_eq!(p.rid, "r1"),
+            other => panic!("{other:?}"),
+        }
+        // Declined (used up): a new one may open, up to three in the hour.
+        l.take_pending("r1", NOW + 61);
+        for i in 2..=3 {
+            assert_eq!(l.may_ask("muse", NOW + 100 * i), Ask::New);
+            l.request(pending("muse", &format!("r{i}"), 1), NOW + 100 * i);
+            l.take_pending(&format!("r{i}"), NOW + 100 * i + 1);
+        }
+        assert_eq!(l.may_ask("muse", NOW + 400), Ask::Limited);
+        assert_eq!(l.may_ask("bot", NOW + 400), Ask::New, "per client");
+        // An hour after the first, one more.
+        assert_eq!(l.may_ask("muse", NOW + 3601), Ask::New);
+    }
+
+    #[test]
     fn kept_on_disk_across_restarts() {
         let dir = std::env::temp_dir().join(format!("glim-lease-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("remote-leases.json");
         let mut l = Leases::load(path.clone());
-        l.request(pending("muse", "r1", 1));
+        l.request(pending("muse", "r1", 1), NOW);
         let p = l.take_pending("r1", NOW).unwrap();
         l.grant(&p, NOW);
         let again = Leases::load(path.clone());

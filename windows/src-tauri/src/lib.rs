@@ -1086,8 +1086,13 @@ fn remote_client_remove(app: AppHandle, shared: State<Shared>, name: String) -> 
             s.claude_accounts = accounts_list.clone();
         }
     });
-    // A removed agent client's lease ends with it.
-    if let Some(l) = remote::lease::with(|x| x.end(&name)) {
+    // A removed agent client's lease ends with it (and its waiting request,
+    // and its open runs).
+    let (ended, dropped) = remote::lease::with(|x| x.end(&name));
+    for rid in dropped {
+        remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+    }
+    if let Some(l) = ended {
         remote::lease_ended(&l, remote::lease::Ended::Removed, remote::now_s());
     }
     log::line("remote: cloud client removed");
@@ -1116,8 +1121,13 @@ fn remote_client_commands(app: AppHandle, shared: State<Shared>, name: String, c
 /// takes it from the client it acted for before.
 #[tauri::command]
 fn remote_client_account(app: AppHandle, shared: State<Shared>, name: String, account: String) -> Result<RemoteStatus, String> {
-    if !shared.settings.lock().unwrap().remote.clients().iter().any(|c| c.name == name) {
+    let Some(c) = shared.settings.lock().unwrap().remote.clients().into_iter().find(|c| c.name == name) else {
         return Err(i18n::t("There's no client by that name."));
+    };
+    // An agent client never acts as a Claude account of yours (review
+    // 2026-11-21): its sessions are for the agent sandbox only.
+    if c.agent && !account.is_empty() {
+        return Err(i18n::t("An agent client can't use one of your Claude accounts."));
     }
     let mut list = claude_accounts(&shared);
     if !account.is_empty() && !list.iter().any(|a| a.name == account) {
@@ -1140,7 +1150,11 @@ fn remote_client_account(app: AppHandle, shared: State<Shared>, name: String, ac
 /// summary in Remote activity. On this PC only.
 #[tauri::command]
 fn remote_lease_lock(shared: State<Shared>, name: String) -> Result<RemoteStatus, String> {
-    if let Some(l) = remote::lease::with(|x| x.end(&name)) {
+    let (ended, dropped) = remote::lease::with(|x| x.end(&name));
+    for rid in dropped {
+        remote::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+    }
+    if let Some(l) = ended {
         remote::lease_ended(&l, remote::lease::Ended::Locked, remote::now_s());
         log::line("remote: lease locked in Settings");
     }

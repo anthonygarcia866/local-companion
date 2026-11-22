@@ -337,6 +337,8 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       pick.append(h("option", { value: a.name, text: `${a.name}${taken}` }));
     }
     pick.value = c.account ?? "";
+    // An agent client never acts as one of the owner's Claude accounts.
+    if (c.agent) pick.disabled = true;
     pick.addEventListener("change", () => void act(() => Bridge.remoteClientAccount(c.name, pick.value)));
     const noAccount = !c.account && [...mine].some((k) => NEEDS_ACCOUNT.includes(k));
     return h("div", { "data-role": "remote-client-access" },

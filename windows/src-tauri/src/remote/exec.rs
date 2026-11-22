@@ -750,20 +750,28 @@ fn ask_lease(client: &str, hours: u32) -> Result<Ran, String> {
         return Err("no-approver".into());
     }
     let now = super::now_s();
+    let answer = |p: &lease::Pending| Ran {
+        detail: format!("lease request for {} h: forward this to the owner. Approve at {} · match code {} · lapses {}", p.hours, p.url, p.code, super::runs::utc(p.expires)),
+        session: None,
+    };
+    // One open request at a time (the same one again, no new ping) and
+    // MAX_REQUESTS_PER_HOUR an hour (review 2026-11-21: no push-bombing).
+    match lease::with(|l| l.may_ask(client, now)) {
+        lease::Ask::Open(p) => return Ok(answer(&p)),
+        lease::Ask::Limited => return Err("lease-request-limit".into()),
+        lease::Ask::New => {}
+    }
     let (Some(rid), Some(code), Some(lock)) = (approve::new_slot_id(), approve::new_match_code(), approve::new_slot_id()) else { return Err("no-randomness".into()) };
     let mut p = lease::Pending { rid, code, client: client.to_string(), hours, expires: now + lease::REQUEST_TTL_S, url: String::new(), lock };
     let req = approve::lease_request(&p, &approvers, &host).ok_or("seal-failed")?;
     p.url = req.url.clone();
-    if let Some(old) = lease::with(|l| l.request(p.clone())) {
+    if let Some(old) = lease::with(|l| l.request(p.clone(), now)) {
         (h.send)(serde_json::json!({ "t": "approval-void", "id": old.rid }).to_string());
     }
     (h.send)(req.frame);
     (h.phone)(req.text, req.url.clone());
     crate::log::line("remote: lease requested");
-    Ok(Ran {
-        detail: format!("lease request for {hours} h: forward this to the owner. Approve at {} · match code {} · lapses {}", p.url, p.code, super::runs::utc(p.expires)),
-        session: None,
-    })
+    Ok(answer(&p))
 }
 
 /// An answer to a lease request or a lease's lock slot. True when `rid` was
@@ -773,7 +781,11 @@ fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings)
     use super::lease;
     // A lock slot: any answer locks (like Stop, it needs no signature).
     if let Some(client) = lease::with(|l| l.lock_slot_client(rid)) {
-        if let Some(l) = lease::with(|x| x.end(&client)) {
+        let (ended, dropped) = lease::with(|x| x.end(&client));
+        for d in dropped {
+            super::courier::send_frame(serde_json::json!({ "t": "approval-void", "id": d }).to_string());
+        }
+        if let Some(l) = ended {
             super::lease_ended(&l, lease::Ended::LockedPhone, now);
         }
         crate::log::line("remote: lease locked from the phone");
@@ -784,17 +796,27 @@ fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings)
     };
     match judge_lease(answer, &p, &s.approvers) {
         Verdict::Approve => {
-            if s.killed {
+            // The kill switch is read again INSIDE the lease lock (review
+            // 2026-11-21): it sets `killed` before it ends every lease under
+            // that lock, so a grant either sees it or is ended by it.
+            let killed_now = || HOOKS.get().map(|h| (h.settings)().killed).unwrap_or(true);
+            let granted = lease::with(|l| if s.killed || killed_now() { None } else { Some(l.grant(&p, now)) });
+            let Some(old) = granted else {
                 crate::log::line("remote: lease refused killed");
                 return true;
-            }
-            if let Some(old) = lease::with(|l| l.grant(&p, now)) {
+            };
+            if let Some(old) = old {
                 super::lease_ended(&old, lease::Ended::Replaced, now);
             }
             let until = now + i64::from(p.hours) * 3600;
             let (approvers, host) = approvers_and_host(s);
-            if let Some((frame, _)) = super::approve::lock_slot(&p.lock, &p.client, until, &approvers, &host) {
+            if let Some((frame, lock_url)) = super::approve::lock_slot(&p.lock, &p.client, until, &approvers, &host) {
                 super::courier::send_frame(frame);
+                // The lock link reaches the owner's phone (review 2026-11-21):
+                // Pushover, when on; the page after Approve shows it too.
+                if let Some(h) = HOOKS.get() {
+                    (h.phone)(format!("Glim: {} is unlocked for {} h, until {}. Open this to lock it sooner.", p.client, p.hours, super::runs::utc(until)), lock_url);
+                }
             }
             super::with(|g| g.note_lease(&p.client, "lease-granted", &format!("{} h lease, until {}", p.hours, super::runs::utc(until)), now));
             crate::log::line("remote: lease granted");

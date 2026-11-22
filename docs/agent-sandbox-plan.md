@@ -25,9 +25,10 @@ New-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Sp
 
 ```powershell
 New-Item -ItemType Directory C:\GlimAgent\work
-icacls C:\GlimAgent /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "${env:USERNAME}:(OI)(CI)F" "glim-agent:(OI)(CI)M"
+# SIDs, not names (SYSTEM / Administrators are localized on non-English Windows):
+icacls C:\GlimAgent /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "${env:USERNAME}:(OI)(CI)F" "glim-agent:(OI)(CI)M"
 # Belt and braces on top of the default profile ACL (you/SYSTEM/Administrators only):
-icacls %USERPROFILE% /deny "glim-agent:(OI)(CI)F"
+icacls $env:USERPROFILE /deny "glim-agent:(OI)(CI)F"
 ```
 
 What it can't reach:
@@ -45,10 +46,10 @@ It must fail on every path except `C:\GlimAgent`. I'll also list every folder on
 **How Glim starts a sandbox process:**
 1. `CreateProcessWithLogonW(glim-agent, password from your vault, LOGON_WITH_PROFILE)`.
 2. The environment block is built from glim-agent's own profile (`CreateEnvironmentBlock(…, bInherit=FALSE)`). None of your variables come along, so `CLOUDFLARE_API_TOKEN` and `SUPABASE_ACCESS_TOKEN` are not inherited. A test checks this.
-3. The process runs in a job object that Glim kills when the lease ends, on the kill switch, or on "Lock now".
+3. The process runs in a job object that Glim kills when the lease ends, on the kill switch, or on "Lock now". `CreateProcessWithLogonW` doesn't put the new process in Glim's own job, so it is created suspended, assigned to the job (`AssignProcessToJobObject`), then resumed.
 4. The working folder is always under `C:\GlimAgent\work`.
 
-**Network:** the sandbox can reach the internet. Claude Code needs api.anthropic.com and git needs github.com. Windows Firewall can't filter by local user without an AppContainer, so the limit is what it holds: only its own credentials.
+**Network:** the sandbox can reach the internet. Claude Code needs api.anthropic.com and git needs github.com. Per-user outbound filtering (`New-NetFirewallRule -LocalUser`) may work on this Windows edition; I'd test it before relying on it. Until then, the limit is what it holds: only its own credentials.
 
 ## 3. Its Claude login
 
@@ -77,6 +78,8 @@ The constraint: a fine-grained token on YOUR account acts as you, so any rule yo
 Why forks:
 - Workflows from fork PRs get **no secrets**.
 - With "Require approval for all outside collaborators" (Settings → Actions → General, which I'd turn on for each chosen repo), they don't even run until you approve.
+- That holds only for workflows triggered by `pull_request`. Any `pull_request_target` or `workflow_run` workflow runs with your secrets on fork PRs, so each chosen repo is audited for those first.
+- For private repos, "Send secrets and variables to workflows from fork pull requests" must stay off.
 - A same-repo branch push would run `push` workflows **with** your repo secrets. That is the hole this closes.
 
 **To verify before relying on it:** whether a fine-grained PAT owned by the machine account can open the PR on your repo. GitHub's support for cross-owner fine-grained PRs is limited. If it can't:
@@ -98,4 +101,4 @@ Not recommended.
    - Which repos? local-companion only to start?
 4. Turn on "Require approval for all outside collaborators" for Actions on those repos. **Yes / no**
 
-Until (b) is approved and built, an agent client's session commands stay refused even with a lease (`no-sandbox`), so nothing an agent starts ever runs as you.
+Until (b) is approved and built, an agent client's session commands stay refused even with a lease (`no-sandbox`). Runbooks it starts still run as you, as every remote runbook does: only those whose file allows it, each `phone` step waiting for your Face ID.

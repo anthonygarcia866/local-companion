@@ -768,9 +768,16 @@ pub fn lease_sweep(now: i64) {
 }
 
 /// A lease ended (any way): noted with its summary; its lock slot voided.
+/// Locked, killed or removed: the client's open runbook runs end `killed`
+/// too (a run started under the lease doesn't outlive a deliberate lock).
 pub fn lease_ended(l: &lease::Lease, why: lease::Ended, now: i64) {
     if !l.lock.is_empty() {
         courier::send_frame(serde_json::json!({ "t": "approval-void", "id": l.lock }).to_string());
+    }
+    if matches!(why, lease::Ended::Locked | lease::Ended::LockedPhone | lease::Ended::Removed | lease::Ended::Killed) {
+        for rid in runs::with(|r| r.kill_client(&l.client, now)) {
+            courier::send_frame(serde_json::json!({ "t": "approval-void", "id": rid }).to_string());
+        }
     }
     with(|g| g.note_lease(&l.client, "lease-ended", &lease::summary(l, why), now));
 }

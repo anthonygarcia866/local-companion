@@ -216,6 +216,23 @@ impl Runs {
         voided
     }
 
+    /// `client`'s open runs end `killed` (its lease was locked or the client
+    /// removed: review 2026-11-21). Returns the approval requests voided.
+    pub fn kill_client(&mut self, client: &str, now: i64) -> Vec<String> {
+        let mut voided = Vec::new();
+        for run in self.runs.iter_mut().filter(|r| r.open() && r.client == client) {
+            run.state = RunState::Killed;
+            run.expires = 0;
+            run.updated = now;
+            run.url.clear();
+            if !run.approval.is_empty() {
+                voided.push(std::mem::take(&mut run.approval));
+            }
+        }
+        self.save();
+        voided
+    }
+
     /// A paused run now waits on approval request `rid` (code `code`).
     pub fn set_approval(&mut self, id: &str, rid: &str, code: &str, url: &str) {
         if let Some(run) = self.runs.iter_mut().find(|r| r.id == id && r.state == RunState::Paused) {
