@@ -52,7 +52,11 @@ Before any session runs, a check script (also shown to you first) proves it. As 
 - list Credential Manager
 - read every drive root
 
-It must fail on every path except `C:\GlimAgent`. I'll also list every folder on C:\ and other drives where `Users`, `Authenticated Users` or `Everyone` can write, and report them to you. Some are normal (`C:\Users\Public`, `ProgramData`); you decide on any others.
+It must fail on every path except `C:\GlimAgent`.
+
+> **Amended 2026-11-22 (while writing `check.ps1`):** "every path except `C:\GlimAgent`" can't hold for drive roots: any Windows user may list `C:\`, and folders anyone can read stay readable (that's what the writable-folder list below is for). So `check.ps1` FAILS on the owner's profile and every login/vault folder named above (plus `%LOCALAPPDATA%\Glim`, `%APPDATA%\Glim`, `~\.claude2`, G:), on any of `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN` in its environment, and on any `Glim/` entry in its vault; drive roots are listed for the owner as information.
+
+I'll also list every folder on C:\ and other drives where `Users`, `Authenticated Users` or `Everyone` can write, and report them to you. Some are normal (`C:\Users\Public`, `ProgramData`); you decide on any others.
 
 **How Glim starts a sandbox process:**
 1. `CreateProcessWithLogonW(glim-agent, password from your vault, LOGON_WITH_PROFILE)`.
@@ -142,7 +146,7 @@ Also decided: **no Pushover.** Muse forwards approval links; until Muse is conne
 Each PR: CI green, a fresh-agent security review with no critical/high, merge commit. Owner steps are shown in full before they're needed.
 
 1. **Pending approvals in Settings → Remote** (built 2026-11-22, branch `remote-pending-approvals`, `remote/pending.rs`). A card listing each paused run's and each lease request's approval as a QR code of its link plus the match code, so the owner can approve without Pushover. Nothing new leaves the PC.
-2. **Agent user setup script** (`scripts/agent-sandbox/setup.ps1`, run by the owner, elevated): §1 user (random password into the owner's vault), §2 folder ACLs, sign-in hiding, the logon-right denials. Plus `check.ps1` (§2's proofs). **Owner: one UAC prompt (Windows password).**
+2. **Agent user setup script** (built 2026-11-22, branch `agent-sandbox-setup`; `scripts/agent-sandbox/`: `setup.ps1 [-DryRun] [-RotatePassword]`, `check.ps1`, `remove.ps1 [-DryRun]`, `cred.ps1`, `probe.ps1`; run by the owner, elevated): §1 user (random password into the owner's vault), §2 folder ACLs, sign-in hiding, the logon-right denials. Plus `check.ps1` (§2's proofs). **Owner: one UAC prompt (Windows password).**
 3. **Network limit:** the allowlisting proxy (GitHub hosts + `api.anthropic.com`, CONNECT only) and the per-user firewall rule, with the empirical checks (`example.com` refused direct and via proxy; GitHub and the API reachable). **Owner: one UAC prompt** for the firewall rule.
 4. **API key for glim-agent:** the launcher that reads glim-agent's vault. **Owner: create the workspace + $50 limit + key in the Console, then paste the key into the console window opened as glim-agent.**
 5. **Machine account + fork + PAT:** **Owner: sign up the machine account** (its own email; GitHub allows one free machine account per person), then create its fine-grained PAT (only its forks; Contents + Pull requests read/write; 30 days) and paste it into the glim-agent console. Then the cross-owner PR check (§4).
