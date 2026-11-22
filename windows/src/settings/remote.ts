@@ -175,7 +175,6 @@ export function activityLine(a: RemoteActivity): string {
   return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind }) : t("Refused: {reason}", { reason: a.reason })}`;
 }
 
-/** The first free "account-N" (account-1, account-2 ...). */
 /** A waiting approval's title: the run's runbook and step, or the lease's hours. */
 export function waitingTitle(w: RemoteWaiting): string {
   return w.kind === "lease"
@@ -183,6 +182,7 @@ export function waitingTitle(w: RemoteWaiting): string {
     : t("{client}: {runbook}, step {step} of {total}", { client: w.client, runbook: w.runbook, step: String(w.step), total: String(w.total) });
 }
 
+/** The first free "account-N" (account-1, account-2 ...). */
 export function nextClientName(clients: RemoteClient[]): string {
   for (let n = 1; ; n++) if (!clients.some((c) => c.name === `account-${n}`)) return `account-${n}`;
 }
@@ -450,7 +450,10 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         Bridge.remoteApprovalQr(w.rid).then((s) => {
           qrs.set(w.rid, s);
           later(draw);
-        }, () => {});
+        }, () => {
+          // Asked again on the next redraw (a request that just opened, an IPC hiccup).
+          qrAsked.delete(w.rid);
+        });
       }
       card.append(h("div", { "data-role": "remote-waiting-item", "data-kind": w.kind },
         h("div", { class: "name", text: waitingTitle(w) }),
@@ -542,7 +545,12 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
 
     const waiting = status.pending ?? [];
     if (waiting.length > 0) box.append(waitingBox(waiting));
-    for (const rid of [...qrs.keys()]) if (!waiting.some((w) => w.rid === rid)) qrs.delete(rid);
+    for (const rid of [...qrs.keys(), ...qrAsked]) {
+      if (!waiting.some((w) => w.rid === rid)) {
+        qrs.delete(rid);
+        qrAsked.delete(rid);
+      }
+    }
 
     const clients = h("div", { "data-role": "remote-clients" }, h("label", { text: t("Cloud clients") }));
     if (status.clients.length === 0) clients.append(h("div", { class: "hint", text: t("No cloud clients yet.") }));
