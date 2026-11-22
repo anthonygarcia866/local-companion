@@ -180,6 +180,11 @@ pub struct CloudClient {
     /// added since starts with DEFAULT_COMMANDS.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commands: Option<Vec<String>>,
+    /// A token-less agent client (owner 2026-11-21): no relay token at all;
+    /// the relay checks a signature with `public_key` on each of its
+    /// requests (relay/src/agentauth.js). `token_sha256` is "".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
 }
 
 impl CloudClient {
@@ -223,7 +228,7 @@ impl RemoteSettings {
     /// signer key as "account-1".
     pub fn clients(&self) -> Vec<CloudClient> {
         if self.clients.is_empty() && !self.public_key.is_empty() {
-            return vec![CloudClient { name: LEGACY_CLIENT.into(), public_key: self.public_key.clone(), token_sha256: LEGACY_TOKEN.into(), added: 0, commands: None }];
+            return vec![CloudClient { name: LEGACY_CLIENT.into(), public_key: self.public_key.clone(), token_sha256: LEGACY_TOKEN.into(), added: 0, commands: None, agent: false }];
         }
         self.clients.clone()
     }
@@ -278,7 +283,10 @@ impl RemoteSettings {
         if list.is_empty() {
             return "none".into();
         }
-        list.iter().map(|c| format!("{}={}", c.name, c.token_sha256)).collect::<Vec<_>>().join(",")
+        list.iter()
+            .map(|c| if c.agent { format!("{}=key:{}", c.name, c.public_key) } else { format!("{}={}", c.name, c.token_sha256) })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     /// The channel opens again (the kill switch's "Allow again", or Remote

@@ -118,7 +118,7 @@ jobs:
       # (relay/): tokens, delivery, expiry, signatures both ways; phone
       # approval slots, capped bodies and rate limits (approvals.test.mjs).
       - name: Relay tests
-        run: node --test ../relay/test/relay.test.mjs ../relay/test/approvals.test.mjs
+        run: node --test ../relay/test/relay.test.mjs ../relay/test/approvals.test.mjs ../relay/test/agentauth.test.mjs
 
       # The mascot in a real Chromium (headless Edge): pixels against the
       # approved design, and prefers-reduced-motion emulated.

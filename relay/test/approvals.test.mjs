@@ -69,7 +69,7 @@ test("the Worker routes phone requests without a token, with CORS only for the p
   const approvals = fs.readFileSync(path.join(here, "../src/approvals.js"), "utf8");
   assert.match(index, /PAGE_ORIGIN = "https:\/\/anthonygarcia866\.github\.io"/);
   assert.ok(!/access-control-allow-origin": "\*"/.test(index), "never a wildcard origin");
-  assert.match(index, /\[CLIENT_HEADER, "authorization", "content-length", "transfer-encoding"\]\) headers\.delete\(h\)/, "a phone request never carries a token (or a client name) inward");
+  assert.match(index, /\[CLIENT_HEADER, NONCE_HEADER, "authorization", "content-length", "transfer-encoding"\]\) headers\.delete\(h\)/, "a phone request never carries a token, a client name or an agent nonce inward");
   for (const src of [index, approvals]) assert.ok(!/console\./.test(src), "nothing printed");
 });
 

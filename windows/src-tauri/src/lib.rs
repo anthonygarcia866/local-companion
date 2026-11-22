@@ -814,6 +814,8 @@ struct RemoteClientView {
     /// The Claude account mapped to it, "" none (then no transcript-tail,
     /// start-session or send-to-session).
     account: String,
+    /// A token-less agent client (public key only).
+    agent: bool,
 }
 
 /// The Claude accounts as the courier sees them (accounts::list).
@@ -841,6 +843,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
                 added: c.added,
                 commands: c.allowed(),
                 account: accounts::for_client(&accounts_list, &c.name).map(|a| a.name.clone()).unwrap_or_default(),
+                agent: c.agent,
             })
             .collect(),
         relay: s.relay.clone(),
@@ -1002,7 +1005,7 @@ fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: S
     // A new client may send only session-status and run-status until the
     // owner ticks more (owner 2026-11-21).
     let commands = Some(remote::DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect());
-    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: hash, added: remote::now_s(), commands }).map_err(|why| match why {
+    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: hash, added: remote::now_s(), commands, agent: false }).map_err(|why| match why {
         "name-taken" => i18n::t("There's already a client by that name."),
         "key-taken" => i18n::t("Another client already uses that key."),
         _ => i18n::t("That's as many clients as Glim keeps."),
@@ -1015,6 +1018,36 @@ fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: S
     });
     log::line("remote: cloud client added");
     Ok(RemoteClientAnswer { status: remote_now(&shared), cloud_token: token })
+}
+
+/// "Add agent client (public key only)" (owner 2026-11-21): a token-less
+/// client, for an agent such as Muse. No token is made: the relay checks a
+/// signature with this key on each of its requests (relay/src/agentauth.js)
+/// once the relay-tokens runbook has handed it the new list. It starts with
+/// session-status and run-status only, and no Claude account.
+#[tauri::command]
+fn remote_agent_client_add(app: AppHandle, shared: State<Shared>, name: String, key: String) -> Result<RemoteStatus, String> {
+    let name = remote::parse_client_name(&name).map_err(|_| i18n::t("A client's name is 1-32 letters, digits or dashes, like account-2."))?;
+    let key = remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))?;
+    let mut next = shared.settings.lock().unwrap().remote.clone();
+    let commands = Some(remote::DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect());
+    next.add_client(remote::CloudClient { name: name.clone(), public_key: key, token_sha256: String::new(), added: remote::now_s(), commands, agent: true }).map_err(|why| match why {
+        "name-taken" => i18n::t("There's already a client by that name."),
+        "key-taken" => i18n::t("Another client already uses that key."),
+        _ => i18n::t("That's as many clients as Glim keeps."),
+    })?;
+    remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    let mut accounts_list = claude_accounts(&shared);
+    let unmapped = accounts::unmap(&mut accounts_list, &name);
+    update_settings(&app, &shared, |s| {
+        s.remote.clients = next.clients.clone();
+        s.remote.public_key = next.public_key.clone();
+        if unmapped {
+            s.claude_accounts = accounts_list.clone();
+        }
+    });
+    log::line("remote: agent client added");
+    Ok(remote_now(&shared))
 }
 
 /// "Remove": its tasks are refused at once here; the relay stops taking its
@@ -2293,6 +2326,7 @@ pub fn run() {
             accounts_remove,
             remote_client_remove,
             remote_client_commands,
+            remote_agent_client_add,
             remote_client_account,
             remote_kill,
             capture_allow,

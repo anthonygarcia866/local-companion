@@ -3,7 +3,9 @@
 // Logs/observability are off (wrangler.toml): nothing about a request is
 // logged by this code.
 //
-// Routes (each needs its own bearer token; the Worker holds only hashes):
+// Routes (each needs its own bearer token; the Worker holds only hashes; or,
+// for a token-less agent client, a request signed with its key: GlimSig,
+// agentauth.js, owner 2026-11-21; never the PC's route):
 //   GET  /v1/pc               PC token: WebSocket (hibernatable). Pending
 //                             tasks arrive at once, new ones as they're
 //                             queued, each stamped with the cloud client
@@ -35,6 +37,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, CLIENT_NAME, LEGACY_CLIENT, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
 import { Approvals, MAX_ANSWER_BYTES, phoneRateLimit, readCapped } from "./approvals.js";
+import { NONCE_KEEP_S, SCHEME, signedCaller } from "./agentauth.js";
 
 /** The approval page (GitHub Pages, approve/ in the repo): the only origin
  * a browser may call the phone routes from. */
@@ -49,6 +52,9 @@ const phoneJson = (status, body) => new Response(JSON.stringify(body), { status,
 
 /** Set by the Worker (never by the caller) for the Durable Object. */
 const CLIENT_HEADER = "x-relay-client";
+/** A signed agent request's nonce, set by the Worker (never the caller): the
+ * Durable Object accepts each (client, nonce) once. */
+const NONCE_HEADER = "x-relay-nonce";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
@@ -75,20 +81,45 @@ export default {
         body = r.text;
       }
       const headers = new Headers(request.headers);
-      for (const h of [CLIENT_HEADER, "authorization", "content-length", "transfer-encoding"]) headers.delete(h);
+      for (const h of [CLIENT_HEADER, NONCE_HEADER, "authorization", "content-length", "transfer-encoding"]) headers.delete(h);
       headers.set(PHONE_HEADER, "1");
       const stub = env.RELAY.get(env.RELAY.idFromName("mailbox"));
       return stub.fetch(new Request(request.url, { method: request.method, headers, body }));
     }
-    const who = await caller(request.headers.get("authorization"), env);
-    if (!who) return json(401, { error: "unauthorized" });
     const url = new URL(request.url);
     const pcRoute = url.pathname === "/v1/pc";
+    const authorization = request.headers.get("authorization") || "";
+    // Token-less agent clients (owner 2026-11-21, agentauth.js): the request
+    // is signed with the client's key. The body is read here, capped, so its
+    // hash can be checked, and forwarded exactly as read.
+    if (authorization.startsWith(`${SCHEME} `)) {
+      if (pcRoute) return json(403, { error: "wrong-token" });
+      let body = "";
+      if (request.method === "POST") {
+        const r = await readCapped(request, MAX_TASK_BYTES);
+        if (!r.ok) return json(r.status, { error: r.error });
+        body = r.text;
+      } else if (request.method !== "GET" && request.method !== "DELETE") {
+        return json(405, { error: "method" });
+      }
+      const signed = await signedCaller(authorization, { method: request.method, host: url.host, path: url.pathname + url.search, body }, env, Math.floor(Date.now() / 1000));
+      if (!signed) return json(401, { error: "unauthorized" });
+      const headers = new Headers(request.headers);
+      for (const h of [CLIENT_HEADER, NONCE_HEADER, PHONE_HEADER, "authorization", "content-length", "transfer-encoding"]) headers.delete(h);
+      headers.set(CLIENT_HEADER, signed.client);
+      headers.set(NONCE_HEADER, signed.nonce);
+      const stub = env.RELAY.get(env.RELAY.idFromName("mailbox"));
+      return stub.fetch(new Request(request.url, { method: request.method, headers, body: request.method === "POST" ? body : null }));
+    }
+    const who = await caller(authorization, env);
+    if (!who) return json(401, { error: "unauthorized" });
     if (pcRoute !== (who.role === "pc")) return json(403, { error: "wrong-token" });
     const stub = env.RELAY.get(env.RELAY.idFromName("mailbox"));
-    // Whatever the caller sent under this name is replaced.
+    // Whatever the caller sent under these names is replaced or dropped.
     const forwarded = new Request(request);
     forwarded.headers.delete(CLIENT_HEADER);
+    forwarded.headers.delete(NONCE_HEADER);
+    forwarded.headers.delete(PHONE_HEADER);
     if (who.role === "cloud") forwarded.headers.set(CLIENT_HEADER, who.client);
     return stub.fetch(forwarded);
   },
@@ -101,6 +132,7 @@ class SqlStore {
     sql.exec("CREATE TABLE IF NOT EXISTS results (id TEXT PRIMARY KEY, exp INTEGER NOT NULL, body TEXT NOT NULL)");
     // last_seen (2026-11-19): one row, the PC's last sign of life (ms).
     sql.exec("CREATE TABLE IF NOT EXISTS seen (k INTEGER PRIMARY KEY CHECK (k = 1), ms INTEGER NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS nonces (k TEXT PRIMARY KEY, exp INTEGER NOT NULL)");
     // Cloud clients (2026-11-15): rows from before belong to account-1.
     for (const table of ["tasks", "results"]) {
       const cols = sql.exec(`PRAGMA table_info(${table})`).toArray().map((c) => c.name);
@@ -154,6 +186,10 @@ class SqlStore {
   }
   seenMs() { const r = this.one("SELECT ms FROM seen WHERE k = 1"); return r ? r.ms : null; }
   setSeenMs(ms) { this.sql.exec("INSERT OR REPLACE INTO seen (k, ms) VALUES (1, ?)", ms); }
+  // Agent request nonces (2026-11-21): kept about two minutes.
+  hasNonce(key) { return this.one("SELECT 1 AS x FROM nonces WHERE k = ?", key) !== null; }
+  putNonce(key, exp) { this.sql.exec("INSERT INTO nonces (k, exp) VALUES (?, ?)", key, exp); }
+  deleteNonces(now) { this.sql.exec("DELETE FROM nonces WHERE exp < ?", now); }
 }
 
 /** Approval and pairing slots (approvals.js's store). */
@@ -228,6 +264,13 @@ export class Mailbox extends DurableObject {
     const named = request.headers.get(CLIENT_HEADER) || "";
     const client = CLIENT_NAME.test(named) ? named : null;
     if (url.pathname !== "/v1/pc" && client === null) return json(403, { error: "wrong-token" });
+    // A signed agent request: each nonce once (the Worker checked the
+    // signature and the time and set this header; a caller's own is dropped).
+    const nonce = request.headers.get(NONCE_HEADER);
+    if (nonce !== null) {
+      if (client === null || url.pathname === "/v1/pc" || !/^[0-9a-f]{32}$/.test(nonce)) return json(401, { error: "unauthorized" });
+      if (!this.relay.useNonce(client, nonce, now(), NONCE_KEEP_S)) return json(401, { error: "replay" });
+    }
     if (url.pathname === "/v1/pc") {
       if (request.headers.get("upgrade") !== "websocket") return json(426, { error: "websocket-only" });
       // One PC: a new connection replaces the old one.

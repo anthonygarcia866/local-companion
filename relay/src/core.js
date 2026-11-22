@@ -297,6 +297,18 @@ export class Relay {
     if (cur === null || ms > cur) this.store.setSeenMs(Math.floor(ms));
   }
 
+  /**
+   * A signed agent request's nonce (agentauth.js): true the first time a
+   * client uses it within the window, false for a replay. Old ones go first.
+   */
+  useNonce(client, nonce, now, keepS) {
+    this.store.deleteNonces(now);
+    const key = `${client}:${nonce}`;
+    if (this.store.hasNonce(key)) return false;
+    this.store.putNonce(key, now + keepS);
+    return true;
+  }
+
   /** When the alarm should next clear expired rows (ms), or null. */
   nextPurgeMs() {
     const e = this.store.earliestExp();
@@ -355,4 +367,8 @@ export class MemoryStore {
   /** When the PC was last seen (ms), or null. */
   seenMs() { return this.seen === undefined ? null : this.seen; }
   setSeenMs(ms) { this.seen = ms; }
+  /** Agent request nonces: key -> expiry (Unix s). */
+  hasNonce(key) { return (this.n || new Map()).has(key); }
+  putNonce(key, exp) { (this.n ||= new Map()).set(key, exp); }
+  deleteNonces(now) { for (const [k, exp] of this.n || []) if (exp < now) this.n.delete(k); }
 }

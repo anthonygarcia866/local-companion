@@ -79,7 +79,7 @@ fn a_new_cloud_client_token_is_random_and_only_its_hash_reaches_the_relay_list()
     assert_ne!(t1, t2);
     assert_eq!(h1, courier::sha256_hex(&t1));
     let mut s = RemoteSettings { public_key: "ab".repeat(32), ..Default::default() };
-    s.add_client(super::CloudClient { name: "account-2".into(), public_key: "cd".repeat(32), token_sha256: h1.clone(), added: 5, commands: None }).unwrap();
+    s.add_client(super::CloudClient { name: "account-2".into(), public_key: "cd".repeat(32), token_sha256: h1.clone(), added: 5, commands: None, agent: false }).unwrap();
     let store = crate::secrets::MemoryStore::default();
     courier::save_client_list(&s, &store).unwrap();
     let list = store.0.borrow().iter().find(|(k, _)| k.ends_with(courier::CLOUD_CLIENTS_SECRET)).map(|(_, (v, _))| v.clone()).unwrap();
@@ -226,7 +226,7 @@ fn from_client(kp: &Ed25519KeyPair, id: &str, client: &str) -> String {
 fn two_cloud_clients_work_at_the_same_time_each_with_its_own_key_and_removing_one_leaves_the_other() {
     with_courier(Duration::from_millis(200), quick(), |server, rig| async move {
         let second = Ed25519KeyPair::from_seed_unchecked(&[11; 32]).unwrap();
-        rig.settings.lock().unwrap().add_client(super::CloudClient { name: "account-2".into(), public_key: hex(second.public_key().as_ref()), token_sha256: "ab".repeat(32), added: 1, commands: None }).unwrap();
+        rig.settings.lock().unwrap().add_client(super::CloudClient { name: "account-2".into(), public_key: hex(second.public_key().as_ref()), token_sha256: "ab".repeat(32), added: 1, commands: None, agent: false }).unwrap();
         let mut c = accept(&server).await;
         // Both at once: each runs (the exec is slow, so they overlap).
         c.send(&from_client(&rig.cloud, "two-clients-a-0001", "account-1")).await;
