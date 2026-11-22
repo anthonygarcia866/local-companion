@@ -1012,9 +1012,16 @@ fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: S
     })?;
     // The relay's list first: if it can't be saved, nothing changed.
     remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    // A new client starts with no Claude account, whatever an account
+    // remembered for that name (review 2026-11-21): the owner picks one.
+    let mut accounts_list = claude_accounts(&shared);
+    let unmapped = accounts::unmap(&mut accounts_list, &name);
     update_settings(&app, &shared, |s| {
         s.remote.clients = next.clients.clone();
         s.remote.public_key = next.public_key.clone();
+        if unmapped {
+            s.claude_accounts = accounts_list.clone();
+        }
     });
     log::line("remote: cloud client added");
     Ok(RemoteClientAnswer { status: remote_now(&shared), cloud_token: token })
@@ -1059,9 +1066,16 @@ fn remote_client_remove(app: AppHandle, shared: State<Shared>, name: String) -> 
         return Err(i18n::t("There's no client by that name."));
     }
     remote::courier::save_client_list(&next, &secrets::store()).map_err(|_| i18n::t("Couldn't save the relay's list."))?;
+    // Its Claude account is freed, so a client added later under the same
+    // name doesn't inherit it (review 2026-11-21).
+    let mut accounts_list = claude_accounts(&shared);
+    let unmapped = accounts::unmap(&mut accounts_list, &name);
     update_settings(&app, &shared, |s| {
         s.remote.clients = next.clients.clone();
         s.remote.public_key = next.public_key.clone();
+        if unmapped {
+            s.claude_accounts = accounts_list.clone();
+        }
     });
     log::line("remote: cloud client removed");
     Ok(remote_now(&shared))

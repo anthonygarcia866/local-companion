@@ -519,7 +519,8 @@ impl Gate {
     }
 
     /// A task from the single signer of before cloud clients ("account-1"),
-    /// as if a Claude account were mapped to it (tests).
+    /// as if a Claude account were mapped to it (tests only).
+    #[cfg(test)]
     pub fn accept(&mut self, s: &RemoteSettings, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
         self.accept_from(s, LEGACY_CLIENT, raw, now)
     }
@@ -556,12 +557,14 @@ impl Gate {
 
     /// Every check, in order, for a task the relay says `client` queued; the
     /// outcome is noted either way. As if a Claude account were mapped to
-    /// `client` (tests; the app goes through `accept_sealed`).
+    /// `client` (tests only; the app goes through `accept_sealed`).
+    #[cfg(test)]
     pub fn accept_from(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64) -> Result<Accepted, Rejection> {
         self.accept_as(s, client, raw, now, false, true)
     }
 
     /// `accept_from` for a client with (`mapped`) or without a Claude account.
+    #[cfg(test)]
     pub fn accept_mapped(&mut self, s: &RemoteSettings, client: &str, raw: &[u8], now: i64, mapped: bool) -> Result<Accepted, Rejection> {
         self.accept_as(s, client, raw, now, false, mapped)
     }

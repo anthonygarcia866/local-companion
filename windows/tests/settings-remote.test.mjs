@@ -284,8 +284,9 @@ test("cloud clients: a checkbox per command (saved at once) and the Claude accou
   const boxes = (row) => row.find("input").filter((i) => i.getAttribute("data-role") === "remote-client-command");
   assert.deepEqual(boxes(rows[0]).map((b) => b.checked), ALL.map(() => true), "account-1 keeps every command");
   assert.deepEqual(boxes(rows[1]).filter((b) => b.checked).map((b) => b.getAttribute("data-command")), ["session-status", "run-status"]);
-  // No account and no session command ticked: no warning yet.
-  assert.equal(roleText(rows[1], "remote-client-no-account").length, 0);
+  // No account: session-status answers not-your-session, and the row says so.
+  assert.match(roleText(rows[1], "remote-client-no-account")[0], /session-status and keepalive-restart answer not-your-session/);
+  assert.equal(roleText(rows[0], "remote-client-no-account").length, 0, "account-1 has its account");
   // Ticking runbook sends muse's whole new list, in order.
   replies.set("remote_client_commands", rstatus({ clients: [full, { ...muse, commands: ["session-status", "run-status", "runbook"] }], commands: ALL, accounts }));
   const rb = boxes(rows[1]).find((b) => b.getAttribute("data-command") === "runbook");
@@ -304,4 +305,18 @@ test("cloud clients: a checkbox per command (saved at once) and the Claude accou
   pick.fire("change");
   await tick();
   assert.deepEqual(sent("remote_client_account").at(-1), { name: "muse", account: "Claude2" });
+});
+
+test("cloud clients: two quick unticks both stick (the list comes from the boxes, not the last redraw)", async () => {
+  const ALL = ["session-status", "run-status", "transcript-tail", "start-session", "send-to-session", "runbook", "keepalive-restart"];
+  replies.set("remote_status", rstatus({ clients: [{ ...client("muse"), commands: ALL, account: "Claude" }], commands: ALL, accounts: [{ name: "Claude", client: "muse" }] }));
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  const box = (k) => el.find("input").find((i) => i.getAttribute("data-command") === k);
+  const [a, b] = [box("start-session"), box("send-to-session")];
+  a.checked = false;
+  a.fire("change");
+  b.checked = false;
+  b.fire("change");
+  assert.deepEqual(sent("remote_client_commands").at(-1).commands, ["session-status", "run-status", "transcript-tail", "runbook", "keepalive-restart"]);
 });

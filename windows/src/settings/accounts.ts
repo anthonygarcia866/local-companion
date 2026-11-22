@@ -38,7 +38,7 @@ export function accountsSection(): HTMLElement {
       body.append(h("div", { "data-role": "account" },
         h("div", { class: "pill-row" }, h("span", { class: "name", text: a.name }), statusDot(a.signedIn), h("span", { class: "state", "data-role": "account-state", text: signedInText(a) }), remove),
         h("div", { class: "path", text: a.configDir }),
-        h("div", { class: "hint", text: t("Remote tasks from {client} act as this account.", { client: a.client }) }),
+        h("div", { class: "hint", "data-role": "account-client", text: a.client ? t("Remote tasks from {client} act as this account.", { client: a.client }) : t("No cloud client acts for this account. Pick one in Settings → Remote → Cloud clients.") }),
       ));
     }
     const name = h("input", { type: "text", "data-role": "account-name", placeholder: t("Account name"), spellcheck: "false" }) as HTMLInputElement;
