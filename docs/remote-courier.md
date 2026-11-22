@@ -196,6 +196,21 @@ What it needs:
 
 Secrets go **only in the agent's own secret store** (its environment's secrets or the platform's vault): the signing key file's contents as `GLIM_TASK_SIGNING_KEY` (and, for a token client only, the relay token). Never paste them into the agent's chat, a prompt, a file in a repo or a log; then delete the key file on the PC. If one was ever shown in a chat, remove the client in Settings and make a new one.
 
+### Leases: locked by default (owner 2026-11-21, `remote/lease.rs`)
+
+An agent client is **locked** by default: it may send only its ticked commands, plus `lease-request`, which only agent clients may send.
+
+- `lease-request {"hours": 1|4|8|12}` (1 if left out) opens a Face ID request for "unlock <client> for N h". While one is open, asking again returns the same link and code (no new ping); at most 3 requests an hour per client (`lease-request-limit`), so an agent can't wear you down with pings.
+  - It answers, in the PC-signed result, with the **approval link and match code** for the agent to forward to you. The link carries only the request id, plus the relay host sealed to your approvers.
+  - Pushover sends it too while Settings → Phone → "A remote runbook step or an agent's lease request waits for Face ID" is on. Turn that off to rely on the agent alone; then the match code comes from the agent too, so it proves nothing: approve only a request you expected.
+  - A newer request replaces an older one; a request lapses after 30 minutes.
+- **The card says what it unlocks** (owner 2026-11-22): the approval page lists the runbooks whose file gives them a remote level, `cloud` or `phone` (built on this PC, sealed with the request, at most 20 named), and says plainly that a leased agent can start any approved one as you, including ones approved later (each phone step still asks you, so it can also send you more requests), and that approving replaces a lease it has now.
+- **The lease starts** only when your passkey signs exactly that request (`glim-lease-v1` binding: request id, client, hours, lapse time, lock slot, match code), checked on this PC. A runbook approval's signature can never grant a lease, and the other way round.
+- **While leased**, the agent may send all seven commands, still within the rate limits. Session commands (`transcript-tail`, `start-session`, `send-to-session`) answer `no-sandbox` until the agent sandbox exists (a proposal in its own docs PR). What still runs **as you**: a `runbook` it starts (only approved runbooks whose own file gives them a remote level, `cloud` or `phone`, each `phone` step still waiting for your Face ID). An agent client can't be given one of your Claude accounts, so its `session-status` and `keepalive-restart` reach none of your sessions (`not-your-session`).
+- **It ends** at its hour, on the kill switch, with **Lock now** (on the client's row in Settings → Remote, or the lock link: shown right after you approve, and sent by Pushover when the lease starts), or when the client is removed. Lock now, the lock link, removal and the kill switch also end the runbook runs it started (a paused one's request is voided); at its hour they're left to finish (their phone steps still need you). It is never renewed by itself; the agent has to ask again. A request or a lease belongs to the client that asked, by its public key: one asked for or approved after the kill switch, or after the client was removed, grants nothing, and a client added later under the same name starts with none.
+- **When it ends**, Remote activity gets one line: the lease's length, why it ended, the command kinds and counts, the runbook names and the number of sessions. PRs aren't tracked yet (no sandbox).
+- **`run-status`** shows, for a paused run, its approval link and match code (the "doorbell"), so the agent can forward a runbook step's request too. It never approves anything.
+
 The agent only asks; this PC decides. Every task is still checked here (signature, expiry, replay, the client's commands, rate limits), runbooks still need their own remote level, and a `phone` step still waits for your phone: an agent can't approve.
 
 **Remove** in Cloud clients refuses that client's tasks at once; run `relay-tokens` again so the relay stops taking its token as well. The other clients keep working.

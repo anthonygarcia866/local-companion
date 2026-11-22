@@ -15,6 +15,11 @@
 //                    reachable" sessions: the one whose folder has that name,
 //                    or all; only folders already on its list (owner
 //                    2026-11-15). 3 an hour.
+//   lease-request    {"hours"?: 1|4|8|12 (1)}  an agent client asks the
+//                    owner's phone for a lease (owner 2026-11-21,
+//                    remote/lease.rs); the answer is the approval link and
+//                    match code to forward. Agent clients only; it never
+//                    grants anything itself.
 //
 // Repos must be on remote::REPOS. Free text (prompt, text) is the signer's
 // own words; a transport that passes on text from anyone else must wrap it
@@ -39,6 +44,8 @@ pub enum Command {
     Runbook { name: String },
     /// A remote runbook run's id (32 hex), or None for the client's recent runs.
     RunStatus { run: Option<String> },
+    /// An agent client asks for a lease of this many hours (lease::HOURS).
+    LeaseRequest { hours: u32 },
     /// A keep-alive folder's name (its last part), or None for all of them.
     KeepaliveRestart { folder: Option<String> },
 }
@@ -53,6 +60,7 @@ impl Command {
             Command::Runbook { .. } => "runbook",
             Command::RunStatus { .. } => "run-status",
             Command::KeepaliveRestart { .. } => "keepalive-restart",
+            Command::LeaseRequest { .. } => "lease-request",
         }
     }
 }
@@ -167,6 +175,14 @@ pub fn parse(cmd: &str, args: &Map<String, Value>) -> Result<Command, Rejection>
                 Some(_) => return Err(Rejection::BadArgs),
             };
             Ok(Command::KeepaliveRestart { folder })
+        }
+        "lease-request" => {
+            only(args, &["hours"])?;
+            let hours = match args.get("hours") {
+                None => super::lease::parse_hours(None),
+                Some(v) => v.as_u64().and_then(|h| super::lease::parse_hours(Some(h))),
+            };
+            Ok(Command::LeaseRequest { hours: hours.ok_or(Rejection::BadArgs)? })
         }
         _ => Err(Rejection::UnknownCommand),
     }

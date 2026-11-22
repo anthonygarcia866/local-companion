@@ -171,6 +171,67 @@ function binding(d) {
   return ["glim-approve-v1", d.rid, d.run, d.runbook, d.hash, String(d.step), d.kind, String(d.total), d.client, String(d.exp), d.code].join("\n");
 }
 
+/** A lease request's (remote/approve.rs `lease_binding`; owner 2026-11-21):
+ * its own first line, so it can never pass as a runbook approval. */
+function leaseBinding(d) {
+  return ["glim-lease-v1", d.rid, d.client, String(d.hours), String(d.exp), d.lock, d.code].join("\n");
+}
+
+/** Ends a lease now: any answer to its lock slot locks the client. */
+function lockButton(host, lock, client) {
+  return button(`Lock ${client} now`, "stop", async () => {
+    try {
+      await post(host, `/v1/approve/${lock}`, { answer: "stop" });
+      show(el("div", { class: "card" }, el("p", { text: `Locked. ${client} is back to its ticked commands only.` })));
+    } catch {
+      show(el("div", { class: "card" },
+        el("p", { text: "Glim hasn't opened the lock yet (it does right after the lease starts), or it's already locked. Try again in a few seconds, or use Lock now in Settings → Remote on the PC." }),
+        lockButton(host, lock, client)));
+    }
+  });
+}
+
+/** A lease request (an agent client asks to be unlocked) or a lease's lock link. */
+// The remote-level runbooks the PC listed, "name (cloud|phone)" (sealed
+// details, never the binding).
+function leaseRunbooks(d) {
+  const names = Array.isArray(d.runbooks) ? d.runbooks.filter((x) => typeof x === "string") : [];
+  const more = Number.isInteger(d.more) && d.more > 0 ? ` and ${d.more} more` : "";
+  return names.length ? `Remote runbooks today: ${names.join(", ")}${more}` : "No remote runbooks today";
+}
+
+function leaseCard(d, rid, host, got) {
+  if (d.kind === "lease-lock") {
+    return el("div", { class: "card" },
+      el("p", { text: `Agent client ${d.client} is unlocked until ${new Date(d.exp * 1000).toLocaleString()}.` }),
+      lockButton(host, rid, d.client));
+  }
+  return el("div", { class: "card" },
+    el("dl", {},
+      el("dt", { text: "Agent client" }), el("dd", { text: d.client }),
+      el("dt", { text: "Unlock for" }), el("dd", { text: `${d.hours} h (all seven commands; sessions only in the agent sandbox)` }),
+      el("dt", { text: "Request lapses" }), el("dd", { text: new Date(d.exp * 1000).toLocaleString() }),
+      el("dt", { text: "Runs as you" }), el("dd", { text: leaseRunbooks(d) }),
+    ),
+    el("p", { class: "warn", text: `While unlocked, ${d.client} can start any approved runbook whose file gives it a remote level ("cloud" or "phone"), as you (with your secrets and your Windows account), including ones you approve later. Each phone step still asks you here, so it can also send you more approval requests. Approving replaces any lease ${d.client} has now.` }),
+    el("div", { class: "code", text: d.code }),
+    el("p", { class: "warn", text: "Compare this match code with the one the agent or Pushover gave you. Don't approve if it doesn't match, or if you didn't expect this request." }),
+    button("Approve lease (Face ID)", "primary", async () => {
+      const sig = await navigator.credentials.get({
+        publicKey: { rpId: RP_ID, challenge: await sha256(te.encode(leaseBinding(d))), allowCredentials: [{ type: "public-key", id: got.rawId }], userVerification: "required" },
+      });
+      await post(host, `/v1/approve/${rid}`, { answer: "approve", cred: b64u(sig.rawId), ad: b64u(sig.response.authenticatorData), cd: b64u(sig.response.clientDataJSON), sig: b64u(sig.response.signature) });
+      show(el("div", { class: "card" },
+        el("p", { text: `Approved. Glim on your PC checks the signature, then ${d.client} is unlocked for ${d.hours} h. It ends by itself; to end it sooner:` }),
+        lockButton(host, d.lock, d.client)));
+    }),
+    button("Decline", "stop", async () => {
+      await post(host, `/v1/approve/${rid}`, { answer: "stop" });
+      show(el("div", { class: "card" }, el("p", { text: "Declined. The agent stays locked." })));
+    }),
+  );
+}
+
 async function unlock(rid, hints) {
   const got = await navigator.credentials.get({
     publicKey: { rpId: RP_ID, challenge: crypto.getRandomValues(new Uint8Array(32)), userVerification: "required", extensions: { prf: { eval: { first: await PRF_SALT } } } },
@@ -194,6 +255,7 @@ async function unlock(rid, hints) {
   const d = JSON.parse(td.decode(await aesOpen(key, `glim-approve-v1|${rid}`, unb64u(item.n), unb64u(item.ct))));
   if (d.rid !== rid) throw new Error("the request doesn't match its link");
   if (d.exp * 1000 < Date.now()) throw new Error("this request has expired");
+  if ((d.kind === "lease" || d.kind === "lease-lock") && d.run === undefined) return show(leaseCard(d, rid, host, got));
   const when = new Date(d.exp * 1000).toLocaleString();
   show(el("div", { class: "card" },
     el("dl", {},
@@ -250,7 +312,7 @@ async function unlock(rid, hints) {
     } catch { /* below */ }
     if (!SLOT.test(rid) || !Array.isArray(hints)) return fail("This approval link isn't valid.");
     return show(el("div", { class: "card" },
-      el("p", { text: "A remote runbook step is waiting for your OK. Unlock with Face ID to see what it is." }),
+      el("p", { text: "A remote runbook step, or an agent's lease request, is waiting for your OK. Unlock with Face ID to see what it is." }),
       button("Unlock (Face ID)", "primary", () => unlock(rid, hints)),
     ));
   }

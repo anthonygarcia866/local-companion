@@ -67,6 +67,11 @@ pub struct Run {
     /// Its match code ("ABC-DEF").
     #[serde(default)]
     pub code: String,
+    /// Its approval link (the page, the request id, the relay host sealed
+    /// per approver): run-status shows it while paused (owner 2026-11-21,
+    /// the approval doorbell), so an agent can forward it.
+    #[serde(default)]
+    pub url: String,
 }
 
 impl Run {
@@ -211,11 +216,29 @@ impl Runs {
         voided
     }
 
+    /// `client`'s open runs end `killed` (its lease was locked or the client
+    /// removed: review 2026-11-21). Returns the approval requests voided.
+    pub fn kill_client(&mut self, client: &str, now: i64) -> Vec<String> {
+        let mut voided = Vec::new();
+        for run in self.runs.iter_mut().filter(|r| r.open() && r.client == client) {
+            run.state = RunState::Killed;
+            run.expires = 0;
+            run.updated = now;
+            run.url.clear();
+            if !run.approval.is_empty() {
+                voided.push(std::mem::take(&mut run.approval));
+            }
+        }
+        self.save();
+        voided
+    }
+
     /// A paused run now waits on approval request `rid` (code `code`).
-    pub fn set_approval(&mut self, id: &str, rid: &str, code: &str) {
+    pub fn set_approval(&mut self, id: &str, rid: &str, code: &str, url: &str) {
         if let Some(run) = self.runs.iter_mut().find(|r| r.id == id && r.state == RunState::Paused) {
             run.approval = rid.into();
             run.code = code.into();
+            run.url = url.into();
             self.save();
         }
     }
@@ -227,6 +250,7 @@ impl Runs {
         let run = self.runs.iter_mut().find(|r| !rid.is_empty() && r.approval == rid && r.state == RunState::Paused)?;
         let out = run.clone();
         run.approval.clear();
+        run.url.clear();
         self.save();
         Some(out)
     }
@@ -401,6 +425,13 @@ pub fn line(r: &Run) -> String {
     let mut s = format!("{} {}: {} (started {}, updated {})", r.id, r.name, r.status(), utc(r.started), utc(r.updated));
     if r.state == RunState::Paused {
         s.push_str(&format!(", waits until {}", utc(r.expires)));
+        // The approval doorbell (owner 2026-11-21): the link and match code
+        // to forward to the owner while the request is open. The link
+        // carries only the request id and the relay host sealed to the
+        // approvers; approving still needs the owner's Face ID.
+        if !r.approval.is_empty() && !r.url.is_empty() {
+            s.push_str(&format!("; approve at {} · match code {}", r.url, r.code));
+        }
     }
     s
 }
@@ -533,16 +564,16 @@ mod tests {
         let mut r = Runs::default();
         r.start_with(ID, "glim-check", "account-1", NOW, |_, _, _, _| Ok(seg(2, RemoteEnd::Paused { step: 3 }))).unwrap();
         assert_eq!(r.get(ID).unwrap().step_kind, "run");
-        r.set_approval(ID, ID2, "ABC-DEF");
+        r.set_approval(ID, ID2, "ABC-DEF", "https://example.invalid/#r=x");
         assert_eq!(r.take_approval(ID2, NOW + 1).unwrap().code, "ABC-DEF");
         assert!(r.take_approval(ID2, NOW + 2).is_none(), "used up");
         assert!(r.take_approval("", NOW + 2).is_none());
-        r.set_approval(ID, ID2, "ABC-DEF");
+        r.set_approval(ID, ID2, "ABC-DEF", "https://example.invalid/#r=x");
         assert_eq!(r.kill_all(NOW + 3), vec![ID2.to_string()]);
         assert!(r.take_approval(ID2, NOW + 4).is_none(), "voided");
         // Expired with the run.
         r.start_with("aa".repeat(16).as_str(), "x", "account-1", NOW + 5, |_, _, _, _| Ok(seg(0, RemoteEnd::Paused { step: 1 }))).unwrap();
-        r.set_approval(&"aa".repeat(16), &"bb".repeat(16), "XYZ-234");
+        r.set_approval(&"aa".repeat(16), &"bb".repeat(16), "XYZ-234", "https://example.invalid/#r=y");
         assert!(r.take_approval(&"bb".repeat(16), NOW + 5 + PAUSE_TTL_S + 1).is_none());
     }
 

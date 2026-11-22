@@ -168,6 +168,8 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
 export function activityLine(a: RemoteActivity): string {
   if (a.kind === "kill-switch") return `${clock(a.at)} ${t("Stop remote tasks")}`;
   if (a.kind === "allowed-again") return `${clock(a.at)} ${t("Allow again")}`;
+  // Leases (owner 2026-11-21): granted, and what the client did once it ended.
+  if (a.kind === "lease-granted" || a.kind === "lease-ended") return `${clock(a.at)} ${a.client} · ${a.summary ?? ""}`;
   const who = a.client ? `${a.client} · ` : "";
   const kind = a.runbook ? `${a.kind} ${a.runbook}` : a.kind;
   return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind }) : t("Refused: {reason}", { reason: a.reason })}`;
@@ -293,6 +295,20 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   }
 
   /**
+   * An agent client's lease (owner 2026-11-21): locked, or unlocked until a
+   * time with "Lock now". Only the owner's phone grants one.
+   */
+  function leaseRow(c: RemoteClient): HTMLElement {
+    const until = c.leaseUntil ?? 0;
+    if (!until) {
+      return h("div", { class: "hint", "data-role": "remote-lease", text: t("Locked: only its ticked commands. It can ask for a lease, which only your phone grants.") });
+    }
+    const lock = h("button", { class: "danger", type: "button", "data-role": "remote-lease-lock", text: t("Lock now") });
+    lock.addEventListener("click", () => void act(() => Bridge.remoteLeaseLock(c.name)));
+    return h("div", { class: "row", "data-role": "remote-lease" }, h("span", { class: "hint", text: t("Unlocked until {time}", { time: clock(until) }) }), lock);
+  }
+
+  /**
    * A client's commands (owner 2026-11-21): a checkbox per command, saved at
    * once; refused ones answer not-allowed. Its Claude account: session
    * commands need one (no-account otherwise).
@@ -321,6 +337,8 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
       pick.append(h("option", { value: a.name, text: `${a.name}${taken}` }));
     }
     pick.value = c.account ?? "";
+    // An agent client never acts as one of the owner's Claude accounts.
+    if (c.agent) pick.disabled = true;
     pick.addEventListener("change", () => void act(() => Bridge.remoteClientAccount(c.name, pick.value)));
     const noAccount = !c.account && [...mine].some((k) => NEEDS_ACCOUNT.includes(k));
     return h("div", { "data-role": "remote-client-access" },
@@ -494,6 +512,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         h("div", { class: "pill-row" }, h("span", { class: "name", text: c.name }), ...(c.agent ? [h("span", { class: "hint", "data-role": "remote-client-agent", text: t("agent client · public key only") })] : []), remove),
         h("div", { class: "hint", "data-role": "remote-fingerprint", text: t("Fingerprint: {fingerprint}", { fingerprint: c.fingerprint }) }),
         h("div", { class: "hint", text: addedText(c) }),
+        ...(c.agent ? [leaseRow(c)] : []),
         clientAccess(c),
       ));
     }

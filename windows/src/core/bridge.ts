@@ -198,6 +198,8 @@ export const Bridge = {
   /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
   remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
   remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
+  /** "Lock now": an agent client's lease ends at once. */
+  remoteLeaseLock: (name: string) => callOrThrow<RemoteStatus>("remote_lease_lock", { name }),
   /** "Add agent client (public key only)": no token; the relay checks its signatures. */
   remoteAgentClientAdd: (name: string, key: string) => callOrThrow<RemoteStatus>("remote_agent_client_add", { name, key }),
   /** The commands a cloud client may send (owner 2026-11-21): set on the PC only. */
@@ -483,6 +485,8 @@ export interface RemoteActivity {
   client: string;
   /** The runbook a runbook task named, or "" (owner 2026-11-20). */
   runbook?: string;
+  /** A lease event's summary ("lease-granted" / "lease-ended"), or "". */
+  summary?: string;
 }
 
 /** One Claude account: signed in = its login file exists (never read). */
@@ -506,6 +510,8 @@ export interface RemoteClient {
   account?: string;
   /** A token-less agent client: public key only, its relay requests signed. */
   agent?: boolean;
+  /** An agent client's lease: its end (seconds since 1970), 0 = locked. */
+  leaseUntil?: number;
 }
 
 /** Settings → Remote → Remote tasks: never more of the key than its fingerprint. */

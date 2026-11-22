@@ -732,7 +732,15 @@ pub fn start(
     super::exec::set_hooks(super::exec::Hooks { settings: settings.clone(), send: Arc::new(send_frame), phone });
     // The gate asks whether a Claude account is mapped to a task's client
     // (session commands, owner 2026-11-21); exec reads the same list.
-    let accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::from(accounts);
+    // An agent client never acts as one of the owner's Claude accounts
+    // (review 2026-11-21), whatever settings.json says: accounts mapped to an
+    // agent client's name are dropped here, for the gate and exec alike.
+    let raw_accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::from(accounts);
+    let agent_settings = settings.clone();
+    let accounts: Arc<dyn Fn() -> Vec<crate::accounts::ClaudeAccount> + Send + Sync> = Arc::new(move || {
+        let agents: Vec<String> = agent_settings().clients().into_iter().filter(|c| c.agent).map(|c| c.name).collect();
+        raw_accounts().into_iter().filter(|a| !agents.contains(&a.client)).collect()
+    });
     let gate_accounts = accounts.clone();
     let link = Arc::new(|s: &RemoteSettings| -> Result<Link, &'static str> {
         let url = relay::endpoint(&s.relay).map_err(|_| "no-relay")?;
@@ -748,7 +756,17 @@ pub fn start(
         accept: Arc::new(move |s: &RemoteSettings, client: &str, raw: &[u8], now: i64| {
             let enc = if seal::version(std::str::from_utf8(raw).unwrap_or("")) == Some(2) { load_enc(&pc_enc_vault()) } else { None };
             let mapped = !client.is_empty() && crate::accounts::for_client(&gate_accounts(), client).is_some();
-            super::with(|g| g.accept_sealed(s, client, raw, now, enc.as_ref(), mapped))
+            // An agent client's lease (owner 2026-11-21, lease.rs).
+            let leased = super::lease::with(|l| l.active_for(client, now).is_some());
+            let r = super::with(|g| g.accept_sealed(s, client, raw, now, enc.as_ref(), mapped, leased));
+            if let Ok(a) = &r {
+                let book = match &a.command {
+                    super::Command::Runbook { name } => name.clone(),
+                    _ => String::new(),
+                };
+                super::lease::with(|l| l.note(&a.client, a.command.kind(), &book, now));
+            }
+            r
         }),
         exec: Arc::new(super::exec::RealExec { keepalive_folders, accounts: Box::new(move || accounts()) }),
         timing: Timing::default(),
@@ -758,6 +776,12 @@ pub fn start(
         ledger: Arc::new(Mutex::new(Ledger::load(Ledger::default_path()))),
     };
     super::wake::start();
+    // Leases end on time even when nobody sends anything (owner 2026-11-21):
+    // each one's summary goes to Remote activity.
+    let _ = std::thread::Builder::new().name("remote-leases".into()).spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(30));
+        super::lease_sweep(super::now_s());
+    });
     let _ = std::thread::Builder::new().name("remote-courier".into()).spawn(move || {
         let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
         rt.block_on(run(l));

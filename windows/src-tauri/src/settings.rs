@@ -226,6 +226,10 @@ pub struct PhoneSettings {
     pub quiet_hours: bool,
     pub quiet_from: String,
     pub quiet_to: String,
+    /// Remote approval and lease requests (Face ID links) by Pushover (owner
+    /// 2026-11-21: optional; off, the agent forwards the link from run-status
+    /// or lease-request instead). On by default.
+    pub remote_approvals: bool,
 }
 
 impl Default for PhoneSettings {
@@ -243,6 +247,7 @@ impl Default for PhoneSettings {
             quiet_hours: false,
             quiet_from: "22:00".into(),
             quiet_to: "07:00".into(),
+            remote_approvals: true,
         }
     }
 }
@@ -647,7 +652,7 @@ mod tests {
   "livePauseMs": 2500,
   "dictationLevel": "clean",
   "dictationLevels": { "ms-teams.exe": "verbatim" },
-  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45" },
+  "phone": { "enabled": true, "approval": true, "approvalAfterSec": 45, "finished": false, "limit": true, "meeting": false, "includeProject": false, "idleOnly": false, "idleAfterMin": 5, "quietHours": true, "quietFrom": "21:30", "quietTo": "06:45", "remoteApprovals": false },
   "keepAlive": { "on": true, "consented": true, "folders": ["C:\\path\\to\\example-project"], "desktopApp": true },
   "remote": { "on": true, "consented": true, "killed": false, "allowedSince": 1763140000, "publicKey": "abababababababababababababababababababababababababababababababab", "clients": [{ "name": "account-2", "publicKey": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef", "tokenSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "added": 1763200000 }], "relay": "https://task-relay.example.workers.dev", "pcPublicKey": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "pcEncKey": "4545454545454545454545454545454545454545454545454545454545454545", "requireSealed": true, "runbooksPerHour": 7, "runbooksPerHourPc": 12, "approvers": [{ "id": "Y3JlZC0x", "name": "Example phone", "publicKey": "04abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab", "kind": "passkey", "synced": true, "added": 1763300000 }] },
   "claudeAccounts": [{ "name": "Claude", "configDir": "", "client": "account-1" }, { "name": "Work", "configDir": "C:\\Users\\someone\\.claude-work", "client": "account-2" }],

@@ -24,6 +24,13 @@
 //   checkpoint and verifies everything (origin, RP id, user presence and
 //   verification, challenge, signature). One answer per request; it expires
 //   with the run; the kill switch voids it.
+// - Leases (owner 2026-11-21, remote/lease.rs): an agent client asks for a
+//   1/4/8/12 h lease; the request (kind "lease": request id, client, hours,
+//   its expiry, match code, the lock slot) is sealed and signed the same way,
+//   over its own binding (`glim-lease-v1`, never `glim-approve-v1`: one can't
+//   stand in for the other). Granting needs a verified Approve. A lease also
+//   gets a LOCK slot: any answer to it ends the lease (like Stop, it needs no
+//   signature: whoever has that link can only lock).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -422,6 +429,67 @@ pub fn request(rid: &str, code: &str, run: &Run, approvers: &[(Approver, [u8; 32
     Some(Request { frame, text, url })
 }
 
+// ── Leases ────────────────────────────────────────────────────────────────────
+
+/// A lease request, as signed: its own first line, so a runbook approval can
+/// never be replayed as a lease (or the other way round).
+pub fn lease_binding(p: &super::lease::Pending) -> String {
+    format!("glim-lease-v1\n{}\n{}\n{}\n{}\n{}\n{}", p.rid, p.client, p.hours, p.expires, p.lock, p.code)
+}
+
+pub fn lease_challenge(p: &super::lease::Pending) -> [u8; 32] {
+    Sha256::digest(lease_binding(p).as_bytes()).into()
+}
+
+/// Seals `details` (and the relay host, for the link) to each approver for
+/// slot `rid`, as `request` does for a paused run.
+fn sealed_slot(rid: &str, exp: i64, details: &str, approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<(String, String)> {
+    if approvers.is_empty() {
+        return None;
+    }
+    let mut items = Vec::new();
+    let mut hints = Vec::new();
+    for (a, key) in approvers {
+        let (n, ct) = seal::approve_seal(key, &format!("glim-approve-v1|{rid}"), details.as_bytes())?;
+        items.push(json!({ "c": a.id, "n": b64url(&n), "ct": b64url(&ct) }));
+        let (hn, hct) = seal::approve_seal(key, &format!("glim-approve-v1 relay|{rid}"), relay_host.as_bytes())?;
+        hints.push(json!({ "c": a.id.chars().take(12).collect::<String>(), "n": b64url(&hn), "ct": b64url(&hct) }));
+    }
+    let body = json!({ "v": 1, "rid": rid, "exp": exp, "items": items }).to_string();
+    let frame = json!({ "t": "approval", "id": rid, "exp": exp, "body": body }).to_string();
+    let url = format!("{PAGE_URL}#r={rid}&h={}", b64url(Value::Array(hints).to_string().as_bytes()));
+    Some((frame, url))
+}
+
+/// Runbook names a lease card lists at most (the rest as "+N more").
+pub const LEASE_RUNBOOKS_SHOWN: usize = 20;
+
+/// A lease request's slot: the frame, Pushover's text and the link.
+/// `runbooks`: the remote-level runbooks ("name (cloud|phone)") a leased agent could start as the
+/// owner right now (PC-built, owner 2026-11-22: the card must say so); shown
+/// on the card, not part of the signed binding.
+pub fn lease_request(p: &super::lease::Pending, runbooks: &[String], approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<Request> {
+    let shown: Vec<&String> = runbooks.iter().take(LEASE_RUNBOOKS_SHOWN).collect();
+    let more = runbooks.len().saturating_sub(shown.len());
+    let details = json!({ "v": 1, "kind": "lease", "rid": p.rid, "client": p.client, "hours": p.hours, "exp": p.expires, "lock": p.lock, "code": p.code, "runbooks": shown, "more": more }).to_string();
+    let (frame, url) = sealed_slot(&p.rid, p.expires, &details, approvers, relay_host)?;
+    let text = format!("Glim: agent client {} asks for a {} h lease. Match code {}. The request lapses in 30 min.", p.client, p.hours, p.code);
+    Some(Request { frame, text, url })
+}
+
+/// A granted lease's lock slot: lives until the lease ends; any answer to it
+/// locks the client now. Its details say which client (sealed, as ever).
+pub fn lock_slot(lock: &str, client: &str, until: i64, approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<(String, String)> {
+    let details = json!({ "v": 1, "kind": "lease-lock", "rid": lock, "client": client, "exp": until }).to_string();
+    sealed_slot(lock, until, &details, approvers, relay_host)
+}
+
+/// Judges an answer to a lease request: Approve needs a known approver's
+/// assertion over exactly this request (`lease_binding`).
+pub fn judge_lease(answer: &str, p: &super::lease::Pending, approvers: &[Approver]) -> Verdict {
+    judge_with(answer, &lease_challenge(p), approvers)
+}
+
 /// How an answer went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
@@ -443,13 +511,19 @@ struct Answer {
 /// Approve needs an assertion from a known approver over exactly this
 /// request's details.
 pub fn judge(answer: &str, rid: &str, run: &Run, code: &str, approvers: &[Approver]) -> Verdict {
+    judge_with(answer, &challenge(rid, run, code), approvers)
+}
+
+/// Stop needs nothing; Approve needs a known approver's assertion over
+/// `challenge` (SHA-256 of exactly the details the page showed).
+fn judge_with(answer: &str, challenge: &[u8; 32], approvers: &[Approver]) -> Verdict {
     let Ok(a) = serde_json::from_str::<Answer>(answer) else { return Verdict::Refused("bad-answer") };
     match a.answer.as_str() {
         "stop" => Verdict::Stop,
         "approve" => {
             let Some(who) = approvers.iter().find(|x| x.id == a.assertion.cred) else { return Verdict::Refused("unknown-approver") };
             let Some(point) = seal::from_hex(&who.public_key) else { return Verdict::Refused("bad-key") };
-            match verify(&point, &a.assertion, &challenge(rid, run, code)) {
+            match verify(&point, &a.assertion, challenge) {
                 Ok(_) => Verdict::Approve,
                 Err(e) => Verdict::Refused(e),
             }
