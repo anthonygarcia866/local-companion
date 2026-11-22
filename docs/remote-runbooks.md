@@ -3,7 +3,7 @@
 Roadmap TOP item 5. The owner decided D1-D6 in chat on 2026-11-20 (§7). They replace the draft answers of 2026-11-19. Build order, one small PR each, merged per the rule:
 
 1. **Levels 1 and 3, plus editable limits** (§3.1, §3.5).
-2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3). Built 2026-11-20: `remote/runs.rs`. Until PR 3, nothing can approve a paused run: it only expires (24 h) or ends `killed`. A run still running when Glim stops ends `failed … (interrupted)` at the next start (its step may or may not have finished, so it is never resumed).
+2. **Checkpoint/resume, plus the `run-status` courier command** (§3.3). Built 2026-11-20: `remote/runs.rs`. Since PR 3 (§8, built 2026-11-21) the owner's phone approval resumes a paused run; unanswered, it expires (24 h) or ends `killed`. A run still running when Glim stops ends `failed … (interrupted)` at the next start (its step may or may not have finished, so it is never resumed).
 3. **Phone approval (level 2)**: owner answered §8 on 2026-11-21; built as PR 3 (the page in a PR of its own; security-critical paths).
 
 No runbook is remote-allowed after any of these PRs. The owner picks levels afterwards, one runbook at a time, by editing its file and approving it again.
@@ -40,7 +40,7 @@ No runbook is remote-allowed after any of these PRs. The owner picks levels afte
 
 - The levels:
   1. **`cloud`, "cloud may run"**: runs from a signed cloud task with no ask.
-  2. **`phone`, "ask on my phone"**: the run pauses there and waits for the owner's approval, signed by a key that lives only on their phone (§8). **Until PR 3 is built, a level-2 step is refused remotely** (`runbook-needs-phone`), before step 1 runs.
+  2. **`phone`, "ask on my phone"**: the run pauses there and waits for the owner's approval, signed by a key that lives only on their phone (§8). A remote run reaches it, pauses and asks the phone (`run_remote_now`, `remote/exec.rs ask_phone`). `runbook-needs-phone` is only a guard left in `run_named`, which can't pause: it refuses such a runbook before step 1, and no remote task goes that way (2026-11-22: its only `Trigger::Remote` caller is a test).
   3. **`never`, "never remotely"**: refused from the cloud as `runbook-not-remote`. **This is the default** for any runbook without `[remote]`.
 - A step's level is the stricter of the runbook's level and its own `remote`, with `never` > `phone` > `cloud`. A step can't be less strict than its runbook. An `ask = true` step is at least `phone` remotely, since the phone replaces the click on the PC.
 - If any step is `never`, the whole runbook is refused remotely **before step 1**. Nothing ends up half-done.
@@ -102,7 +102,7 @@ No runbook is remote-allowed after any of these PRs. The owner picks levels afte
 
 ## 5. PR 1: levels 1 and 3, plus editable limits
 
-- `runbooks/mod.rs`: parse `[remote] level` and per-step `remote`; work out the effective level; refuse `Trigger::Remote` for `never` (and any `launch_detached`) as `not-remote`, and for `phone` as `needs-phone` (until PR 3), before step 1. Card lines in 9 languages.
+- `runbooks/mod.rs`: parse `[remote] level` and per-step `remote`; work out the effective level; refuse `Trigger::Remote` for `never` (and any `launch_detached`) as `not-remote`, and for `phone` as `needs-phone` (before PR 3; since then only the guard in `run_named`, see §3), before step 1. Card lines in 9 languages.
 - `remote/exec.rs` and `Gate`: runbook rate limits from settings; `runbook-busy` for one at a time; detail with codes and counts; Remote activity carries the runbook name.
 - Settings → Remote: two number fields for the limits. Settings → Runbooks: the remote tag.
 - Docs: CLAUDE.md, PRIVACY.md (if needed), docs/remote-courier.md, PROJECT_STATUS.md, `examples/runbook.example.toml` (`[remote]` commented out).
