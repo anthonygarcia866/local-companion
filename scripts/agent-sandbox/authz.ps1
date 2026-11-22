@@ -25,6 +25,37 @@ public static class GlimAuthz {
     [DllImport("authz.dll", SetLastError = true)] static extern bool AuthzAddSidsToContext(IntPtr ctx, SID_AND_ATTRIBUTES[] sids, uint n, IntPtr r, uint rn, out IntPtr newCtx);
     [DllImport("authz.dll", SetLastError = true)] static extern bool AuthzAccessCheck(uint flags, IntPtr ctx, ref REQUEST req, IntPtr audit, byte[] sd, IntPtr opt, uint optN, ref REPLY reply, IntPtr results);
     [DllImport("authz.dll")] static extern bool AuthzFreeContext(IntPtr ctx);
+    [StructLayout(LayoutKind.Sequential)] struct LSA_OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+    [StructLayout(LayoutKind.Sequential)] struct LSA_UNICODE_STRING { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+    [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref LSA_OBJECT_ATTRIBUTES attrs, uint access, out IntPtr policy);
+    [DllImport("advapi32.dll")] static extern uint LsaEnumerateAccountRights(IntPtr policy, byte[] sid, out IntPtr rights, out uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaFreeMemory(IntPtr p);
+    [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr p);
+    [DllImport("advapi32.dll")] static extern int LsaNtStatusToWinError(uint status);
+
+    // The user rights (privileges and logon rights) assigned directly to `sid`.
+    public static string[] Rights(string sid) {
+        var oa = new LSA_OBJECT_ATTRIBUTES { Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES)) };
+        IntPtr pol;
+        uint st = LsaOpenPolicy(IntPtr.Zero, ref oa, 0x800 /* POLICY_LOOKUP_NAMES */, out pol);
+        if (st != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(st));
+        try {
+            var s = new SecurityIdentifier(sid); var b = new byte[s.BinaryLength]; s.GetBinaryForm(b, 0);
+            IntPtr arr; uint n;
+            st = LsaEnumerateAccountRights(pol, b, out arr, out n);
+            if (st == 0xC0000034) return new string[0];  // none assigned
+            if (st != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(st));
+            try {
+                var outv = new string[n]; int sz = Marshal.SizeOf(typeof(LSA_UNICODE_STRING));
+                for (int i = 0; i < n; i++) {
+                    var u = (LSA_UNICODE_STRING)Marshal.PtrToStructure(new IntPtr(arr.ToInt64() + i * sz), typeof(LSA_UNICODE_STRING));
+                    outv[i] = Marshal.PtrToStringUni(u.Buffer, u.Length / 2);
+                }
+                return outv;
+            } finally { LsaFreeMemory(arr); }
+        } finally { LsaClose(pol); }
+    }
+    public static string[] LogonSids() { return (string[])Logon.Clone(); }
     [DllImport("authz.dll")] static extern bool AuthzFreeResourceManager(IntPtr rm);
     static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113" };
 
@@ -66,4 +97,17 @@ function Get-GlimAccess([string]$Sid, [string]$Path) {
     # The object's owner, group and DACL, read by the owner (who can).
     $sd = (Get-Acl -LiteralPath $Path).GetSecurityDescriptorBinaryForm()
     [GlimAuthz]::Granted($Sid, $sd)
+}
+
+# Powerful user rights glim-agent must not hold, directly or through any SID
+# its logon carries. Listing account rights needs elevation (LSA).
+$GlimPowerful = 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeImpersonatePrivilege',
+    'SeLoadDriverPrivilege', 'SeTcbPrivilege', 'SeSecurityPrivilege', 'SeManageVolumePrivilege', 'SeCreateTokenPrivilege',
+    'SeAssignPrimaryTokenPrivilege', 'SeCreateSymbolicLinkPrivilege', 'SeRelabelPrivilege', 'SeSystemEnvironmentPrivilege', 'SeCreateGlobalPrivilege'
+
+function Get-GlimPowerfulRights([string]$Sid, [string[]]$GroupSids) {
+    $all = @($Sid) + @($GroupSids) + @([GlimAuthz]::LogonSids()) | Sort-Object -Unique
+    foreach ($s in $all) {
+        foreach ($r in [GlimAuthz]::Rights($s)) { if ($GlimPowerful -contains $r) { "$r (via $s)" } }
+    }
 }

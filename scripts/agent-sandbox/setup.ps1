@@ -42,6 +42,7 @@ $CredTarget = 'Glim/AgentUserPassword'
 
 . (Join-Path $PSScriptRoot 'cred.ps1')
 . (Join-Path $PSScriptRoot 'targets.ps1')
+. (Join-Path $PSScriptRoot 'authz.ps1')
 
 function Step([string]$what) { Write-Host ("- " + $what) }
 function Act([string]$what, [scriptblock]$do) {
@@ -217,6 +218,15 @@ if ($agentSid) {
         New-ItemProperty -Path $k -Name Sid -Value $agentSid -PropertyType String -Force | Out-Null
     }
 }
+
+# ── 7. No powerful user rights (read back, elevated) ─────────────────────────
+Step "7. $AgentName holds no powerful user right"
+if ($agentSid -and $isAdmin) {
+    $gs = @(foreach ($g in @(([ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user").Groups())) { (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value })
+    $pow = @(Get-GlimPowerfulRights -Sid $agentSid -GroupSids $gs)
+    if ($pow.Count) { Write-Warning ("  it holds: " + ($pow -join ', ') + ". Remove them in secpol.msc (Local Policies > User Rights Assignment) before any sandbox session.") }
+    else { Write-Host '  none' }
+} else { Write-Host '  (checked after step 1 creates the user, in an elevated run)' }
 
 Write-Host ''
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }

@@ -9,8 +9,9 @@
 #   folder = the folder itself only (it can't create or delete entries there,
 #            nothing below changes)
 # It is: the owner's named folders (C:\tests, C:\glimtest, C:\c, C:\Drivers),
-# every top-level folder on a fixed or removable drive that Users,
-# Authenticated Users or Everyone can write, every PATH folder (system and
+# every top-level folder on a fixed or removable drive that any of those
+# logon SIDs can write (allow entries; a deny added by setup doesn't take it
+# off the list, so check and remove still see it), every PATH folder (system and
 # the owner's) outside the owner's profile that they can write, and each
 # drive root (folder only: a tree deny on C:\ would touch the whole drive).
 # Exceptions, both folder-only: C:\$Recycle.Bin (its per-user folders belong
@@ -18,7 +19,10 @@
 #
 # Get-GlimPathFolders: every PATH folder (system + the owner's), existing.
 
-$GlimBroad = 'S-1-5-32-545', 'S-1-5-11', 'S-1-1-0'
+# Every SID an interactive glim-agent logon carries besides its own and its
+# groups' (the same set authz.ps1 adds): Everyone, Users, INTERACTIVE, CONSOLE
+# LOGON, LOCAL, Authenticated Users, This Organization, Local account.
+$GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113'
 # Write-only bits (Modify/FullControl include read bits, so they can't be the
 # mask): create files, create folders, delete, change permissions, take
 # ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.

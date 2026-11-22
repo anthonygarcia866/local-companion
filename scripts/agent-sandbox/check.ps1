@@ -15,8 +15,13 @@
 #   - it can't read your profile, your gh / wrangler / Claude / Claude2 / Glim
 #     folders, the login files in them, or G:\;
 #   - it can't write or delete in your profile, any PATH folder (system or
-#     yours), or any folder setup.ps1 locks (targets.ps1), nor in the
-#     immediate subfolders of a locked tree;
+#     yours), any drive root or top-level folder on any drive, any folder
+#     setup.ps1 locks (targets.ps1), nor in a locked tree's immediate
+#     subfolders;
+#   - (when run elevated) it holds no powerful user right (backup, restore,
+#     debug, take ownership, impersonate, create symbolic links ...) directly
+#     or through any group or logon SID; not elevated, this is skipped and
+#     said so;
 #   - none of CLOUDFLARE_API_TOKEN, SUPABASE_ACCESS_TOKEN, ANTHROPIC_API_KEY,
 #     GH_TOKEN, GITHUB_TOKEN is set machine-wide (every user would get it);
 #   - it CAN write C:\GlimAgent\work.
@@ -52,6 +57,15 @@ Report ($groupSids -contains 'S-1-5-32-545') 'is a member of Users'
 $other = @($groupSids | Where-Object { $_ -ne 'S-1-5-32-545' })
 Report ($other.Count -eq 0) ('is in no other local group' + $(if ($other) { ': ' + ($other -join ', ') } else { '' }))
 
+# ── Powerful user rights (LSA; needs elevation) ─────────────────────────────
+$elevated = (New-Object Security.Principal.WindowsPrincipal ([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($elevated) {
+    $pow = @(Get-GlimPowerfulRights -Sid $sid -GroupSids $groupSids)
+    Report ($pow.Count -eq 0) ('holds no powerful user right' + $(if ($pow) { ': ' + ($pow -join ', ') } else { '' }))
+} else {
+    Write-Host 'skip  powerful user rights: listing them needs elevation (setup.ps1 checks them; run check.ps1 elevated to include them). Not counted as a pass.' -ForegroundColor Yellow
+}
+
 # ── Must not read ────────────────────────────────────────────────────────────
 $mustNotRead = @(
     $env:USERPROFILE,
@@ -86,6 +100,17 @@ foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
     if ($t.Scope -eq 'tree') {
         foreach ($c in (Get-ChildItem -LiteralPath $t.Path -Directory -Force -ErrorAction SilentlyContinue)) { $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName }
+    }
+}
+# Every top-level folder on every fixed/removable drive, whatever the lock
+# list says (so a folder the list's own test missed still fails here).
+foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 })) {
+    $root = $d.DeviceID + '\'
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $mustNotWrite[$root.ToLowerInvariant()] = $root
+    foreach ($c in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+        if ($c.FullName -like 'C:\GlimAgent*') { continue }
+        $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName
     }
 }
 # The named folders must be on the list even if they're no longer writable by all.
