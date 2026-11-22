@@ -465,7 +465,7 @@ fn sealed_slot(rid: &str, exp: i64, details: &str, approvers: &[(Approver, [u8; 
 pub const LEASE_RUNBOOKS_SHOWN: usize = 20;
 
 /// A lease request's slot: the frame, Pushover's text and the link.
-/// `runbooks`: the cloud-level runbooks a leased agent could start as the
+/// `runbooks`: the remote-level runbooks ("name (cloud|phone)") a leased agent could start as the
 /// owner right now (PC-built, owner 2026-11-22: the card must say so); shown
 /// on the card, not part of the signed binding.
 pub fn lease_request(p: &super::lease::Pending, runbooks: &[String], approvers: &[(Approver, [u8; 32])], relay_host: &str) -> Option<Request> {

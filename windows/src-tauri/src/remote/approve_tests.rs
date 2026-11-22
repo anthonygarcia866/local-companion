@@ -184,7 +184,7 @@ fn a_lease_is_approved_only_over_its_own_binding_never_with_a_runbook_approval()
     let n: [u8; 12] = from_b64url(item["n"].as_str().unwrap()).unwrap().try_into().unwrap();
     let d: Value = serde_json::from_slice(&seal::approve_open(&key, &format!("glim-approve-v1|{RID}"), &n, &from_b64url(item["ct"].as_str().unwrap()).unwrap()).unwrap()).unwrap();
     assert_eq!((d["kind"].as_str(), d["client"].as_str(), d["hours"].as_u64(), d["lock"].as_str()), (Some("lease"), Some("muse"), Some(4), Some(p.lock.as_str())));
-    // The card lists the cloud-level runbooks it could start as the owner
+    // The card lists the remote-level runbooks it could start as the owner
     // (owner 2026-11-22), capped, the rest counted; never part of the binding.
     assert_eq!(d["runbooks"].as_array().unwrap().len(), LEASE_RUNBOOKS_SHOWN);
     assert_eq!((d["runbooks"][0].as_str(), d["more"].as_u64()), (Some("book-0"), Some(3)));
