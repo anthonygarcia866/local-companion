@@ -56,19 +56,27 @@ Write-Host "Owner: $Owner  Profile: $OwnerProfile  DryRun: $DryRun"
 Step "1. Local user $AgentName"
 $user = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
 function New-AgentPassword {
-    # 32 characters from a 64-symbol alphabet, from the OS's CSPRNG.
+    # 32 characters from a 64-symbol alphabet (256 mod 64 = 0: no bias), from
+    # the OS's CSPRNG; drawn again until it has upper, lower, digit and symbol,
+    # so Windows' complexity policy (if on) never refuses it.
     $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#%+=?@'.ToCharArray()
-    $bytes = New-Object byte[] 32
-    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+    while ($true) {
+        $bytes = New-Object byte[] 32
+        $rng.GetBytes($bytes)
+        $s = -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+        if ($s -cmatch '[A-Z]' -and $s -cmatch '[a-z]' -and $s -match '[0-9]' -and $s -match '[!#%+=?@]') { return $s }
+    }
 }
 if (-not $user) {
     Act "create $AgentName (Users only), random password into your Credential Manager as $CredTarget" {
         $plain = New-AgentPassword
         $pw = ConvertTo-SecureString $plain -AsPlainText -Force
-        New-LocalUser -Name $AgentName -Password $pw -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'Glim agent sandbox' | Out-Null
+        # Saved first: if creating the user fails, a stale entry is harmless;
+        # the other way round would leave a user whose password nobody knows.
         Write-GlimCredential -Target $CredTarget -Secret $plain
         $plain = $null
+        New-LocalUser -Name $AgentName -Password $pw -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description 'Glim agent sandbox' | Out-Null
     }
 } elseif ($RotatePassword) {
     Act "new random password for $AgentName, saved over $CredTarget" {
@@ -82,14 +90,19 @@ if (-not $user) {
     if (-not (Test-GlimCredential -Target $CredTarget)) { Write-Warning "  $CredTarget is missing from your Credential Manager: run again with -RotatePassword" }
 }
 
-# Users only: never Administrators or Remote Desktop Users (by SID: names are localized).
+# Users only: in no other local group (Administrators, Backup Operators,
+# Remote Desktop Users, Hyper-V Administrators, Remote Management Users ...).
+# By the user's own group list (ADSI), which doesn't trip over orphaned SIDs
+# in a group the way Get-LocalGroupMember does.
 if ($user -or -not $DryRun) {
     $u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
     if ($u) {
-        foreach ($sid in 'S-1-5-32-544', 'S-1-5-32-555') {
-            $g = Get-LocalGroup -SID $sid -ErrorAction SilentlyContinue
-            if ($g -and (Get-LocalGroupMember -Group $g -ErrorAction SilentlyContinue | Where-Object { $_.SID -eq $u.SID })) {
-                Act "remove $AgentName from $($g.Name)" { Remove-LocalGroupMember -Group $g -Member $u }
+        $adsiUser = [ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user"
+        foreach ($g in @($adsiUser.Groups())) {
+            $gName = $g.GetType().InvokeMember('Name', 'GetProperty', $null, $g, $null)
+            $gSid = (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value
+            if ($gSid -ne 'S-1-5-32-545') {
+                Act "remove $AgentName from $gName ($gSid)" { ([ADSI]"WinNT://$env:COMPUTERNAME/$gName,group").Remove($adsiUser.Path) }
             }
         }
     }
@@ -120,7 +133,8 @@ else {
         $need = @()
         foreach ($right in 'SeDenyRemoteInteractiveLogonRight', 'SeDenyNetworkLogonRight') {
             $line = $lines | Where-Object { $_ -match "^$right\s*=" }
-            if (-not $line -or $line -notmatch [regex]::Escape("*$agentSid")) {
+            $held = if ($line) { @((($line -split '=', 2)[1]) -split ',' | ForEach-Object { $_.Trim() }) } else { @() }
+            if ($held -notcontains "*$agentSid") {
                 $existing = if ($line) { ($line -split '=', 2)[1].Trim() } else { '' }
                 $value = if ($existing) { "$existing,*$agentSid" } else { "*$agentSid" }
                 $need += "$right = $value"
@@ -154,8 +168,10 @@ if ($agentSid) {
 if ($hasDeny) { Write-Host '  already denied' }
 else {
     Act "icacls $OwnerProfile /deny ${AgentName}:(OI)(CI)F" {
-        # Only the folder's own ACL changes; children inherit it. A file whose
-        # inheritance is off (rare) is reported, not changed.
+        # icacls puts the deny on the folder and propagates it to every child
+        # that inherits (it can take a while on a big profile). A file or
+        # folder with inheritance turned off doesn't get it: check.ps1 tries
+        # to open the actual login files to catch that.
         icacls $OwnerProfile /deny "${AgentName}:(OI)(CI)F" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "icacls $OwnerProfile failed ($LASTEXITCODE)" }
     }

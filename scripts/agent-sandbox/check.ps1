@@ -30,7 +30,15 @@ $mustFail = @(
     (Join-Path $env:USERPROFILE '.claude'),
     (Join-Path $env:USERPROFILE '.claude2'),
     (Join-Path $env:LOCALAPPDATA 'Glim'),
-    (Join-Path $env:APPDATA 'Glim')
+    (Join-Path $env:APPDATA 'Glim'),
+    # The login files themselves, opened directly (a file whose inheritance is
+    # off could miss the profile's deny and still open by full path).
+    (Join-Path $env:APPDATA 'GitHub CLI\hosts.yml'),
+    (Join-Path $env:USERPROFILE '.config\gh\hosts.yml'),
+    (Join-Path $env:APPDATA 'xdg.config\.wrangler\config\default.toml'),
+    (Join-Path $env:USERPROFILE '.claude\.credentials.json'),
+    (Join-Path $env:USERPROFILE '.claude2\.credentials.json'),
+    (Join-Path $env:USERPROFILE '.claude.json')
 )
 if (Test-Path 'G:\') { $mustFail += 'G:\' }
 $envMustBeAbsent = 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN'
@@ -55,7 +63,9 @@ try {
 $m = [regex]::Match([string]$text, 'GLIM-PROBE-BEGIN\s*(\{.*\})\s*GLIM-PROBE-END', 'Singleline')
 if (-not $m.Success) { throw "The probe gave no result (exit $($p.ExitCode))." }
 $r = $m.Groups[1].Value | ConvertFrom-Json
-if (@($r.paths.PSObject.Properties).Count -ne $mustFail.Count) { throw 'The probe checked a different number of paths than asked: not trusted.' }
+# Nothing may pass by being left out.
+if (@($r.paths.PSObject.Properties).Count -ne @($mustFail | Sort-Object -Unique).Count) { throw 'The probe checked a different number of paths than asked: not trusted.' }
+if (@($r.env.PSObject.Properties).Count -ne $envMustBeAbsent.Count) { throw 'The probe checked a different number of variables than asked: not trusted.' }
 
 $fail = 0
 function Report([bool]$ok, [string]$what) {
@@ -64,7 +74,16 @@ function Report([bool]$ok, [string]$what) {
 Report ($r.whoami -match "\\$AgentName$") "runs as $AgentName ($($r.whoami))"
 foreach ($prop in $r.paths.PSObject.Properties) { Report ($prop.Value -ne 'readable') "can't read $($prop.Name) ($($prop.Value))" }
 foreach ($prop in $r.env.PSObject.Properties) { Report ($prop.Value -eq 'absent') "no $($prop.Name) in its environment" }
-Report (@($r.glimCredentials).Count -eq 0) "its Credential Manager has no Glim/ entries"
+Report (@($r.glimCredentials | Where-Object { $_ }).Count -eq 0) "its Credential Manager has no Glim/ entries"
+# Groups: Everyone, Users, INTERACTIVE, CONSOLE LOGON, LOCAL, Authenticated
+# Users, This Organization, Local account, its logon session, NTLM, medium
+# integrity and the machine's own domain users only. Anything else
+# (Administrators, Backup Operators ...) fails.
+$okGroups = '^(S-1-1-0|S-1-5-32-545|S-1-5-4|S-1-2-1|S-1-2-0|S-1-5-11|S-1-5-15|S-1-5-113|S-1-5-5-.*|S-1-5-64-10|S-1-16-8192|S-1-5-21-.*-513)$'
+$odd = @($r.groups | Where-Object { $_ -notmatch $okGroups })
+Report ($odd.Count -eq 0) ("no groups beyond Users and the standard logon ones" + $(if ($odd) { ': ' + ($odd -join ', ') } else { '' }))
+$badPriv = @($r.privileges | Where-Object { $_ -in 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeDebugPrivilege', 'SeTakeOwnershipPrivilege', 'SeImpersonatePrivilege', 'SeLoadDriverPrivilege', 'SeTcbPrivilege', 'SeSecurityPrivilege', 'SeManageVolumePrivilege' })
+Report ($badPriv.Count -eq 0) ("no powerful privileges" + $(if ($badPriv) { ': ' + ($badPriv -join ', ') } else { '' }))
 Report ($r.workWritable -eq 'yes') "can write C:\GlimAgent\work"
 Write-Host ''
 Write-Host 'Drive roots it can list (info: C:\ is normal; review any other):'
