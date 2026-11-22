@@ -37,7 +37,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Relay, caller, CLIENT_NAME, LEGACY_CLIENT, MAX_TASK_BYTES, MAX_WAIT_S } from "./core.js";
 import { Approvals, MAX_ANSWER_BYTES, phoneRateLimit, readCapped } from "./approvals.js";
-import { NONCE_KEEP_S, SCHEME, signedCaller } from "./agentauth.js";
+import { NONCE_KEEP_S, SCHEME, preCheck, signedCaller } from "./agentauth.js";
 
 /** The approval page (GitHub Pages, approve/ in the repo): the only origin
  * a browser may call the phone routes from. */
@@ -94,6 +94,7 @@ export default {
     // hash can be checked, and forwarded exactly as read.
     if (authorization.startsWith(`${SCHEME} `)) {
       if (pcRoute) return json(403, { error: "wrong-token" });
+      if (!preCheck(authorization, env, Math.floor(Date.now() / 1000))) return json(401, { error: "unauthorized" });
       let body = "";
       if (request.method === "POST") {
         const r = await readCapped(request, MAX_TASK_BYTES);

@@ -22,8 +22,10 @@ import { CLIENT_NAME, LEGACY_CLIENT, MAX_CLIENTS } from "./core.js";
 export const SCHEME = "GlimSig";
 export const DOMAIN = "glim-relay-v1";
 export const SKEW_S = 60;
-/** A nonce is remembered while its ts could still pass: ±SKEW_S. */
-export const NONCE_KEEP_S = 2 * SKEW_S + 1;
+/** A nonce is remembered while its ts could still pass (±SKEW_S), plus a
+ * minute for the Worker's and the Durable Object's clocks to differ
+ * (review 2026-11-21). */
+export const NONCE_KEEP_S = 2 * SKEW_S + 60;
 const HEADER = /^GlimSig client=([a-z0-9][a-z0-9-]{0,31}),ts=([0-9]{1,12}),nonce=([0-9a-f]{32}),sig=([0-9a-f]{128})$/;
 const KEY = /^key:([0-9a-f]{64})$/;
 
@@ -66,6 +68,19 @@ const bytesOf = (hex) => new Uint8Array(hex.match(/../g).map((b) => parseInt(b, 
 export function parseHeader(authorization) {
   const m = HEADER.exec(authorization || "");
   return m ? { client: m[1], ts: Number(m[2]), nonce: m[3], sig: m[4] } : null;
+}
+
+/**
+ * The checks that need no body (review 2026-11-21): a well-formed header,
+ * a PC set up, a known agent client, ts within the skew. Run before the
+ * body is read, so a stranger's request costs no read or signature check.
+ */
+export function preCheck(authorization, env, nowS) {
+  const h = parseHeader(authorization);
+  if (!h) return false;
+  if (!/^[0-9a-f]{64}$/.test(String(env.PC_TOKEN_SHA256 || "").trim().toLowerCase())) return false;
+  if (!keyClients(env).has(h.client)) return false;
+  return Number.isSafeInteger(h.ts) && Math.abs(nowS - h.ts) <= SKEW_S;
 }
 
 /**

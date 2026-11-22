@@ -1035,6 +1035,12 @@ fn remote_client_add(app: AppHandle, shared: State<Shared>, name: String, key: S
 #[tauri::command]
 fn remote_agent_client_add(app: AppHandle, shared: State<Shared>, name: String, key: String) -> Result<RemoteStatus, String> {
     let name = remote::parse_client_name(&name).map_err(|_| i18n::t("A client's name is 1-32 letters, digits or dashes, like account-2."))?;
+    // The relay reserves account-1 for the token from before clients
+    // (relay/src/agentauth.js keyClients): an agent of that name would get
+    // nothing but 401s (review 2026-11-21).
+    if name == remote::LEGACY_CLIENT {
+        return Err(i18n::t("Pick another name: account-1 is kept for a token client."));
+    }
     let key = remote::parse_public_key(&key).map_err(|_| i18n::t("That isn't a public key: paste the 64 hex characters."))?;
     let mut next = shared.settings.lock().unwrap().remote.clone();
     let commands = Some(remote::DEFAULT_COMMANDS.iter().map(|k| k.to_string()).collect());

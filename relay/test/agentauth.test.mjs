@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
-import { keyClients, signedCaller, parseHeader, SKEW_S, NONCE_KEEP_S } from "../src/agentauth.js";
+import { keyClients, signedCaller, parseHeader, preCheck, SKEW_S, NONCE_KEEP_S } from "../src/agentauth.js";
 import { cloudClients, caller, Relay, MemoryStore } from "../src/core.js";
 import { keygen, signRequest, fingerprint } from "../courier.mjs";
 
@@ -150,4 +150,23 @@ test("keygen: owner-only file, prints only the public key and its fingerprint", 
   assert.ok(!out.join("\n").includes(seed), "the private key is never printed");
   if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("a relay with only agent clients still lets the PC in (review 2026-11-21)", async () => {
+  const { muse } = setup();
+  const env = { PC_TOKEN_SHA256: hex("pc-token"), CLOUD_CLIENTS: `muse=key:${muse.pub}` };
+  assert.deepEqual(await caller("Bearer pc-token-pc-token-pc-token-pc-token", { ...env, PC_TOKEN_SHA256: hex("pc-token-pc-token-pc-token-pc-token") }), { role: "pc" });
+  // Nobody at all: still nobody, the PC included.
+  assert.equal(await caller("Bearer pc-token-pc-token-pc-token-pc-token", { PC_TOKEN_SHA256: hex("pc-token-pc-token-pc-token-pc-token"), CLOUD_CLIENTS: "none" }), null);
+});
+
+test("the cheap checks run before any body is read: header, PC, known agent, time", () => {
+  const { muse, env } = setup();
+  const ok = signRequest(muse.seed, "muse", "GET", `${URL0}/v1/status`, "", NOW);
+  assert.equal(preCheck(ok, env, NOW), true);
+  assert.equal(preCheck(ok, env, NOW + SKEW_S + 1), false);
+  assert.equal(preCheck(ok.replace("client=muse", "client=nobody"), env, NOW), false);
+  assert.equal(preCheck(ok, { ...env, PC_TOKEN_SHA256: "" }, NOW), false);
+  assert.equal(preCheck("GlimSig nonsense", env, NOW), false);
+  assert.ok(NONCE_KEEP_S >= 2 * SKEW_S + 30, "a margin for the two clocks");
 });
