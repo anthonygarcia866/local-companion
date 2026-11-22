@@ -790,6 +790,9 @@ struct RemoteStatus {
     /// clients' account choice; owner 2026-11-21).
     accounts: Vec<RemoteAccountView>,
     activity: Vec<remote::Activity>,
+    /// Open phone approvals (paused runs, lease requests): Settings → Remote →
+    /// "Waiting for your OK" (owner 2026-11-22, no Pushover).
+    pending: Vec<remote::pending::Waiting>,
 }
 
 #[derive(serde::Serialize)]
@@ -863,6 +866,7 @@ fn remote_now(shared: &Shared) -> RemoteStatus {
         commands: remote::COMMANDS.iter().map(|k| k.to_string()).collect(),
         accounts: accounts_list.iter().map(|a| RemoteAccountView { name: a.name.clone(), client: a.client.clone() }).collect(),
         activity,
+        pending: remote::pending::now_list(),
     }
 }
 
@@ -1168,6 +1172,14 @@ fn remote_lease_lock(shared: State<Shared>, name: String) -> Result<RemoteStatus
         log::line("remote: lease locked in Settings");
     }
     Ok(remote_now(&shared))
+}
+
+/// The QR code of an open approval's link, by its request id: only a link
+/// Glim made for a request still waiting (`remote::pending`), never text
+/// the webview hands in.
+#[tauri::command]
+fn remote_approval_qr(rid: String) -> Result<String, String> {
+    remote::pending::qr(&rid)
 }
 
 #[tauri::command]
@@ -2397,6 +2409,7 @@ pub fn run() {
             remote_client_remove,
             remote_client_commands,
             remote_lease_lock,
+            remote_approval_qr,
             remote_agent_client_add,
             remote_client_account,
             remote_kill,

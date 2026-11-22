@@ -257,7 +257,7 @@ pub fn pair_start(relay_host: &str, now: i64, send: &dyn Fn(String)) -> Result<P
     Ok(pair_view(now))
 }
 
-fn qr_svg(text: &str) -> Result<String, String> {
+pub(crate) fn qr_svg(text: &str) -> Result<String, String> {
     let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M).map_err(|_| "qr-too-long".to_string())?;
     Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(240, 240).quiet_zone(true).build())
 }

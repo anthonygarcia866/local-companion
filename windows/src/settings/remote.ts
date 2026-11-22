@@ -17,7 +17,7 @@
 // client" takes the client's PUBLIC key and makes its own relay token,
 // shown exactly once; "Remove" refuses its tasks at once.
 
-import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus, type PairView } from "../core/bridge";
+import { Bridge, type KeepAliveEntry, type KeepAliveStatus, type RemoteActivity, type RemoteClient, type RemoteStatus, type RemoteWaiting, type PairView } from "../core/bridge";
 import { h, clear } from "../views/dom";
 import { deferWhileTyping, redrawKeeping } from "../views/typing";
 import { t } from "../i18n/i18n";
@@ -175,6 +175,13 @@ export function activityLine(a: RemoteActivity): string {
   return `${clock(a.at)} ${who}${a.ok ? t("Accepted: {kind}", { kind }) : t("Refused: {reason}", { reason: a.reason })}`;
 }
 
+/** A waiting approval's title: the run's runbook and step, or the lease's hours. */
+export function waitingTitle(w: RemoteWaiting): string {
+  return w.kind === "lease"
+    ? t("{client} asks to be unlocked for {hours} h", { client: w.client, hours: String(w.hours) })
+    : t("{client}: {runbook}, step {step} of {total}", { client: w.client, runbook: w.runbook, step: String(w.step), total: String(w.total) });
+}
+
 /** The first free "account-N" (account-1, account-2 ...). */
 export function nextClientName(clients: RemoteClient[]): string {
   for (let n = 1; ; n++) if (!clients.some((c) => c.name === `account-${n}`)) return `account-${n}`;
@@ -240,6 +247,9 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
   let perPcDraft: string | null = null;
   /** Polls (status 2 s, pairing 2 s) wait while a field here has focus. */
   const later = deferWhileTyping(box);
+  /** Waiting approvals' QR codes by request id, asked of Rust once each. */
+  const qrs = new Map<string, string>();
+  const qrAsked = new Set<string>();
 
   async function act(f: () => Promise<RemoteStatus | null>, what = "") {
     try {
@@ -419,6 +429,41 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     return box;
   }
 
+  /**
+   * "Waiting for your OK" (owner 2026-11-22, agent sandbox plan §7 PR 1):
+   * with no Pushover, each open phone approval is shown here with its match
+   * code and a QR code of its own link, to scan with the paired phone.
+   */
+  function waitingBox(list: RemoteWaiting[]): HTMLElement {
+    const card = h("div", { class: "card", "data-role": "remote-waiting" },
+      h("div", { class: "name", text: t("Waiting for your OK") }),
+      h("div", { class: "hint", text: t("Scan a code with your iPhone's camera and approve with Face ID. The page must show the same match code.") }),
+    );
+    for (const w of list) {
+      const qr = h("div", { "data-role": "remote-waiting-qr" });
+      const svg = qrs.get(w.rid);
+      // Rust drew this SVG (qrcode crate) from the request's own link only;
+      // shown as an image, so no markup of it ever enters the page.
+      if (svg) qr.append(h("img", { "data-role": "remote-waiting-qr-img", alt: t("QR code for match code {code}", { code: w.code }), width: "200", height: "200", src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` }));
+      else if (!qrAsked.has(w.rid)) {
+        qrAsked.add(w.rid);
+        Bridge.remoteApprovalQr(w.rid).then((s) => {
+          qrs.set(w.rid, s);
+          later(draw);
+        }, () => {
+          // Asked again on the next redraw (a request that just opened, an IPC hiccup).
+          qrAsked.delete(w.rid);
+        });
+      }
+      card.append(h("div", { "data-role": "remote-waiting-item", "data-kind": w.kind },
+        h("div", { class: "name", text: waitingTitle(w) }),
+        h("div", { class: "hint", "data-role": "remote-waiting-code", text: t("Match code {code} · lapses at {time}", { code: w.code, time: clock(w.expires) }) }),
+        qr,
+      ));
+    }
+    return card;
+  }
+
   function runbookLimits(): HTMLElement {
     const perClient = h("input", { type: "number", min: "1", max: "20", "data-role": "remote-runbooks-client", value: perClientDraft ?? String(status.runbooksPerHour ?? 5), style: "width:5em" }) as HTMLInputElement;
     const perPc = h("input", { type: "number", min: "1", max: "50", "data-role": "remote-runbooks-pc", value: perPcDraft ?? String(status.runbooksPerHourPc ?? 10), style: "width:5em" }) as HTMLInputElement;
@@ -457,7 +502,7 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
     const prev = status;
     status = next;
     const same = (k: keyof RemoteStatus) => JSON.stringify(prev[k]) === JSON.stringify(next![k]);
-    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks", "approvers"] as const).every(same);
+    const rest = (["on", "consented", "killed", "clients", "relay", "pcPublicKey", "pcFingerprint", "pcEncKey", "pcEncFingerprint", "requireSealed", "runbooksPerHour", "runbooksPerHourPc", "remoteRunbooks", "approvers", "pending"] as const).every(same);
     if (!rest) return later(draw);
     if (connectionLine && !same("connection")) connectionLine.textContent = t("Relay: {state}", { state: connectionText(status.connection) });
     if (activityBox && !same("activity")) fillActivity(activityBox);
@@ -496,6 +541,15 @@ export function remoteTasks(toggle: (on: boolean, onChange: (v: boolean) => void
         h("div", { class: "hint", text: t("Glim will connect to your relay and accept tasks signed with your key: a session's status, the end of its transcript, starting or messaging a Claude Code session in an allowed project, and runbooks you approved. At most 5 new sessions and 30 tasks an hour. Stop them any time from the tray or here.") }),
         h("div", { class: "row" }, yes, no),
       ));
+    }
+
+    const waiting = status.pending ?? [];
+    if (waiting.length > 0) box.append(waitingBox(waiting));
+    for (const rid of [...qrs.keys(), ...qrAsked]) {
+      if (!waiting.some((w) => w.rid === rid)) {
+        qrs.delete(rid);
+        qrAsked.delete(rid);
+      }
     }
 
     const clients = h("div", { "data-role": "remote-clients" }, h("label", { text: t("Cloud clients") }));

@@ -200,6 +200,8 @@ export const Bridge = {
   remoteClientRemove: (name: string) => callOrThrow<RemoteStatus>("remote_client_remove", { name }),
   /** "Lock now": an agent client's lease ends at once. */
   remoteLeaseLock: (name: string) => callOrThrow<RemoteStatus>("remote_lease_lock", { name }),
+  /** The QR code (SVG, drawn by Rust) of an open approval's own link, by its request id. */
+  remoteApprovalQr: (rid: string) => callOrThrow<string>("remote_approval_qr", { rid }),
   /** "Add agent client (public key only)": no token; the relay checks its signatures. */
   remoteAgentClientAdd: (name: string, key: string) => callOrThrow<RemoteStatus>("remote_agent_client_add", { name, key }),
   /** The commands a cloud client may send (owner 2026-11-21): set on the PC only. */
@@ -546,6 +548,24 @@ export interface RemoteStatus {
   accounts?: { name: string; client: string }[];
   /** Newest first. */
   activity: RemoteActivity[];
+  /** Open phone approvals, soonest to lapse first (owner 2026-11-22, no Pushover). */
+  pending?: RemoteWaiting[];
+}
+
+/** One open phone approval: a paused run's step or an agent's lease request. */
+export interface RemoteWaiting {
+  /** The request id: what `remoteApprovalQr` takes. */
+  rid: string;
+  kind: "run" | "lease";
+  client: string;
+  runbook: string;
+  step: number;
+  total: number;
+  stepKind: string;
+  hours: number;
+  code: string;
+  /** When it lapses (Unix seconds). */
+  expires: number;
 }
 
 export interface RemoteApprover {

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { installFakeDom } from "./fakedom.mjs";
 
 installFakeDom();
-const { remoteSection, remoteTasks, entryState, clock, activityLine, nextClientName, addedText } = await import("../src/settings/remote.ts");
+const { remoteSection, remoteTasks, entryState, clock, activityLine, nextClientName, addedText, waitingTitle } = await import("../src/settings/remote.ts");
 const { sent, replies } = await import("./tauri.mjs");
 
 const tick = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -356,4 +356,27 @@ test("agent clients: locked by default; a lease shows its end and Lock now; leas
   const at = new Date(2026, 10, 21, 14, 5).getTime() / 1000;
   assert.equal(activityLine({ at, ok: true, kind: "lease-ended", reason: "", id: "", client: "muse", summary: "4 h lease ended (locked): runbook 1; runbooks: phone-test; sessions 0; PRs not tracked (no sandbox yet)" }),
     "14:05 muse · 4 h lease ended (locked): runbook 1; runbooks: phone-test; sessions 0; PRs not tracked (no sandbox yet)");
+});
+
+test("waiting for your OK: each open approval with its match code and its own QR code, asked of Rust by request id", async () => {
+  const exp = Math.floor(new Date(2026, 10, 22, 18, 5).getTime() / 1000);
+  const run = { rid: "a".repeat(32), kind: "run", client: "muse", runbook: "deploy", step: 2, total: 3, stepKind: "run", hours: 0, code: "ABC-DEF", expires: exp };
+  const lease = { rid: "b".repeat(32), kind: "lease", client: "agent", runbook: "", step: 0, total: 0, stepKind: "", hours: 4, code: "GHJ-KMN", expires: exp };
+  replies.set("remote_status", rstatus());
+  const none = remoteTasks(toggle, 60_000);
+  await tick();
+  assert.equal(role(none, "div", "remote-waiting"), undefined, "no card while nothing waits");
+  replies.set("remote_status", rstatus({ pending: [lease, run] }));
+  replies.set("remote_approval_qr", "<svg data-test=\"qr\"></svg>");
+  const el = remoteTasks(toggle, 60_000);
+  await tick();
+  await tick();
+  assert.equal(waitingTitle(run), "muse: deploy, step 2 of 3");
+  assert.equal(waitingTitle(lease), "agent asks to be unlocked for 4 h");
+  const codes = roleText(el, "remote-waiting-code");
+  assert.deepEqual(codes, ["Match code GHJ-KMN · lapses at 18:05", "Match code ABC-DEF · lapses at 18:05"]);
+  assert.deepEqual(sent("remote_approval_qr").map((a) => a.rid).sort(), [run.rid, lease.rid].sort(), "one QR ask per request, by id only");
+  const imgs = el.find("img").filter((i) => i.getAttribute("data-role") === "remote-waiting-qr-img");
+  assert.equal(imgs.length, 2);
+  assert.ok(imgs.every((i) => i.getAttribute("src").startsWith("data:image/svg+xml;charset=utf-8,%3Csvg")), "an image, never markup");
 });
