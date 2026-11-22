@@ -61,6 +61,7 @@ pub mod command;
 pub mod courier;
 pub mod exec;
 pub mod lease;
+pub mod pending;
 pub mod runs;
 pub mod seal;
 pub mod wake;

@@ -10116,6 +10116,72 @@
    "pt-BR": "Isso não é uma chave pública: cole os 64 caracteres hexadecimais.",
    "ru": "Это не открытый ключ: вставьте 64 шестнадцатеричных символа.",
    "id": "Itu bukan kunci publik: tempel 64 karakter heksadesimal."
+  },
+  "Waiting for your OK": {
+   "zh-Hans": "等待你的确认",
+   "hi": "आपकी मंज़ूरी का इंतज़ार",
+   "es": "Esperando tu aprobación",
+   "ar": "بانتظار موافقتك",
+   "fr": "En attente de votre accord",
+   "bn": "আপনার অনুমোদনের অপেক্ষায়",
+   "pt-BR": "Aguardando sua aprovação",
+   "ru": "Ждёт вашего подтверждения",
+   "id": "Menunggu persetujuan Anda"
+  },
+  "Scan a code with your iPhone's camera and approve with Face ID. The page must show the same match code.": {
+   "zh-Hans": "用 iPhone 相机扫描二维码，并用面容 ID 批准。页面必须显示相同的匹配码。",
+   "hi": "अपने iPhone के कैमरे से कोड स्कैन करें और Face ID से मंज़ूरी दें। पेज पर वही मिलान कोड दिखना चाहिए।",
+   "es": "Escanea un código con la cámara del iPhone y aprueba con Face ID. La página debe mostrar el mismo código de coincidencia.",
+   "ar": "امسح رمزًا بكاميرا iPhone ووافق باستخدام Face ID. يجب أن تعرض الصفحة رمز المطابقة نفسه.",
+   "fr": "Scannez un code avec l'appareil photo de l'iPhone et approuvez avec Face ID. La page doit afficher le même code de correspondance.",
+   "bn": "iPhone-এর ক্যামেরা দিয়ে কোড স্ক্যান করে Face ID দিয়ে অনুমোদন দিন। পেজে একই মিলের কোড দেখাতে হবে।",
+   "pt-BR": "Escaneie um código com a câmera do iPhone e aprove com o Face ID. A página deve mostrar o mesmo código de correspondência.",
+   "ru": "Отсканируйте код камерой iPhone и подтвердите через Face ID. На странице должен быть тот же код сверки.",
+   "id": "Pindai kode dengan kamera iPhone dan setujui dengan Face ID. Halaman harus menampilkan kode pencocokan yang sama."
+  },
+  "{client} asks to be unlocked for {hours} h": {
+   "zh-Hans": "{client} 请求解锁 {hours} 小时",
+   "hi": "{client} {hours} घंटे के लिए अनलॉक चाहता है",
+   "es": "{client} pide desbloquearse durante {hours} h",
+   "ar": "{client} يطلب فتح القفل لمدة {hours} س",
+   "fr": "{client} demande à être déverrouillé pendant {hours} h",
+   "bn": "{client} {hours} ঘণ্টার জন্য আনলক চায়",
+   "pt-BR": "{client} pede para ser desbloqueado por {hours} h",
+   "ru": "{client} просит разблокировку на {hours} ч",
+   "id": "{client} meminta dibuka selama {hours} jam"
+  },
+  "{client}: {runbook}, step {step} of {total}": {
+   "zh-Hans": "{client}：{runbook}，第 {step} 步，共 {total} 步",
+   "hi": "{client}: {runbook}, चरण {step} / {total}",
+   "es": "{client}: {runbook}, paso {step} de {total}",
+   "ar": "{client}: {runbook}، الخطوة {step} من {total}",
+   "fr": "{client} : {runbook}, étape {step} sur {total}",
+   "bn": "{client}: {runbook}, ধাপ {step} / {total}",
+   "pt-BR": "{client}: {runbook}, etapa {step} de {total}",
+   "ru": "{client}: {runbook}, шаг {step} из {total}",
+   "id": "{client}: {runbook}, langkah {step} dari {total}"
+  },
+  "Match code {code} · lapses at {time}": {
+   "zh-Hans": "匹配码 {code} · {time} 失效",
+   "hi": "मिलान कोड {code} · {time} पर समाप्त",
+   "es": "Código {code} · caduca a las {time}",
+   "ar": "رمز المطابقة {code} · ينتهي عند {time}",
+   "fr": "Code {code} · expire à {time}",
+   "bn": "মিলের কোড {code} · {time}-এ শেষ",
+   "pt-BR": "Código {code} · expira às {time}",
+   "ru": "Код {code} · истекает в {time}",
+   "id": "Kode {code} · berakhir pukul {time}"
+  },
+  "QR code for match code {code}": {
+   "zh-Hans": "匹配码 {code} 的二维码",
+   "hi": "मिलान कोड {code} का QR कोड",
+   "es": "Código QR del código {code}",
+   "ar": "رمز QR لرمز المطابقة {code}",
+   "fr": "Code QR du code {code}",
+   "bn": "মিলের কোড {code}-এর QR কোড",
+   "pt-BR": "Código QR do código {code}",
+   "ru": "QR-код для кода {code}",
+   "id": "Kode QR untuk kode {code}"
   }
  }
 }

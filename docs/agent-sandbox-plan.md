@@ -141,7 +141,7 @@ Also decided: **no Pushover.** Muse forwards approval links; until Muse is conne
 
 Each PR: CI green, a fresh-agent security review with no critical/high, merge commit. Owner steps are shown in full before they're needed.
 
-1. **Pending approvals in Settings → Remote.** A card listing each paused run's and each lease request's approval as a QR code of its link plus the match code, so the owner can approve without Pushover. Nothing new leaves the PC.
+1. **Pending approvals in Settings → Remote** (built 2026-11-22, branch `remote-pending-approvals`, `remote/pending.rs`). A card listing each paused run's and each lease request's approval as a QR code of its link plus the match code, so the owner can approve without Pushover. Nothing new leaves the PC.
 2. **Agent user setup script** (`scripts/agent-sandbox/setup.ps1`, run by the owner, elevated): §1 user (random password into the owner's vault), §2 folder ACLs, sign-in hiding, the logon-right denials. Plus `check.ps1` (§2's proofs). **Owner: one UAC prompt (Windows password).**
 3. **Network limit:** the allowlisting proxy (GitHub hosts + `api.anthropic.com`, CONNECT only) and the per-user firewall rule, with the empirical checks (`example.com` refused direct and via proxy; GitHub and the API reachable). **Owner: one UAC prompt** for the firewall rule.
 4. **API key for glim-agent:** the launcher that reads glim-agent's vault. **Owner: create the workspace + $50 limit + key in the Console, then paste the key into the console window opened as glim-agent.**
