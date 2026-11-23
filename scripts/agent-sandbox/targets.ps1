@@ -27,9 +27,10 @@
 # stricter side).
 $GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113', 'S-1-5-64-10', 'S-1-5-3'
 # Write-only bits (Modify/FullControl include read bits, so they can't be the
-# mask): create files, create folders, delete, change permissions, take
-# ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.
-$GlimWriteBits = [int64](2 -bor 4 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
+# mask): create files, create folders, write EAs, delete child, write
+# attributes, delete, change permissions, take ownership, plus GENERIC_WRITE /
+# GENERIC_ALL as stored in inheritable ACEs.
+$GlimWriteBits = [int64](2 -bor 4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
 $GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers'
 # + WDAC (change permissions) and WO (take ownership): without them glim-agent
 # could rewrite a Full Control folder's ACL and delete its own deny. Neither
@@ -50,32 +51,84 @@ function Test-GlimBroadWrite([string]$Path) {
 # PATH entries whose folder doesn't exist yet: if glim-agent could create
 # one, it could plant programs on PATH. Returns the nearest existing parent
 # of each, which must not be writable.
-function Get-GlimMissingPathParents {
-    $seen = @{}
+# Folders a walk couldn't list (review 5: skipping them silently hid
+# everything below). Get-GlimTreeItems adds to it; callers report it.
+$GlimUnlistable = New-Object System.Collections.Generic.List[string]
+
+# PATH entries that couldn't be resolved to a real folder: NOT verified
+# (check.ps1 ends INCOMPLETE). Review 6: a quoted entry used to be dropped.
+$GlimPathUnresolved = New-Object System.Collections.Generic.List[string]
+
+# Each PATH entry (system, then the owner's) as cmd.exe would use it:
+# variables expanded, surrounding quotes removed (cmd strips them).
+function Get-GlimPathEntries {
     foreach ($scope in 'Machine', 'User') {
         foreach ($e in ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';')) {
-            if (-not $e.Trim()) { continue }
-            $x = [Environment]::ExpandEnvironmentVariables($e.Trim()).TrimEnd('\')
-            if (Test-Path -LiteralPath $x) { continue }
-            $p = $x
-            while ($p -and -not (Test-Path -LiteralPath $p)) { $p = Split-Path -Parent $p }
-            if ($p -and -not $seen.ContainsKey($p.ToLowerInvariant())) { $seen[$p.ToLowerInvariant()] = $true; $p }
+            $x = [Environment]::ExpandEnvironmentVariables($e).Trim().Trim('"').Trim().TrimEnd('\')
+            if (-not $x) { continue }
+            if ($x -match '^[A-Za-z]:$') { $x += '\' }
+            $x
         }
     }
 }
 
+# Every existing PATH folder, as the REAL folder it leads to (a junction or
+# symlink, at the end or on the way, is followed: review 6, a link's own ACL
+# says nothing about its target's). Needs authz.ps1.
 function Get-GlimPathFolders {
     $seen = @{}
-    foreach ($scope in 'Machine', 'User') {
-        foreach ($e in ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';')) {
-            if (-not $e.Trim()) { continue }
-            $x = [Environment]::ExpandEnvironmentVariables($e.Trim()).TrimEnd('\')
-            if ($x -match '^[A-Za-z]:$') { $x += '\' }
-            if (-not $seen.ContainsKey($x.ToLowerInvariant()) -and (Test-Path -LiteralPath $x -PathType Container)) {
-                $seen[$x.ToLowerInvariant()] = $true
-                $x
-            }
+    foreach ($x in (Get-GlimPathEntries)) {
+        $ok = $false
+        try { $ok = Test-Path -LiteralPath $x -PathType Container } catch { }
+        if (-not $ok) { continue }
+        $final = [GlimAuthz]::FinalPath($x)
+        if (-not $final) { if (-not $GlimPathUnresolved.Contains($x)) { $GlimPathUnresolved.Add($x) }; continue }
+        if (-not $seen.ContainsKey($final.ToLowerInvariant())) { $seen[$final.ToLowerInvariant()] = $true; $final }
+    }
+}
+
+# PATH entries whose folder doesn't exist yet: if glim-agent could create
+# one, it could plant programs on PATH. Returns the nearest existing parent
+# (real path) of each, which must not be writable.
+function Get-GlimMissingPathParents {
+    $seen = @{}
+    foreach ($x in (Get-GlimPathEntries)) {
+        $exists = $false
+        try { $exists = Test-Path -LiteralPath $x } catch { }
+        if ($exists) { continue }
+        $par = $x
+        while ($par) {
+            $e2 = $false
+            try { $e2 = Test-Path -LiteralPath $par } catch { }
+            if ($e2) { break }
+            $par = Split-Path -Parent $par
         }
+        $final = if ($par) { [GlimAuthz]::FinalPath($par) } else { $null }
+        if (-not $final) { if (-not $GlimPathUnresolved.Contains($x)) { $GlimPathUnresolved.Add($x) }; continue }
+        if (-not $seen.ContainsKey($final.ToLowerInvariant())) { $seen[$final.ToLowerInvariant()] = $true; $final }
+    }
+}
+
+# Every folder above a PATH folder, up to its drive root: with delete-child
+# or write on one of them glim-agent could rename the PATH folder away and
+# make a new one (review 6).
+function Get-GlimPathAncestors {
+    $seen = @{}
+    foreach ($f in (Get-GlimPathFolders)) {
+        $par = Split-Path -Parent $f
+        while ($par) {
+            if (-not $seen.ContainsKey($par.ToLowerInvariant())) { $seen[$par.ToLowerInvariant()] = $true; $par }
+            $par = Split-Path -Parent $par
+        }
+    }
+}
+
+# The files directly in each PATH folder (what PATH lookup runs).
+function Get-GlimPathFiles {
+    foreach ($f in (Get-GlimPathFolders)) {
+        $errs = $null
+        foreach ($c in @(Get-ChildItem -LiteralPath $f -File -Force -ErrorAction SilentlyContinue -ErrorVariable errs)) { $c.FullName }
+        if ($errs) { if (-not $GlimUnlistable.Contains($f)) { $GlimUnlistable.Add($f) } }
     }
 }
 
@@ -86,9 +139,6 @@ function Test-GlimUnder([string]$Path, [string]$Base) {
     $Path -ieq $b -or $Path -like "$b\*"
 }
 
-# Folders a walk couldn't list (review 5: skipping them silently hid
-# everything below). Get-GlimTreeItems adds to it; callers report it.
-$GlimUnlistable = New-Object System.Collections.Generic.List[string]
 # Links (junctions, symlinks) that all users could write or retarget. They
 # are never lock targets (icacls would change the link's TARGET, wherever it
 # points); setup lists them and stops, to be fixed by hand.
@@ -174,14 +224,17 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         $root = $d.DeviceID + '\'
         if (-not (Test-Path -LiteralPath $root)) { continue }
         if (Test-GlimBroadWrite $root) { Add-Target $root 'folder' 'drive root, writable by all users' }
-        foreach ($c in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+        $errs = $null
+        $rootKids = @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue -ErrorVariable errs)
+        if ($errs) { if (-not $GlimUnlistable.Contains($root)) { $GlimUnlistable.Add($root) } }
+        foreach ($c in @($rootKids | Where-Object { $_.PSIsContainer })) {
             if (Test-GlimBroadWrite $c.FullName) {
                 $scope = if ($c.Name -eq '$Recycle.Bin') { 'folder' } else { 'tree' }
                 Add-Target $c.FullName $scope 'top-level folder, writable by all users'
             }
         }
         # Files directly at the root (a folder-only deny on the root doesn't reach them).
-        foreach ($f in (Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue)) {
+        foreach ($f in @($rootKids | Where-Object { -not $_.PSIsContainer })) {
             if (Test-GlimBroadWrite $f.FullName) { Add-Target $f.FullName 'file' 'file at the drive root, writable by all users' }
         }
     }
@@ -190,6 +243,12 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
     }
     foreach ($p in (Get-GlimMissingPathParents)) {
         if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'parent of a PATH folder that does not exist yet, writable by all users' }
+    }
+    foreach ($p in (Get-GlimPathAncestors)) {
+        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'above a PATH folder, writable by all users' }
+    }
+    foreach ($p in (Get-GlimPathFiles)) {
+        if (Test-GlimBroadWrite $p) { Add-Target $p 'file' 'program in a PATH folder, writable by all users' }
     }
     # Inside every tree: files and folders whose own (explicit) entry lets all
     # users write: the tree's inherited deny doesn't beat it, so each gets its own.

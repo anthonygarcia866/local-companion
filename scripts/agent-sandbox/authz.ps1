@@ -56,6 +56,28 @@ public static class GlimAuthz {
         } finally { LsaClose(pol); }
     }
     public static string[] LogonSids() { return (string[])Logon.Clone(); }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint GetFinalPathNameByHandleW(IntPtr h, System.Text.StringBuilder buf, uint len, uint flags);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+
+    // The real path `path` leads to, every junction and symlink on the way
+    // followed (what opening it really reaches); null if it can't be opened.
+    public static string FinalPath(string path) {
+        IntPtr h = CreateFileW(path, 0x80 /* FILE_READ_ATTRIBUTES */, 7 /* share all */, IntPtr.Zero, 3 /* OPEN_EXISTING */, 0x02000000 /* BACKUP_SEMANTICS: folders too */, IntPtr.Zero);
+        if (h == new IntPtr(-1)) return null;
+        try {
+            var sb = new System.Text.StringBuilder(32768);
+            uint n = GetFinalPathNameByHandleW(h, sb, (uint)sb.Capacity, 0);
+            if (n == 0 || n >= sb.Capacity) return null;
+            string s = sb.ToString();
+            if (s.StartsWith(@"\\?\UNC\")) return @"\\" + s.Substring(8);
+            if (s.StartsWith(@"\\?\")) return s.Substring(4);
+            return s;
+        } finally { CloseHandle(h); }
+    }
     [DllImport("authz.dll")] static extern bool AuthzFreeResourceManager(IntPtr rm);
     // Every SID any of its logons may carry (for the "who could it be" checks:
     // user rights and group membership, where more is the stricter side).

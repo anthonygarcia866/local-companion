@@ -186,6 +186,7 @@ else {
 # ── 6. Lock what everyone can write (owner 2026-11-22) ──────────────────────
 Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
 $targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
+foreach ($x in $GlimPathUnresolved) { Write-Warning "  PATH entry that doesn't resolve to a real folder (NOT verified): $x" }
 if ($GlimLinkFindings.Count) {
     $GlimLinkFindings | ForEach-Object { Write-Host "  LINK all users could change (not locked automatically: icacls would change its target): $_" -ForegroundColor Red }
     if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }
@@ -197,7 +198,7 @@ foreach ($t in $targets) {
         $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
             $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
             $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
-            ((([int64]$_.FileSystemRights) -band 0xD0056) -eq 0xD0056) -and
+            ((([int64]$_.FileSystemRights) -band 0xD0156) -eq 0xD0156) -and
             ($t.Scope -ne 'tree' -or (($_.InheritanceFlags -band 3) -eq 3))  # both ContainerInherit and ObjectInherit
         })
     }

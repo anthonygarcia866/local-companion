@@ -15,7 +15,8 @@
 #   - it can't read your profile, your gh / wrangler / Claude / Claude2 / Glim
 #     folders, the login files in them, or G:\;
 #   - it can't write or delete in your profile, any PATH folder (system or
-#     yours), any drive root, top-level folder or root file on any drive, any
+#     yours, quotes stripped, links followed to the real folder), any folder
+#     above one, any program directly in one, any drive root, top-level folder or root file on any drive, any
 #     folder setup.ps1 locks (targets.ps1, which includes subfolders deep in
 #     a locked tree whose inheritance is off), nor in a locked tree's
 #     immediate subfolders;
@@ -114,6 +115,12 @@ $mustNotWrite = [ordered]@{}
 $mustNotWrite[$env:USERPROFILE.ToLowerInvariant()] = $env:USERPROFILE
 foreach ($p in (Get-GlimPathFolders)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
 foreach ($p in (Get-GlimMissingPathParents)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
+foreach ($p in (Get-GlimPathAncestors)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
+foreach ($p in (Get-GlimPathFiles)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
+foreach ($x in $GlimPathUnresolved) {
+    Write-Host "NOT VERIFIED  PATH entry that doesn't resolve to a real folder: $x" -ForegroundColor Yellow
+    $script:incomplete = $true
+}
 $targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
 foreach ($l in $GlimLinkFindings) { Report $false "no link that all users can change: $l" }
 foreach ($t in $targets) {
@@ -129,11 +136,13 @@ foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType 
     $root = $d.DeviceID + '\'
     if (-not (Test-Path -LiteralPath $root)) { continue }
     $mustNotWrite[$root.ToLowerInvariant()] = $root
-    foreach ($c in (Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue)) {
+    $errs = $null
+    $rootKids = @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue -ErrorVariable errs)
+    if ($errs) { Write-Host "NOT VERIFIED  couldn't list $root" -ForegroundColor Yellow; $script:incomplete = $true }
+    foreach ($c in $rootKids) {
         if ($c.FullName -ieq 'C:\GlimAgent') { continue }
         $mustNotWrite[$c.FullName.ToLowerInvariant()] = $c.FullName
     }
-    foreach ($f in (Get-ChildItem -LiteralPath $root -File -Force -ErrorAction SilentlyContinue)) { $mustNotWrite[$f.FullName.ToLowerInvariant()] = $f.FullName }
 }
 # The named folders must be on the list even if they're no longer writable by all.
 foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n) { $mustNotWrite[$n.ToLowerInvariant()] = $n } }

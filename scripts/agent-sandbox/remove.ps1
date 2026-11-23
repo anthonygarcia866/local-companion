@@ -16,6 +16,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3
 . (Join-Path $PSScriptRoot 'cred.ps1')
 . (Join-Path $PSScriptRoot 'targets.ps1')
+. (Join-Path $PSScriptRoot 'authz.ps1')
 $AgentName = 'glim-agent'
 $RegKey = 'HKCU:\Software\Glim\AgentSandbox'
 function Act([string]$what, [scriptblock]$do) {
