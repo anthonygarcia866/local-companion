@@ -169,6 +169,7 @@ public static class GlimFs {
     // and a trailing space or dot isn't trimmed (review 8: "C:\x\.claude2 "
     // was silently read as ".claude2").
     static string Raw(string p) {
+        if (p.Length == 2 && p[1] == ':') p += @"\";   // "C:" alone would open the volume
         if (p.StartsWith(@"\\?\")) return p;
         if (p.StartsWith(@"\\")) return @"\\?\UNC\" + p.Substring(2);
         return @"\\?\" + p;
@@ -209,6 +210,49 @@ public static class GlimFs {
     }
 
     public struct Entry { public string Path; public bool Dir; public bool Link; }
+
+    [StructLayout(LayoutKind.Sequential)] struct ATTR_TAG { public uint Attr; public uint Tag; }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DeviceIoControl(IntPtr h, uint code, IntPtr inBuf, uint inLen, IntPtr outBuf, uint outLen, out uint ret, IntPtr ov);
+
+    // Where a junction / mount point / symlink points, read from the link
+    // itself (works when the target is gone). null if it isn't one or can't
+    // be read. A relative symlink's target comes back as stored (relative).
+    public static string LinkTarget(string path) {
+        IntPtr h = CreateFileW(Raw(path), 0, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return null;
+        IntPtr buf = Marshal.AllocHGlobal(16384);
+        try {
+            uint got;
+            if (!DeviceIoControl(h, 0x000900A8 /* FSCTL_GET_REPARSE_POINT */, IntPtr.Zero, 0, buf, 16384, out got, IntPtr.Zero)) return null;
+            uint tag = (uint)Marshal.ReadInt32(buf, 0);
+            int pathStart;
+            if (tag == 0xA0000003) pathStart = 16;        // junction / mount point
+            else if (tag == 0xA000000C) pathStart = 20;   // symlink (has a 4-byte Flags field first)
+            else return null;
+            int subOff = Marshal.ReadInt16(buf, 8), subLen = Marshal.ReadInt16(buf, 10);
+            int prOff = Marshal.ReadInt16(buf, 12), prLen = Marshal.ReadInt16(buf, 14);
+            string sub = Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + pathStart + subOff), subLen / 2);
+            if (sub.StartsWith(@"\??\UNC\")) return @"\\" + sub.Substring(8);
+            if (sub.StartsWith(@"\??\")) return sub.Substring(4);
+            if (prLen > 0) return Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + pathStart + prOff), prLen / 2);
+            return sub;
+        } finally { Marshal.FreeHGlobal(buf); CloseHandle(h); }
+    }
+
+    // True only for a name-surrogate reparse point (junction, mount point,
+    // symlink): something that sends whoever opens it elsewhere. A cloud
+    // placeholder (OneDrive) or an app alias is not a link.
+    public static bool IsLink(string path) {
+        IntPtr h = CreateFileW(Raw(path), 0x80, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return false;
+        IntPtr buf = Marshal.AllocHGlobal(8);
+        try {
+            if (!GetFileInformationByHandleEx(h, 9 /* FileAttributeTagInfo */, buf, 8)) return false;
+            var t = (ATTR_TAG)Marshal.PtrToStructure(buf, typeof(ATTR_TAG));
+            return (t.Attr & 0x400) != 0 && (t.Tag & 0x20000000) != 0;
+        } finally { Marshal.FreeHGlobal(buf); CloseHandle(h); }
+    }
 
     // The entries of a folder, listed by handle (backup semantics). null +
     // error code if it can't be listed.
@@ -285,6 +329,7 @@ public static class GlimFs {
         public List<bool> HitIsDir = new List<bool>();
         public List<string> Unreadable = new List<string>();
         public List<string> Unlistable = new List<string>();
+        public List<string> Links = new List<string>();        // links met (not entered)
         public long Items;
     }
 
@@ -310,6 +355,7 @@ public static class GlimFs {
                     uint g = checker.Granted(sd);
                     if ((g & mask) != 0) { res.Hits.Add(k.Path); res.Details.Add("0x" + (g & mask).ToString("X")); res.HitIsDir.Add(k.Dir && !k.Link); }
                 }
+                if (k.Link) res.Links.Add(k.Path);
                 if (k.Dir && !k.Link) q.Enqueue(k.Path);
             }
         }

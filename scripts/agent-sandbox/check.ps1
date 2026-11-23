@@ -110,6 +110,13 @@ foreach ($p in $mustNotRead) {
     $m = Access $p
     if ($null -eq $m) { Report $false "can't read $p (its permissions couldn't be read: not verified)"; continue }
     Report (($m -band $GlimRead) -eq 0) "can't read $p"
+    # A link (review 9): what it leads to must be closed too.
+    if ([GlimFs]::IsLink($p)) {
+        $to = [GlimAuthz]::FinalPath($p)
+        if (-not $to) { Report $false "can't read $p (a link whose target couldn't be resolved: not verified)"; continue }
+        $mt = Access $to
+        Report ($null -ne $mt -and ($mt -band $GlimRead) -eq 0) "can't read $p's target $to"
+    }
 }
 
 # Every file and folder in your profile (fix 2): glim-agent may read or
@@ -118,6 +125,35 @@ Write-Host 'walking your profile (a few minutes)...' -ForegroundColor DarkGray
 $pc = New-Object GlimAuthz+Checker $sid
 try { $pw = [GlimFs]::Walk($env:USERPROFILE, 'access', $null, [uint32]($GlimRead -bor $GlimWrite), $pc) } finally { $pc.Dispose() }
 Report ($pw.Hits.Count -eq 0) ("nothing in your profile is readable or writable by it ($($pw.Items) items)" + $(if ($pw.Hits.Count) { ": $($pw.Hits.Count), e.g. " + (($pw.Hits | Select-Object -First 10) -join '; ') } else { '' }))
+$brokenUnverified = @()
+# Links in your profile aren't entered; one that leads OUTSIDE it is checked
+# at its target (review 9: a secrets folder turned into a link elsewhere).
+$outside = @(foreach ($l in $pw.Links) {
+    $to = [GlimAuthz]::FinalPath($l)
+    if (-not $to) {
+        # A broken link: what it points at doesn't exist. If glim-agent could
+        # create that path, whoever follows the link would read its files, so
+        # the nearest existing folder on the way must be closed to it.
+        $raw = [GlimFs]::LinkTarget($l)   # read from the link itself (PowerShell's .Target can't always)
+        if (-not $raw -or $raw -notmatch '^[A-Za-z]:\\') { $script:brokenUnverified += $l; continue }
+        if (Test-GlimUnder $raw $env:USERPROFILE) { continue }
+        $par = $raw
+        while ($par -and -not (Test-Path -LiteralPath $par)) { $par = Split-Path -Parent $par }
+        $mp = if ($par) { Access $par } else { $null }
+        if ($null -eq $mp) { $script:brokenUnverified += $l; continue }
+        if ($mp -band $GlimWrite) { "$l -> $raw (broken; it could create it under $par)" }
+        continue
+    }
+    if (Test-GlimUnder $to $env:USERPROFILE) { continue }
+    $mt = Access $to
+    if ($null -eq $mt) { "$l -> $to (permissions unreadable)" }
+    elseif ($mt -band ($GlimRead -bor $GlimWrite)) { "$l -> $to (0x{0:X})" -f ($mt -band ($GlimRead -bor $GlimWrite)) }
+})
+Report ($outside.Count -eq 0) ("no link in your profile leads to something it can read or write ($($pw.Links.Count) links)" + $(if ($outside) { ': ' + ($outside -join '; ') } else { '' }))
+if ($brokenUnverified.Count) {
+    Write-Host ("NOT VERIFIED  $($brokenUnverified.Count) broken link(s) in your profile whose target couldn't be read, e.g. " + (($brokenUnverified | Select-Object -First 5) -join '; ')) -ForegroundColor Yellow
+    $script:incomplete = $true
+}
 if ($pw.Unreadable.Count -or $pw.Unlistable.Count) {
     Write-Host ("NOT VERIFIED  in your profile: $($pw.Unreadable.Count) item(s) whose permissions couldn't be read, $($pw.Unlistable.Count) folder(s) that couldn't be listed, e.g. " + ((@($pw.Unreadable) + @($pw.Unlistable) | Select-Object -First 10) -join '; ')) -ForegroundColor Yellow
     $script:incomplete = $true

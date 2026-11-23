@@ -239,8 +239,9 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         $k = $p.ToLowerInvariant()
         if (Test-GlimUnder $p 'C:\GlimAgent') { return }
         if ($deny -ne 'all' -and (Test-GlimUnder $p $OwnerProfile)) { return }
-        $item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
-        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        # Only a real link (junction, mount point, symlink) is diverted: icacls
+        # would change its target. A cloud placeholder is locked like any folder.
+        if ([GlimFs]::IsLink($p)) {
             if (-not $GlimLinkFindings.Contains($p)) { $GlimLinkFindings.Add($p) }
             return
         }
