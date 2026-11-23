@@ -139,7 +139,10 @@ $outside = @(while ($linkQueue.Count) {
     $linkSeen[$l.ToLowerInvariant()] = $true
     if ($linkSeen.Count -gt 100000) { $script:brokenUnverified += 'too many links to follow'; break }
     $to = [GlimAuthz]::FinalPath($l)
-    if (-not $to -and (Test-Path -LiteralPath $l)) {
+    $stored = if (-not $to) { [GlimFs]::LinkTarget($l) } else { $null }
+    $storedExists = $false
+    if ($stored -and $stored -match '^[A-Za-z]:\\') { try { $storedExists = Test-Path -LiteralPath $stored } catch { } }
+    if (-not $to -and $storedExists) {
         # It leads somewhere that exists but can't be opened: not verified.
         $script:brokenUnverified += "$l (target exists but couldn't be opened)"
         continue
@@ -148,7 +151,7 @@ $outside = @(while ($linkQueue.Count) {
         # A broken link: what it points at doesn't exist. If glim-agent could
         # create that path, whoever follows the link would read its files, so
         # the nearest existing folder on the way must be closed to it.
-        $raw = [GlimFs]::LinkTarget($l)   # read from the link itself (PowerShell's .Target can't always)
+        $raw = $stored   # read from the link itself (PowerShell's .Target can't always)
         if (-not $raw -or $raw -notmatch '^[A-Za-z]:\\') { $script:brokenUnverified += $l; continue }
         if (Test-GlimUnder $raw $env:USERPROFILE) { continue }
         $par = $raw
@@ -168,13 +171,18 @@ $outside = @(while ($linkQueue.Count) {
     $mt = Access $to
     if ($null -eq $mt) { '{0} -> {1} (permissions unreadable)' -f $l, $to; continue }
     if ($mt -band ($GlimRead -bor $GlimWrite)) { '{0} -> {1} (0x{2:X})' -f $l, $to, ($mt -band ($GlimRead -bor $GlimWrite)); continue }
-    # Its parent must not let it replace the target (delete-child / write there).
+    # No folder above it may let it replace the target or a folder on the
+    # way (rename aside + rebuild needs write / delete-child on an ancestor).
     $tp = Split-Path -Parent $to
-    if ($tp) {
+    $replaced = $false
+    while ($tp) {
+        if (Test-GlimUnder $tp $env:USERPROFILE) { break }
         $mtp = Access $tp
-        if ($null -eq $mtp) { $script:brokenUnverified += "$l (target's folder $tp unreadable)" }
-        elseif ($mtp -band $GlimWrite) { '{0} -> {1} (it could replace it: 0x{2:X} on {3})' -f $l, $to, ($mtp -band $GlimWrite), $tp; continue }
+        if ($null -eq $mtp) { $script:brokenUnverified += "$l (folder $tp above its target unreadable)"; break }
+        if ($mtp -band $GlimWrite) { '{0} -> {1} (it could replace it: 0x{2:X} on {3})' -f $l, $to, ($mtp -band $GlimWrite), $tp; $replaced = $true; break }
+        $tp = Split-Path -Parent $tp
     }
+    if ($replaced) { continue }
     # A folder outside: everything inside it too (whoever follows the link reads it all).
     if (Test-Path -LiteralPath $to -PathType Container) {
         $lc = New-Object GlimAuthz+Checker $sid

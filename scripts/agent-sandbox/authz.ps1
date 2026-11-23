@@ -68,7 +68,7 @@ public static class GlimAuthz {
     // The real path `path` leads to, every junction and symlink on the way
     // followed (what opening it really reaches); null if it can't be opened.
     public static string FinalPath(string path) {
-        IntPtr h = CreateFileW(path, 0x80 /* FILE_READ_ATTRIBUTES */, 7 /* share all */, IntPtr.Zero, 3 /* OPEN_EXISTING */, 0x02000000 /* BACKUP_SEMANTICS: folders too */, IntPtr.Zero);
+        IntPtr h = CreateFileW(GlimFs.Raw(path), 0x80 /* FILE_READ_ATTRIBUTES */, 7 /* share all */, IntPtr.Zero, 3 /* OPEN_EXISTING */, 0x02000000 /* BACKUP_SEMANTICS: folders too */, IntPtr.Zero);
         if (h == new IntPtr(-1)) return null;
         try {
             var sb = new System.Text.StringBuilder(32768);
@@ -168,7 +168,7 @@ public static class GlimFs {
     // The path in \\?\ form, so Windows takes it literally: no length limit,
     // and a trailing space or dot isn't trimmed (review 8: "C:\x\.claude2 "
     // was silently read as ".claude2").
-    static string Raw(string p) {
+    public static string Raw(string p) {
         if (p.Length == 2 && p[1] == ':') p += @"\";   // "C:" alone would open the volume
         if (p.StartsWith(@"\\?\")) return p;
         if (p.StartsWith(@"\\")) return @"\\?\UNC\" + p.Substring(2);
