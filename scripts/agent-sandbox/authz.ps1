@@ -235,7 +235,8 @@ public static class GlimFs {
             string sub = Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + pathStart + subOff), subLen / 2);
             if (sub.StartsWith(@"\??\UNC\")) return @"\\" + sub.Substring(8);
             if (sub.StartsWith(@"\??\")) return sub.Substring(4);
-            if (prLen > 0) return Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + pathStart + prOff), prLen / 2);
+            // Only the stored target counts, never the display name (review:
+            // a relative link could carry a misleading absolute PrintName).
             return sub;
         } finally { Marshal.FreeHGlobal(buf); CloseHandle(h); }
     }

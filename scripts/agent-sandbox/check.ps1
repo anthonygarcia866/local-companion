@@ -130,6 +130,11 @@ $brokenUnverified = @()
 # at its target (review 9: a secrets folder turned into a link elsewhere).
 $outside = @(foreach ($l in $pw.Links) {
     $to = [GlimAuthz]::FinalPath($l)
+    if (-not $to -and (Test-Path -LiteralPath $l)) {
+        # It leads somewhere that exists but can't be opened: not verified.
+        $script:brokenUnverified += "$l (target exists but couldn't be opened)"
+        continue
+    }
     if (-not $to) {
         # A broken link: what it points at doesn't exist. If glim-agent could
         # create that path, whoever follows the link would read its files, so
@@ -145,18 +150,25 @@ $outside = @(foreach ($l in $pw.Links) {
         if (Test-GlimUnder $parReal $env:USERPROFILE) { continue }
         $mp = Access $parReal
         if ($null -eq $mp) { $script:brokenUnverified += $l; continue }
-        if ($mp -band $GlimWrite) { "$l -> $raw (broken; it could create it under $parReal)" }
+        if ($mp -band $GlimWrite) { '{0} -> {1} (broken; it could create it under {2})' -f $l, $raw, $parReal }
         continue
     }
     if (Test-GlimUnder $to $env:USERPROFILE) { continue }
     $mt = Access $to
-    if ($null -eq $mt) { "$l -> $to (permissions unreadable)"; continue }
-    if ($mt -band ($GlimRead -bor $GlimWrite)) { "$l -> $to (0x{0:X})" -f ($mt -band ($GlimRead -bor $GlimWrite)); continue }
+    if ($null -eq $mt) { '{0} -> {1} (permissions unreadable)' -f $l, $to; continue }
+    if ($mt -band ($GlimRead -bor $GlimWrite)) { '{0} -> {1} (0x{2:X})' -f $l, $to, ($mt -band ($GlimRead -bor $GlimWrite)); continue }
+    # Its parent must not let it replace the target (delete-child / write there).
+    $tp = Split-Path -Parent $to
+    if ($tp) {
+        $mtp = Access $tp
+        if ($null -eq $mtp) { $script:brokenUnverified += "$l (target's folder $tp unreadable)" }
+        elseif ($mtp -band $GlimWrite) { '{0} -> {1} (it could replace it: 0x{2:X} on {3})' -f $l, $to, ($mtp -band $GlimWrite), $tp; continue }
+    }
     # A folder outside: everything inside it too (whoever follows the link reads it all).
     if (Test-Path -LiteralPath $to -PathType Container) {
         $lc = New-Object GlimAuthz+Checker $sid
         try { $lw = [GlimFs]::Walk($to, 'access', $null, [uint32]($GlimRead -bor $GlimWrite), $lc) } finally { $lc.Dispose() }
-        foreach ($h in $lw.Hits) { "$l -> $h (inside its target)" }
+        foreach ($h in $lw.Hits) { '{0} -> {1} (inside its target)' -f $l, $h }
         if ($lw.Unreadable.Count -or $lw.Unlistable.Count) { $script:brokenUnverified += "$l (inside its target $to)" }
     }
 })
