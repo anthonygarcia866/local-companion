@@ -3,7 +3,7 @@
 # (which unlocks it). Dot-source it.
 #
 # Get-GlimLockTargets: the folders to lock with a deny for glim-agent only
-# (write + delete: WD,AD,WEA,WA,D,DC; never plain "W", which also denies
+# (write + delete: WD,AD,WEA,WA,D,DC,WDAC,WO; never plain "W", which also denies
 # SYNCHRONIZE and so breaks reading). Each has a Scope:
 #   tree   = the folder and everything in it ((OI)(CI))
 #   folder = the folder itself only (it can't create or delete entries there,
@@ -29,7 +29,10 @@ $GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-
 # ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.
 $GlimWriteBits = [int64](2 -bor 4 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
 $GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers'
-$GlimDenyRights = '(WD,AD,WEA,WA,D,DC)'
+# + WDAC (change permissions) and WO (take ownership): without them glim-agent
+# could rewrite a Full Control folder's ACL and delete its own deny. Neither
+# touches reading.
+$GlimDenyRights = '(WD,AD,WEA,WA,D,DC,WDAC,WO)'
 
 function Test-GlimBroadWrite([string]$Path) {
     try { $acl = Get-Acl -LiteralPath $Path } catch { return $false }
@@ -64,22 +67,63 @@ function Test-GlimUnder([string]$Path, [string]$Base) {
     $Path -ieq $b -or $Path -like "$b\*"
 }
 
-# Folders under $Root whose inheritance is turned off (protected DACL) and
-# that all users can write: a tree deny on $Root never reaches them, so each
-# gets its own. Walked by hand, never following a junction or symlink.
-function Get-GlimProtectedWritable([string]$Root) {
+# Every file and folder under $Root, walked by hand, never following a
+# junction or symlink (it is yielded, not entered).
+function Get-GlimTreeItems([string]$Root) {
     $queue = New-Object System.Collections.Generic.Queue[string]
     $queue.Enqueue($Root)
     while ($queue.Count) {
         $dir = $queue.Dequeue()
-        foreach ($c in (Get-ChildItem -LiteralPath $dir -Directory -Force -ErrorAction SilentlyContinue)) {
-            if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
-            $acl = $null
-            try { $acl = Get-Acl -LiteralPath $c.FullName } catch { }
-            if ($acl -and $acl.AreAccessRulesProtected -and (Test-GlimBroadWrite $c.FullName)) { $c.FullName }
-            $queue.Enqueue($c.FullName)
+        foreach ($c in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+            $c
+            if ($c.PSIsContainer -and -not ($c.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $queue.Enqueue($c.FullName) }
         }
     }
+}
+
+# Items under $Root with an EXPLICIT (not inherited) allow entry that lets a
+# logon SID write: Windows applies an object's explicit allows before the
+# deny it inherits, so the tree's deny doesn't stop them (review 2026-11-22;
+# inheritance being off is only one way to get there). Each needs its own.
+function Get-GlimExplicitWritable([string]$Root) {
+    foreach ($c in (Get-GlimTreeItems $Root)) {
+        if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        $acl = $null
+        try { $acl = Get-Acl -LiteralPath $c.FullName } catch { continue }
+        foreach ($a in $acl.Access) {
+            if ($a.IsInherited -or $a.AccessControlType -ne 'Allow') { continue }
+            try { $sid = $a.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
+            if ($GlimBroad -contains $sid -and (([int64]$a.FileSystemRights) -band $GlimWriteBits)) { $c; break }
+        }
+    }
+}
+
+# After locking: everything in the targets (trees walked in full) that
+# glim-agent can still write, and everything whose permissions couldn't be
+# read (so it couldn't be verified). Needs authz.ps1. Returns @{ Writable; Unreadable }.
+function Get-GlimStillWritable([string]$Sid, $Targets) {
+    $writable = New-Object System.Collections.Generic.List[string]
+    $unreadable = New-Object System.Collections.Generic.List[string]
+    $seen = @{}
+    function Probe([string]$p) {
+        $k = $p.ToLowerInvariant()
+        if ($seen.ContainsKey($k)) { return }
+        $seen[$k] = $true
+        $m = $null
+        try { $m = Get-GlimAccess $Sid $p } catch { }
+        if ($null -eq $m) { $unreadable.Add($p) }
+        elseif ($m -band $GlimWrite) { $writable.Add($p) }
+    }
+    foreach ($t in $Targets) {
+        Probe $t.Path
+        if ($t.Scope -eq 'tree') {
+            foreach ($c in (Get-GlimTreeItems $t.Path)) {
+                if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+                Probe $c.FullName
+            }
+        }
+    }
+    @{ Writable = @($writable); Unreadable = @($unreadable) }
 }
 
 function Get-GlimLockTargets([string]$OwnerProfile) {
@@ -109,9 +153,13 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
     foreach ($p in (Get-GlimPathFolders)) {
         if (Test-GlimBroadWrite $p) { Add-Target $p 'tree' 'on PATH, writable by all users' }
     }
-    # Inside every tree: subfolders with inheritance off that all users can write.
+    # Inside every tree: files and folders whose own (explicit) entry lets all
+    # users write: the tree's inherited deny doesn't beat it, so each gets its own.
     foreach ($t in @($out.Values | Where-Object { $_.Scope -eq 'tree' })) {
-        foreach ($sub in (Get-GlimProtectedWritable $t.Path)) { Add-Target $sub 'tree' "inside $($t.Path), inheritance off, writable by all users" }
+        foreach ($sub in (Get-GlimExplicitWritable $t.Path)) {
+            $scope = if ($sub.PSIsContainer) { 'tree' } else { 'file' }
+            Add-Target $sub.FullName $scope "inside $($t.Path), its own entry lets all users write"
+        }
     }
     $out.Values
 }

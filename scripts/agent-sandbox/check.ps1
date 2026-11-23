@@ -143,6 +143,16 @@ foreach ($p in $mustNotWrite.Values) {
     Report ($w -eq 0) ("can't write or delete in $p" + $(if ($w) { ' (has 0x{0:X})' -f $w } else { '' }))
 }
 
+# Every file and folder inside every locked tree, walked in full (an item
+# with its own allow entry beats the tree's inherited deny).
+Write-Host 'walking every locked tree (about a minute)...' -ForegroundColor DarkGray
+$walk = Get-GlimStillWritable -Sid $sid -Targets $targets
+Report ($walk.Writable.Count -eq 0) ('nothing inside the locked folders is writable' + $(if ($walk.Writable.Count) { ": $($walk.Writable.Count), e.g. " + (($walk.Writable | Select-Object -First 10) -join '; ') } else { '' }))
+if ($walk.Unreadable.Count) {
+    Write-Host ("NOT VERIFIED  $($walk.Unreadable.Count) item(s) whose permissions couldn't be read, e.g. " + (($walk.Unreadable | Select-Object -First 10) -join '; ')) -ForegroundColor Yellow
+    $script:incomplete = $true
+}
+
 # ── Its own environment can't hold your tokens machine-wide ─────────────────
 foreach ($v in 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN') {
     Report (-not [Environment]::GetEnvironmentVariable($v, 'Machine')) "$v is not set machine-wide"
@@ -169,6 +179,6 @@ if ($plain) {
 Write-Host ''
 if ($checked -lt 10) { Write-Host "Only $checked checks ran: not trusted." -ForegroundColor Red; exit 1 }
 if ($fail -gt 0) { Write-Host "$fail of $checked check(s) failed: sandbox sessions must stay off." -ForegroundColor Red; exit 1 }
-if ($incomplete) { Write-Host "INCOMPLETE: $checked checks passed, but user rights were not verified. Run check.ps1 elevated for a full result." -ForegroundColor Yellow; exit 2 }
+if ($incomplete) { Write-Host "INCOMPLETE: $checked checks passed, but something above is NOT VERIFIED (run check.ps1 elevated; tell Claude about any item still unreadable)." -ForegroundColor Yellow; exit 2 }
 Write-Host "All $checked checks passed." -ForegroundColor Green
 exit 0

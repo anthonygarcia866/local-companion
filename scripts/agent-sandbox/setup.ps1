@@ -193,7 +193,7 @@ foreach ($t in $targets) {
         $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
             $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
             $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
-            ((([int64]$_.FileSystemRights) -band 0x10056) -eq 0x10056) -and
+            ((([int64]$_.FileSystemRights) -band 0xD0056) -eq 0xD0056) -and
             ($t.Scope -ne 'tree' -or (($_.InheritanceFlags -band 3) -eq 3))  # both ContainerInherit and ObjectInherit
         })
     }
@@ -206,10 +206,22 @@ foreach ($t in $targets) {
         $m = [regex]::Match($outText, 'Failed processing (\d+) files')
         $failed = if ($m.Success) { [int]$m.Groups[1].Value } else { -1 }
         if ($code -ne 0 -and $failed -le 0) { throw "icacls $($t.Path) failed ($code): $($outText.Trim())" }
-        if ($failed -gt 0) { Write-Warning "  $failed item(s) under $($t.Path) couldn't be changed (check.ps1 tests every locked folder)" }
+        if ($failed -gt 0) { Write-Warning "  icacls couldn't change $failed item(s) under $($t.Path); the walk below finds any that stay writable" }
     }
 }
 if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
+# Verified by result, not by icacls's messages: every target, trees walked in
+# full, with glim-agent's real access computed on this side (AuthZ).
+if ($agentSid -and -not $DryRun) {
+    Write-Host '  verifying: walking every locked tree (about a minute)...'
+    $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
+    if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) whose permissions couldn't be read (not verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
+    if ($v.Writable.Count) {
+        $v.Writable | Select-Object -First 50 | ForEach-Object { Write-Host "  STILL WRITABLE: $_" -ForegroundColor Red }
+        throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list)."
+    }
+    Write-Host '  verified: nothing in the locked folders is writable by it'
+}
 
 # glim-agent's SID, kept in YOUR registry (only you can write it), so
 # remove.ps1 can clean up even after the user is gone.
