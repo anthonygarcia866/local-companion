@@ -180,11 +180,13 @@ public static class GlimFs {
     // Turns on SeBackupPrivilege in this process (an elevated run holds it,
     // disabled). With it, the reads below get past a DACL that leaves the
     // owner out (READ_CONTROL and listing only; nothing is opened for data).
-    public static bool EnableBackup() {
+    public static bool EnableBackup() { return EnablePrivilege("SeBackupPrivilege"); }
+
+    public static bool EnablePrivilege(string name) {
         IntPtr tok;
         if (!OpenProcessToken(GetCurrentProcess(), 0x28, out tok)) return false;
         try {
-            long luid; if (!LookupPrivilegeValueW(null, "SeBackupPrivilege", out luid)) return false;
+            long luid; if (!LookupPrivilegeValueW(null, name, out luid)) return false;
             var tp = new TP { Count = 1, Luid = luid, Attr = 2 };
             if (!AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero)) return false;
             return Marshal.GetLastWin32Error() == 0;   // 1300 = not held
@@ -210,6 +212,75 @@ public static class GlimFs {
     }
 
     public struct Entry { public string Path; public bool Dir; public bool Link; }
+
+    [DllImport("advapi32.dll")]
+    static extern uint SetSecurityInfo(IntPtr h, int type, uint info, IntPtr owner, IntPtr group, byte[] dacl, IntPtr sacl);
+
+    // Does `path` carry an explicit (not inherited) deny for `sid` covering
+    // all of `mask` (and, for a tree, inheritable to files and folders)?
+    // Read back from the object itself after a lock (setup verifies each).
+    public static bool HasDeny(string path, string sid, uint mask, bool tree) {
+        int e; byte[] sd = ReadSd(path, out e);
+        if (sd == null) return false;
+        var r = new RawSecurityDescriptor(sd, 0);
+        if (r.DiscretionaryAcl == null) return false;
+        foreach (GenericAce a in r.DiscretionaryAcl) {
+            var k = a as KnownAce;
+            if (k == null || a.AceType != AceType.AccessDenied) continue;
+            if ((a.AceFlags & AceFlags.Inherited) != 0) continue;
+            if (k.SecurityIdentifier.Value != sid) continue;
+            if (((uint)k.AccessMask & mask) != mask) continue;
+            if (tree && (a.AceFlags & (AceFlags.ObjectInherit | AceFlags.ContainerInherit)) != (AceFlags.ObjectInherit | AceFlags.ContainerInherit)) continue;
+            return true;
+        }
+        return false;
+    }
+
+    // Puts an explicit deny for `sid` (`mask`; inheritable if `inherit`) first
+    // in the object's DACL, written through a handle opened with backup
+    // semantics while SeRestorePrivilege is on: an elevated admin can then set
+    // the DACL of a folder SYSTEM or TrustedInstaller owns without taking
+    // ownership (owner unchanged; only this entry added). Unlike icacls it
+    // doesn't flow down: callers apply it to each item inside a tree.
+    // 0 on success, else a Windows error code.
+    public static int AddDeny(string path, string sid, uint mask, bool inherit) {
+        return Rewrite(path, sid, mask, inherit, true);
+    }
+
+    // Removes every explicit deny for `sid` from the object's DACL (same way).
+    public static int RemoveDeny(string path, string sid) {
+        return Rewrite(path, sid, 0, false, false);
+    }
+
+    static int Rewrite(string path, string sid, uint mask, bool inherit, bool add) {
+        EnablePrivilege("SeRestorePrivilege");
+        EnablePrivilege("SeBackupPrivilege");
+        IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return Marshal.GetLastWin32Error();
+        try {
+            IntPtr o, g, d, sa, psd;
+            uint rc = GetSecurityInfo(h, 1, 4 /* DACL */, out o, out g, out d, out sa, out psd);
+            if (rc != 0) return (int)rc;
+            byte[] sd;
+            try { int len = (int)GetSecurityDescriptorLength(psd); sd = new byte[len]; Marshal.Copy(psd, sd, 0, len); } finally { LocalFree(psd); }
+            var r = new RawSecurityDescriptor(sd, 0);
+            bool prot = (r.ControlFlags & ControlFlags.DiscretionaryAclProtected) != 0;
+            var acl = r.DiscretionaryAcl ?? new RawAcl(GenericAcl.AclRevision, 1);
+            var me = new SecurityIdentifier(sid);
+            for (int i = acl.Count - 1; i >= 0; i--) {
+                var k = acl[i] as KnownAce;
+                if (k != null && acl[i].AceType == AceType.AccessDenied && (acl[i].AceFlags & AceFlags.Inherited) == 0 && k.SecurityIdentifier == me) acl.RemoveAce(i);
+            }
+            if (add) {
+                var flags = inherit ? (AceFlags.ObjectInherit | AceFlags.ContainerInherit) : AceFlags.None;
+                acl.InsertAce(0, new CommonAce(flags, AceQualifier.AccessDenied, (int)mask, me, false, null));
+            }
+            var bin = new byte[acl.BinaryLength]; acl.GetBinaryForm(bin, 0);
+            uint info = 4u | (prot ? 0x80000000u /* PROTECTED_DACL */ : 0x20000000u /* UNPROTECTED_DACL */);
+            rc = SetSecurityInfo(h, 1, info, IntPtr.Zero, IntPtr.Zero, bin, IntPtr.Zero);
+            return (int)rc;
+        } finally { CloseHandle(h); }
+    }
 
     // Does `path` exist, taken literally (\\?\, the last link not followed)?
     // 0 only when Windows says file or path not found (errors 2, 3); 1 when

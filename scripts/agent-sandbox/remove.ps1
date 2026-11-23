@@ -74,8 +74,17 @@ if ($Sid) {
         $has = [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
         if ($has) {
             Act "remove its deny entry on $p" {
-                icacls $p /remove:d "*$Sid" /C | Out-Null
-                if ($LASTEXITCODE -ne 0) { Write-Warning "  icacls $p exit $LASTEXITCODE" }
+                $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+                try { icacls $p /remove:d "*$Sid" /C 2>&1 | Out-Null } finally { $ErrorActionPreference = $eap }
+                if ([GlimFs]::HasDeny($p, $Sid, [uint32]0x10000, $false)) {
+                    # A folder icacls can't change (SYSTEM-owned): through the restore
+                    # privilege, on it and on every item inside (setup put one on each).
+                    $rc = [GlimFs]::RemoveDeny($p, $Sid)
+                    if (Test-Path -LiteralPath $p -PathType Container) {
+                        foreach ($c in (Get-GlimTreeItems $p)) { if (-not [GlimFs]::IsLink($c.FullName)) { [void][GlimFs]::RemoveDeny($c.FullName, $Sid) } }
+                    }
+                    if ($rc -ne 0) { Write-Warning "  couldn't remove it from $p (error $rc)" }
+                }
             }
         }
     }

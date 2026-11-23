@@ -96,20 +96,45 @@ if (-not $user) {
     if (-not (Test-GlimCredential -Target $CredTarget)) { Write-Warning "  $CredTarget is missing from your Credential Manager: run again with -RotatePassword" }
 }
 
-# Users only: in no other local group (Administrators, Backup Operators,
-# Remote Desktop Users, Hyper-V Administrators, Remote Management Users ...).
+# A member of Users (New-LocalUser adds it to no group at all, and without
+# Users it can't log on locally: found on the owner's first run), and in no
+# other local group (Administrators, Backup Operators, Remote Desktop Users,
+# Hyper-V Administrators, Remote Management Users ...).
 # By the user's own group list (ADSI), which doesn't trip over orphaned SIDs
 # in a group the way Get-LocalGroupMember does.
 if ($user -or -not $DryRun) {
     $u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
     if ($u) {
         $adsiUser = [ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user"
+        $inUsers = $false
+        foreach ($g in @($adsiUser.Groups())) {
+            $gs0 = (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value
+            if ($gs0 -eq 'S-1-5-32-545') { $inUsers = $true }
+        }
+        if (-not $inUsers) {
+            $usersName = (New-Object Security.Principal.SecurityIdentifier 'S-1-5-32-545').Translate([Security.Principal.NTAccount]).Value.Split('\')[-1]
+            Act "add $AgentName to $usersName" { ([ADSI]"WinNT://$env:COMPUTERNAME/$usersName,group").Add($adsiUser.Path) }
+        }
         foreach ($g in @($adsiUser.Groups())) {
             $gName = $g.GetType().InvokeMember('Name', 'GetProperty', $null, $g, $null)
             $gSid = (New-Object Security.Principal.SecurityIdentifier ($g.GetType().InvokeMember('objectSid', 'GetProperty', $null, $g, $null)), 0).Value
             if ($gSid -ne 'S-1-5-32-545') {
                 Act "remove $AgentName from $gName ($gSid)" { ([ADSI]"WinNT://$env:COMPUTERNAME/$gName,group").Remove($adsiUser.Path) }
             }
+        }
+    }
+}
+
+# glim-agent's SID, kept in YOUR registry (only you can write it) as soon as
+# the user exists, so remove.ps1 can clean up even if setup stops part way.
+$u0 = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
+if ($u0) {
+    $k0 = 'HKCU:\Software\Glim\AgentSandbox'
+    $saved0 = Get-ItemProperty -Path $k0 -Name Sid -ErrorAction SilentlyContinue
+    if (-not $saved0 -or $saved0.Sid -ne $u0.SID.Value) {
+        Act "remember $AgentName's SID in $k0" {
+            if (-not (Test-Path $k0)) { New-Item -Path $k0 -Force | Out-Null }
+            New-ItemProperty -Path $k0 -Name Sid -Value $u0.SID.Value -PropertyType String -Force | Out-Null
         }
     }
 }
@@ -194,35 +219,49 @@ if ($GlimLinkFindings.Count) {
     $GlimLinkFindings | ForEach-Object { Write-Host "  LINK all users could change (not locked automatically: icacls would change its target): $_" -ForegroundColor Red }
     if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }
 }
+$lockFailed = New-Object System.Collections.Generic.List[string]
 foreach ($t in $targets) {
     $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }   # folder or file: that object only
     $rights = if ($t.Deny -eq 'all') { '(F)' } else { $GlimDenyRights }
     $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
-    $done = $false
-    if ($agentSid) {
-        $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
-            $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
-            $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
-            ((([int64]$_.FileSystemRights) -band $need) -eq $need) -and
-            ($t.Scope -ne 'tree' -or (($_.InheritanceFlags -band 3) -eq 3))  # both ContainerInherit and ObjectInherit
-        })
-    }
+    $isTree = $t.Scope -eq 'tree'
     $label = "{0}  [{1}; deny {2}]  ({3})" -f $t.Path, $t.Scope, $(if ($t.Deny -eq 'all') { 'everything' } else { 'write+delete' }), $t.Why
-    if ($done) { Write-Host "  already locked: $label"; continue }
+    if ($agentSid -and [GlimFs]::HasDeny($t.Path, $agentSid, [uint32]$need, $isTree)) { Write-Host "  already locked: $label"; continue }
     Act "lock $label" {
-        # /C: keep going past a file it can't change; the count is reported.
-        $outText = icacls $t.Path /deny "${AgentName}:$flags$rights" /C 2>&1 | Out-String
-        $code = $LASTEXITCODE
+        # icacls first (it flows the deny down to everything inside). Its
+        # complaints are text here, never a stop: one refusal must not skip
+        # the rest (owner's first run stopped at WwanSvc\DMProfiles).
+        $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        try { $outText = icacls $t.Path /deny "${AgentName}:$flags$rights" /C 2>&1 | Out-String } finally { $ErrorActionPreference = $eap }
+        $sidNow = (Get-LocalUser -Name $AgentName).SID.Value
+        # Read back, never trust the exit code or messages.
+        if (-not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
+            # A folder SYSTEM/TrustedInstaller owns, where even Administrators
+            # may only read: write the deny through the restore privilege
+            # (owner unchanged), on the folder and on every item inside it.
+            Write-Host "    icacls was refused; adding the deny through the restore privilege (owner unchanged)"
+            $rc = [GlimFs]::AddDeny($t.Path, $sidNow, [uint32]$need, $isTree)
+            if ($rc -eq 0 -and $isTree) {
+                foreach ($c in (Get-GlimTreeItems $t.Path)) {
+                    if ([GlimFs]::IsLink($c.FullName)) { continue }   # a link's own entry only matters for links; never change its target
+                    if ([GlimFs]::HasDeny($c.FullName, $sidNow, [uint32]$need, $c.PSIsContainer)) { continue }
+                    $rc2 = [GlimFs]::AddDeny($c.FullName, $sidNow, [uint32]$need, $c.PSIsContainer)
+                    if ($rc2 -ne 0) { $lockFailed.Add("$($c.FullName) (error $rc2)") }
+                }
+            }
+            if ($rc -ne 0 -or -not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
+                $lockFailed.Add("$($t.Path) (error $rc)")
+                Write-Host "    NOT LOCKED: $($t.Path) (error $rc); carrying on with the rest" -ForegroundColor Red
+            }
+        }
         $m = [regex]::Match($outText, 'Failed processing (\d+) files')
-        $failed = if ($m.Success) { [int]$m.Groups[1].Value } else { -1 }
-        if ($code -ne 0 -and $failed -le 0) { throw "icacls $($t.Path) failed ($code): $($outText.Trim())" }
-        if ($failed -gt 0) { Write-Warning "  icacls couldn't change $failed item(s) under $($t.Path); the walk below finds any that stay writable" }
+        if ($m.Success -and [int]$m.Groups[1].Value -gt 0) { Write-Warning "  icacls couldn't change $($m.Groups[1].Value) item(s) under $($t.Path); the walk below finds any that stay writable" }
     }
 }
 if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
 # Verified by result, not by icacls's messages: every target, trees walked in
 # full, with glim-agent's real access computed on this side (AuthZ).
-if ($agentSid -and -not $DryRun) {
+if (-not $DryRun -and ($agentSid = (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue).SID.Value)) {
     Write-Host '  verifying: walking every locked tree (about a minute)...'
     $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
     if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) couldn't be read or listed (NOT verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
@@ -233,15 +272,9 @@ if ($agentSid -and -not $DryRun) {
     if ($v.Unreadable.Count) { Write-Host "  checked: nothing readable in the locked folders is writable by it, but $($v.Unreadable.Count) item(s) were NOT verified (see above; check.ps1 will end INCOMPLETE until they are)" -ForegroundColor Yellow }
     else { Write-Host '  verified: nothing in the locked folders is writable by it' }
 }
-
-# glim-agent's SID, kept in YOUR registry (only you can write it), so
-# remove.ps1 can clean up even after the user is gone.
-if ($agentSid) {
-    Act "remember $AgentName's SID in HKCU:\Software\Glim\AgentSandbox" {
-        $k = 'HKCU:\Software\Glim\AgentSandbox'
-        if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
-        New-ItemProperty -Path $k -Name Sid -Value $agentSid -PropertyType String -Force | Out-Null
-    }
+if ($lockFailed.Count) {
+    $lockFailed | ForEach-Object { Write-Host "  NOT LOCKED: $_" -ForegroundColor Red }
+    throw "$($lockFailed.Count) item(s) couldn't be locked. Setup isn't finished; tell Claude the list (setup is safe to run again)."
 }
 
 # ── 7. No powerful user rights (read back, elevated) ─────────────────────────
