@@ -139,19 +139,30 @@ $outside = @(foreach ($l in $pw.Links) {
         if (Test-GlimUnder $raw $env:USERPROFILE) { continue }
         $par = $raw
         while ($par -and -not (Test-Path -LiteralPath $par)) { $par = Split-Path -Parent $par }
-        $mp = if ($par) { Access $par } else { $null }
+        # The real folder that parent is (it may itself be behind a link).
+        $parReal = if ($par) { [GlimAuthz]::FinalPath($par) } else { $null }
+        if (-not $parReal) { $script:brokenUnverified += $l; continue }
+        if (Test-GlimUnder $parReal $env:USERPROFILE) { continue }
+        $mp = Access $parReal
         if ($null -eq $mp) { $script:brokenUnverified += $l; continue }
-        if ($mp -band $GlimWrite) { "$l -> $raw (broken; it could create it under $par)" }
+        if ($mp -band $GlimWrite) { "$l -> $raw (broken; it could create it under $parReal)" }
         continue
     }
     if (Test-GlimUnder $to $env:USERPROFILE) { continue }
     $mt = Access $to
-    if ($null -eq $mt) { "$l -> $to (permissions unreadable)" }
-    elseif ($mt -band ($GlimRead -bor $GlimWrite)) { "$l -> $to (0x{0:X})" -f ($mt -band ($GlimRead -bor $GlimWrite)) }
+    if ($null -eq $mt) { "$l -> $to (permissions unreadable)"; continue }
+    if ($mt -band ($GlimRead -bor $GlimWrite)) { "$l -> $to (0x{0:X})" -f ($mt -band ($GlimRead -bor $GlimWrite)); continue }
+    # A folder outside: everything inside it too (whoever follows the link reads it all).
+    if (Test-Path -LiteralPath $to -PathType Container) {
+        $lc = New-Object GlimAuthz+Checker $sid
+        try { $lw = [GlimFs]::Walk($to, 'access', $null, [uint32]($GlimRead -bor $GlimWrite), $lc) } finally { $lc.Dispose() }
+        foreach ($h in $lw.Hits) { "$l -> $h (inside its target)" }
+        if ($lw.Unreadable.Count -or $lw.Unlistable.Count) { $script:brokenUnverified += "$l (inside its target $to)" }
+    }
 })
 Report ($outside.Count -eq 0) ("no link in your profile leads to something it can read or write ($($pw.Links.Count) links)" + $(if ($outside) { ': ' + ($outside -join '; ') } else { '' }))
 if ($brokenUnverified.Count) {
-    Write-Host ("NOT VERIFIED  $($brokenUnverified.Count) broken link(s) in your profile whose target couldn't be read, e.g. " + (($brokenUnverified | Select-Object -First 5) -join '; ')) -ForegroundColor Yellow
+    Write-Host ("NOT VERIFIED  $($brokenUnverified.Count) link(s) in your profile whose target (or something inside it) couldn't be read, e.g. " + (($brokenUnverified | Select-Object -First 5) -join '; ')) -ForegroundColor Yellow
     $script:incomplete = $true
 }
 if ($pw.Unreadable.Count -or $pw.Unlistable.Count) {
