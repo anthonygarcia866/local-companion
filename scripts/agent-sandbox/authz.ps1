@@ -57,7 +57,7 @@ public static class GlimAuthz {
     }
     public static string[] LogonSids() { return (string[])Logon.Clone(); }
     [DllImport("authz.dll")] static extern bool AuthzFreeResourceManager(IntPtr rm);
-    static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113", "S-1-5-64-10" };
+    static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113", "S-1-5-64-10", "S-1-5-3" };
 
     // The access mask `sid` gets on an object with security descriptor `sd` (MAXIMUM_ALLOWED).
     public static uint Granted(string sid, byte[] sd) {

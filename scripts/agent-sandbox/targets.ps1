@@ -22,8 +22,10 @@
 
 # Every SID an interactive glim-agent logon carries besides its own and its
 # groups' (the same set authz.ps1 adds): Everyone, Users, INTERACTIVE, CONSOLE
-# LOGON, LOCAL, Authenticated Users, This Organization, Local account, NTLM.
-$GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113', 'S-1-5-64-10'
+# LOGON, LOCAL, Authenticated Users, This Organization, Local account, NTLM,
+# and BATCH (in case it is ever started as a batch job: more SIDs is the
+# stricter side).
+$GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-11', 'S-1-5-15', 'S-1-5-113', 'S-1-5-64-10', 'S-1-5-3'
 # Write-only bits (Modify/FullControl include read bits, so they can't be the
 # mask): create files, create folders, delete, change permissions, take
 # ownership, plus GENERIC_WRITE / GENERIC_ALL as stored in inheritable ACEs.
@@ -43,6 +45,23 @@ function Test-GlimBroadWrite([string]$Path) {
         if ($GlimBroad -contains $sid -and (([int64]$a.FileSystemRights) -band $GlimWriteBits)) { return $true }
     }
     $false
+}
+
+# PATH entries whose folder doesn't exist yet: if glim-agent could create
+# one, it could plant programs on PATH. Returns the nearest existing parent
+# of each, which must not be writable.
+function Get-GlimMissingPathParents {
+    $seen = @{}
+    foreach ($scope in 'Machine', 'User') {
+        foreach ($e in ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';')) {
+            if (-not $e.Trim()) { continue }
+            $x = [Environment]::ExpandEnvironmentVariables($e.Trim()).TrimEnd('\')
+            if (Test-Path -LiteralPath $x) { continue }
+            $p = $x
+            while ($p -and -not (Test-Path -LiteralPath $p)) { $p = Split-Path -Parent $p }
+            if ($p -and -not $seen.ContainsKey($p.ToLowerInvariant())) { $seen[$p.ToLowerInvariant()] = $true; $p }
+        }
+    }
 }
 
 function Get-GlimPathFolders {
@@ -67,14 +86,22 @@ function Test-GlimUnder([string]$Path, [string]$Base) {
     $Path -ieq $b -or $Path -like "$b\*"
 }
 
+# Folders a walk couldn't list (review 5: skipping them silently hid
+# everything below). Get-GlimTreeItems adds to it; callers report it.
+$GlimUnlistable = New-Object System.Collections.Generic.List[string]
+
 # Every file and folder under $Root, walked by hand, never following a
-# junction or symlink (it is yielded, not entered).
+# junction or symlink (it is yielded, so its own ACL is checked, but not
+# entered). A folder it can't list goes on $GlimUnlistable.
 function Get-GlimTreeItems([string]$Root) {
     $queue = New-Object System.Collections.Generic.Queue[string]
     $queue.Enqueue($Root)
     while ($queue.Count) {
         $dir = $queue.Dequeue()
-        foreach ($c in (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
+        $errs = $null
+        $kids = @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue -ErrorVariable errs)
+        if ($errs) { if (-not $GlimUnlistable.Contains($dir)) { $GlimUnlistable.Add($dir) } }
+        foreach ($c in $kids) {
             $c
             if ($c.PSIsContainer -and -not ($c.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $queue.Enqueue($c.FullName) }
         }
@@ -87,7 +114,8 @@ function Get-GlimTreeItems([string]$Root) {
 # inheritance being off is only one way to get there). Each needs its own.
 function Get-GlimExplicitWritable([string]$Root) {
     foreach ($c in (Get-GlimTreeItems $Root)) {
-        if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        # A link counts too: Get-Acl reads the link's own ACL (tested), and
+        # glim-agent retargeting one would redirect whoever follows it.
         $acl = $null
         try { $acl = Get-Acl -LiteralPath $c.FullName } catch { continue }
         foreach ($a in $acl.Access) {
@@ -117,12 +145,10 @@ function Get-GlimStillWritable([string]$Sid, $Targets) {
     foreach ($t in $Targets) {
         Probe $t.Path
         if ($t.Scope -eq 'tree') {
-            foreach ($c in (Get-GlimTreeItems $t.Path)) {
-                if ($c.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
-                Probe $c.FullName
-            }
+            foreach ($c in (Get-GlimTreeItems $t.Path)) { Probe $c.FullName }
         }
     }
+    foreach ($d in $GlimUnlistable) { if (-not $unreadable.Contains($d)) { $unreadable.Add("$d (couldn't list its contents)") } }
     @{ Writable = @($writable); Unreadable = @($unreadable) }
 }
 
@@ -152,6 +178,9 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
     }
     foreach ($p in (Get-GlimPathFolders)) {
         if (Test-GlimBroadWrite $p) { Add-Target $p 'tree' 'on PATH, writable by all users' }
+    }
+    foreach ($p in (Get-GlimMissingPathParents)) {
+        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'parent of a PATH folder that does not exist yet, writable by all users' }
     }
     # Inside every tree: files and folders whose own (explicit) entry lets all
     # users write: the tree's inherited deny doesn't beat it, so each gets its own.

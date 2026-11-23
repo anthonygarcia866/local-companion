@@ -215,12 +215,13 @@ if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
 if ($agentSid -and -not $DryRun) {
     Write-Host '  verifying: walking every locked tree (about a minute)...'
     $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
-    if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) whose permissions couldn't be read (not verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
+    if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) couldn't be read or listed (NOT verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
     if ($v.Writable.Count) {
         $v.Writable | Select-Object -First 50 | ForEach-Object { Write-Host "  STILL WRITABLE: $_" -ForegroundColor Red }
         throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list)."
     }
-    Write-Host '  verified: nothing in the locked folders is writable by it'
+    if ($v.Unreadable.Count) { Write-Host "  checked: nothing readable in the locked folders is writable by it, but $($v.Unreadable.Count) item(s) were NOT verified (see above; check.ps1 will end INCOMPLETE until they are)" -ForegroundColor Yellow }
+    else { Write-Host '  verified: nothing in the locked folders is writable by it' }
 }
 
 # glim-agent's SID, kept in YOUR registry (only you can write it), so

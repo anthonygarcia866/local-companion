@@ -113,6 +113,7 @@ foreach ($p in $mustNotRead) {
 $mustNotWrite = [ordered]@{}
 $mustNotWrite[$env:USERPROFILE.ToLowerInvariant()] = $env:USERPROFILE
 foreach ($p in (Get-GlimPathFolders)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
+foreach ($p in (Get-GlimMissingPathParents)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
 $targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
 foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
@@ -149,7 +150,7 @@ Write-Host 'walking every locked tree (about a minute)...' -ForegroundColor Dark
 $walk = Get-GlimStillWritable -Sid $sid -Targets $targets
 Report ($walk.Writable.Count -eq 0) ('nothing inside the locked folders is writable' + $(if ($walk.Writable.Count) { ": $($walk.Writable.Count), e.g. " + (($walk.Writable | Select-Object -First 10) -join '; ') } else { '' }))
 if ($walk.Unreadable.Count) {
-    Write-Host ("NOT VERIFIED  $($walk.Unreadable.Count) item(s) whose permissions couldn't be read, e.g. " + (($walk.Unreadable | Select-Object -First 10) -join '; ')) -ForegroundColor Yellow
+    Write-Host ("NOT VERIFIED  $($walk.Unreadable.Count) item(s) whose permissions couldn't be read or whose contents couldn't be listed, e.g. " + (($walk.Unreadable | Select-Object -First 10) -join '; ')) -ForegroundColor Yellow
     $script:incomplete = $true
 }
 
