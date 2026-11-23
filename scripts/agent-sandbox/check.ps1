@@ -140,9 +140,11 @@ $outside = @(while ($linkQueue.Count) {
     if ($linkSeen.Count -gt 100000) { $script:brokenUnverified += 'too many links to follow'; break }
     $to = [GlimAuthz]::FinalPath($l)
     $stored = if (-not $to) { [GlimFs]::LinkTarget($l) } else { $null }
-    $storedExists = $false
-    if ($stored -and $stored -match '^[A-Za-z]:\\') { try { $storedExists = Test-Path -LiteralPath $stored } catch { } }
-    if (-not $to -and $storedExists) {
+    # Broken only if the stored target is a plain drive path that Windows
+    # says is not found; anything undecidable stays NOT verified.
+    $storedState = -1
+    if ($stored -and $stored -match '^[A-Za-z]:\\' -and $stored -notmatch '[ .]$') { $storedState = [GlimFs]::Exists($stored) }
+    if (-not $to -and $storedState -ne 0) {
         # It leads somewhere that exists but can't be opened: not verified.
         $script:brokenUnverified += "$l (target exists but couldn't be opened)"
         continue
@@ -155,7 +157,14 @@ $outside = @(while ($linkQueue.Count) {
         if (-not $raw -or $raw -notmatch '^[A-Za-z]:\\') { $script:brokenUnverified += $l; continue }
         if (Test-GlimUnder $raw $env:USERPROFILE) { continue }
         $par = $raw
-        while ($par -and -not (Test-Path -LiteralPath $par)) { $par = Split-Path -Parent $par }
+        $undecided = $false
+        while ($par) {
+            $st = [GlimFs]::Exists($par)
+            if ($st -eq 1) { break }
+            if ($st -eq -1) { $undecided = $true; break }
+            $par = Split-Path -Parent $par
+        }
+        if ($undecided) { $script:brokenUnverified += "$l (couldn't tell whether $par exists)"; continue }
         # The real folder that parent is (it may itself be behind a link).
         $parReal = if ($par) { [GlimAuthz]::FinalPath($par) } else { $null }
         if (-not $parReal) { $script:brokenUnverified += $l; continue }

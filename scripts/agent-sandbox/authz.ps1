@@ -211,6 +211,17 @@ public static class GlimFs {
 
     public struct Entry { public string Path; public bool Dir; public bool Link; }
 
+    // Does `path` exist, taken literally (\\?\, the last link not followed)?
+    // 0 only when Windows says file or path not found (errors 2, 3); 1 when
+    // it opens; -1 for anything else (access denied ...): unknown, which
+    // callers treat as "exists, not verified" (fail closed).
+    public static int Exists(string path) {
+        IntPtr h = CreateFileW(Raw(path), 0, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h != BAD) { CloseHandle(h); return 1; }
+        int e = Marshal.GetLastWin32Error();
+        return (e == 2 || e == 3) ? 0 : -1;
+    }
+
     [StructLayout(LayoutKind.Sequential)] struct ATTR_TAG { public uint Attr; public uint Tag; }
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool DeviceIoControl(IntPtr h, uint code, IntPtr inBuf, uint inLen, IntPtr outBuf, uint outLen, out uint ret, IntPtr ov);
