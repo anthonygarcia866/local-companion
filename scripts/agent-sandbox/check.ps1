@@ -128,7 +128,16 @@ Report ($pw.Hits.Count -eq 0) ("nothing in your profile is readable or writable 
 $brokenUnverified = @()
 # Links in your profile aren't entered; one that leads OUTSIDE it is checked
 # at its target (review 9: a secrets folder turned into a link elsewhere).
-$outside = @(foreach ($l in $pw.Links) {
+# A work queue: links met inside a target that is walked are followed the
+# same way (review: nested links), each real target once (no loops).
+$linkQueue = New-Object System.Collections.Generic.Queue[string]
+foreach ($l in $pw.Links) { $linkQueue.Enqueue($l) }
+$linkSeen = @{}
+$outside = @(while ($linkQueue.Count) {
+    $l = $linkQueue.Dequeue()
+    if ($linkSeen.ContainsKey($l.ToLowerInvariant())) { continue }
+    $linkSeen[$l.ToLowerInvariant()] = $true
+    if ($linkSeen.Count -gt 100000) { $script:brokenUnverified += 'too many links to follow'; break }
     $to = [GlimAuthz]::FinalPath($l)
     if (-not $to -and (Test-Path -LiteralPath $l)) {
         # It leads somewhere that exists but can't be opened: not verified.
@@ -154,6 +163,8 @@ $outside = @(foreach ($l in $pw.Links) {
         continue
     }
     if (Test-GlimUnder $to $env:USERPROFILE) { continue }
+    if ($linkSeen.ContainsKey('=>' + $to.ToLowerInvariant())) { continue }
+    $linkSeen['=>' + $to.ToLowerInvariant()] = $true
     $mt = Access $to
     if ($null -eq $mt) { '{0} -> {1} (permissions unreadable)' -f $l, $to; continue }
     if ($mt -band ($GlimRead -bor $GlimWrite)) { '{0} -> {1} (0x{2:X})' -f $l, $to, ($mt -band ($GlimRead -bor $GlimWrite)); continue }
@@ -170,6 +181,7 @@ $outside = @(foreach ($l in $pw.Links) {
         try { $lw = [GlimFs]::Walk($to, 'access', $null, [uint32]($GlimRead -bor $GlimWrite), $lc) } finally { $lc.Dispose() }
         foreach ($h in $lw.Hits) { '{0} -> {1} (inside its target)' -f $l, $h }
         if ($lw.Unreadable.Count -or $lw.Unlistable.Count) { $script:brokenUnverified += "$l (inside its target $to)" }
+        foreach ($nl in $lw.Links) { $linkQueue.Enqueue($nl) }
     }
 })
 Report ($outside.Count -eq 0) ("no link in your profile leads to something it can read or write ($($pw.Links.Count) links)" + $(if ($outside) { ': ' + ($outside -join '; ') } else { '' }))
