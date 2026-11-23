@@ -48,9 +48,6 @@ function Test-GlimBroadWrite([string]$Path) {
     $false
 }
 
-# PATH entries whose folder doesn't exist yet: if glim-agent could create
-# one, it could plant programs on PATH. Returns the nearest existing parent
-# of each, which must not be writable.
 # Folders a walk couldn't list (review 5: skipping them silently hid
 # everything below). Get-GlimTreeItems adds to it; callers report it.
 $GlimUnlistable = New-Object System.Collections.Generic.List[string]
@@ -87,9 +84,17 @@ function Get-GlimPathFolders {
     }
 }
 
+# The item at $Path if anything is there, a broken link included (Test-Path
+# says False for a link whose target is gone; Get-Item -Force still sees it).
+function Get-GlimItemOrNull([string]$Path) {
+    try { return Get-Item -LiteralPath $Path -Force -ErrorAction Stop } catch { return $null }
+}
+
 # PATH entries whose folder doesn't exist yet: if glim-agent could create
-# one, it could plant programs on PATH. Returns the nearest existing parent
-# (real path) of each, which must not be writable.
+# one, it could plant programs on PATH. Returns the real path of the nearest
+# existing folder on the way (where it would be created), which must not be
+# writable. A link on the way is resolved; a broken one leaves the entry NOT
+# verified (its target is wherever the link says, and nothing is there yet).
 function Get-GlimMissingPathParents {
     $seen = @{}
     foreach ($x in (Get-GlimPathEntries)) {
@@ -97,29 +102,36 @@ function Get-GlimMissingPathParents {
         try { $exists = Test-Path -LiteralPath $x } catch { }
         if ($exists) { continue }
         $par = $x
+        $final = $null
         while ($par) {
-            $e2 = $false
-            try { $e2 = Test-Path -LiteralPath $par } catch { }
-            if ($e2) { break }
+            $it = Get-GlimItemOrNull $par
+            if ($it) { $final = [GlimAuthz]::FinalPath($par); break }   # null for a broken link
             $par = Split-Path -Parent $par
         }
-        $final = if ($par) { [GlimAuthz]::FinalPath($par) } else { $null }
         if (-not $final) { if (-not $GlimPathUnresolved.Contains($x)) { $GlimPathUnresolved.Add($x) }; continue }
         if (-not $seen.ContainsKey($final.ToLowerInvariant())) { $seen[$final.ToLowerInvariant()] = $true; $final }
     }
 }
 
-# Every folder above a PATH folder, up to its drive root: with delete-child
-# or write on one of them glim-agent could rename the PATH folder away and
-# make a new one (review 6).
+# Every folder a PATH lookup passes through, both as written and as really
+# reached (review 7): each literal part of every PATH entry from the entry up
+# to its drive root (a link there is judged by its own ACL, since retargeting
+# or replacing it redirects the lookup), and every folder above each real
+# PATH folder and above each missing entry's nearest existing folder. With
+# write or delete-child on any of them glim-agent could swap what's below.
 function Get-GlimPathAncestors {
     $seen = @{}
-    foreach ($f in (Get-GlimPathFolders)) {
-        $par = Split-Path -Parent $f
-        while ($par) {
-            if (-not $seen.ContainsKey($par.ToLowerInvariant())) { $seen[$par.ToLowerInvariant()] = $true; $par }
-            $par = Split-Path -Parent $par
+    $emit = { param($q) if ($q -and -not $seen.ContainsKey($q.ToLowerInvariant())) { $seen[$q.ToLowerInvariant()] = $true; $q } }
+    foreach ($x in (Get-GlimPathEntries)) {
+        $q = $x
+        while ($q) {
+            if (Get-GlimItemOrNull $q) { & $emit $q }
+            $q = Split-Path -Parent $q
         }
+    }
+    foreach ($f in @(Get-GlimPathFolders) + @(Get-GlimMissingPathParents)) {
+        $q = Split-Path -Parent $f
+        while ($q) { & $emit $q; $q = Split-Path -Parent $q }
     }
 }
 
@@ -245,7 +257,10 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'parent of a PATH folder that does not exist yet, writable by all users' }
     }
     foreach ($p in (Get-GlimPathAncestors)) {
-        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'above a PATH folder, writable by all users' }
+        # A literal PATH entry itself is in this set too: a tree if it's a real
+        # folder all users can write (it's also a PATH folder), else 'folder'.
+        # A link is diverted to $GlimLinkFindings by Add-Target.
+        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'on the way to a PATH folder, writable by all users' }
     }
     foreach ($p in (Get-GlimPathFiles)) {
         if (Test-GlimBroadWrite $p) { Add-Target $p 'file' 'program in a PATH folder, writable by all users' }
