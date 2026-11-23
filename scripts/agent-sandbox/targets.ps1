@@ -196,6 +196,8 @@ function Get-GlimTreeItems([string]$Root) {
 function Get-GlimExplicitWritable([string]$Root, [int64]$Mask = $GlimWriteBits) {
     $r = [GlimFs]::Walk($Root, 'explicit', [string[]]$GlimBroad, [uint32]$Mask, $null)
     foreach ($u in $r.Unlistable) { if (-not $GlimUnlistable.Contains($u)) { $GlimUnlistable.Add($u) } }
+    # Items whose permissions couldn't be read can't be judged: reported, not skipped (review 8).
+    foreach ($u in $r.Unreadable) { $x = "$u (permissions unreadable)"; if (-not $GlimUnlistable.Contains($x)) { $GlimUnlistable.Add($x) } }
     for ($i = 0; $i -lt $r.Hits.Count; $i++) { [pscustomobject]@{ Path = $r.Hits[$i]; Dir = $r.HitIsDir[$i]; Why = $r.Details[$i] } }
 }
 

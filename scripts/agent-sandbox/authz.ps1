@@ -164,6 +164,15 @@ public static class GlimFs {
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool AdjustTokenPrivileges(IntPtr tok, bool disableAll, ref TP tp, uint len, IntPtr prev, IntPtr retLen);
 
     const uint READ_CONTROL = 0x20000, LIST = 0x1, SYNC = 0x100000;
+
+    // The path in \\?\ form, so Windows takes it literally: no length limit,
+    // and a trailing space or dot isn't trimmed (review 8: "C:\x\.claude2 "
+    // was silently read as ".claude2").
+    static string Raw(string p) {
+        if (p.StartsWith(@"\\?\")) return p;
+        if (p.StartsWith(@"\\")) return @"\\?\UNC\" + p.Substring(2);
+        return @"\\?\" + p;
+    }
     const uint BACKUP = 0x02000000, REPARSE = 0x00200000;
     static readonly IntPtr BAD = new IntPtr(-1);
 
@@ -186,7 +195,7 @@ public static class GlimFs {
     // (32 = in use with no sharing: nobody, glim-agent included, can open it).
     public static byte[] ReadSd(string path, out int error) {
         error = 0;
-        IntPtr h = CreateFileW(path, READ_CONTROL, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        IntPtr h = CreateFileW(Raw(path), READ_CONTROL, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
         if (h == BAD) { error = Marshal.GetLastWin32Error(); return null; }
         try {
             IntPtr o, g, d, sa, sd;
@@ -205,7 +214,7 @@ public static class GlimFs {
     // error code if it can't be listed.
     public static List<Entry> List(string dir, out int error) {
         error = 0;
-        IntPtr h = CreateFileW(dir, LIST | SYNC, 7, IntPtr.Zero, 3, BACKUP, IntPtr.Zero);
+        IntPtr h = CreateFileW(Raw(dir), LIST | SYNC, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
         if (h == BAD) { error = Marshal.GetLastWin32Error(); return null; }
         var outv = new List<Entry>();
         IntPtr buf = Marshal.AllocHGlobal(65536);
@@ -224,10 +233,13 @@ public static class GlimFs {
                     int next = Marshal.ReadInt32(p, 0);
                     uint attr = (uint)Marshal.ReadInt32(p, 56);
                     int nlen = Marshal.ReadInt32(p, 60);
+                    // With the reparse attribute set, EaSize (offset 64) holds the reparse tag.
+                    uint tag = (attr & 0x400) != 0 ? (uint)Marshal.ReadInt32(p, 64) : 0;
+                    bool link = (attr & 0x400) != 0 && (tag & 0x20000000) != 0;   // IsReparseTagNameSurrogate
                     string name = Marshal.PtrToStringUni(new IntPtr(p.ToInt64() + 68), nlen / 2);
                     if (name != "." && name != "..") {
                         string full = dir.EndsWith("\\") ? dir + name : dir + "\\" + name;
-                        outv.Add(new Entry { Path = full, Dir = (attr & 0x10) != 0, Link = (attr & 0x400) != 0 });
+                        outv.Add(new Entry { Path = full, Dir = (attr & 0x10) != 0, Link = link });
                     }
                     if (next == 0) break;
                     off += next;
@@ -252,7 +264,9 @@ public static class GlimFs {
         var parts = new List<string>();
         foreach (GenericAce a in r.DiscretionaryAcl) {
             var c = a as KnownAce;
-            if (c == null || a.AceType != AceType.AccessAllowed) continue;
+            if (c == null) continue;
+            var t = a.AceType;
+            if (t != AceType.AccessAllowed && t != AceType.AccessAllowedCallback && t != AceType.AccessAllowedObject && t != AceType.AccessAllowedCallbackObject) continue;
             if (explicitOnly && (a.AceFlags & AceFlags.Inherited) != 0) continue;
             if (!explicitOnly && (a.AceFlags & AceFlags.InheritOnly) != 0) continue;
             if (Array.IndexOf(sids, c.SecurityIdentifier.Value) < 0) continue;

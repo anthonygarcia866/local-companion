@@ -187,6 +187,9 @@ else {
 Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
 $targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
 foreach ($x in $GlimPathUnresolved) { Write-Warning "  PATH entry that doesn't resolve to a real folder (NOT verified): $x" }
+if ($GlimUnlistable.Count) {
+    Write-Warning ("  $($GlimUnlistable.Count) item(s) couldn't be listed or read while finding what to lock, so anything below or in them isn't on the list (check.ps1 stays INCOMPLETE until they're readable; run elevated). E.g. " + (($GlimUnlistable | Select-Object -First 5) -join '; '))
+}
 if ($GlimLinkFindings.Count) {
     $GlimLinkFindings | ForEach-Object { Write-Host "  LINK all users could change (not locked automatically: icacls would change its target): $_" -ForegroundColor Red }
     if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }

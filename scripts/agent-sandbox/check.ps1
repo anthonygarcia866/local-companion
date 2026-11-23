@@ -1,5 +1,7 @@
 # Agent sandbox check (docs/agent-sandbox-plan.md §2): proves what glim-agent
-# can't reach. Run by the owner, NOT elevated:
+# can't reach. Run by the owner, ELEVATED (Run as administrator), or user
+# rights and folders only SYSTEM can open stay unverified and the result is
+# INCOMPLETE:
 #   powershell -ExecutionPolicy Bypass -File scripts\agent-sandbox\check.ps1
 #
 # Every PASS/FAIL is computed on YOUR side, from glim-agent's SID and each
