@@ -57,20 +57,42 @@ public static class GlimAuthz {
     }
     public static string[] LogonSids() { return (string[])Logon.Clone(); }
     [DllImport("authz.dll")] static extern bool AuthzFreeResourceManager(IntPtr rm);
+    // Every SID any of its logons may carry (for the "who could it be" checks:
+    // user rights and group membership, where more is the stricter side).
     static readonly string[] Logon = { "S-1-1-0", "S-1-5-32-545", "S-1-5-4", "S-1-2-1", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113", "S-1-5-64-10", "S-1-5-3" };
+    // Access checks use the SIDs each real logon carries, one variant at a
+    // time (a superset is NOT stricter there: a deny entry for a SID the real
+    // token lacks would hide access it has). An object counts as granted
+    // whatever ANY variant is granted.
+    static readonly string[] Base = { "S-1-1-0", "S-1-5-32-545", "S-1-2-0", "S-1-5-11", "S-1-5-15", "S-1-5-113", "S-1-5-64-10" };
+    static readonly string[][] Variants = {
+        new[] { "S-1-5-4", "S-1-2-1" },  // interactive, console session
+        new[] { "S-1-5-4" },             // interactive, no CONSOLE LOGON
+        new[] { "S-1-5-3" },             // batch
+    };
 
     // The access mask `sid` gets on an object with security descriptor `sd` (MAXIMUM_ALLOWED).
     public static uint Granted(string sid, byte[] sd) {
+        uint any = 0;
+        foreach (var v in Variants) {
+            var sids = new string[Base.Length + v.Length];
+            Base.CopyTo(sids, 0); v.CopyTo(sids, Base.Length);
+            any |= GrantedWith(sid, sd, sids);
+        }
+        return any;
+    }
+
+    static uint GrantedWith(string sid, byte[] sd, string[] logon) {
         IntPtr rm, ctx, ctx2 = IntPtr.Zero;
         if (!AuthzInitializeResourceManager(1 /* NO_AUDIT */, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, "glim-check", out rm)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         try {
             var s = new SecurityIdentifier(sid); var b = new byte[s.BinaryLength]; s.GetBinaryForm(b, 0);
             if (!AuthzInitializeContextFromSid(0, b, rm, IntPtr.Zero, new LUID(), IntPtr.Zero, out ctx)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            var pins = new GCHandle[Logon.Length];
-            var add = new SID_AND_ATTRIBUTES[Logon.Length];
+            var pins = new GCHandle[logon.Length];
+            var add = new SID_AND_ATTRIBUTES[logon.Length];
             try {
-                for (int i = 0; i < Logon.Length; i++) {
-                    var g = new SecurityIdentifier(Logon[i]); var gb = new byte[g.BinaryLength]; g.GetBinaryForm(gb, 0);
+                for (int i = 0; i < logon.Length; i++) {
+                    var g = new SecurityIdentifier(logon[i]); var gb = new byte[g.BinaryLength]; g.GetBinaryForm(gb, 0);
                     pins[i] = GCHandle.Alloc(gb, GCHandleType.Pinned);
                     add[i] = new SID_AND_ATTRIBUTES { Sid = pins[i].AddrOfPinnedObject(), Attributes = 7 /* MANDATORY|ENABLED_BY_DEFAULT|ENABLED */ };
                 }

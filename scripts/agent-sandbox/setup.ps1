@@ -186,6 +186,10 @@ else {
 # ── 6. Lock what everyone can write (owner 2026-11-22) ──────────────────────
 Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
 $targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
+if ($GlimLinkFindings.Count) {
+    $GlimLinkFindings | ForEach-Object { Write-Host "  LINK all users could change (not locked automatically: icacls would change its target): $_" -ForegroundColor Red }
+    if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }
+}
 foreach ($t in $targets) {
     $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }   # folder or file: that object only
     $done = $false

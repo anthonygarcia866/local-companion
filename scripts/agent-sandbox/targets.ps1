@@ -89,6 +89,10 @@ function Test-GlimUnder([string]$Path, [string]$Base) {
 # Folders a walk couldn't list (review 5: skipping them silently hid
 # everything below). Get-GlimTreeItems adds to it; callers report it.
 $GlimUnlistable = New-Object System.Collections.Generic.List[string]
+# Links (junctions, symlinks) that all users could write or retarget. They
+# are never lock targets (icacls would change the link's TARGET, wherever it
+# points); setup lists them and stops, to be fixed by hand.
+$GlimLinkFindings = New-Object System.Collections.Generic.List[string]
 
 # Every file and folder under $Root, walked by hand, never following a
 # junction or symlink (it is yielded, so its own ACL is checked, but not
@@ -158,6 +162,11 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         $k = $p.ToLowerInvariant()
         if (Test-GlimUnder $p 'C:\GlimAgent') { return }
         if (Test-GlimUnder $p $OwnerProfile) { return }
+        $item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            if (-not $GlimLinkFindings.Contains($p)) { $GlimLinkFindings.Add($p) }
+            return
+        }
         if (-not $out.Contains($k)) { $out[$k] = [pscustomobject]@{ Path = $p; Scope = $scope; Why = $why } }
     }
     foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n -PathType Container) { Add-Target $n 'tree' 'named by you' } }

@@ -115,6 +115,7 @@ $mustNotWrite[$env:USERPROFILE.ToLowerInvariant()] = $env:USERPROFILE
 foreach ($p in (Get-GlimPathFolders)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
 foreach ($p in (Get-GlimMissingPathParents)) { $mustNotWrite[$p.ToLowerInvariant()] = $p }
 $targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
+foreach ($l in $GlimLinkFindings) { Report $false "no link that all users can change: $l" }
 foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
     if ($t.Scope -eq 'tree') {
