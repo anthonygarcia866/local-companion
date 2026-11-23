@@ -193,20 +193,22 @@ if ($GlimLinkFindings.Count) {
 }
 foreach ($t in $targets) {
     $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }   # folder or file: that object only
+    $rights = if ($t.Deny -eq 'all') { '(F)' } else { $GlimDenyRights }
+    $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
     $done = $false
     if ($agentSid) {
         $done = [bool]((Get-Acl -LiteralPath $t.Path).Access | Where-Object {
             $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and
             $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $agentSid } catch { $false }) -and
-            ((([int64]$_.FileSystemRights) -band 0xD0156) -eq 0xD0156) -and
+            ((([int64]$_.FileSystemRights) -band $need) -eq $need) -and
             ($t.Scope -ne 'tree' -or (($_.InheritanceFlags -band 3) -eq 3))  # both ContainerInherit and ObjectInherit
         })
     }
-    $label = "{0}  [{1}]  ({2})" -f $t.Path, $t.Scope, $t.Why
+    $label = "{0}  [{1}; deny {2}]  ({3})" -f $t.Path, $t.Scope, $(if ($t.Deny -eq 'all') { 'everything' } else { 'write+delete' }), $t.Why
     if ($done) { Write-Host "  already locked: $label"; continue }
     Act "lock $label" {
         # /C: keep going past a file it can't change; the count is reported.
-        $outText = icacls $t.Path /deny "${AgentName}:$flags$GlimDenyRights" /C 2>&1 | Out-String
+        $outText = icacls $t.Path /deny "${AgentName}:$flags$rights" /C 2>&1 | Out-String
         $code = $LASTEXITCODE
         $m = [regex]::Match($outText, 'Failed processing (\d+) files')
         $failed = if ($m.Success) { [int]$m.Groups[1].Value } else { -1 }

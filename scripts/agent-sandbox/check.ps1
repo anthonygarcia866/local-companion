@@ -110,6 +110,17 @@ foreach ($p in $mustNotRead) {
     Report (($m -band $GlimRead) -eq 0) "can't read $p"
 }
 
+# Every file and folder in your profile (fix 2): glim-agent may read or
+# write none of them (walked in full, ~1M items here, a few minutes).
+Write-Host 'walking your profile (a few minutes)...' -ForegroundColor DarkGray
+$pc = New-Object GlimAuthz+Checker $sid
+try { $pw = [GlimFs]::Walk($env:USERPROFILE, 'access', $null, [uint32]($GlimRead -bor $GlimWrite), $pc) } finally { $pc.Dispose() }
+Report ($pw.Hits.Count -eq 0) ("nothing in your profile is readable or writable by it ($($pw.Items) items)" + $(if ($pw.Hits.Count) { ": $($pw.Hits.Count), e.g. " + (($pw.Hits | Select-Object -First 10) -join '; ') } else { '' }))
+if ($pw.Unreadable.Count -or $pw.Unlistable.Count) {
+    Write-Host ("NOT VERIFIED  in your profile: $($pw.Unreadable.Count) item(s) whose permissions couldn't be read, $($pw.Unlistable.Count) folder(s) that couldn't be listed, e.g. " + ((@($pw.Unreadable) + @($pw.Unlistable) | Select-Object -First 10) -join '; ')) -ForegroundColor Yellow
+    $script:incomplete = $true
+}
+
 # ── Must not write ───────────────────────────────────────────────────────────
 $mustNotWrite = [ordered]@{}
 $mustNotWrite[$env:USERPROFILE.ToLowerInvariant()] = $env:USERPROFILE
@@ -148,6 +159,10 @@ foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType 
 foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n) { $mustNotWrite[$n.ToLowerInvariant()] = $n } }
 foreach ($p in $mustNotWrite.Values) {
     if ($p -ieq 'C:\GlimAgent' -or $p -like 'C:\GlimAgent\*') { continue }
+    if (Test-GlimInUse $p) {
+        $e0 = 0
+        if ($null -eq [GlimFs]::ReadSd($p, [ref]$e0) -and $e0 -eq 32) { Write-Host "info  $p is in use by Windows (nobody, glim-agent included, can open it)" -ForegroundColor DarkGray; continue }
+    }
     $m = Access $p
     if ($null -eq $m) { Report $false "can't write $p (its permissions couldn't be read: not verified)"; continue }
     $w = $m -band $GlimWrite

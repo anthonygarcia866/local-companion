@@ -31,22 +31,26 @@ $GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-
 # attributes, delete, change permissions, take ownership, plus GENERIC_WRITE /
 # GENERIC_ALL as stored in inheritable ACEs.
 $GlimWriteBits = [int64](2 -bor 4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
-$GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers'
+$GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers', 'C:\Users\Public', 'C:\Windows\Tasks'
 # + WDAC (change permissions) and WO (take ownership): without them glim-agent
 # could rewrite a Full Control folder's ACL and delete its own deny. Neither
 # touches reading.
 $GlimDenyRights = '(WD,AD,WEA,WA,D,DC,WDAC,WO)'
 
-function Test-GlimBroadWrite([string]$Path) {
-    try { $acl = Get-Acl -LiteralPath $Path } catch { return $false }
-    foreach ($a in $acl.Access) {
-        if ($a.AccessControlType -ne 'Allow') { continue }
-        if ($a.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) { continue }
-        try { $sid = $a.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
-        if ($GlimBroad -contains $sid -and (([int64]$a.FileSystemRights) -band $GlimWriteBits)) { return $true }
-    }
-    $false
+# What lets all users write $Path ("" if nothing): its allow entries for a
+# logon SID that apply to it, read from the object itself (a link: its own).
+# Needs authz.ps1.
+function Get-GlimBroadWrite([string]$Path) {
+    $e = 0
+    $sd = [GlimFs]::ReadSd($Path, [ref]$e)
+    if ($null -eq $sd) { return '' }
+    [GlimFs]::Grant($sd, [string[]]$GlimBroad, [uint32]$GlimWriteBits, $false)
 }
+function Test-GlimBroadWrite([string]$Path) { [bool](Get-GlimBroadWrite $Path) }
+
+# Read or write, for the profile (fix 2, owner 2026-11-22: glim-agent may
+# read nothing in it): FILE_READ_DATA, GENERIC_READ and the write bits.
+$GlimReadWriteBits = [int64]($GlimWriteBits -bor 0x1 -bor [int64]2147483648)
 
 # Folders a walk couldn't list (review 5: skipping them silently hid
 # everything below). Get-GlimTreeItems adds to it; callers report it.
@@ -64,6 +68,13 @@ function Get-GlimPathEntries {
             $x = [Environment]::ExpandEnvironmentVariables($e).Trim().Trim('"').Trim().TrimEnd('\')
             if (-not $x) { continue }
             if ($x -match '^[A-Za-z]:$') { $x += '\' }
+            # Only a full path: drive + root, or \\server\share. A relative one
+            # ("." or "bin", or an unexpanded %VAR%) depends on the folder the
+            # lookup starts in, so it can't be checked: NOT verified (review 7).
+            if ($x -notmatch '^[A-Za-z]:\\' -and $x -notmatch '^\\\\[^\\]+\\[^\\]+') {
+                if (-not $GlimPathUnresolved.Contains($x)) { $GlimPathUnresolved.Add($x) }
+                continue
+            }
             $x
         }
     }
@@ -178,18 +189,14 @@ function Get-GlimTreeItems([string]$Root) {
 # logon SID write: Windows applies an object's explicit allows before the
 # deny it inherits, so the tree's deny doesn't stop them (review 2026-11-22;
 # inheritance being off is only one way to get there). Each needs its own.
-function Get-GlimExplicitWritable([string]$Root) {
-    foreach ($c in (Get-GlimTreeItems $Root)) {
-        # A link counts too: Get-Acl reads the link's own ACL (tested), and
-        # glim-agent retargeting one would redirect whoever follows it.
-        $acl = $null
-        try { $acl = Get-Acl -LiteralPath $c.FullName } catch { continue }
-        foreach ($a in $acl.Access) {
-            if ($a.IsInherited -or $a.AccessControlType -ne 'Allow') { continue }
-            try { $sid = $a.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
-            if ($GlimBroad -contains $sid -and (([int64]$a.FileSystemRights) -band $GlimWriteBits)) { $c; break }
-        }
-    }
+# Walks $Root with the native walker (folders listed by handle, links'
+# own ACLs read, never entered; the backup privilege when elevated) and
+# returns @{ Path; Dir; Why } for each item whose own entry gives a logon SID
+# a bit of $Mask. Folders it can't list go on $GlimUnlistable.
+function Get-GlimExplicitWritable([string]$Root, [int64]$Mask = $GlimWriteBits) {
+    $r = [GlimFs]::Walk($Root, 'explicit', [string[]]$GlimBroad, [uint32]$Mask, $null)
+    foreach ($u in $r.Unlistable) { if (-not $GlimUnlistable.Contains($u)) { $GlimUnlistable.Add($u) } }
+    for ($i = 0; $i -lt $r.Hits.Count; $i++) { [pscustomobject]@{ Path = $r.Hits[$i]; Dir = $r.HitIsDir[$i]; Why = $r.Details[$i] } }
 }
 
 # After locking: everything in the targets (trees walked in full) that
@@ -199,79 +206,104 @@ function Get-GlimStillWritable([string]$Sid, $Targets) {
     $writable = New-Object System.Collections.Generic.List[string]
     $unreadable = New-Object System.Collections.Generic.List[string]
     $seen = @{}
-    function Probe([string]$p) {
-        $k = $p.ToLowerInvariant()
-        if ($seen.ContainsKey($k)) { return }
-        $seen[$k] = $true
-        $m = $null
-        try { $m = Get-GlimAccess $Sid $p } catch { }
-        if ($null -eq $m) { $unreadable.Add($p) }
-        elseif ($m -band $GlimWrite) { $writable.Add($p) }
-    }
-    foreach ($t in $Targets) {
-        Probe $t.Path
-        if ($t.Scope -eq 'tree') {
-            foreach ($c in (Get-GlimTreeItems $t.Path)) { Probe $c.FullName }
+    $checker = New-Object GlimAuthz+Checker $Sid
+    try {
+        foreach ($t in $Targets) {
+            # A target denied everything (in your profile) must not be readable either.
+            $mask = if ($t.Deny -eq 'all') { $GlimRead -bor $GlimWrite } else { $GlimWrite }
+            $k = $t.Path.ToLowerInvariant()
+            if (-not $seen.ContainsKey($k)) {
+                $seen[$k] = $true
+                $e = 0
+                $sd = [GlimFs]::ReadSd($t.Path, [ref]$e)
+                if ($null -eq $sd) { $unreadable.Add("$($t.Path) (error $e)") }
+                elseif ($checker.Granted($sd) -band $mask) { $writable.Add($t.Path) }
+            }
+            if ($t.Scope -eq 'tree') {
+                $r = [GlimFs]::Walk($t.Path, 'access', $null, [uint32]$mask, $checker)
+                foreach ($h in $r.Hits) { if (-not $seen.ContainsKey($h.ToLowerInvariant())) { $seen[$h.ToLowerInvariant()] = $true; $writable.Add($h) } }
+                foreach ($u in $r.Unreadable) { $unreadable.Add($u) }
+                foreach ($u in $r.Unlistable) { $unreadable.Add("$u (couldn't list its contents)") }
+            }
         }
-    }
-    foreach ($d in $GlimUnlistable) { if (-not $unreadable.Contains($d)) { $unreadable.Add("$d (couldn't list its contents)") } }
-    @{ Writable = @($writable); Unreadable = @($unreadable) }
+    } finally { $checker.Dispose() }
+    foreach ($d in $GlimUnlistable) { $x = "$d (couldn't list its contents)"; if (-not $unreadable.Contains($x)) { $unreadable.Add($x) } }
+    @{ Writable = @($writable | Sort-Object -Unique); Unreadable = @($unreadable | Sort-Object -Unique) }
 }
 
 function Get-GlimLockTargets([string]$OwnerProfile) {
     $out = [ordered]@{}
-    function Add-Target([string]$p, [string]$scope, [string]$why) {
+    function Add-Target([string]$p, [string]$scope, [string]$why, [string]$deny = 'write') {
         $k = $p.ToLowerInvariant()
         if (Test-GlimUnder $p 'C:\GlimAgent') { return }
-        if (Test-GlimUnder $p $OwnerProfile) { return }
+        if ($deny -ne 'all' -and (Test-GlimUnder $p $OwnerProfile)) { return }
         $item = Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
         if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             if (-not $GlimLinkFindings.Contains($p)) { $GlimLinkFindings.Add($p) }
             return
         }
-        if (-not $out.Contains($k)) { $out[$k] = [pscustomobject]@{ Path = $p; Scope = $scope; Why = $why } }
+        if (-not $out.Contains($k)) { $out[$k] = [pscustomobject]@{ Path = $p; Scope = $scope; Why = $why; Deny = $deny } }
     }
-    foreach ($n in $GlimNamed) { if (Test-Path -LiteralPath $n -PathType Container) { Add-Target $n 'tree' 'named by you' } }
+    foreach ($n in $GlimNamed) {
+        if (Test-Path -LiteralPath $n -PathType Container) {
+            $w = Get-GlimBroadWrite $n
+            Add-Target $n 'tree' ('named by you' + $(if ($w) { "; writable now by $w" } else { '' }))
+        }
+    }
     foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 })) {
         $root = $d.DeviceID + '\'
         if (-not (Test-Path -LiteralPath $root)) { continue }
-        if (Test-GlimBroadWrite $root) { Add-Target $root 'folder' 'drive root, writable by all users' }
+        $w = Get-GlimBroadWrite $root
+        if ($w) { Add-Target $root 'folder' "drive root; writable by $w" }
         $errs = $null
         $rootKids = @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue -ErrorVariable errs)
         if ($errs) { if (-not $GlimUnlistable.Contains($root)) { $GlimUnlistable.Add($root) } }
         foreach ($c in @($rootKids | Where-Object { $_.PSIsContainer })) {
-            if (Test-GlimBroadWrite $c.FullName) {
+            $w = Get-GlimBroadWrite $c.FullName
+            if ($w) {
                 $scope = if ($c.Name -eq '$Recycle.Bin') { 'folder' } else { 'tree' }
-                Add-Target $c.FullName $scope 'top-level folder, writable by all users'
+                Add-Target $c.FullName $scope "top-level folder; writable by $w"
             }
         }
         # Files directly at the root (a folder-only deny on the root doesn't reach them).
         foreach ($f in @($rootKids | Where-Object { -not $_.PSIsContainer })) {
-            if (Test-GlimBroadWrite $f.FullName) { Add-Target $f.FullName 'file' 'file at the drive root, writable by all users' }
+            $w = Get-GlimBroadWrite $f.FullName
+            if ($w) { Add-Target $f.FullName 'file' "file at the drive root; writable by $w" }
         }
     }
     foreach ($p in (Get-GlimPathFolders)) {
-        if (Test-GlimBroadWrite $p) { Add-Target $p 'tree' 'on PATH, writable by all users' }
+        $w = Get-GlimBroadWrite $p
+        if ($w) { Add-Target $p 'tree' "on PATH; writable by $w" }
     }
     foreach ($p in (Get-GlimMissingPathParents)) {
-        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'parent of a PATH folder that does not exist yet, writable by all users' }
+        $w = Get-GlimBroadWrite $p
+        if ($w) { Add-Target $p 'folder' "parent of a PATH folder that does not exist yet; writable by $w" }
     }
     foreach ($p in (Get-GlimPathAncestors)) {
         # A literal PATH entry itself is in this set too: a tree if it's a real
         # folder all users can write (it's also a PATH folder), else 'folder'.
         # A link is diverted to $GlimLinkFindings by Add-Target.
-        if (Test-GlimBroadWrite $p) { Add-Target $p 'folder' 'on the way to a PATH folder, writable by all users' }
+        $w = Get-GlimBroadWrite $p
+        if ($w) { Add-Target $p 'folder' "on the way to a PATH folder; writable by $w" }
     }
     foreach ($p in (Get-GlimPathFiles)) {
-        if (Test-GlimBroadWrite $p) { Add-Target $p 'file' 'program in a PATH folder, writable by all users' }
+        $w = Get-GlimBroadWrite $p
+        if ($w) { Add-Target $p 'file' "program in a PATH folder; writable by $w" }
     }
     # Inside every tree: files and folders whose own (explicit) entry lets all
     # users write: the tree's inherited deny doesn't beat it, so each gets its own.
     foreach ($t in @($out.Values | Where-Object { $_.Scope -eq 'tree' })) {
         foreach ($sub in (Get-GlimExplicitWritable $t.Path)) {
-            $scope = if ($sub.PSIsContainer) { 'tree' } else { 'file' }
-            Add-Target $sub.FullName $scope "inside $($t.Path), its own entry lets all users write"
+            $scope = if ($sub.Dir) { 'tree' } else { 'file' }
+            Add-Target $sub.Path $scope "inside $($t.Path); its own entry lets write: $($sub.Why)"
         }
+    }
+    # Your profile (fix 2, owner 2026-11-22): every file or folder in it whose
+    # own entry lets all users read or write escapes the profile's inherited
+    # deny, so it gets its own deny of everything for glim-agent.
+    foreach ($sub in (Get-GlimExplicitWritable $OwnerProfile $GlimReadWriteBits)) {
+        $scope = if ($sub.Dir) { 'tree' } else { 'file' }
+        Add-Target $sub.Path $scope "in your profile; its own entry lets all users in: $($sub.Why)" 'all'
     }
     $out.Values
 }
