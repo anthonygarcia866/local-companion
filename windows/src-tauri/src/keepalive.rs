@@ -12,8 +12,9 @@
 // - a project folder (a full local path, an existing folder, not a drive,
 //   Windows, Program Files or the whole profile), whose command is FIXED:
 //   `claude remote-control --spawn worktree --capacity 1 --name "<folder name> (PC)"`,
-//   run through `cmd /d /s /c` in that folder in a console of its own (Windows
-//   Terminal on Windows 11, as the default terminal), with
+//   run through `cmd /d /s /c` in that folder in a console of its own with
+//   NO window (owner 2026-11-24: no Terminal, no console flash, never taking
+//   focus; platform::start_in_console), with
 //   CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1 in its environment. One per
 //   signed-in Claude account (accounts.rs, owner 2026-11-15), side by side,
 //   each with its own CLAUDE_CONFIG_DIR and named "<folder name> (PC,
@@ -452,8 +453,8 @@ impl Running for Desktop {
     }
 }
 
-/// Starts the real thing: the fixed command in its folder, in a console of
-/// its own, or the desktop app.
+/// Starts the real thing: the fixed command in its folder, in a windowless
+/// console of its own, or the desktop app.
 pub struct RealLauncher {
     /// Tests only: a command line instead of the fixed one.
     #[cfg(test)]
