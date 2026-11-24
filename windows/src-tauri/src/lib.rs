@@ -1,6 +1,7 @@
 // Glim for Windows — app wiring and the commands the island calls.
 
 mod accounts;
+mod activity_watch;
 mod agent_hooks;
 mod ai;
 mod autostart;
@@ -1301,6 +1302,25 @@ fn capture_allow(app: AppHandle) -> u64 {
     screen_capture::allow_for_a_while(&app)
 }
 
+/// Settings → Privacy → Activity watch (activity_watch.rs): until when it
+/// is on (Unix seconds), or 0.
+#[tauri::command]
+fn activity_watch_status() -> u64 {
+    activity_watch::status()
+}
+
+/// Turns the activity watch on for activity_watch::DAYS days, or off.
+#[tauri::command]
+fn activity_watch_set(on: bool) -> Result<u64, String> {
+    activity_watch::set(on)
+}
+
+/// Opens the folder holding activity-watch.log.
+#[tauri::command]
+fn activity_watch_reveal() {
+    platform::reveal_folder(&settings::local_dir().to_string_lossy());
+}
+
 /// "Hide again now": ends the allow window early.
 #[tauri::command]
 fn capture_hide_again(app: AppHandle) -> u64 {
@@ -2415,6 +2435,9 @@ pub fn run() {
             remote_kill,
             capture_allow,
             capture_hide_again,
+            activity_watch_status,
+            activity_watch_set,
+            activity_watch_reveal,
             capture_status,
             remote_relay,
             remote_require_sealed,
@@ -2613,6 +2636,10 @@ pub fn run() {
             // only an Outlook that is already running.
             if !selftest {
                 calendar::worker::start(&handle);
+            }
+            // Settings → Privacy → Activity watch: idle unless switched on.
+            if !selftest {
+                activity_watch::start();
             }
             // A paste Glim never finished (stopped between its paste and
             // putting the user's clipboard back): its text never stays there.

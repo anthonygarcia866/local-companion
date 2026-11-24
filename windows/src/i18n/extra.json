@@ -10182,6 +10182,50 @@
    "pt-BR": "Código QR do código {code}",
    "ru": "QR-код для кода {code}",
    "id": "Kode QR untuk kode {code}"
+  },
+  "Activity watch (7 days)": {
+   "zh-Hans": "活动记录（7 天）",
+   "hi": "गतिविधि निगरानी (7 दिन)",
+   "es": "Registro de actividad (7 días)",
+   "ar": "مراقبة النشاط (7 أيام)",
+   "fr": "Journal d'activité (7 jours)",
+   "bn": "কার্যকলাপ নজরদারি (7 দিন)",
+   "pt-BR": "Registro de atividade (7 dias)",
+   "ru": "Журнал активности (7 дней)",
+   "id": "Pantauan aktivitas (7 hari)"
+  },
+  "On this PC only, logs each new terminal, PowerShell, Word or Outlook process (what started it and its command line, passwords and keys masked) and each window that comes to the front (its app and title). Nothing you type. Turns itself off after 7 days.": {
+   "zh-Hans": "仅在这台电脑上记录：每个新的终端、PowerShell、Word 或 Outlook 进程（由什么启动及其命令行，密码和密钥会被遮盖），以及每个切到前台的窗口（其应用和标题）。不记录你输入的任何内容。7 天后自动关闭。",
+   "hi": "सिर्फ़ इसी PC पर, हर नई टर्मिनल, PowerShell, Word या Outlook प्रोसेस (उसे किसने शुरू किया और उसकी कमांड लाइन, पासवर्ड और कुंजियाँ छिपाकर) और सामने आने वाली हर विंडो (उसका ऐप और शीर्षक) लॉग करता है। आप जो टाइप करते हैं, वह नहीं। 7 दिन बाद अपने आप बंद हो जाता है।",
+   "es": "Solo en este PC, registra cada nuevo proceso de terminal, PowerShell, Word u Outlook (qué lo inició y su línea de comandos, con contraseñas y claves ocultas) y cada ventana que pasa al frente (su app y su título). Nada de lo que escribes. Se apaga solo a los 7 días.",
+   "ar": "على هذا الجهاز فقط، يسجّل كل عملية جديدة للطرفية أو PowerShell أو Word أو Outlook (ما الذي شغّلها وسطر أوامرها، مع إخفاء كلمات المرور والمفاتيح) وكل نافذة تنتقل إلى الواجهة (تطبيقها وعنوانها). لا شيء مما تكتبه. يتوقف من تلقاء نفسه بعد 7 أيام.",
+   "fr": "Sur ce PC uniquement, consigne chaque nouveau processus de terminal, PowerShell, Word ou Outlook (ce qui l'a lancé et sa ligne de commande, mots de passe et clés masqués) et chaque fenêtre qui passe au premier plan (son application et son titre). Rien de ce que vous tapez. S'arrête tout seul au bout de 7 jours.",
+   "bn": "শুধু এই PC-তে, প্রতিটি নতুন টার্মিনাল, PowerShell, Word বা Outlook প্রসেস (কে এটি চালু করল এবং এর কমান্ড লাইন, পাসওয়ার্ড ও কী লুকিয়ে) এবং সামনে আসা প্রতিটি উইন্ডো (এর অ্যাপ ও শিরোনাম) লগ করে। আপনি যা টাইপ করেন তা নয়। 7 দিন পরে নিজে থেকেই বন্ধ হয়ে যায়।",
+   "pt-BR": "Só neste PC, registra cada novo processo de terminal, PowerShell, Word ou Outlook (o que o iniciou e sua linha de comando, com senhas e chaves ocultas) e cada janela que vem para a frente (o app e o título). Nada do que você digita. Desliga sozinho após 7 dias.",
+   "ru": "Только на этом ПК записывает каждый новый процесс терминала, PowerShell, Word или Outlook (что его запустило и его командную строку, пароли и ключи скрыты) и каждое окно, вышедшее на передний план (его приложение и заголовок). Ничего из того, что вы вводите. Само выключается через 7 дней.",
+   "id": "Hanya di PC ini, mencatat setiap proses terminal, PowerShell, Word, atau Outlook yang baru (apa yang memulainya dan baris perintahnya, dengan kata sandi dan kunci disamarkan) dan setiap jendela yang muncul di depan (aplikasi dan judulnya). Tidak ada yang kamu ketik. Mati sendiri setelah 7 hari."
+  },
+  "Show the log": {
+   "zh-Hans": "显示日志",
+   "hi": "लॉग दिखाएँ",
+   "es": "Mostrar el registro",
+   "ar": "إظهار السجل",
+   "fr": "Afficher le journal",
+   "bn": "লগ দেখান",
+   "pt-BR": "Mostrar o registro",
+   "ru": "Показать журнал",
+   "id": "Tampilkan log"
+  },
+  "On until {time}.": {
+   "zh-Hans": "开启至 {time}。",
+   "hi": "{time} तक चालू।",
+   "es": "Activo hasta {time}.",
+   "ar": "مفعّل حتى {time}.",
+   "fr": "Actif jusqu'à {time}.",
+   "bn": "{time} পর্যন্ত চালু।",
+   "pt-BR": "Ativo até {time}.",
+   "ru": "Включено до {time}.",
+   "id": "Aktif sampai {time}."
   }
  }
 }

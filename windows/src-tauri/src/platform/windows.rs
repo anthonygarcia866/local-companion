@@ -1021,6 +1021,55 @@ fn process_table() -> HashMap<u32, Proc> {
     out
 }
 
+/// Every process, by ID (Settings → Privacy → Activity watch).
+pub fn processes() -> HashMap<u32, Proc> {
+    process_table()
+}
+
+/// A process's command line (Activity watch), as Windows keeps it for the
+/// process (NtQueryInformationProcess, ProcessCommandLineInformation, with
+/// only PROCESS_QUERY_LIMITED_INFORMATION). None when Windows refuses
+/// (another user's or a protected process) or it has already gone.
+pub fn command_line(pid: u32) -> Option<String> {
+    use ::windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
+    use ::windows::Win32::Foundation::UNICODE_STRING;
+    use ::windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut need = 0u32;
+        let _ = NtQueryInformationProcess(h, ProcessCommandLineInformation, std::ptr::null_mut(), 0, &mut need);
+        let mut out = None;
+        if need as usize >= std::mem::size_of::<UNICODE_STRING>() && need < (1 << 20) {
+            // u64 words, so the UNICODE_STRING at the start is aligned; its
+            // Buffer points into this same buffer.
+            let mut buf = vec![0u64; (need as usize).div_ceil(8)];
+            if NtQueryInformationProcess(h, ProcessCommandLineInformation, buf.as_mut_ptr().cast(), need, &mut need).is_ok() {
+                let us = &*(buf.as_ptr() as *const UNICODE_STRING);
+                if !us.Buffer.is_null() {
+                    let chars = std::slice::from_raw_parts(us.Buffer.0, (us.Length / 2) as usize);
+                    out = Some(String::from_utf16_lossy(chars));
+                }
+            }
+        }
+        let _ = CloseHandle(h);
+        out
+    }
+}
+
+/// The window in front now (Activity watch): (handle, process ID, title).
+pub fn foreground_window() -> Option<(isize, u32, String)> {
+    use ::windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let front = unsafe { GetForegroundWindow() };
+    if front.0.is_null() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(front, Some(&mut pid)) };
+    let mut text = [0u16; 512];
+    let len = unsafe { GetWindowTextW(front, &mut text) }.max(0) as usize;
+    Some((front.0 as isize, pid, String::from_utf16_lossy(&text[..len])))
+}
+
 /// Whether the process with this id is running (the process list only).
 pub fn pid_running(pid: u32) -> bool {
     pid != 0 && process_table().contains_key(&pid)

@@ -194,6 +194,11 @@ export const Bridge = {
   captureHideAgain: () => call<number>("capture_hide_again"),
   /** Until when screenshots are allowed (Unix ms), or 0. */
   captureStatus: () => call<number>("capture_status"),
+  /** Settings → Privacy → Activity watch: until when it is on (Unix seconds), or 0. */
+  activityWatchStatus: () => call<number>("activity_watch_status"),
+  /** On for 7 days from now, or off; answers the new end (Unix seconds, 0 = off). */
+  activityWatchSet: (on: boolean) => callOrThrow<number>("activity_watch_set", { on }),
+  activityWatchReveal: () => call<void>("activity_watch_reveal"),
   remoteSet: (on: boolean, consent: boolean) => callOrThrow<RemoteStatus>("remote_set", { on, consent }),
   /** "Add cloud client": its name and signer's PUBLIC key; its new relay token comes back once. */
   remoteClientAdd: (name: string, key: string) => callOrThrow<RemoteClientAnswer>("remote_client_add", { name, key }),
