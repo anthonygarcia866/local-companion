@@ -52,7 +52,7 @@ export function remoteSection(toggle: (on: boolean, onChange: (v: boolean) => vo
     h("h2", {}, h("span", { text: t("Remote") })),
     h("div", {
       class: "hint",
-      text: t("Keeps Claude Code's remote control running for the folders below, so you can reach this PC's Claude Code from your phone or claude.ai. Each one starts when Glim starts, in a terminal window you can see, and starts again if it stops. Nothing else is ever run."),
+      text: t("Keeps Claude Code's remote control running for the folders below, so you can reach this PC's Claude Code from your phone or claude.ai. Each one starts when Glim starts, in the background with no window, and starts again if it stops. Nothing else is ever run."),
     }),
     h("div", { style: "display:flex;flex-direction:column;gap:12px" }, body, tasks),
   );
