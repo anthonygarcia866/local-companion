@@ -447,12 +447,13 @@ pub fn kill_tree(pid: u32) {
 }
 
 /// A runbook's `launch_detached` step: `command` through cmd.exe in a
-/// console of its own, NOT tied to Glim (no kill-with-Glim job, broken away
-/// from any job Glim itself runs in), never waited for. It is what lets an
+/// console of its own with NO window (CREATE_NO_WINDOW: a real console the
+/// child and its children share, never shown, never taking focus; owner
+/// 2026-11-24), NOT tied to Glim (no kill-with-Glim job, broken away from
+/// any job Glim itself runs in), never waited for. It is what lets an
 /// updater that Glim starts stop Glim and keep going.
 pub fn launch_detached(command: &str, folder: &std::path::Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let spawn = |flags: u32| {
@@ -462,7 +463,7 @@ pub fn launch_detached(command: &str, folder: &std::path::Path) -> Result<(), St
         c.env("NoDefaultCurrentDirectoryInExePath", "1");
         c.creation_flags(flags).spawn()
     };
-    let base = CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP;
+    let base = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
     // A job that forbids breaking away refuses the flag: then start it inside
     // that job (it still outlives Glim, which only kills what it put in its own jobs).
     // The Child is dropped unwaited: dropping it neither waits nor kills.
@@ -471,13 +472,16 @@ pub fn launch_detached(command: &str, folder: &std::path::Path) -> Result<(), St
 
 /// The keep-alive switch (keepalive.rs): its FIXED command line through
 /// `cmd /d /s /c` in `folder`, with `env` added, in a console of its own
-/// (Windows Terminal hosts it when it is the default terminal, as on Windows
-/// 11), tied to Glim's life (it closes when Glim quits). `new_console`
-/// false (tests) runs it with no window and no output.
+/// that has NO window (CREATE_NO_WINDOW; owner 2026-11-24: no Terminal, no
+/// console flash, never taking focus). The child still gets a real console,
+/// so Claude Code sees a terminal (probe 2026-11-24: a child of a windowless
+/// parent started this way reports stdin/stdout as a TTY, 120 columns, and
+/// no visible console or Terminal window appears). Tied to Glim's life (it
+/// closes when Glim quits). `new_console` false (tests) gives it no console
+/// at all and no output.
 pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &str)], new_console: bool) -> Result<std::process::Child, String> {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
     let mut c = Command::new("cmd.exe");
     c.raw_arg(format!("/d /s /c \"{command}\"")).current_dir(folder);
     // Never a program from `folder` itself (keepalive passes claude's full
@@ -493,7 +497,7 @@ pub fn start_in_console(command: &str, folder: &std::path::Path, env: &[(&str, &
         }
     }
     if new_console {
-        c.creation_flags(CREATE_NEW_CONSOLE);
+        c.creation_flags(CREATE_NO_WINDOW);
     } else {
         no_console(&mut c).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     }
@@ -1648,5 +1652,33 @@ mod capture_tests {
         assert!(set_hwnd_capture_excluded(hwnd, true), "not a refusal");
         assert_eq!(affinity(hwnd), WDA_NONE.0, "untouched while hidden");
         let _ = unsafe { DestroyWindow(hwnd) };
+    }
+}
+
+#[cfg(test)]
+mod background_window_tests {
+    /// The body of `pub fn <name>(` in this file, up to the next top-level fn.
+    fn body(name: &str) -> &'static str {
+        let src = include_str!("windows.rs");
+        let start = src.find(&format!("pub fn {name}(")).expect(name);
+        let rest = &src[start..];
+        let end = rest[1..].find("\npub fn ").map(|i| i + 1).unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// Owner 2026-11-24: what Glim starts in the background (keep-alive's
+    /// remote control, keepalive-restart, a runbook's launch_detached such
+    /// as glim-update) opens no Terminal or console window and never takes
+    /// focus. Only a click's "open Claude Code here" shows a console.
+    #[test]
+    fn background_starts_never_open_a_console_window() {
+        for f in ["start_in_console", "launch_detached"] {
+            let b = body(f);
+            assert!(!b.contains("CREATE_NEW_CONSOLE"), "{f} must not open a console window");
+            assert!(b.contains("CREATE_NO_WINDOW"), "{f} starts its console with no window");
+        }
+        for f in ["run_command_line", "run_ps_script", "start_hidden_with_stdin"] {
+            assert!(!body(f).contains("CREATE_NEW_CONSOLE"), "{f} must not open a console window");
+        }
     }
 }
