@@ -104,6 +104,9 @@ windows = { version = "0.61", features = [
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
+  # Settings → Privacy → Activity watch (activity_watch.rs): a new process's
+  # command line (NtQueryInformationProcess, ProcessCommandLineInformation).
+  "Wdk_System_Threading",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
   # Fullscreen detection (presence.rs): SHQueryUserNotificationState.

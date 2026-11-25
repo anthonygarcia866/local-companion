@@ -92,6 +92,40 @@ export function captureAllowBox(hiding: () => boolean, tickMs = 1000): { el: HTM
   return { el, redraw };
 }
 
+/**
+ * Settings → Privacy → Activity watch (owner 2026-11-24; Rust:
+ * activity_watch.rs): a switch that turns a local-only log on for 7 days,
+ * then off by itself. Its state is Rust's own file, so this asks Rust for it
+ * and never saves it in settings.json.
+ */
+export function activityWatchBox(): HTMLElement {
+  const el = h("div", { "data-role": "activity-watch" });
+  const label = t("Activity watch (7 days)");
+  let until = 0;
+  function draw() {
+    clear(el);
+    const on = until > Date.now() / 1000;
+    const sw = h("button", { class: on ? "switch on" : "switch", type: "button", "aria-pressed": String(on), "data-role": "activity-watch-switch", "aria-label": label }) as HTMLButtonElement;
+    sw.addEventListener("click", () => {
+      void Bridge.activityWatchSet(!on)
+        .then((u) => { until = u ?? 0; draw(); })
+        .catch(() => draw());
+    });
+    el.append(
+      h("div", { class: "row" }, h("label", { text: label }), sw),
+      h("div", { class: "hint", text: t("On this PC only, logs each new terminal, PowerShell, Word or Outlook process (what started it and its command line, passwords and keys masked) and each window that comes to the front (its app and title). Nothing you type. Turns itself off after 7 days.") }),
+    );
+    if (on) {
+      const show = h("button", { type: "button", "data-role": "activity-watch-show", text: t("Show the log") });
+      show.addEventListener("click", () => void Bridge.activityWatchReveal());
+      el.append(h("div", { class: "row" }, h("span", { class: "hint", "data-role": "activity-watch-until", role: "status", text: t("On until {time}.", { time: new Date(until * 1000).toLocaleString() }) }), show));
+    }
+  }
+  draw();
+  void Bridge.activityWatchStatus().then((u) => { until = u ?? 0; draw(); });
+  return el;
+}
+
 export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLElement {
   const body = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
 
@@ -197,6 +231,7 @@ export function privacySection(host: PrivacyHost, builtIn: PauseBuiltins): HTMLE
     h("div", { class: "row" }, h("label", { text: hideLabel }), hide),
     h("div", { class: "hint", text: t("Screen shares, recordings and screenshots show what's behind Glim, not its cards.") }),
     allowBox.el,
+    activityWatchBox(),
     h("div", { class: "hint", text: t("Glim keeps nothing you write: only these settings, the API spend numbers, and your API key in Windows Credential Manager.") }),
     h("div", { class: "hint", text: t("Network: this computer only, plus api.anthropic.com when you ask for a rewrite.") }),
   );
