@@ -53,7 +53,7 @@ test("Rust: the commands are registered, the thread starts, and it's in CLAUDE.m
     assert.ok(lib.includes(`            ${c},\n`), `${c} registered`);
   }
   assert.ok(lib.includes("activity_watch::start();"));
-  assert.match(read("../CLAUDE.md"), /Activity watch/);
-  assert.match(read("../PRIVACY.md"), /Activity watch/);
+  assert.match(read("../CLAUDE.md"), /activity watch/i);
+  assert.match(read("../PRIVACY.md"), /activity watch/i);
   assert.ok(!read("src/core/state.ts").includes("activityWatch"), "not a settings.json field");
 });
