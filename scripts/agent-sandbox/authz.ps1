@@ -240,8 +240,10 @@ public static class GlimFs {
     // in the object's DACL, written through a handle opened with backup
     // semantics while SeRestorePrivilege is on: an elevated admin can then set
     // the DACL of a folder SYSTEM or TrustedInstaller owns without taking
-    // ownership (owner unchanged; only this entry added). Unlike icacls it
-    // doesn't flow down: callers apply it to each item inside a tree.
+    // ownership (owner unchanged; only this entry added). Windows passes an
+    // inheritable entry on to children that inherit (tested 2026-11-26: the
+    // round trip restores every ACL exactly); a child with inheritance off or
+    // that refuses is why callers also give each item inside its own entry.
     // 0 on success, else a Windows error code.
     public static int AddDeny(string path, string sid, uint mask, bool inherit) {
         return Rewrite(path, sid, mask, inherit, true);

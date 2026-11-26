@@ -155,11 +155,13 @@ Step '3. Deny Remote Desktop logon and network logon'
 $agentUser = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
 $agentSid = if ($agentUser) { $agentUser.SID.Value } else { $null }
 if (-not $agentSid) { Write-Host '  (after step 1 creates the user)' }
+elseif (-not $isAdmin) { Write-Host '  (not elevated: secedit can only read the rights elevated; skipped in this dry run)' -ForegroundColor Yellow }
 else {
     $tmp = Join-Path $env:TEMP ('glim-secedit-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         secedit /export /cfg "$tmp\cur.inf" /areas USER_RIGHTS /quiet | Out-Null
+        if (-not (Test-Path -LiteralPath "$tmp\cur.inf")) { throw "secedit /export wrote nothing (exit $LASTEXITCODE)" }
         $lines = Get-Content "$tmp\cur.inf"
         $need = @()
         foreach ($right in 'SeDenyRemoteInteractiveLogonRight', 'SeDenyNetworkLogonRight') {
@@ -238,7 +240,8 @@ foreach ($t in $targets) {
         if (-not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
             # A folder SYSTEM/TrustedInstaller owns, where even Administrators
             # may only read: write the deny through the restore privilege
-            # (owner unchanged), on the folder and on every item inside it.
+            # (owner unchanged), on the folder (Windows passes it down to what
+            # inherits) and on every item inside it (what doesn't inherit).
             Write-Host "    icacls was refused; adding the deny through the restore privilege (owner unchanged)"
             $rc = [GlimFs]::AddDeny($t.Path, $sidNow, [uint32]$need, $isTree)
             if ($rc -eq 0 -and $isTree) {
@@ -261,7 +264,9 @@ foreach ($t in $targets) {
 if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
 # Verified by result, not by icacls's messages: every target, trees walked in
 # full, with glim-agent's real access computed on this side (AuthZ).
-if (-not $DryRun -and ($agentSid = (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue).SID.Value)) {
+$uNow = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue   # StrictMode: never .SID on a missing user
+if ($uNow) { $agentSid = $uNow.SID.Value }
+if (-not $DryRun -and $agentSid) {
     Write-Host '  verifying: walking every locked tree (about a minute)...'
     $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
     if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) couldn't be read or listed (NOT verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
