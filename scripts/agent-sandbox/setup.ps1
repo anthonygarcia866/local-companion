@@ -157,11 +157,22 @@ if (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue) {
     Step "1b. Stop $AgentName while its sandbox is built (enabled again at the end, only if everything passes)"
     Act "disable $AgentName and stop every process it runs" {
         Disable-LocalUser -Name $AgentName
+        # Two independent ways, so a process whose owner can't be read isn't
+        # silently missed (security review 2026-11-26): its owner (GetOwner),
+        # and membership in any of glim-agent's logon sessions.
         $its = {
-            @(Get-CimInstance Win32_Process | Where-Object {
-                $o = try { $_ | Invoke-CimMethod -MethodName GetOwner } catch { $null }
-                $o -and $o.User -eq $AgentName -and $o.Domain -eq $env:COMPUTERNAME
-            })
+            $ids = New-Object System.Collections.Generic.HashSet[uint32]
+            foreach ($p in @(Get-CimInstance Win32_Process)) {
+                $o = try { $p | Invoke-CimMethod -MethodName GetOwner } catch { $null }
+                if ($o -and $o.User -eq $AgentName -and $o.Domain -eq $env:COMPUTERNAME) { [void]$ids.Add($p.ProcessId) }
+            }
+            $acct = Get-CimInstance Win32_UserAccount -Filter "LocalAccount=True AND Name='$AgentName'"
+            if ($acct) {
+                foreach ($ls in @(Get-CimAssociatedInstance -InputObject $acct -ResultClassName Win32_LogonSession -ErrorAction SilentlyContinue)) {
+                    foreach ($p in @(Get-CimAssociatedInstance -InputObject $ls -ResultClassName Win32_Process -ErrorAction SilentlyContinue)) { [void]$ids.Add($p.ProcessId) }
+                }
+            }
+            @(Get-CimInstance Win32_Process | Where-Object { $ids.Contains([uint32]$_.ProcessId) })
         }
         foreach ($p in (& $its)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Milliseconds 500
