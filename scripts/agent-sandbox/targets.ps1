@@ -31,7 +31,12 @@ $GlimBroad = 'S-1-1-0', 'S-1-5-32-545', 'S-1-5-4', 'S-1-2-1', 'S-1-2-0', 'S-1-5-
 # attributes, delete, change permissions, take ownership, plus GENERIC_WRITE /
 # GENERIC_ALL as stored in inheritable ACEs.
 $GlimWriteBits = [int64](2 -bor 4 -bor 0x10 -bor 0x40 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000)
-$GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers', 'C:\Users\Public', 'C:\Windows\Tasks'
+$GlimNamed = 'C:\tests', 'C:\glimtest', 'C:\c', 'C:\Drivers', 'C:\Users\Public', 'C:\Windows\Tasks',
+    # Inside C:\Windows, where all users may write (review 3 M-4, 2026-11-26):
+    'C:\Windows\Temp', 'C:\Windows\tracing', 'C:\Windows\Registration\CRMLog',
+    'C:\Windows\System32\Tasks', 'C:\Windows\SysWOW64\Tasks', 'C:\Windows\System32\com\dmp',
+    'C:\Windows\System32\spool\PRINTERS', 'C:\Windows\System32\spool\drivers\color',
+    'C:\Windows\System32\Microsoft\Crypto\RSA\MachineKeys'
 # + WDAC (change permissions) and WO (take ownership): without them glim-agent
 # could rewrite a Full Control folder's ACL and delete its own deny. Neither
 # touches reading.
@@ -250,7 +255,7 @@ function Get-GlimLockTargets([string]$OwnerProfile, [switch]$Quick) {
     foreach ($n in $GlimNamed) {
         if (Test-Path -LiteralPath $n -PathType Container) {
             $w = Get-GlimBroadWrite $n
-            Add-Target $n 'tree' ('named by you' + $(if ($w) { "; writable now by $w" } else { '' }))
+            Add-Target $n 'tree' ('on the named list' + $(if ($w) { "; writable now by $w" } else { '' }))
         }
     }
     foreach ($d in (Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -in 2, 3 })) {

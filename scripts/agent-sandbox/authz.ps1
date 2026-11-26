@@ -394,12 +394,36 @@ public static class GlimFs {
     // Is `path` a real folder (not a link) whose owner is one of `owners` and
     // whose DACL is protected and holds exactly `sddl`'s entries (type,
     // flags, mask, SID; order ignored)? "" when it is, else what differs.
-    public static string SameDir(string path, string sddl, string[] owners) {
+    public static string SameDir(string path, string sddl, string[] owners) { return SameItem(path, sddl, owners, true); }
+    // The same for a real file (setup's sentinel in the work folder).
+    public static string SameFile(string path, string sddl, string[] owners) { return SameItem(path, sddl, owners, false); }
+
+    // A real folder (attributes read literally: \\?\, no MAX_PATH limit, no
+    // trailing dot or space trimmed; review 3 L-7), never a link?
+    public static bool IsRealDir(string path) {
+        uint attr = GetFileAttributesW(Raw(path));
+        return attr != 0xFFFFFFFF && (attr & 0x10) != 0 && (attr & 0x400) == 0;
+    }
+
+    // Can `path` be opened with no sharing at all (the link itself)? Only
+    // when no other handle to it is open anywhere (review 3 H-1: one held
+    // from before setup could still turn the folder into a junction).
+    public static bool NoOtherHandles(string path) {
+        // Data access (read, write, delete) asked for: Windows' sharing check
+        // ignores READ_CONTROL alone, so only this conflicts with an open handle
+        // (tested 2026-11-26).
+        IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x1 | 0x2 | 0x10000, 0, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return false;
+        CloseHandle(h);
+        return true;
+    }
+
+    static string SameItem(string path, string sddl, string[] owners, bool dir) {
         int e; byte[] sd = ReadSd(path, out e);
         if (sd == null) return "can't read it (error " + e + ")";
         if (IsLink(path)) return "it is a link";
         uint attr = GetFileAttributesW(Raw(path));
-        if (attr == 0xFFFFFFFF || (attr & 0x10) == 0) return "not a folder";
+        if (attr == 0xFFFFFFFF || ((attr & 0x10) != 0) != dir) return dir ? "not a folder" : "not a file";
         var r = new RawSecurityDescriptor(sd, 0);
         if (r.Owner == null || Array.IndexOf(owners, r.Owner.Value) < 0) return "owner is " + (r.Owner == null ? "nobody" : r.Owner.Value);
         if ((r.ControlFlags & ControlFlags.DiscretionaryAclProtected) == 0) return "it inherits from its parent";

@@ -80,7 +80,12 @@ if ($Sid) {
     # Your profile only (review M-b): setup's step 5 put this deny with icacls,
     # so icacls takes it and its copies off; only you can write in there. The
     # named folders (Public, Windows\Tasks) are lock targets, cleared below.
-    foreach ($p in @($env:USERPROFILE)) {
+    # Only while nothing in it lets all users write (review 3 L-5: icacls
+    # re-stamps it all); else the deny stays: once the account is deleted it
+    # names nobody.
+    $bwp = @(Get-GlimExplicitWritable $env:USERPROFILE)
+    if ($bwp.Count) { Write-Warning "  $($bwp.Count) item(s) in your profile let all users write (e.g. $($bwp[0].Path)): its deny for the deleted account is left in place (harmless)" }
+    foreach ($p in @($(if (-not $bwp.Count) { $env:USERPROFILE }))) {
         if (Test-ExplicitDeny $p) {
             Act "remove its deny entry on $p" {
                 $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'

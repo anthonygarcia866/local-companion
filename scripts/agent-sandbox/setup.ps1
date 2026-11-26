@@ -145,6 +145,32 @@ if ($u0) {
     }
 }
 
+# ── 1b. glim-agent stopped while its sandbox is (re)built ───────────────────
+# Review 3 (H-2): Windows checks access when a handle is OPENED, so a handle a
+# glim-agent process opened before this run (WRITE_DAC on an all-users Full
+# Control folder, say) would still work after every lock below. So: account
+# disabled, every process it runs stopped and none left, BEFORE anything is
+# built or locked; re-enabled at the very end, only if everything passed. If
+# setup stops part way, glim-agent stays disabled (safe; run setup again).
+$agentStopped = $false
+if (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue) {
+    Step "1b. Stop $AgentName while its sandbox is built (enabled again at the end, only if everything passes)"
+    Act "disable $AgentName and stop every process it runs" {
+        Disable-LocalUser -Name $AgentName
+        $its = {
+            @(Get-CimInstance Win32_Process | Where-Object {
+                $o = try { $_ | Invoke-CimMethod -MethodName GetOwner } catch { $null }
+                $o -and $o.User -eq $AgentName -and $o.Domain -eq $env:COMPUTERNAME
+            })
+        }
+        foreach ($p in (& $its)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Milliseconds 500
+        $left = @(& $its)
+        if ($left.Count) { throw "$($left.Count) $AgentName process(es) wouldn't stop ($((($left | ForEach-Object Name) -join ', '))). Restart Windows, then run setup.ps1 again." }
+        $script:agentStopped = $true
+    }
+}
+
 # ── 2. Hidden from the sign-in screen ────────────────────────────────────────
 Step '2. Hidden from the sign-in screen'
 $ul = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
@@ -199,41 +225,70 @@ Step "4. $Work (SYSTEM, Administrators, you: full; ${AgentName}: modify inside i
 # glim-agent gets only what it needs to reach and fill $Work: list/traverse
 # $Root; list/traverse + add files and folders on $Work, but no delete,
 # rename or permission change of either; Modify on what's INSIDE $Work
-# (inherit-only). Re-runs only read them back; anything else stops setup.
+# (inherit-only). $Work also holds $Keep, a file glim-agent can read but not
+# delete, so $Work is never empty and can't be turned into a junction (review
+# 3 M-3: an empty folder can, with just add-file rights). $Root holds nothing
+# but $Work (review 3 L-6). Re-runs only read all three back; anything else
+# stops setup.
+$Keep = Join-Path $Work '.glim-keep'
 if (-not $agentSid) { Write-Host '  (after step 1 creates the user)' }
 else {
     $me = $id.User.Value
     $rootSddl = "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$me)(A;;0x1200a9;;;$agentSid)"
     $workSddl = "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$me)(A;;0x1200af;;;$agentSid)(A;OICIIO;0x1301bf;;;$agentSid)"
+    $keepSddl = "D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;$me)(A;;0x120089;;;$agentSid)"
     $owners = [string[]]@('S-1-5-18', 'S-1-5-32-544', $me)
+    function New-Keep {
+        # Created by this elevated run (owner: Administrators), then given its
+        # own protected DACL through the non-propagating writer.
+        $fs = [IO.File]::Open($Keep, 'CreateNew', 'Write', 'None'); $fs.Close()
+        $rc = [GlimFs]::SetDaclSddl($Keep, $keepSddl); if ($rc -ne 0) { throw "couldn't set $Keep's permissions (error $rc)" }
+    }
     $rootWhy = if (Test-Path -LiteralPath $Root) { [GlimFs]::SameDir($Root, $rootSddl, $owners) } else { 'missing' }
     $workWhy = if (Test-Path -LiteralPath $Work) { [GlimFs]::SameDir($Work, $workSddl, $owners) } else { 'missing' }
-    if ($rootWhy -eq '' -and $workWhy -eq '') { Write-Host '  already set' }
+    if ($rootWhy -eq '' -and $workWhy -eq '') {
+        if (Test-Path -LiteralPath $Keep) { Write-Host '  already set' }
+        else { Act "add $Keep (keeps $Work from ever being empty)" { New-Keep } }   # setups before review 3
+    }
     elseif ($rootWhy -eq 'missing') {
         Act "create $Root and $Work with their permissions" {
             $rc = [GlimFs]::CreateDirSddl($Root, $rootSddl); if ($rc -ne 0) { throw "couldn't create $Root (error $rc)" }
             $rc = [GlimFs]::CreateDirSddl($Work, $workSddl); if ($rc -ne 0) { throw "couldn't create $Work (error $rc)" }
+            New-Keep
         }
     } else {
         # An older setup's layout (glim-agent had Modify on $Root itself) is
-        # rebuilt only while there is nothing in it but an empty, real $Work:
-        # then no item exists for a permission change to reach.
+        # rebuilt only while there is nothing in it but an empty, real $Work
+        # (then no item exists for a permission change to reach), and only
+        # after step 1b stopped glim-agent: no process of its is left, and no
+        # handle to $Root is open anywhere (review 3 H-1: a handle held from
+        # before could turn the emptied $Root into a junction mid-rebuild).
         $kids = @(Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop)
-        $emptyWork = $kids.Count -eq 0 -or ($kids.Count -eq 1 -and $kids[0].Name -eq 'work' -and -not [GlimFs]::IsLink($Work) -and
-            (Test-Path -LiteralPath $Work -PathType Container) -and @(Get-ChildItem -LiteralPath $Work -Force -ErrorAction Stop).Count -eq 0)
-        $rootReal = -not [GlimFs]::IsLink($Root) -and ([GlimFs]::SameDir($Root, $rootSddl, $owners) -notmatch '^(owner is|it is a link|not a folder|can''t read)')
+        $emptyWork = $kids.Count -eq 0 -or ($kids.Count -eq 1 -and $kids[0].Name -eq 'work' -and [GlimFs]::IsRealDir($Work) -and
+            @(Get-ChildItem -LiteralPath $Work -Force -ErrorAction Stop).Count -eq 0)
+        $rootReal = [GlimFs]::IsRealDir($Root) -and ([GlimFs]::SameDir($Root, $rootSddl, $owners) -notmatch '^(owner is|it is a link|not a folder|can''t read)')
         if (-not ($emptyWork -and $rootReal)) {
             throw "$Root isn't as setup makes it ($Root`: $(if ($rootWhy) { $rootWhy } else { 'ok' }); $Work`: $(if ($workWhy) { $workWhy } else { 'ok' })) and isn't empty. Run remove.ps1 (it also deletes $AgentName), then setup.ps1 again; tell Claude if this keeps happening."
         }
         Act "rebuild $Root and $Work (empty) with their permissions" {
+            if (-not $agentStopped) { throw "$AgentName wasn't stopped first (step 1b); not rebuilding $Root" }
+            if (-not [GlimFs]::NoOtherHandles($Root) -or ((Test-Path -LiteralPath $Work) -and -not [GlimFs]::NoOtherHandles($Work))) {
+                throw "something still has $Root or $Work open; restart Windows, then run setup.ps1 again"
+            }
             if (Test-Path -LiteralPath $Work) { [IO.Directory]::Delete($Work, $false) }   # an empty folder only
             $rc = [GlimFs]::SetDaclSddl($Root, $rootSddl); if ($rc -ne 0) { throw "couldn't set $Root's permissions (error $rc)" }
+            if (-not [GlimFs]::IsRealDir($Root)) { throw "$Root changed during the rebuild" }
             $rc = [GlimFs]::CreateDirSddl($Work, $workSddl); if ($rc -ne 0) { throw "couldn't create $Work (error $rc)" }
+            New-Keep
         }
     }
     if (-not $DryRun) {
         $rootWhy = [GlimFs]::SameDir($Root, $rootSddl, $owners); $workWhy = [GlimFs]::SameDir($Work, $workSddl, $owners)
-        if ($rootWhy -or $workWhy) { throw "after step 4: $Root $rootWhy; $Work $workWhy" }
+        $keepWhy = [GlimFs]::SameFile($Keep, $keepSddl, $owners)
+        $others = @(Get-ChildItem -LiteralPath $Root -Force | Where-Object { $_.Name -ne 'work' })
+        if ($rootWhy -or $workWhy -or $keepWhy -or $others.Count) {
+            throw "after step 4: $Root $rootWhy; $Work $workWhy; $Keep $keepWhy; $(if ($others.Count) { "$Root also holds: " + (($others | ForEach-Object Name) -join ', ') })"
+        }
     }
 }
 
@@ -245,6 +300,12 @@ if ($agentSid) {
 }
 if ($hasDeny) { Write-Host '  already denied' }
 else {
+    # icacls re-stamps the whole profile (review 3 L-5): only while nothing in
+    # it lets all users write (a hard link planted there would be re-stamped).
+    if (-not $DryRun) {
+        $bw = @(Get-GlimExplicitWritable $OwnerProfile)
+        if ($bw.Count) { throw "$($bw.Count) item(s) in your profile let all users write (e.g. $($bw[0].Path)); tell Claude before setup puts its deny on your profile." }
+    }
     Act "icacls $OwnerProfile /deny ${AgentName}:(OI)(CI)F" {
         # icacls puts the deny on the folder and propagates it to every child
         # that inherits (it can take a while on a big profile). A file or
@@ -331,7 +392,7 @@ elseif ($agentSid) {
             }
             $need = if ($own -and $own.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
             # The item's own attributes, a link never followed (review LOW).
-            $isDir = ([int][IO.File]::GetAttributes($p) -band 0x10) -ne 0 -and -not [GlimFs]::IsLink($p)
+            $isDir = [GlimFs]::IsRealDir($p)   # read literally, never a link (review 3 L-7)
             $rc = [GlimFs]::AddDeny($p, $agentSid, [uint32]$need, $isDir)
             if ($rc -ne 0) { Add-LockFailed "$p ($(Get-LockWhy $rc))" }
         }
@@ -342,7 +403,7 @@ elseif ($agentSid) {
     if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) couldn't be read or listed (NOT verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
     if ($v.Writable.Count) {
         $v.Writable | Select-Object -First 50 | ForEach-Object { Write-Host "  STILL WRITABLE: $_" -ForegroundColor Red }
-        throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list; setup is safe to run again)."
+        throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list; setup is safe to run again). An item $AgentName OWNS can't be locked by a deny (its owner may always change its permissions): those need their owner changed by hand."
     }
     if ($v.Unreadable.Count) { Write-Host "  checked: nothing readable in the locked folders is writable by it, but $($v.Unreadable.Count) item(s) were NOT verified (see above; check.ps1 will end INCOMPLETE until they are)" -ForegroundColor Yellow }
     else { Write-Host '  verified: nothing in the locked folders is writable by it' }
@@ -420,5 +481,7 @@ else {
 }
 
 Write-Host ''
+# Everything passed: glim-agent may run again (step 1b stopped it).
+if (-not $DryRun -and $agentStopped) { Act "enable $AgentName again" { Enable-LocalUser -Name $AgentName } }
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }
 else { Write-Host 'Done. Next: scripts\agent-sandbox\check.ps1, then scripts\agent-sandbox\net-check.ps1 (no UAC needed for either).' -ForegroundColor Green }
