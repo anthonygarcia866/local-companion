@@ -875,6 +875,9 @@ fn on_lease_answer(rid: &str, answer: &str, now: i64, s: &super::RemoteSettings)
             }
             super::with(|g| g.note_lease(&p.client, "lease-granted", &format!("{} h lease, until {}", p.hours, super::runs::utc(until)), now));
             crate::log::line("remote: lease granted");
+            // The sandbox proven again now (owner 2026-11-26): a failure is
+            // `sandbox-check-failed` in Remote activity, with a phone ping.
+            super::sandbox::after_lease(p.client.clone());
         }
         Verdict::Stop => crate::log::line("remote: lease declined"),
         Verdict::Refused(code) => crate::log::line(format!("remote: lease refused {code}")),

@@ -2682,6 +2682,16 @@ pub fn run() {
                         });
                     }),
                 );
+                // The agent sandbox's quick check (owner 2026-11-26): at each
+                // lease and daily; a failure pings the phone (fixed text).
+                let rs = handle.clone();
+                remote::sandbox::set_ping(Box::new(move || {
+                    let Some(settings) = rs.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()) else { return };
+                    tauri::async_runtime::spawn(async move {
+                        let _ = phone::notify(&settings, phone::Kind::SandboxCheck, "integration_claude", "").await;
+                    });
+                }));
+                remote::sandbox::watch_daily();
                 keepalive::start(
                     move || ka.try_state::<Shared>().map(|s| s.settings.lock().unwrap().clone()).unwrap_or_default(),
                     move |settings, project| {

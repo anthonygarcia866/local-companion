@@ -20,7 +20,12 @@
 #      top-level folder on a fixed/removable drive and every PATH folder
 #      outside your profile that all users can write, and each drive root
 #      (that folder only). The dry run prints the exact list. Your access
-#      and other users' don't change.
+#      and other users' don't change. The verified list is saved in your
+#      HKCU for quick-check.ps1 (Glim re-checks it before each sandbox use).
+#   7. Checks glim-agent holds no powerful user right.
+#   8. Windows Firewall rules for glim-agent's SID: it may connect only to
+#      the allowlisting proxy (proxy.ps1) on 127.0.0.1, nothing may connect
+#      in to it (plan §2). net-check.ps1 proves it by trying.
 #
 # Safe to run again: an existing glim-agent keeps its password (use
 # -RotatePassword to make a new one), and each step checks before it acts.
@@ -29,7 +34,8 @@
 [CmdletBinding()]
 param(
     [switch]$DryRun,
-    [switch]$RotatePassword
+    [switch]$RotatePassword,
+    [int]$ProxyPort = 47643
 )
 
 $ErrorActionPreference = 'Stop'
@@ -344,6 +350,17 @@ elseif ($agentSid) {
 if ($lockFailed.Count) {
     throw "$($lockFailed.Count) item(s) couldn't be locked (listed above). Setup isn't finished; tell Claude the list (setup is safe to run again)."
 }
+# The verified list, in YOUR registry (only you can write it), for
+# quick-check.ps1: it re-checks these (plus a fresh look at the cheap places)
+# before every sandbox session, at each lease and daily (owner 2026-11-26).
+if ($agentSid -and $targets.Count) {
+    Act 'save the lock list for quick-check.ps1 in HKCU:\Software\Glim\AgentSandbox' {
+        $k = 'HKCU:\Software\Glim\AgentSandbox'
+        if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
+        $lines = [string[]]@($targets | ForEach-Object { "$($_.Scope)|$($_.Deny)|$($_.Path)" })
+        New-ItemProperty -Path $k -Name Targets -Value $lines -PropertyType MultiString -Force | Out-Null
+    }
+}
 
 # ── 7. No powerful user rights (read back, elevated) ─────────────────────────
 Step "7. $AgentName holds no user right beyond the harmless allowlist"
@@ -354,6 +371,54 @@ if ($agentSid -and $isAdmin) {
     else { Write-Host '  none' }
 } else { Write-Host '  (checked after step 1 creates the user, in an elevated run)' }
 
+# ── 8. Network: the proxy only (plan §2) ────────────────────────────────────
+# Windows Firewall rules that match glim-agent's SID (-LocalUser), whatever
+# program it runs: it may connect to 127.0.0.1 on the proxy's port and
+# nowhere else, and nothing may connect in to it. The proxy (proxy.ps1, run
+# as you) checks the host name. net-check.ps1 proves all of it by trying.
+Step "8. Firewall: $AgentName may reach only the proxy on 127.0.0.1:$ProxyPort"
+$fwGroup = 'Glim agent sandbox'
+if (-not $agentSid) { Write-Host '  (after step 1 creates the user)' }
+else {
+    $lu = "D:(A;;CC;;;$agentSid)"
+    $below = $ProxyPort - 1; $above = $ProxyPort + 1
+    $fwWant = @(
+        @{ Name = 'GlimAgent-Out-NotThisPC'; Display = 'Glim agent: block outbound off this PC'; Dir = 'Outbound'; Proto = 'Any'
+           Remote = @('0.0.0.0-126.255.255.255', '128.0.0.0-255.255.255.255', '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'); Port = $null },
+        @{ Name = 'GlimAgent-Out-LoopTcp'; Display = 'Glim agent: block TCP on this PC except the proxy'; Dir = 'Outbound'; Proto = 'TCP'
+           Remote = @('127.0.0.0-127.255.255.255', '::1'); Port = @("1-$below", "$above-65535") },
+        @{ Name = 'GlimAgent-Out-LoopUdp'; Display = 'Glim agent: block UDP on this PC'; Dir = 'Outbound'; Proto = 'UDP'
+           Remote = @('127.0.0.0-127.255.255.255', '::1'); Port = $null },
+        @{ Name = 'GlimAgent-In'; Display = 'Glim agent: block inbound'; Dir = 'Inbound'; Proto = 'Any'; Remote = $null; Port = $null }
+    )
+    foreach ($w in $fwWant) {
+        $have = Get-NetFirewallRule -Name $w.Name -ErrorAction SilentlyContinue
+        $same = $false
+        if ($have) {
+            $af = $have | Get-NetFirewallAddressFilter
+            $pf = $have | Get-NetFirewallPortFilter
+            $sf = $have | Get-NetFirewallSecurityFilter
+            $same = $have.Enabled -eq 'True' -and $have.Action -eq 'Block' -and "$($have.Direction)" -eq $w.Dir -and
+                "$($sf.LocalUser)" -eq $lu -and "$($pf.Protocol)" -eq $w.Proto -and
+                $(if ($w.Remote) { (@($af.RemoteAddress) -join ',') -eq ($w.Remote -join ',') } else { "$($af.RemoteAddress)" -eq 'Any' }) -and
+                $(if ($w.Port) { (@($pf.RemotePort) -join ',') -eq ($w.Port -join ',') } else { "$($pf.RemotePort)" -eq 'Any' })
+        }
+        if ($same) { Write-Host "  already set: $($w.Display)"; continue }
+        Act "firewall rule: $($w.Display)" {
+            if ($have) { Remove-NetFirewallRule -Name $w.Name }
+            $p = @{ Name = $w.Name; DisplayName = $w.Display; Group = $fwGroup; Direction = $w.Dir; Action = 'Block'; Protocol = $w.Proto; LocalUser = $lu; Profile = 'Any'; Enabled = 'True' }
+            if ($w.Remote) { $p.RemoteAddress = $w.Remote }
+            if ($w.Port) { $p.RemotePort = $w.Port }
+            New-NetFirewallRule @p | Out-Null
+        }
+    }
+    # Nothing else in the group (an older or planted rule would show up here).
+    $extra = @(Get-NetFirewallRule -Group $fwGroup -ErrorAction SilentlyContinue | Where-Object { $fwWant.Name -notcontains $_.Name })
+    foreach ($x in $extra) { Act "remove unexpected rule $($x.Name) from '$fwGroup'" { Remove-NetFirewallRule -Name $x.Name } }
+    $off = @(Get-NetFirewallProfile | Where-Object { -not $_.Enabled })
+    if ($off.Count) { Write-Warning ("  Windows Firewall is OFF for: " + (($off | ForEach-Object Name) -join ', ') + ". These rules do nothing there; net-check.ps1 will fail.") }
+}
+
 Write-Host ''
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }
-else { Write-Host 'Done. Next: scripts\agent-sandbox\check.ps1 (no UAC needed).' -ForegroundColor Green }
+else { Write-Host 'Done. Next: scripts\agent-sandbox\check.ps1, then scripts\agent-sandbox\net-check.ps1 (no UAC needed for either).' -ForegroundColor Green }

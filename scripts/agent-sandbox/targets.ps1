@@ -233,7 +233,7 @@ function Get-GlimStillWritable([string]$Sid, $Targets) {
     @{ Writable = @($writable | Sort-Object -Unique); Unreadable = @($unreadable | Sort-Object -Unique) }
 }
 
-function Get-GlimLockTargets([string]$OwnerProfile) {
+function Get-GlimLockTargets([string]$OwnerProfile, [switch]$Quick) {
     $out = [ordered]@{}
     function Add-Target([string]$p, [string]$scope, [string]$why, [string]$deny = 'write') {
         $k = $p.ToLowerInvariant()
@@ -293,6 +293,9 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
         $w = Get-GlimBroadWrite $p
         if ($w) { Add-Target $p 'file' "program in a PATH folder; writable by $w" }
     }
+    # -Quick (quick-check.ps1): the cheap places only, where a recreated
+    # folder turns up; the two deep walks below are setup's and check.ps1's.
+    if ($Quick) { return $out.Values }
     # Inside every tree: files and folders whose own (explicit) entry lets all
     # users write: the tree's inherited deny doesn't beat it, so each gets its own.
     foreach ($t in @($out.Values | Where-Object { $_.Scope -eq 'tree' })) {
