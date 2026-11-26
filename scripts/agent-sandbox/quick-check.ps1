@@ -99,6 +99,17 @@ try {
         $k = $t.Path.ToLowerInvariant()
         if (-not $targets.Contains($k)) { $targets[$k] = [pscustomobject]@{ Path = $t.Path; Scope = $t.Scope; Deny = $t.Deny } }
     }
+    # Items setup.ps1 verified elevated and found owned by SYSTEM /
+    # TrustedInstaller / Administrators: the only ones that may stay "not
+    # verified here" when Windows won't show you their permissions.
+    $sysOwned = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    if ($saved -and ($saved.PSObject.Properties.Name -contains 'SystemOwned')) { foreach ($x in @($saved.SystemOwned)) { if ($x) { [void]$sysOwned.Add($x) } } }
+    function Skip-Unreadable([string]$p, [string]$why) {
+        if ($why -notlike "can't read its permissions (error 5)") { return $false }
+        if ($sysOwned.Contains($p)) { $unverified.Add($p); return $true }
+        Fail "$p`: Windows won't show you its permissions and setup.ps1 didn't verify it as a system folder (run setup.ps1 elevated)"
+        return $true
+    }
     foreach ($l in $GlimLinkFindings) { Fail "a link all users could change: $l (fix by hand; tell Claude)" }
 
     $checker = New-Object GlimAuthz+Checker $sid
@@ -125,8 +136,8 @@ try {
             $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
             $why = Test-Item $t.Path $t
             # A system folder that won't show you its permissions unelevated
-            # (C:\Windows\Temp ...): setup.ps1 / check.ps1 verify it elevated.
-            if ($why -like "can't read its permissions (error 5)") { $unverified.Add($t.Path); continue }
+            # (C:\Windows\Temp ...): only one setup verified (security review).
+            if (Skip-Unreadable $t.Path $why) { continue }
             if (-not $why -and -not [GlimFs]::HasDeny($t.Path, $sid, [uint32]$need, $tree)) { $why = 'its deny is gone' }
             if ($why) {
                 $fix = if ($Repair) { Repair-Item $t.Path $t $tree } else { 'not repaired (no -Repair)' }
@@ -151,10 +162,8 @@ try {
                 # recreating a subfolder) is the common way back to writable.
                 foreach ($c in @(Get-ChildItem -LiteralPath $t.Path -Force -ErrorAction SilentlyContinue)) {
                     $cw = Test-Item $c.FullName $t
-                    # A system folder that won't even show you its permissions
-                    # unelevated (C:\ProgramData\Packages ...): setup.ps1 and
-                    # check.ps1 read it elevated; listed here, not failed.
-                    if ($cw -like "can't read its permissions (error 5)") { $unverified.Add($c.FullName); continue }
+                    # The same for an item directly inside (C:\ProgramData\Packages ...).
+                    if (Skip-Unreadable $c.FullName $cw) { continue }
                     if (-not $cw) { continue }
                     $isDir = $c.PSIsContainer -and -not [GlimFs]::IsLink($c.FullName)
                     $fix = if ($Repair) { Repair-Item $c.FullName $t $isDir } else { 'not repaired (no -Repair)' }

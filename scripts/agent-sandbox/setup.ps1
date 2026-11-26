@@ -420,6 +420,23 @@ if ($agentSid -and $targets.Count) {
         if (-not (Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
         $lines = [string[]]@($targets | ForEach-Object { "$($_.Scope)|$($_.Deny)|$($_.Path)" })
         New-ItemProperty -Path $k -Name Targets -Value $lines -PropertyType MultiString -Force | Out-Null
+        # The targets and the items directly inside the trees that THIS run
+        # verified elevated and that SYSTEM, TrustedInstaller or Administrators
+        # own: the only ones quick-check.ps1 (not elevated) may list as "not
+        # verified here" when Windows won't show it their permissions. Anything
+        # else it can't read fails (security review 2026-11-26: a folder
+        # glim-agent owned could otherwise deny you reading it and pass).
+        # glim-agent can't take ownership of these (its deny includes WO).
+        $sysOwners = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
+        $sysOwned = New-Object System.Collections.Generic.List[string]
+        $cands = @($targets | ForEach-Object { $_.Path }) + @($targets | Where-Object { $_.Scope -eq 'tree' } | ForEach-Object { @(Get-ChildItem -LiteralPath $_.Path -Force -ErrorAction SilentlyContinue | ForEach-Object FullName) })
+        foreach ($c in $cands) {
+            $e = 0; $sd = [GlimFs]::ReadSd($c, [ref]$e)
+            if ($null -eq $sd) { continue }
+            $o = (New-Object Security.AccessControl.RawSecurityDescriptor ($sd, 0)).Owner
+            if ($o -and $sysOwners -contains $o.Value -and -not [GlimFs]::IsLink($c)) { $sysOwned.Add($c) }
+        }
+        New-ItemProperty -Path $k -Name SystemOwned -Value ([string[]]$sysOwned) -PropertyType MultiString -Force | Out-Null
     }
 }
 
