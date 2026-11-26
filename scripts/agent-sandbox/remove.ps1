@@ -70,11 +70,17 @@ if (Test-Path 'C:\GlimAgent') {
 # ── 3. Lift the protections ─────────────────────────────────────────────────
 if ($Sid) {
     function Test-ExplicitDeny([string]$p) {
-        [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
+        foreach ($ace in (Get-Acl -LiteralPath $p).Access) {
+            if ($ace.AccessControlType -ne 'Deny' -or $ace.IsInherited) { continue }
+            $v = try { $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $ace.IdentityReference.Value }
+            if ($v -eq $Sid) { return $true }
+        }
+        $false
     }
-    # Your profile and the named folders: setup's step 5 put these with icacls,
-    # so icacls takes them off (and its copies below).
-    foreach ($p in (@($env:USERPROFILE) + @($GlimNamed | Where-Object { Test-Path -LiteralPath $_ }) | Sort-Object -Unique)) {
+    # Your profile only (review M-b): setup's step 5 put this deny with icacls,
+    # so icacls takes it and its copies off; only you can write in there. The
+    # named folders (Public, Windows\Tasks) are lock targets, cleared below.
+    foreach ($p in @($env:USERPROFILE)) {
         if (Test-ExplicitDeny $p) {
             Act "remove its deny entry on $p" {
                 $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'

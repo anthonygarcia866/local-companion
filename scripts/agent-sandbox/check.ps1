@@ -277,6 +277,15 @@ foreach ($v in 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_K
 # ── Its work folder ──────────────────────────────────────────────────────────
 $wm = Access 'C:\GlimAgent\work'
 Report ($null -ne $wm -and ($wm -band 0x6) -eq 0x6) 'can write C:\GlimAgent\work'
+# Exactly as setup.ps1 step 4 makes them: real folders (not links), owned by
+# SYSTEM, Administrators or you, protected, with exactly these entries, so
+# glim-agent can't delete, rename or swap either one (review 2026-11-26).
+$meSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$own4 = [string[]]@('S-1-5-18', 'S-1-5-32-544', $meSid)
+$w1 = [GlimFs]::SameDir('C:\GlimAgent', "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$meSid)(A;;0x1200a9;;;$sid)", $own4)
+Report ($w1 -eq '') ("C:\GlimAgent is as setup makes it" + $(if ($w1) { " ($w1)" } else { '' }))
+$w2 = [GlimFs]::SameDir('C:\GlimAgent\work', "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$meSid)(A;;0x1200af;;;$sid)(A;OICIIO;0x1301bf;;;$sid)", $own4)
+Report ($w2 -eq '') ("C:\GlimAgent\work is as setup makes it" + $(if ($w2) { " ($w2)" } else { '' }))
 
 # ── Information only: its logon works ───────────────────────────────────────
 $plain = Read-GlimCredential 'Glim/AgentUserPassword'

@@ -185,31 +185,51 @@ else {
 }
 
 # ── 4. The workspace ─────────────────────────────────────────────────────────
-Step "4. $Work (SYSTEM, Administrators, you: full; ${AgentName}: modify; nobody else)"
-# Only while it isn't set up yet: icacls passes the ACL down through
-# everything inside, and once glim-agent has worked there, a hard link it
-# planted would get the folder's ACL (review 2026-11-26, H1). Already set =
-# protected, and exactly these four allows, nothing else.
-$rootOk = $false
-if (Test-Path -LiteralPath $Work) {
-    $ra = Get-Acl -LiteralPath $Root
-    $want = @('S-1-5-18', 'S-1-5-32-544', $id.User.Value) + @($(if ($agentSid) { $agentSid }))
-    $got = @($ra.Access | ForEach-Object { try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $_.IdentityReference.Value } })
-    $rootOk = $ra.AreAccessRulesProtected -and $agentSid -and @($ra.Access | Where-Object { $_.AccessControlType -ne 'Allow' -or $_.IsInherited }).Count -eq 0 -and
-        @($got | Sort-Object -Unique).Count -eq 4 -and @($want | Where-Object { $got -notcontains $_ }).Count -eq 0 -and
-        @($ra.Access | Where-Object { $_.InheritanceFlags -ne 'ContainerInherit, ObjectInherit' -or $_.PropagationFlags -ne 'None' }).Count -eq 0 -and
-        @($ra.Access | Where-Object {
-            $s = try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }
-            $r = [int64]$_.FileSystemRights -band 0x1F01FF
-            if ($s -eq $agentSid) { $r -ne 0x1301BF } else { $r -ne 0x1F01FF }   # glim-agent: Modify exactly; the rest: Full
-        }).Count -eq 0
+Step "4. $Work (SYSTEM, Administrators, you: full; ${AgentName}: modify inside it, nothing more on it or $Root)"
+# Review 2026-11-26 (HIGH-A): icacls is never run on an existing $Root: it
+# re-stamps everything inside from the folder's ACL, so a hard link glim-agent
+# planted there would hand it Modify on the linked file. Both folders are
+# created in one step with their final permissions (CreateDirSddl). On them
+# glim-agent gets only what it needs to reach and fill $Work: list/traverse
+# $Root; list/traverse + add files and folders on $Work, but no delete,
+# rename or permission change of either; Modify on what's INSIDE $Work
+# (inherit-only). Re-runs only read them back; anything else stops setup.
+if (-not $agentSid) { Write-Host '  (after step 1 creates the user)' }
+else {
+    $me = $id.User.Value
+    $rootSddl = "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$me)(A;;0x1200a9;;;$agentSid)"
+    $workSddl = "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$me)(A;;0x1200af;;;$agentSid)(A;OICIIO;0x1301bf;;;$agentSid)"
+    $owners = [string[]]@('S-1-5-18', 'S-1-5-32-544', $me)
+    $rootWhy = if (Test-Path -LiteralPath $Root) { [GlimFs]::SameDir($Root, $rootSddl, $owners) } else { 'missing' }
+    $workWhy = if (Test-Path -LiteralPath $Work) { [GlimFs]::SameDir($Work, $workSddl, $owners) } else { 'missing' }
+    if ($rootWhy -eq '' -and $workWhy -eq '') { Write-Host '  already set' }
+    elseif ($rootWhy -eq 'missing') {
+        Act "create $Root and $Work with their permissions" {
+            $rc = [GlimFs]::CreateDirSddl($Root, $rootSddl); if ($rc -ne 0) { throw "couldn't create $Root (error $rc)" }
+            $rc = [GlimFs]::CreateDirSddl($Work, $workSddl); if ($rc -ne 0) { throw "couldn't create $Work (error $rc)" }
+        }
+    } else {
+        # An older setup's layout (glim-agent had Modify on $Root itself) is
+        # rebuilt only while there is nothing in it but an empty, real $Work:
+        # then no item exists for a permission change to reach.
+        $kids = @(Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop)
+        $emptyWork = $kids.Count -eq 0 -or ($kids.Count -eq 1 -and $kids[0].Name -eq 'work' -and -not [GlimFs]::IsLink($Work) -and
+            (Test-Path -LiteralPath $Work -PathType Container) -and @(Get-ChildItem -LiteralPath $Work -Force -ErrorAction Stop).Count -eq 0)
+        $rootReal = -not [GlimFs]::IsLink($Root) -and ([GlimFs]::SameDir($Root, $rootSddl, $owners) -notmatch '^(owner is|it is a link|not a folder|can''t read)')
+        if (-not ($emptyWork -and $rootReal)) {
+            throw "$Root isn't as setup makes it ($Root`: $(if ($rootWhy) { $rootWhy } else { 'ok' }); $Work`: $(if ($workWhy) { $workWhy } else { 'ok' })) and isn't empty. Run remove.ps1 (it also deletes $AgentName), then setup.ps1 again; tell Claude if this keeps happening."
+        }
+        Act "rebuild $Root and $Work (empty) with their permissions" {
+            if (Test-Path -LiteralPath $Work) { [IO.Directory]::Delete($Work, $false) }   # an empty folder only
+            $rc = [GlimFs]::SetDaclSddl($Root, $rootSddl); if ($rc -ne 0) { throw "couldn't set $Root's permissions (error $rc)" }
+            $rc = [GlimFs]::CreateDirSddl($Work, $workSddl); if ($rc -ne 0) { throw "couldn't create $Work (error $rc)" }
+        }
+    }
+    if (-not $DryRun) {
+        $rootWhy = [GlimFs]::SameDir($Root, $rootSddl, $owners); $workWhy = [GlimFs]::SameDir($Work, $workSddl, $owners)
+        if ($rootWhy -or $workWhy) { throw "after step 4: $Root $rootWhy; $Work $workWhy" }
+    }
 }
-if ($rootOk) { Write-Host "  already set" }
-else { Act "create $Work and set its ACL" {
-    New-Item -ItemType Directory -Path $Work -Force | Out-Null
-    icacls $Root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${Owner}:(OI)(CI)F" "${AgentName}:(OI)(CI)M" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "icacls $Root failed ($LASTEXITCODE)" }
-} }
 
 # ── 5. Your profile ──────────────────────────────────────────────────────────
 Step "5. Deny $AgentName on $OwnerProfile"
@@ -241,6 +261,7 @@ if ($GlimLinkFindings.Count) {
     if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }
 }
 $lockFailed = New-Object System.Collections.Generic.List[string]
+function Add-LockFailed([string]$x) { if (-not $lockFailed.Contains($x)) { $lockFailed.Add($x) } }
 function Get-LockWhy([int]$rc) {
     switch ($rc) {
         -2 { 'a file with more than one hard link: its other names may be anywhere, so it is never changed' }
@@ -263,7 +284,7 @@ foreach ($t in $targets) {
         $sidNow = (Get-LocalUser -Name $AgentName).SID.Value
         $rc = [GlimFs]::AddDeny($t.Path, $sidNow, [uint32]$need, $isTree)
         if ($rc -ne 0 -or -not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
-            $lockFailed.Add("$($t.Path) ($(Get-LockWhy $rc))")
+            Add-LockFailed "$($t.Path) ($(Get-LockWhy $rc))"
             Write-Host "    NOT LOCKED: $($t.Path) ($(Get-LockWhy $rc)); carrying on with the rest" -ForegroundColor Red
         }
     }
@@ -275,8 +296,22 @@ if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
 # missed is found again, never hidden behind an "already locked" root).
 $uNow = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue   # StrictMode: never .SID on a missing user
 if ($uNow) { $agentSid = $uNow.SID.Value }
-if ($DryRun) { Write-Host '  (then: every item inside still writable by it gets its own deny, and all is walked again)' }
+if ($DryRun) { Write-Host '  (then: every folder inside without an inheritable deny, and every item still writable by it, gets its own deny; then all is walked again)' }
 elseif ($agentSid) {
+    # Review M-a: every real folder in a tree must pass a deny on to what is
+    # created in it later (a service's new file would otherwise be writable).
+    Write-Host '  checking: every folder in the locked trees passes the deny on...'
+    $nd = 0
+    foreach ($t in $targets) {
+        if ($t.Scope -ne 'tree') { continue }
+        $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
+        $r = [GlimFs]::Walk($t.Path, 'nodeny', [string[]]@($agentSid), [uint32]$need, $null)
+        foreach ($h in $r.Hits) {
+            $rc = [GlimFs]::AddDeny($h, $agentSid, [uint32]$need, $true)
+            if ($rc -eq 0) { $nd++ } else { Add-LockFailed "$h ($(Get-LockWhy $rc))" }
+        }
+    }
+    if ($nd) { Write-Host "  gave $nd folder(s) inside an inheritable deny" }
     Write-Host '  checking: walking every locked tree (about a minute)...'
     $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
     if ($v.Writable.Count) {
@@ -289,9 +324,10 @@ elseif ($agentSid) {
                 if ($p -ieq $b -or $p.StartsWith("$b\", [StringComparison]::OrdinalIgnoreCase)) { if (-not $own -or $b.Length -gt $own.Path.TrimEnd('\').Length) { $own = $t } }
             }
             $need = if ($own -and $own.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
-            $isDir = [bool](Test-Path -LiteralPath $p -PathType Container)
+            # The item's own attributes, a link never followed (review LOW).
+            $isDir = ([int][IO.File]::GetAttributes($p) -band 0x10) -ne 0 -and -not [GlimFs]::IsLink($p)
             $rc = [GlimFs]::AddDeny($p, $agentSid, [uint32]$need, $isDir)
-            if ($rc -ne 0) { $lockFailed.Add("$p ($(Get-LockWhy $rc))") }
+            if ($rc -ne 0) { Add-LockFailed "$p ($(Get-LockWhy $rc))" }
         }
         Write-Host '  verifying: walking every locked tree again...'
         $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
