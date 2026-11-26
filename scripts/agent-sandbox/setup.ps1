@@ -186,11 +186,30 @@ else {
 
 # ── 4. The workspace ─────────────────────────────────────────────────────────
 Step "4. $Work (SYSTEM, Administrators, you: full; ${AgentName}: modify; nobody else)"
-Act "create $Work and set its ACL" {
+# Only while it isn't set up yet: icacls passes the ACL down through
+# everything inside, and once glim-agent has worked there, a hard link it
+# planted would get the folder's ACL (review 2026-11-26, H1). Already set =
+# protected, and exactly these four allows, nothing else.
+$rootOk = $false
+if (Test-Path -LiteralPath $Work) {
+    $ra = Get-Acl -LiteralPath $Root
+    $want = @('S-1-5-18', 'S-1-5-32-544', $id.User.Value) + @($(if ($agentSid) { $agentSid }))
+    $got = @($ra.Access | ForEach-Object { try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $_.IdentityReference.Value } })
+    $rootOk = $ra.AreAccessRulesProtected -and $agentSid -and @($ra.Access | Where-Object { $_.AccessControlType -ne 'Allow' -or $_.IsInherited }).Count -eq 0 -and
+        @($got | Sort-Object -Unique).Count -eq 4 -and @($want | Where-Object { $got -notcontains $_ }).Count -eq 0 -and
+        @($ra.Access | Where-Object { $_.InheritanceFlags -ne 'ContainerInherit, ObjectInherit' -or $_.PropagationFlags -ne 'None' }).Count -eq 0 -and
+        @($ra.Access | Where-Object {
+            $s = try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }
+            $r = [int64]$_.FileSystemRights -band 0x1F01FF
+            if ($s -eq $agentSid) { $r -ne 0x1301BF } else { $r -ne 0x1F01FF }   # glim-agent: Modify exactly; the rest: Full
+        }).Count -eq 0
+}
+if ($rootOk) { Write-Host "  already set" }
+else { Act "create $Work and set its ACL" {
     New-Item -ItemType Directory -Path $Work -Force | Out-Null
     icacls $Root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${Owner}:(OI)(CI)F" "${AgentName}:(OI)(CI)M" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls $Root failed ($LASTEXITCODE)" }
-}
+} }
 
 # ── 5. Your profile ──────────────────────────────────────────────────────────
 Step "5. Deny $AgentName on $OwnerProfile"
@@ -222,64 +241,72 @@ if ($GlimLinkFindings.Count) {
     if (-not $DryRun) { throw "$($GlimLinkFindings.Count) link(s) all users could change. Tell Claude the list; they need fixing by hand before setup can finish." }
 }
 $lockFailed = New-Object System.Collections.Generic.List[string]
+function Get-LockWhy([int]$rc) {
+    switch ($rc) {
+        -2 { 'a file with more than one hard link: its other names may be anywhere, so it is never changed' }
+        -3 { 'a null DACL (everyone allowed): never changed' }
+        default { "Windows error $rc" }
+    }
+}
 foreach ($t in $targets) {
-    $flags = if ($t.Scope -eq 'tree') { '(OI)(CI)' } else { '' }   # folder or file: that object only
-    $rights = if ($t.Deny -eq 'all') { '(F)' } else { $GlimDenyRights }
     $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
     $isTree = $t.Scope -eq 'tree'
     $label = "{0}  [{1}; deny {2}]  ({3})" -f $t.Path, $t.Scope, $(if ($t.Deny -eq 'all') { 'everything' } else { 'write+delete' }), $t.Why
     if ($agentSid -and [GlimFs]::HasDeny($t.Path, $agentSid, [uint32]$need, $isTree)) { Write-Host "  already locked: $label"; continue }
     Act "lock $label" {
-        # icacls first (it flows the deny down to everything inside). Its
-        # complaints are text here, never a stop: one refusal must not skip
-        # the rest (owner's first run stopped at WwanSvc\DMProfiles).
-        $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-        try { $outText = icacls $t.Path /deny "${AgentName}:$flags$rights" /C 2>&1 | Out-String } finally { $ErrorActionPreference = $eap }
+        # Not icacls (review 2026-11-26, H1): it goes through the Windows layer
+        # that re-stamps every item below from its parent, which a hard link
+        # planted in an all-users folder turns into "Users: Modify" on the
+        # linked file, wherever it is. AddDeny writes this one object's DACL
+        # only (owner and flags unchanged, nothing passed down); the walk below
+        # then gives each item inside that glim-agent can still write its own.
         $sidNow = (Get-LocalUser -Name $AgentName).SID.Value
-        # Read back, never trust the exit code or messages.
-        if (-not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
-            # A folder SYSTEM/TrustedInstaller owns, where even Administrators
-            # may only read: write the deny through the restore privilege
-            # (owner unchanged), on the folder (Windows passes it down to what
-            # inherits) and on every item inside it (what doesn't inherit).
-            Write-Host "    icacls was refused; adding the deny through the restore privilege (owner unchanged)"
-            $rc = [GlimFs]::AddDeny($t.Path, $sidNow, [uint32]$need, $isTree)
-            if ($rc -eq 0 -and $isTree) {
-                foreach ($c in (Get-GlimTreeItems $t.Path)) {
-                    if ([GlimFs]::IsLink($c.FullName)) { continue }   # a link's own entry only matters for links; never change its target
-                    if ([GlimFs]::HasDeny($c.FullName, $sidNow, [uint32]$need, $c.PSIsContainer)) { continue }
-                    $rc2 = [GlimFs]::AddDeny($c.FullName, $sidNow, [uint32]$need, $c.PSIsContainer)
-                    if ($rc2 -ne 0) { $lockFailed.Add("$($c.FullName) (error $rc2)") }
-                }
-            }
-            if ($rc -ne 0 -or -not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
-                $lockFailed.Add("$($t.Path) (error $rc)")
-                Write-Host "    NOT LOCKED: $($t.Path) (error $rc); carrying on with the rest" -ForegroundColor Red
-            }
+        $rc = [GlimFs]::AddDeny($t.Path, $sidNow, [uint32]$need, $isTree)
+        if ($rc -ne 0 -or -not [GlimFs]::HasDeny($t.Path, $sidNow, [uint32]$need, $isTree)) {
+            $lockFailed.Add("$($t.Path) ($(Get-LockWhy $rc))")
+            Write-Host "    NOT LOCKED: $($t.Path) ($(Get-LockWhy $rc)); carrying on with the rest" -ForegroundColor Red
         }
-        $m = [regex]::Match($outText, 'Failed processing (\d+) files')
-        if ($m.Success -and [int]$m.Groups[1].Value -gt 0) { Write-Warning "  icacls couldn't change $($m.Groups[1].Value) item(s) under $($t.Path); the walk below finds any that stay writable" }
     }
 }
 if ($targets.Count -eq 0) { Write-Host '  nothing to lock' }
-# Verified by result, not by icacls's messages: every target, trees walked in
-# full, with glim-agent's real access computed on this side (AuthZ).
+# Every run, by result: every target, trees walked in full, glim-agent's real
+# access computed on this side (AuthZ). Each item it can still write gets its
+# own deny, then everything is walked again (review M3/L1: an item a past run
+# missed is found again, never hidden behind an "already locked" root).
 $uNow = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue   # StrictMode: never .SID on a missing user
 if ($uNow) { $agentSid = $uNow.SID.Value }
-if (-not $DryRun -and $agentSid) {
-    Write-Host '  verifying: walking every locked tree (about a minute)...'
+if ($DryRun) { Write-Host '  (then: every item inside still writable by it gets its own deny, and all is walked again)' }
+elseif ($agentSid) {
+    Write-Host '  checking: walking every locked tree (about a minute)...'
     $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
+    if ($v.Writable.Count) {
+        Write-Host "  $($v.Writable.Count) item(s) inside are still writable by it: giving each its own deny"
+        foreach ($p in $v.Writable) {
+            # The target it's in decides the deny (the longest path that holds it).
+            $own = $null
+            foreach ($t in $targets) {
+                $b = $t.Path.TrimEnd('\')
+                if ($p -ieq $b -or $p.StartsWith("$b\", [StringComparison]::OrdinalIgnoreCase)) { if (-not $own -or $b.Length -gt $own.Path.TrimEnd('\').Length) { $own = $t } }
+            }
+            $need = if ($own -and $own.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
+            $isDir = [bool](Test-Path -LiteralPath $p -PathType Container)
+            $rc = [GlimFs]::AddDeny($p, $agentSid, [uint32]$need, $isDir)
+            if ($rc -ne 0) { $lockFailed.Add("$p ($(Get-LockWhy $rc))") }
+        }
+        Write-Host '  verifying: walking every locked tree again...'
+        $v = Get-GlimStillWritable -Sid $agentSid -Targets $targets
+    }
+    if ($lockFailed.Count) { $lockFailed | ForEach-Object { Write-Host "  NOT LOCKED: $_" -ForegroundColor Red } }
     if ($v.Unreadable.Count) { Write-Warning ("  $($v.Unreadable.Count) item(s) couldn't be read or listed (NOT verified), e.g. " + (($v.Unreadable | Select-Object -First 5) -join '; ')) }
     if ($v.Writable.Count) {
         $v.Writable | Select-Object -First 50 | ForEach-Object { Write-Host "  STILL WRITABLE: $_" -ForegroundColor Red }
-        throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list)."
+        throw "$($v.Writable.Count) item(s) are still writable by $AgentName after locking. No sandbox session until they're fixed (tell Claude the list; setup is safe to run again)."
     }
     if ($v.Unreadable.Count) { Write-Host "  checked: nothing readable in the locked folders is writable by it, but $($v.Unreadable.Count) item(s) were NOT verified (see above; check.ps1 will end INCOMPLETE until they are)" -ForegroundColor Yellow }
     else { Write-Host '  verified: nothing in the locked folders is writable by it' }
 }
 if ($lockFailed.Count) {
-    $lockFailed | ForEach-Object { Write-Host "  NOT LOCKED: $_" -ForegroundColor Red }
-    throw "$($lockFailed.Count) item(s) couldn't be locked. Setup isn't finished; tell Claude the list (setup is safe to run again)."
+    throw "$($lockFailed.Count) item(s) couldn't be locked (listed above). Setup isn't finished; tell Claude the list (setup is safe to run again)."
 }
 
 # ── 7. No powerful user rights (read back, elevated) ─────────────────────────

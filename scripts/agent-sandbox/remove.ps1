@@ -69,25 +69,40 @@ if (Test-Path 'C:\GlimAgent') {
 
 # ── 3. Lift the protections ─────────────────────────────────────────────────
 if ($Sid) {
-    $fenced = @($env:USERPROFILE) + @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE | ForEach-Object { $_.Path }) + @($GlimNamed | Where-Object { Test-Path -LiteralPath $_ })
-    foreach ($p in ($fenced | Sort-Object -Unique)) {
-        $has = [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
-        if ($has) {
+    function Test-ExplicitDeny([string]$p) {
+        [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
+    }
+    # Your profile and the named folders: setup's step 5 put these with icacls,
+    # so icacls takes them off (and its copies below).
+    foreach ($p in (@($env:USERPROFILE) + @($GlimNamed | Where-Object { Test-Path -LiteralPath $_ }) | Sort-Object -Unique)) {
+        if (Test-ExplicitDeny $p) {
             Act "remove its deny entry on $p" {
                 $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
                 try { icacls $p /remove:d "*$Sid" /C 2>&1 | Out-Null } finally { $ErrorActionPreference = $eap }
-                if ([GlimFs]::HasDeny($p, $Sid, [uint32]0x10000, $false)) {
-                    # A folder icacls can't change (SYSTEM-owned): through the restore
-                    # privilege, on it and on every item inside (setup put one on each).
-                    $rc = [GlimFs]::RemoveDeny($p, $Sid)
-                    if (Test-Path -LiteralPath $p -PathType Container) {
-                        foreach ($c in (Get-GlimTreeItems $p)) { if (-not [GlimFs]::IsLink($c.FullName)) { [void][GlimFs]::RemoveDeny($c.FullName, $Sid) } }
-                    }
-                    if ($rc -ne 0) { Write-Warning "  couldn't remove it from $p (error $rc)" }
-                }
+                if (Test-ExplicitDeny $p) { Write-Warning "  couldn't remove it from $p" }
             }
         }
     }
+    # The locked folders: setup's own writer (review 2026-11-26) changes one
+    # object's DACL at a time, nothing re-stamped or passed down, so the root
+    # and every item inside are cleared one by one; failures are counted and
+    # shown (review L6). A deny an older setup run left as an INHERITED copy
+    # (icacls passed it down) names a deleted account once step 1 has run, so
+    # it denies nobody; it goes when Windows next re-applies inheritance there.
+    foreach ($t in @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)) {
+        $p = $t.Path
+        $items = @($p)
+        if ($t.Scope -eq 'tree' -and (Test-Path -LiteralPath $p -PathType Container)) { $items += @(Get-GlimTreeItems $p | ForEach-Object { $_.FullName }) }
+        $with = @($items | Where-Object { try { Test-ExplicitDeny $_ } catch { $true } })
+        if ($with.Count) {
+            Act "remove its deny entries on $p ($($with.Count) item(s))" {
+                $bad = 0
+                foreach ($i in $with) { $rc = [GlimFs]::RemoveDeny($i, $Sid); if ($rc -ne 0) { $bad++; if ($bad -le 5) { Write-Warning "  couldn't remove it from $i (error $rc)" } } }
+                if ($bad) { Write-Warning "  $bad item(s) under $p still carry its deny (harmless once the account is gone)" }
+            }
+        }
+    }
+    if ($GlimUnlistable.Count) { Write-Warning "  $($GlimUnlistable.Count) folder(s) couldn't be listed, so any deny inside them stays (harmless once the account is gone)" }
     Act 'remove its logon-right denials' {
         $tmp = Join-Path $env:TEMP ('glim-secedit-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $tmp | Out-Null
         try {

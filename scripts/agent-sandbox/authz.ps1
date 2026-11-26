@@ -213,12 +213,24 @@ public static class GlimFs {
 
     public struct Entry { public string Path; public bool Dir; public bool Link; }
 
-    [DllImport("advapi32.dll")]
-    static extern uint SetSecurityInfo(IntPtr h, int type, uint info, IntPtr owner, IntPtr group, byte[] dacl, IntPtr sacl);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool SetKernelObjectSecurity(IntPtr h, uint info, byte[] sd);
+    [StructLayout(LayoutKind.Sequential)]
+    struct BHFI { public uint Attr; public long C, A, W; public uint Vol, SizeHi, SizeLo, Links, IdxHi, IdxLo; }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetFileInformationByHandle(IntPtr h, out BHFI info);
+    [DllImport("advapi32.dll", SetLastError = true, EntryPoint = "AdjustTokenPrivileges")]
+    static extern bool AdjustPrev(IntPtr tok, bool disableAll, ref TP tp, uint len, ref TP prev, out uint retLen);
+
+    // Rewrite's refusals (negative, so never a Windows error code).
+    public const int HardLink = -2, NullDacl = -3;
+    const AceFlags Inh = AceFlags.ObjectInherit | AceFlags.ContainerInherit;
+    const AceFlags Odd = AceFlags.InheritOnly | AceFlags.NoPropagateInherit;
 
     // Does `path` carry an explicit (not inherited) deny for `sid` covering
-    // all of `mask` (and, for a tree, inheritable to files and folders)?
-    // Read back from the object itself after a lock (setup verifies each).
+    // all of `mask` that applies to the object itself (not inherit-only) and,
+    // for a tree, is inherited by files and folders all the way down (no
+    // no-propagate)? Read from the object itself (setup reads back each lock).
     public static bool HasDeny(string path, string sid, uint mask, bool tree) {
         int e; byte[] sd = ReadSd(path, out e);
         if (sd == null) return false;
@@ -227,61 +239,97 @@ public static class GlimFs {
         foreach (GenericAce a in r.DiscretionaryAcl) {
             var k = a as KnownAce;
             if (k == null || a.AceType != AceType.AccessDenied) continue;
-            if ((a.AceFlags & AceFlags.Inherited) != 0) continue;
+            if ((a.AceFlags & AceFlags.Inherited) != 0 || (a.AceFlags & Odd) != 0) continue;
             if (k.SecurityIdentifier.Value != sid) continue;
             if (((uint)k.AccessMask & mask) != mask) continue;
-            if (tree && (a.AceFlags & (AceFlags.ObjectInherit | AceFlags.ContainerInherit)) != (AceFlags.ObjectInherit | AceFlags.ContainerInherit)) continue;
+            if (tree && (a.AceFlags & Inh) != Inh) continue;
             return true;
         }
         return false;
     }
 
     // Puts an explicit deny for `sid` (`mask`; inheritable if `inherit`) first
-    // in the object's DACL, written through a handle opened with backup
-    // semantics while SeRestorePrivilege is on: an elevated admin can then set
-    // the DACL of a folder SYSTEM or TrustedInstaller owns without taking
-    // ownership (owner unchanged; only this entry added). Windows passes an
-    // inheritable entry on to children that inherit (tested 2026-11-26: the
-    // round trip restores every ACL exactly); a child with inheritance off or
-    // that refuses is why callers also give each item inside its own entry.
-    // 0 on success, else a Windows error code.
+    // in the object's own DACL. Review 2026-11-26 (H1, M1, M2): written with
+    // SetKernelObjectSecurity on a handle to the object itself (backup
+    // semantics; a link's own entry, never its target's), so Windows
+    // recomputes nothing: no inherited entries re-stamped from a parent,
+    // nothing passed down to children, the DACL's protected / auto-inherited
+    // flags exactly as they were, owner unchanged. Only items created later
+    // inherit it; callers give each existing item that needs one its own.
+    // With SeRestorePrivilege (on only for the write) an elevated admin can
+    // do this on folders SYSTEM or TrustedInstaller own.
+    // Refused, never changed: a file with more than one hard link (its other
+    // names may be anywhere: HardLink) and a null DACL (everyone allowed; a
+    // deny alone would leave nobody else any access: NullDacl).
+    // An existing explicit deny for `sid` is merged into the new one (masks
+    // and inheritance OR'd, inherit-only / no-propagate dropped), never
+    // narrowed. 0 on success, else a Windows error code or a refusal.
     public static int AddDeny(string path, string sid, uint mask, bool inherit) {
         return Rewrite(path, sid, mask, inherit, true);
     }
 
-    // Removes every explicit deny for `sid` from the object's DACL (same way).
+    // Removes every explicit deny for `sid` from the object's own DACL (same
+    // way: nothing re-inherited or passed down).
     public static int RemoveDeny(string path, string sid) {
         return Rewrite(path, sid, 0, false, false);
     }
 
-    static int Rewrite(string path, string sid, uint mask, bool inherit, bool add) {
-        EnablePrivilege("SeRestorePrivilege");
-        EnablePrivilege("SeBackupPrivilege");
-        IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
-        if (h == BAD) return Marshal.GetLastWin32Error();
+    // Turns a privilege on or off; returns whether it was on before.
+    static bool SetPriv(string name, bool on) {
+        IntPtr tok;
+        if (!OpenProcessToken(GetCurrentProcess(), 0x28, out tok)) return false;
         try {
-            IntPtr o, g, d, sa, psd;
-            uint rc = GetSecurityInfo(h, 1, 4 /* DACL */, out o, out g, out d, out sa, out psd);
-            if (rc != 0) return (int)rc;
-            byte[] sd;
-            try { int len = (int)GetSecurityDescriptorLength(psd); sd = new byte[len]; Marshal.Copy(psd, sd, 0, len); } finally { LocalFree(psd); }
-            var r = new RawSecurityDescriptor(sd, 0);
-            bool prot = (r.ControlFlags & ControlFlags.DiscretionaryAclProtected) != 0;
-            var acl = r.DiscretionaryAcl ?? new RawAcl(GenericAcl.AclRevision, 1);
-            var me = new SecurityIdentifier(sid);
-            for (int i = acl.Count - 1; i >= 0; i--) {
-                var k = acl[i] as KnownAce;
-                if (k != null && acl[i].AceType == AceType.AccessDenied && (acl[i].AceFlags & AceFlags.Inherited) == 0 && k.SecurityIdentifier == me) acl.RemoveAce(i);
-            }
-            if (add) {
-                var flags = inherit ? (AceFlags.ObjectInherit | AceFlags.ContainerInherit) : AceFlags.None;
-                acl.InsertAce(0, new CommonAce(flags, AceQualifier.AccessDenied, (int)mask, me, false, null));
-            }
-            var bin = new byte[acl.BinaryLength]; acl.GetBinaryForm(bin, 0);
-            uint info = 4u | (prot ? 0x80000000u /* PROTECTED_DACL */ : 0x20000000u /* UNPROTECTED_DACL */);
-            rc = SetSecurityInfo(h, 1, info, IntPtr.Zero, IntPtr.Zero, bin, IntPtr.Zero);
-            return (int)rc;
-        } finally { CloseHandle(h); }
+            long luid; if (!LookupPrivilegeValueW(null, name, out luid)) return false;
+            var tp = new TP { Count = 1, Luid = luid, Attr = on ? 2u : 0u };
+            var prev = new TP(); uint len;
+            if (!AdjustPrev(tok, false, ref tp, (uint)Marshal.SizeOf(typeof(TP)), ref prev, out len)) return false;
+            return prev.Count == 1 ? (prev.Attr & 2) != 0 : on;   // Count 0: it was already as asked
+        } finally { CloseHandle(tok); }
+    }
+
+    static int Rewrite(string path, string sid, uint mask, bool inherit, bool add) {
+        bool hadRestore = SetPriv("SeRestorePrivilege", true);
+        try {
+            IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+            if (h == BAD) return Marshal.GetLastWin32Error();
+            try {
+                BHFI fi;
+                if (!GetFileInformationByHandle(h, out fi)) return Marshal.GetLastWin32Error();
+                if ((fi.Attr & 0x10) == 0 && fi.Links > 1) return HardLink;
+                IntPtr o, g, d, sa, psd;
+                uint rc = GetSecurityInfo(h, 1, 4 /* DACL */, out o, out g, out d, out sa, out psd);
+                if (rc != 0) return (int)rc;
+                byte[] sd;
+                try { int len = (int)GetSecurityDescriptorLength(psd); sd = new byte[len]; Marshal.Copy(psd, sd, 0, len); } finally { LocalFree(psd); }
+                var r = new RawSecurityDescriptor(sd, 0);
+                if (r.DiscretionaryAcl == null) {
+                    if ((r.ControlFlags & ControlFlags.DiscretionaryAclPresent) != 0) return NullDacl;
+                    if (!add) return 0;
+                }
+                var acl = r.DiscretionaryAcl ?? new RawAcl(GenericAcl.AclRevision, 1);
+                var me = new SecurityIdentifier(sid);
+                int merged = (int)mask; AceFlags mflags = inherit ? Inh : AceFlags.None;
+                bool found = false;
+                for (int i = acl.Count - 1; i >= 0; i--) {
+                    var k = acl[i] as KnownAce;
+                    if (k != null && acl[i].AceType == AceType.AccessDenied && (acl[i].AceFlags & AceFlags.Inherited) == 0 && k.SecurityIdentifier == me) {
+                        merged |= k.AccessMask; mflags |= acl[i].AceFlags & Inh;
+                        acl.RemoveAce(i); found = true;
+                    }
+                }
+                if (!add && !found) return 0;
+                if (add) acl.InsertAce(0, new CommonAce(mflags, AceQualifier.AccessDenied, merged, me, false, null));
+                // Only the DACL and its own flags: protected / auto-inherited kept as read.
+                var keep = r.ControlFlags & (ControlFlags.DiscretionaryAclProtected | ControlFlags.DiscretionaryAclAutoInherited | ControlFlags.DiscretionaryAclAutoInheritRequired);
+                // Without the request bit Windows drops "auto-inherited" (tested 2026-11-26); with it the
+                // kernel keeps the object's own inherited entries, never recomputed from a parent.
+                if ((keep & ControlFlags.DiscretionaryAclAutoInherited) != 0) keep |= ControlFlags.DiscretionaryAclAutoInheritRequired;
+                var nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, null, null, null, acl);
+                var bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
+                if (!SetKernelObjectSecurity(h, 4 /* DACL */, bin)) return Marshal.GetLastWin32Error();
+                return 0;
+            } finally { CloseHandle(h); }
+        } finally { if (!hadRestore) SetPriv("SeRestorePrivilege", false); }
     }
 
     // Does `path` exist, taken literally (\\?\, the last link not followed)?
