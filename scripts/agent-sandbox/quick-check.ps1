@@ -9,8 +9,9 @@
 #   - glim-agent exists, is the account setup recorded (HKCU SID), and is in
 #     no local group but Users;
 #   - your profile carries setup's deny of everything for it;
-#   - C:\GlimAgent and its work folder are exactly as setup.ps1 step 4 makes
-#     them (real folders, owner, protected, exact entries);
+#   - C:\GlimAgent (holding only work), work and work\.glim-keep are exactly
+#     as setup.ps1 step 4 makes them (real items, owner, protected, exact
+#     entries); glim-agent is enabled (setup disables it while it runs);
 #   - every lock target (the list setup saved, plus a fresh look at drive
 #     roots, top-level folders, PATH folders and the named folders, where
 #     a recreated folder turns up) is denied to it, and it can't write the
@@ -65,6 +66,7 @@ try {
     $u = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
     if (-not $u) { Fail "$AgentName doesn't exist (run setup.ps1)"; Finish }
     $sid = $u.SID.Value
+    if (-not $u.Enabled) { Fail "$AgentName is disabled: a setup.ps1 run stopped part way (run it again)" }
     $saved = Get-ItemProperty -Path 'HKCU:\Software\Glim\AgentSandbox' -ErrorAction SilentlyContinue
     if (-not $saved -or -not ($saved.PSObject.Properties.Name -contains 'Sid') -or $saved.Sid -ne $sid) { Fail "$AgentName isn't the account setup.ps1 recorded (run setup.ps1)" }
     $adsi = [ADSI]"WinNT://$env:COMPUTERNAME/$AgentName,user"
@@ -80,6 +82,10 @@ try {
     if ($w1) { Fail "C:\GlimAgent isn't as setup makes it ($w1)" }
     $w2 = [GlimFs]::SameDir('C:\GlimAgent\work', "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$me)(A;;0x1200af;;;$sid)(A;OICIIO;0x1301bf;;;$sid)", $own)
     if ($w2) { Fail "C:\GlimAgent\work isn't as setup makes it ($w2)" }
+    $w3 = [GlimFs]::SameFile('C:\GlimAgent\work\.glim-keep', "D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;$me)(A;;0x120089;;;$sid)", $own)
+    if ($w3) { Fail "C:\GlimAgent\work\.glim-keep isn't as setup makes it ($w3)" }
+    $extra = @(Get-ChildItem -LiteralPath 'C:\GlimAgent' -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'work' })
+    if ($extra.Count) { Fail ("C:\GlimAgent holds more than work: " + (($extra | ForEach-Object Name) -join ', ')) }
 
     # ── The locked folders ──────────────────────────────────────────────────
     $targets = [ordered]@{}
@@ -118,6 +124,9 @@ try {
             $tree = $t.Scope -eq 'tree'
             $need = if ($t.Deny -eq 'all') { 0x1F01FF } else { 0xD0156 }
             $why = Test-Item $t.Path $t
+            # A system folder that won't show you its permissions unelevated
+            # (C:\Windows\Temp ...): setup.ps1 / check.ps1 verify it elevated.
+            if ($why -like "can't read its permissions (error 5)") { $unverified.Add($t.Path); continue }
             if (-not $why -and -not [GlimFs]::HasDeny($t.Path, $sid, [uint32]$need, $tree)) { $why = 'its deny is gone' }
             if ($why) {
                 $fix = if ($Repair) { Repair-Item $t.Path $t $tree } else { 'not repaired (no -Repair)' }
