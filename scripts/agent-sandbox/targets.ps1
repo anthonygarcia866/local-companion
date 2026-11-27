@@ -238,7 +238,7 @@ function Get-GlimStillWritable([string]$Sid, $Targets) {
     @{ Writable = @($writable | Sort-Object -Unique); Unreadable = @($unreadable | Sort-Object -Unique) }
 }
 
-function Get-GlimLockTargets([string]$OwnerProfile) {
+function Get-GlimLockTargets([string]$OwnerProfile, [string]$AgentSid = '') {
     $out = [ordered]@{}
     function Add-Target([string]$p, [string]$scope, [string]$why, [string]$deny = 'write') {
         $k = $p.ToLowerInvariant()
@@ -297,6 +297,35 @@ function Get-GlimLockTargets([string]$OwnerProfile) {
     foreach ($p in (Get-GlimPathFiles)) {
         $w = Get-GlimBroadWrite $p
         if ($w) { Add-Target $p 'file' "program in a PATH folder; writable by $w" }
+    }
+    # Review 4 (H2): what glim-agent can write in C:\Windows and Program Files
+    # is FOUND, not listed: every item there its real access (AuthZ, from its
+    # SID and groups) lets it write. The topmost such folder becomes a tree
+    # target (what's below it is covered), a file a file target. Plus the
+    # list setup saved last time (in YOUR HKCU): an item it already locked is
+    # no longer writable, so it is kept by name, not found again.
+    if ($AgentSid) {
+        $chk = New-Object GlimAuthz+Checker $AgentSid
+        try {
+            foreach ($root in @("$env:SystemRoot", "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:ProgramW6432") | Where-Object { $_ } | Sort-Object -Unique) {
+                if (-not (Test-Path -LiteralPath $root)) { continue }
+                $r = [GlimFs]::Walk($root, 'access', $null, [uint32]$GlimWrite, $chk)
+                foreach ($u in $r.Unlistable) { if (-not $GlimUnlistable.Contains($u)) { $GlimUnlistable.Add($u) } }
+                $hits = for ($i = 0; $i -lt $r.Hits.Count; $i++) { [pscustomobject]@{ Path = $r.Hits[$i]; Dir = $r.HitIsDir[$i] } }
+                foreach ($h in @($hits | Sort-Object { $_.Path.Length })) {
+                    $covered = $false
+                    foreach ($t in $out.Values) { if ($t.Scope -eq 'tree' -and (Test-GlimUnder $h.Path $t.Path)) { $covered = $true; break } }
+                    if (-not $covered) { Add-Target $h.Path $(if ($h.Dir) { 'tree' } else { 'file' }) "inside $root; $AgentName can write it" }
+                }
+            }
+        } finally { $chk.Dispose() }
+        $sv = Get-ItemProperty -Path 'HKCU:\Software\Glim\AgentSandbox' -Name Targets -ErrorAction SilentlyContinue
+        if ($sv) {
+            foreach ($line in @($sv.Targets)) {
+                $sc, $dn, $pp = $line -split '\|', 3
+                if ($pp -and (Test-Path -LiteralPath $pp)) { Add-Target $pp $sc 'locked by an earlier run' $dn }
+            }
+        }
     }
     # Inside every tree: files and folders whose own (explicit) entry lets all
     # users write: the tree's inherited deny doesn't beat it, so each gets its own.

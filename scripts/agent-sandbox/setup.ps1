@@ -147,7 +147,10 @@ if ($u0) {
 # built or locked; re-enabled at the very end, only if everything passed. If
 # setup stops part way, glim-agent stays disabled (safe; run setup again).
 $agentStopped = $false
-if (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue) {
+$wasEnabled = $false
+$ub = Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue
+if ($ub) {
+    $wasEnabled = [bool]$ub.Enabled   # review 4: an account you disabled stays disabled
     Step "1b. Stop $AgentName while its sandbox is built (enabled again at the end, only if everything passes)"
     Act "disable $AgentName and stop every process it runs" {
         Disable-LocalUser -Name $AgentName
@@ -172,6 +175,15 @@ if (Get-LocalUser -Name $AgentName -ErrorAction SilentlyContinue) {
         Start-Sleep -Milliseconds 500
         $left = @(& $its)
         if ($left.Count) { throw "$($left.Count) $AgentName process(es) wouldn't stop ($((($left | ForEach-Object Name) -join ', '))). Restart Windows, then run setup.ps1 again." }
+        # Review 4 (H1): a process can hide its token from both lookups above
+        # and refuse to be stopped, but it keeps its logon session alive, and
+        # LSA lists logon sessions without touching any process. Any session
+        # of glim-agent's left (a few seconds' grace for Windows to close the
+        # ones just ended) = something of its may still hold handles.
+        $sidB = $ub.SID.Value
+        $n = -1
+        for ($i = 0; $i -lt 10; $i++) { $n = [GlimLsa]::SessionsFor($sidB); if ($n -eq 0) { break }; Start-Sleep -Seconds 1 }
+        if ($n -ne 0) { throw $(if ($n -lt 0) { "couldn't ask Windows for $AgentName's logon sessions; run setup.ps1 again" } else { "$AgentName still has $n logon session(s) after its processes were stopped (something of its may still be running). Restart Windows, then run setup.ps1 again." }) }
         $script:agentStopped = $true
     }
 }
@@ -323,7 +335,7 @@ else {
 
 # ── 6. Lock what everyone can write (owner 2026-11-22) ──────────────────────
 Step "6. Deny $AgentName write + delete $GlimDenyRights on these folders (nobody else's access changes)"
-$targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile)
+$targets = @(Get-GlimLockTargets -OwnerProfile $OwnerProfile -AgentSid $agentSid)
 foreach ($x in $GlimPathUnresolved) { Write-Warning "  PATH entry that doesn't resolve to a real folder (NOT verified): $x" }
 if ($GlimUnlistable.Count) {
     Write-Warning ("  $($GlimUnlistable.Count) item(s) couldn't be listed or read while finding what to lock, so anything below or in them isn't on the list (check.ps1 stays INCOMPLETE until they're readable; run elevated). E.g. " + (($GlimUnlistable | Select-Object -First 5) -join '; '))
@@ -428,6 +440,7 @@ if ($agentSid -and $isAdmin) {
 
 Write-Host ''
 # Everything passed: glim-agent may run again (step 1b stopped it).
-if (-not $DryRun -and $agentStopped) { Act "enable $AgentName again" { Enable-LocalUser -Name $AgentName } }
+if (-not $DryRun -and $agentStopped -and $wasEnabled) { Act "enable $AgentName again" { Enable-LocalUser -Name $AgentName } }
+elseif (-not $DryRun -and $agentStopped) { Write-Host "  $AgentName stays disabled (it was disabled before this run)" }
 if ($DryRun) { Write-Host 'Dry run: nothing was changed.' -ForegroundColor Yellow }
 else { Write-Host 'Done. Next: scripts\agent-sandbox\check.ps1 (no UAC needed).' -ForegroundColor Green }

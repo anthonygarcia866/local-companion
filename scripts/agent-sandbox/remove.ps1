@@ -100,7 +100,7 @@ if ($Sid) {
     # shown (review L6). A deny an older setup run left as an INHERITED copy
     # (icacls passed it down) names a deleted account once step 1 has run, so
     # it denies nobody; it goes when Windows next re-applies inheritance there.
-    foreach ($t in @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)) {
+    foreach ($t in @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE -AgentSid $Sid)) {
         $p = $t.Path
         $items = @($p)
         if ($t.Scope -eq 'tree' -and (Test-Path -LiteralPath $p -PathType Container)) { $items += @(Get-GlimTreeItems $p | ForEach-Object { $_.FullName }) }
