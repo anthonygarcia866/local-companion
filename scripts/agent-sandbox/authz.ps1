@@ -147,6 +147,40 @@ public static class GlimAuthz {
     }
 
 }
+public static class GlimLsa {
+    [DllImport("secur32.dll")] static extern uint LsaEnumerateLogonSessions(out ulong count, out IntPtr luids);
+    [DllImport("secur32.dll")] static extern uint LsaGetLogonSessionData(IntPtr luid, out IntPtr data);
+    [DllImport("secur32.dll")] static extern uint LsaFreeReturnBuffer(IntPtr buf);
+    // SECURITY_LOGON_SESSION_DATA: Size, LogonId (8), then 3 UNICODE_STRINGs
+    // (UserName, LogonDomain, AuthenticationPackage), LogonType, Session,
+    // then the PSID. Read by offset from the structure's own layout.
+    // How many logon sessions belong to `sid` right now (review 4 H1: a
+    // process can hide its token from WMI and refuse to be stopped, but it
+    // keeps its logon session alive, and LSA lists sessions without touching
+    // any token). -1 if LSA couldn't be asked.
+    public static int SessionsFor(string sid) {
+        ulong n; IntPtr list;
+        if (LsaEnumerateLogonSessions(out n, out list) != 0) return -1;
+        int found = 0;
+        try {
+            for (ulong i = 0; i < n; i++) {
+                IntPtr luid = new IntPtr(list.ToInt64() + (long)i * 8);
+                IntPtr d;
+                if (LsaGetLogonSessionData(luid, out d) != 0 || d == IntPtr.Zero) continue;
+                try {
+                    int us = IntPtr.Size == 8 ? 16 : 8;           // UNICODE_STRING
+                    int off = 4 + (IntPtr.Size == 8 ? 4 : 0) + 8;  // Size (+pad), LogonId
+                    off += 3 * us + 4 + 4;                          // 3 strings, LogonType, Session
+                    if (IntPtr.Size == 8) off = (off + 7) & ~7;
+                    IntPtr psid = Marshal.ReadIntPtr(d, off);
+                    if (psid == IntPtr.Zero) continue;
+                    if (new SecurityIdentifier(psid).Value == sid) found++;
+                } finally { LsaFreeReturnBuffer(d); }
+            }
+        } finally { LsaFreeReturnBuffer(list); }
+        return found;
+    }
+}
 public static class GlimFs {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
@@ -180,11 +214,13 @@ public static class GlimFs {
     // Turns on SeBackupPrivilege in this process (an elevated run holds it,
     // disabled). With it, the reads below get past a DACL that leaves the
     // owner out (READ_CONTROL and listing only; nothing is opened for data).
-    public static bool EnableBackup() {
+    public static bool EnableBackup() { return EnablePrivilege("SeBackupPrivilege"); }
+
+    public static bool EnablePrivilege(string name) {
         IntPtr tok;
         if (!OpenProcessToken(GetCurrentProcess(), 0x28, out tok)) return false;
         try {
-            long luid; if (!LookupPrivilegeValueW(null, "SeBackupPrivilege", out luid)) return false;
+            long luid; if (!LookupPrivilegeValueW(null, name, out luid)) return false;
             var tp = new TP { Count = 1, Luid = luid, Attr = 2 };
             if (!AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero)) return false;
             return Marshal.GetLastWin32Error() == 0;   // 1300 = not held
@@ -210,6 +246,244 @@ public static class GlimFs {
     }
 
     public struct Entry { public string Path; public bool Dir; public bool Link; }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool SetKernelObjectSecurity(IntPtr h, uint info, byte[] sd);
+    // Pack = 4: its FILETIMEs are two DWORDs, 4-aligned (review 2026-11-26
+    // HIGH-B: as 8-aligned longs, "Links" read nFileIndexHigh).
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    struct BHFI { public uint Attr; public long C, A, W; public uint Vol, SizeHi, SizeLo, Links, IdxHi, IdxLo; }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetFileInformationByHandle(IntPtr h, out BHFI info);
+    [DllImport("advapi32.dll", SetLastError = true, EntryPoint = "AdjustTokenPrivileges")]
+    static extern bool AdjustPrev(IntPtr tok, bool disableAll, ref TP tp, uint len, ref TP prev, out uint retLen);
+
+    // Rewrite's refusals (negative, so never a Windows error code).
+    public const int HardLink = -2, NullDacl = -3;
+    const AceFlags Inh = AceFlags.ObjectInherit | AceFlags.ContainerInherit;
+    const AceFlags Odd = AceFlags.InheritOnly | AceFlags.NoPropagateInherit;
+
+    // Does `path` carry an explicit (not inherited) deny for `sid` covering
+    // all of `mask` that applies to the object itself (not inherit-only) and,
+    // for a tree, is inherited by files and folders all the way down (no
+    // no-propagate)? Read from the object itself (setup reads back each lock).
+    public static bool HasDeny(string path, string sid, uint mask, bool tree) {
+        int e; byte[] sd = ReadSd(path, out e);
+        if (sd == null) return false;
+        var r = new RawSecurityDescriptor(sd, 0);
+        if (r.DiscretionaryAcl == null) return false;
+        foreach (GenericAce a in r.DiscretionaryAcl) {
+            var k = a as KnownAce;
+            if (k == null || a.AceType != AceType.AccessDenied) continue;
+            if ((a.AceFlags & AceFlags.Inherited) != 0 || (a.AceFlags & Odd) != 0) continue;
+            if (k.SecurityIdentifier.Value != sid) continue;
+            if (((uint)k.AccessMask & mask) != mask) continue;
+            if (tree && (a.AceFlags & Inh) != Inh) continue;
+            return true;
+        }
+        return false;
+    }
+
+    // Puts an explicit deny for `sid` (`mask`; inheritable if `inherit`) first
+    // in the object's own DACL. Review 2026-11-26 (H1, M1, M2): written with
+    // SetKernelObjectSecurity on a handle to the object itself (backup
+    // semantics; a link's own entry, never its target's), so Windows
+    // recomputes nothing: no inherited entries re-stamped from a parent,
+    // nothing passed down to children, the DACL's protected / auto-inherited
+    // flags exactly as they were, owner unchanged. Only items created later
+    // inherit it; callers give each existing item that needs one its own.
+    // With SeRestorePrivilege (on only for the write) an elevated admin can
+    // do this on folders SYSTEM or TrustedInstaller own.
+    // Refused, never changed: a null or absent DACL (everyone allowed; a deny
+    // alone would leave nobody else any access: NullDacl). An item glim-agent
+    // owns gets Administrators as its owner in the same write (elevated).
+    // An existing explicit deny for `sid` is merged into the new one (masks
+    // and inheritance OR'd, inherit-only / no-propagate dropped), never
+    // narrowed. 0 on success, else a Windows error code or a refusal.
+    public static int AddDeny(string path, string sid, uint mask, bool inherit) {
+        return Rewrite(path, sid, mask, inherit, true);
+    }
+
+    // Removes every explicit deny for `sid` from the object's own DACL (same
+    // way: nothing re-inherited or passed down).
+    public static int RemoveDeny(string path, string sid) {
+        return Rewrite(path, sid, 0, false, false);
+    }
+
+    // Turns a privilege on or off; returns whether it was on before.
+    static bool SetPriv(string name, bool on) {
+        IntPtr tok;
+        if (!OpenProcessToken(GetCurrentProcess(), 0x28, out tok)) return false;
+        try {
+            long luid; if (!LookupPrivilegeValueW(null, name, out luid)) return false;
+            var tp = new TP { Count = 1, Luid = luid, Attr = on ? 2u : 0u };
+            var prev = new TP(); uint len;
+            if (!AdjustPrev(tok, false, ref tp, (uint)Marshal.SizeOf(typeof(TP)), ref prev, out len)) return false;
+            return prev.Count == 1 ? (prev.Attr & 2) != 0 : on;   // Count 0: it was already as asked
+        } finally { CloseHandle(tok); }
+    }
+
+    static int Rewrite(string path, string sid, uint mask, bool inherit, bool add) {
+        bool hadRestore = SetPriv("SeRestorePrivilege", true);
+        try {
+            IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */ | (add ? 0x80000u /* WRITE_OWNER */ : 0u), 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+            if (h == BAD && add) h = CreateFileW(Raw(path), READ_CONTROL | 0x40000, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);   // not elevated: no owner change
+            if (h == BAD) return Marshal.GetLastWin32Error();
+            try {
+                // Review 4 (M1): a hard-linked file is no longer refused. This
+                // write changes only this one DACL (shared by every name of the
+                // file) by adding glim-agent's deny; nothing is re-stamped, so
+                // its other names gain nothing. Refusing it let anyone keep
+                // setup failing with a planted link.
+                IntPtr o, g, d, sa, psd;
+                uint rc = GetSecurityInfo(h, 1, 5 /* OWNER | DACL */, out o, out g, out d, out sa, out psd);
+                if (rc != 0) return (int)rc;
+                byte[] sd;
+                try { int len = (int)GetSecurityDescriptorLength(psd); sd = new byte[len]; Marshal.Copy(psd, sd, 0, len); } finally { LocalFree(psd); }
+                var r = new RawSecurityDescriptor(sd, 0);
+                if (r.DiscretionaryAcl == null) return add ? NullDacl : 0;   // null or absent: everyone allowed
+                var acl = r.DiscretionaryAcl ?? new RawAcl(GenericAcl.AclRevision, 1);
+                var me = new SecurityIdentifier(sid);
+                int merged = (int)mask; AceFlags mflags = inherit ? Inh : AceFlags.None;
+                bool found = false;
+                for (int i = acl.Count - 1; i >= 0; i--) {
+                    var k = acl[i] as KnownAce;
+                    if (k != null && acl[i].AceType == AceType.AccessDenied && (acl[i].AceFlags & AceFlags.Inherited) == 0 && k.SecurityIdentifier == me) {
+                        merged |= k.AccessMask; mflags |= acl[i].AceFlags & Inh;
+                        acl.RemoveAce(i); found = true;
+                    }
+                }
+                if (!add && !found) return 0;
+                if (add) acl.InsertAce(0, new CommonAce(mflags, AceQualifier.AccessDenied, merged, me, false, null));
+                // Only the DACL and its own flags: protected / auto-inherited kept as read.
+                var keep = r.ControlFlags & (ControlFlags.DiscretionaryAclProtected | ControlFlags.DiscretionaryAclAutoInherited | ControlFlags.DiscretionaryAclAutoInheritRequired);
+                // Without the request bit Windows drops "auto-inherited" (tested 2026-11-26); with it the
+                // kernel keeps the object's own inherited entries, never recomputed from a parent.
+                if ((keep & ControlFlags.DiscretionaryAclAutoInherited) != 0) keep |= ControlFlags.DiscretionaryAclAutoInheritRequired;
+                var nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, null, null, null, acl);
+                var bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
+                // An item glim-agent OWNS: its owner's implicit right to change
+                // the DACL beats any deny (review 4 M1), so the owner becomes
+                // Administrators, in the same write (SeRestorePrivilege).
+                uint info = 4;
+                if (add && r.Owner != null && r.Owner == me) {
+                    nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, new SecurityIdentifier("S-1-5-32-544"), null, null, acl);
+                    bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
+                    info = 5;
+                }
+                if (!SetKernelObjectSecurity(h, info, bin)) return Marshal.GetLastWin32Error();
+                return 0;
+            } finally { CloseHandle(h); }
+        } finally { if (!hadRestore) SetPriv("SeRestorePrivilege", false); }
+    }
+
+    // A folder whose existing items may later gain children: does it carry a
+    // deny for `sid` covering `mask` that new files and folders inside will
+    // inherit (explicit, or an inherited copy icacls passed down; object and
+    // container inherit, no inherit-only on the folder itself, no
+    // no-propagate)? Review 2026-11-26 M-a: without one, a file a service
+    // creates there later could be writable by glim-agent.
+    public static bool HasInheritableDeny(string path, string sid, uint mask) {
+        int e; byte[] sd = ReadSd(path, out e);
+        return sd != null && InhDeny(sd, sid, mask);
+    }
+    static bool InhDeny(byte[] sd, string sid, uint mask) {
+        var r = new RawSecurityDescriptor(sd, 0);
+        if (r.DiscretionaryAcl == null) return false;
+        foreach (GenericAce a in r.DiscretionaryAcl) {
+            var k = a as KnownAce;
+            if (k == null || a.AceType != AceType.AccessDenied) continue;
+            if ((a.AceFlags & Odd) != 0 || (a.AceFlags & Inh) != Inh) continue;
+            if (k.SecurityIdentifier.Value != sid) continue;
+            if (((uint)k.AccessMask & mask) != mask) continue;
+            return true;
+        }
+        return false;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct SA { public int Len; public IntPtr Sd; public bool Inherit; }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool CreateDirectoryW(string name, ref SA sa);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string sddl, uint rev, out IntPtr sd, out uint len);
+
+    // Creates a NEW folder with exactly this security descriptor (SDDL, a
+    // DACL only), in one step: no moment with other permissions, nothing
+    // re-stamped. Fails (183) if it already exists. 0 on success.
+    public static int CreateDirSddl(string path, string sddl) {
+        IntPtr sd; uint len;
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, out sd, out len)) return Marshal.GetLastWin32Error();
+        try {
+            var sa = new SA { Len = Marshal.SizeOf(typeof(SA)), Sd = sd, Inherit = false };
+            if (!CreateDirectoryW(Raw(path), ref sa)) return Marshal.GetLastWin32Error();
+            return 0;
+        } finally { LocalFree(sd); }
+    }
+
+    // Replaces this one object's DACL with `sddl`'s (protected / auto-
+    // inherited flags as the SDDL says), through the same non-propagating
+    // kernel write as AddDeny. Only for a folder setup just emptied. 0 = ok.
+    public static int SetDaclSddl(string path, string sddl) {
+        var want = new RawSecurityDescriptor(sddl);
+        IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return Marshal.GetLastWin32Error();
+        try {
+            var keep = want.ControlFlags & (ControlFlags.DiscretionaryAclProtected | ControlFlags.DiscretionaryAclAutoInherited);
+            var nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, null, null, null, want.DiscretionaryAcl);
+            var bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
+            if (!SetKernelObjectSecurity(h, 4, bin)) return Marshal.GetLastWin32Error();
+            return 0;
+        } finally { CloseHandle(h); }
+    }
+
+    // Is `path` a real folder (not a link) whose owner is one of `owners` and
+    // whose DACL is protected and holds exactly `sddl`'s entries (type,
+    // flags, mask, SID; order ignored)? "" when it is, else what differs.
+    public static string SameDir(string path, string sddl, string[] owners) { return SameItem(path, sddl, owners, true); }
+    // The same for a real file (setup's sentinel in the work folder).
+    public static string SameFile(string path, string sddl, string[] owners) { return SameItem(path, sddl, owners, false); }
+
+    // A real folder (attributes read literally: \\?\, no MAX_PATH limit, no
+    // trailing dot or space trimmed; review 3 L-7), never a link?
+    public static bool IsRealDir(string path) {
+        uint attr = GetFileAttributesW(Raw(path));
+        return attr != 0xFFFFFFFF && (attr & 0x10) != 0 && (attr & 0x400) == 0;
+    }
+
+    // Can `path` be opened with no sharing at all (the link itself)? Only
+    // when no other handle to it is open anywhere (review 3 H-1: one held
+    // from before setup could still turn the folder into a junction).
+    public static bool NoOtherHandles(string path) {
+        // Data access (read, write, delete) asked for: Windows' sharing check
+        // ignores READ_CONTROL alone, so only this conflicts with an open handle
+        // (tested 2026-11-26).
+        IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x1 | 0x2 | 0x10000, 0, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+        if (h == BAD) return false;
+        CloseHandle(h);
+        return true;
+    }
+
+    static string SameItem(string path, string sddl, string[] owners, bool dir) {
+        int e; byte[] sd = ReadSd(path, out e);
+        if (sd == null) return "can't read it (error " + e + ")";
+        if (IsLink(path)) return "it is a link";
+        uint attr = GetFileAttributesW(Raw(path));
+        if (attr == 0xFFFFFFFF || ((attr & 0x10) != 0) != dir) return dir ? "not a folder" : "not a file";
+        var r = new RawSecurityDescriptor(sd, 0);
+        if (r.Owner == null || Array.IndexOf(owners, r.Owner.Value) < 0) return "owner is " + (r.Owner == null ? "nobody" : r.Owner.Value);
+        if ((r.ControlFlags & ControlFlags.DiscretionaryAclProtected) == 0) return "it inherits from its parent";
+        var want = new RawSecurityDescriptor(sddl).DiscretionaryAcl;
+        var have = r.DiscretionaryAcl;
+        if (have == null) return "no DACL";
+        var a = new List<string>(); var b = new List<string>();
+        foreach (GenericAce x in have) { var k = x as KnownAce; a.Add(k == null ? "?" : ((int)x.AceType + "/" + (int)(x.AceFlags & ~AceFlags.Inherited) + "/" + k.AccessMask.ToString("X") + "/" + k.SecurityIdentifier.Value)); }
+        foreach (GenericAce x in want) { var k = (KnownAce)x; b.Add((int)x.AceType + "/" + (int)x.AceFlags + "/" + k.AccessMask.ToString("X") + "/" + k.SecurityIdentifier.Value); }
+        a.Sort(StringComparer.Ordinal); b.Sort(StringComparer.Ordinal);
+        if (string.Join(";", a.ToArray()) != string.Join(";", b.ToArray())) return "its entries differ";
+        return "";
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern uint GetFileAttributesW(string name);
 
     // Does `path` exist, taken literally (\\?\, the last link not followed)?
     // 0 only when Windows says file or path not found (errors 2, 3); 1 when
@@ -324,7 +598,9 @@ public static class GlimFs {
             var t = a.AceType;
             if (t != AceType.AccessAllowed && t != AceType.AccessAllowedCallback && t != AceType.AccessAllowedObject && t != AceType.AccessAllowedCallbackObject) continue;
             if (explicitOnly && (a.AceFlags & AceFlags.Inherited) != 0) continue;
-            if (!explicitOnly && (a.AceFlags & AceFlags.InheritOnly) != 0) continue;
+            // Inherit-only counts when it passes to what's inside (review
+            // 2026-11-26: Users RX + (OI)(IO)M = every file inside writable).
+            if (!explicitOnly && (a.AceFlags & AceFlags.InheritOnly) != 0 && (a.AceFlags & Inh) == 0) continue;
             if (Array.IndexOf(sids, c.SecurityIdentifier.Value) < 0) continue;
             uint m = (uint)c.AccessMask;
             if ((m & mask) == 0) continue;
@@ -348,7 +624,8 @@ public static class GlimFs {
     // Walks everything under `root` (the root itself excluded), never
     // entering a link. Mode "explicit": a hit is an item with an explicit
     // allow giving one of `sids` a bit of `mask`. Mode "access": a hit is an
-    // item `checker` gets a bit of `mask` on.
+    // item `checker` gets a bit of `mask` on. Mode "nodeny": a hit is a real
+    // folder with no deny for sids[0] covering `mask` that its new items inherit.
     public static WalkResult Walk(string root, string mode, string[] sids, uint mask, GlimAuthz.Checker checker) {
         var res = new WalkResult();
         var q = new Queue<string>(); q.Enqueue(root);
@@ -360,6 +637,10 @@ public static class GlimFs {
                 res.Items++;
                 int e2; byte[] sd = ReadSd(k.Path, out e2);
                 if (sd == null) { res.Unreadable.Add(k.Path + " (error " + e2 + ")"); }
+                else if (mode == "nodeny") {
+                    // a real folder that new items inside wouldn't get a deny from
+                    if (k.Dir && !k.Link && !InhDeny(sd, sids[0], mask)) { res.Hits.Add(k.Path); res.Details.Add("no inheritable deny"); res.HitIsDir.Add(true); }
+                }
                 else if (mode == "explicit") {
                     string d = ExplicitGrant(sd, sids, mask);
                     if (d.Length > 0) { res.Hits.Add(k.Path); res.Details.Add(d); res.HitIsDir.Add(k.Dir && !k.Link); }

@@ -222,7 +222,7 @@ foreach ($x in $GlimPathUnresolved) {
     Write-Host "NOT VERIFIED  PATH entry that doesn't resolve to a real folder: $x" -ForegroundColor Yellow
     $script:incomplete = $true
 }
-$targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
+$targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE -AgentSid $sid)
 foreach ($l in $GlimLinkFindings) { Report $false "no link that all users can change: $l" }
 foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
@@ -277,6 +277,20 @@ foreach ($v in 'CLOUDFLARE_API_TOKEN', 'SUPABASE_ACCESS_TOKEN', 'ANTHROPIC_API_K
 # ── Its work folder ──────────────────────────────────────────────────────────
 $wm = Access 'C:\GlimAgent\work'
 Report ($null -ne $wm -and ($wm -band 0x6) -eq 0x6) 'can write C:\GlimAgent\work'
+# Exactly as setup.ps1 step 4 makes them: real folders (not links), owned by
+# SYSTEM, Administrators or you, protected, with exactly these entries, so
+# glim-agent can't delete or rename either one, and work keeps a file it
+# can't delete, so it can't be emptied and swapped for a junction (review 3).
+$meSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$own4 = [string[]]@('S-1-5-18', 'S-1-5-32-544', $meSid)
+$w1 = [GlimFs]::SameDir('C:\GlimAgent', "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$meSid)(A;;0x1200a9;;;$sid)", $own4)
+Report ($w1 -eq '') ("C:\GlimAgent is as setup makes it" + $(if ($w1) { " ($w1)" } else { '' }))
+$w2 = [GlimFs]::SameDir('C:\GlimAgent\work', "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;$meSid)(A;;0x1200af;;;$sid)(A;OICIIO;0x1301bf;;;$sid)", $own4)
+Report ($w2 -eq '') ("C:\GlimAgent\work is as setup makes it" + $(if ($w2) { " ($w2)" } else { '' }))
+$w3 = [GlimFs]::SameFile('C:\GlimAgent\work\.glim-keep', "D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;$meSid)(A;;0x120089;;;$sid)", $own4)
+Report ($w3 -eq '') ("C:\GlimAgent\work\.glim-keep keeps work from being emptied" + $(if ($w3) { " ($w3)" } else { '' }))
+$extra = @(Get-ChildItem -LiteralPath 'C:\GlimAgent' -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'work' })
+Report ($extra.Count -eq 0) ("C:\GlimAgent holds nothing but work" + $(if ($extra.Count) { " (also: " + (($extra | ForEach-Object Name) -join ', ') + ")" } else { '' }))
 
 # ── Information only: its logon works ───────────────────────────────────────
 $plain = Read-GlimCredential 'Glim/AgentUserPassword'

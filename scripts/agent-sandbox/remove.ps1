@@ -69,16 +69,51 @@ if (Test-Path 'C:\GlimAgent') {
 
 # ── 3. Lift the protections ─────────────────────────────────────────────────
 if ($Sid) {
-    $fenced = @($env:USERPROFILE) + @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE | ForEach-Object { $_.Path }) + @($GlimNamed | Where-Object { Test-Path -LiteralPath $_ })
-    foreach ($p in ($fenced | Sort-Object -Unique)) {
-        $has = [bool]((Get-Acl -LiteralPath $p).Access | Where-Object { $_.AccessControlType -eq 'Deny' -and -not $_.IsInherited -and $(try { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $Sid } catch { $_.IdentityReference.Value -eq $Sid }) })
-        if ($has) {
+    function Test-ExplicitDeny([string]$p) {
+        foreach ($ace in (Get-Acl -LiteralPath $p).Access) {
+            if ($ace.AccessControlType -ne 'Deny' -or $ace.IsInherited) { continue }
+            $v = try { $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { $ace.IdentityReference.Value }
+            if ($v -eq $Sid) { return $true }
+        }
+        $false
+    }
+    # Your profile only (review M-b): setup's step 5 put this deny with icacls,
+    # so icacls takes it and its copies off; only you can write in there. The
+    # named folders (Public, Windows\Tasks) are lock targets, cleared below.
+    # Only while nothing in it lets all users write (review 3 L-5: icacls
+    # re-stamps it all); else the deny stays: once the account is deleted it
+    # names nobody.
+    $bwp = @(Get-GlimExplicitWritable $env:USERPROFILE)
+    if ($bwp.Count) { Write-Warning "  $($bwp.Count) item(s) in your profile let all users write (e.g. $($bwp[0].Path)): its deny for the deleted account is left in place (harmless)" }
+    foreach ($p in @($(if (-not $bwp.Count) { $env:USERPROFILE }))) {
+        if (Test-ExplicitDeny $p) {
             Act "remove its deny entry on $p" {
-                icacls $p /remove:d "*$Sid" /C | Out-Null
-                if ($LASTEXITCODE -ne 0) { Write-Warning "  icacls $p exit $LASTEXITCODE" }
+                $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+                try { icacls $p /remove:d "*$Sid" /C 2>&1 | Out-Null } finally { $ErrorActionPreference = $eap }
+                if (Test-ExplicitDeny $p) { Write-Warning "  couldn't remove it from $p" }
             }
         }
     }
+    # The locked folders: setup's own writer (review 2026-11-26) changes one
+    # object's DACL at a time, nothing re-stamped or passed down, so the root
+    # and every item inside are cleared one by one; failures are counted and
+    # shown (review L6). A deny an older setup run left as an INHERITED copy
+    # (icacls passed it down) names a deleted account once step 1 has run, so
+    # it denies nobody; it goes when Windows next re-applies inheritance there.
+    foreach ($t in @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE -AgentSid $Sid)) {
+        $p = $t.Path
+        $items = @($p)
+        if ($t.Scope -eq 'tree' -and (Test-Path -LiteralPath $p -PathType Container)) { $items += @(Get-GlimTreeItems $p | ForEach-Object { $_.FullName }) }
+        $with = @($items | Where-Object { try { Test-ExplicitDeny $_ } catch { $true } })
+        if ($with.Count) {
+            Act "remove its deny entries on $p ($($with.Count) item(s))" {
+                $bad = 0
+                foreach ($i in $with) { $rc = [GlimFs]::RemoveDeny($i, $Sid); if ($rc -ne 0) { $bad++; if ($bad -le 5) { Write-Warning "  couldn't remove it from $i (error $rc)" } } }
+                if ($bad) { Write-Warning "  $bad item(s) under $p still carry its deny (harmless once the account is gone)" }
+            }
+        }
+    }
+    if ($GlimUnlistable.Count) { Write-Warning "  $($GlimUnlistable.Count) folder(s) couldn't be listed, so any deny inside them stays (harmless once the account is gone)" }
     Act 'remove its logon-right denials' {
         $tmp = Join-Path $env:TEMP ('glim-secedit-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $tmp | Out-Null
         try {
