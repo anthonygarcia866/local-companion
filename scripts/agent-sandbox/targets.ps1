@@ -238,7 +238,7 @@ function Get-GlimStillWritable([string]$Sid, $Targets) {
     @{ Writable = @($writable | Sort-Object -Unique); Unreadable = @($unreadable | Sort-Object -Unique) }
 }
 
-function Get-GlimLockTargets([string]$OwnerProfile, [string]$AgentSid = '') {
+function Get-GlimLockTargets([string]$OwnerProfile, [switch]$Quick, [string]$AgentSid = '') {
     $out = [ordered]@{}
     function Add-Target([string]$p, [string]$scope, [string]$why, [string]$deny = 'write') {
         $k = $p.ToLowerInvariant()
@@ -298,6 +298,9 @@ function Get-GlimLockTargets([string]$OwnerProfile, [string]$AgentSid = '') {
         $w = Get-GlimBroadWrite $p
         if ($w) { Add-Target $p 'file' "program in a PATH folder; writable by $w" }
     }
+    # -Quick (quick-check.ps1): the cheap places only, where a recreated
+    # folder turns up; the two deep walks below are setup's and check.ps1's.
+    if ($Quick) { return $out.Values }
     # Review 4 (H2): what glim-agent can write in C:\Windows and Program Files
     # is FOUND, not listed: every item there its real access (AuthZ, from its
     # SID and groups) lets it write. The topmost such folder becomes a tree

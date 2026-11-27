@@ -60,6 +60,9 @@ pub enum Kind {
     /// (remote::courier::Outage), and it's back (owner 2026-11-15).
     RelayDown,
     RelayBack,
+    /// The agent sandbox's quick check failed (remote::sandbox, owner
+    /// 2026-11-26): at a lease, or the daily check.
+    SandboxCheck,
 }
 
 impl Kind {
@@ -75,6 +78,7 @@ impl Kind {
             Kind::KeepAlive => "keep-alive",
             Kind::RelayDown => "relay down",
             Kind::RelayBack => "relay back",
+            Kind::SandboxCheck => "sandbox check",
         }
     }
 }
@@ -125,6 +129,8 @@ pub fn message(kind: Kind, agent: &str, project: Option<&str>) -> String {
         // Fixed texts: nothing about the tasks, the relay or the network.
         Kind::RelayDown => "Glim's remote tasks link has been down for 10 minutes".into(),
         Kind::RelayBack => "Glim's remote tasks link is back".into(),
+        // Fixed: never a path or what was found (that stays in Remote activity).
+        Kind::SandboxCheck => "Glim's agent sandbox check failed: agent sessions stay off. See Settings, Remote activity.".into(),
     }
 }
 
@@ -143,6 +149,8 @@ pub fn wanted(settings: &Settings, kind: Kind) -> bool {
             Kind::KeepAlive => true,
             // The owner turned Remote tasks on: the master switch is enough.
             Kind::RelayDown | Kind::RelayBack => true,
+            // The owner set up the sandbox and asked for it (2026-11-26).
+            Kind::SandboxCheck => true,
         }
 }
 

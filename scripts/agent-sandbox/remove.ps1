@@ -114,6 +114,9 @@ if ($Sid) {
         }
     }
     if ($GlimUnlistable.Count) { Write-Warning "  $($GlimUnlistable.Count) folder(s) couldn't be listed, so any deny inside them stays (harmless once the account is gone)" }
+    if (@(Get-NetFirewallRule -Group 'Glim agent sandbox' -ErrorAction SilentlyContinue).Count) {
+        Act "remove the 'Glim agent sandbox' firewall rules" { Remove-NetFirewallRule -Group 'Glim agent sandbox' }
+    }
     Act 'remove its logon-right denials' {
         $tmp = Join-Path $env:TEMP ('glim-secedit-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $tmp | Out-Null
         try {

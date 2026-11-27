@@ -63,6 +63,7 @@ pub mod exec;
 pub mod lease;
 pub mod pending;
 pub mod runs;
+pub mod sandbox;
 pub mod seal;
 pub mod wake;
 #[cfg(test)]
@@ -339,6 +340,10 @@ pub enum Rejection {
     /// A session command from an agent client: its sessions may only run in
     /// the agent sandbox, which doesn't exist yet.
     NoSandbox,
+    /// The agent sandbox's quick check failed just before a glim-agent
+    /// session would start (sandbox.rs, owner 2026-11-26).
+    #[allow(dead_code)] // raised by sandbox::gate, whose caller is sandbox PR 6
+    SandboxCheckFailed,
 }
 
 impl Rejection {
@@ -367,6 +372,7 @@ impl Rejection {
             Rejection::NotAllowed => "not-allowed",
             Rejection::NoAccount => "no-account",
             Rejection::NoSandbox => "no-sandbox",
+            Rejection::SandboxCheckFailed => "sandbox-check-failed",
         }
     }
 }
