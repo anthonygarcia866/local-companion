@@ -147,6 +147,40 @@ public static class GlimAuthz {
     }
 
 }
+public static class GlimLsa {
+    [DllImport("secur32.dll")] static extern uint LsaEnumerateLogonSessions(out ulong count, out IntPtr luids);
+    [DllImport("secur32.dll")] static extern uint LsaGetLogonSessionData(IntPtr luid, out IntPtr data);
+    [DllImport("secur32.dll")] static extern uint LsaFreeReturnBuffer(IntPtr buf);
+    // SECURITY_LOGON_SESSION_DATA: Size, LogonId (8), then 3 UNICODE_STRINGs
+    // (UserName, LogonDomain, AuthenticationPackage), LogonType, Session,
+    // then the PSID. Read by offset from the structure's own layout.
+    // How many logon sessions belong to `sid` right now (review 4 H1: a
+    // process can hide its token from WMI and refuse to be stopped, but it
+    // keeps its logon session alive, and LSA lists sessions without touching
+    // any token). -1 if LSA couldn't be asked.
+    public static int SessionsFor(string sid) {
+        ulong n; IntPtr list;
+        if (LsaEnumerateLogonSessions(out n, out list) != 0) return -1;
+        int found = 0;
+        try {
+            for (ulong i = 0; i < n; i++) {
+                IntPtr luid = new IntPtr(list.ToInt64() + (long)i * 8);
+                IntPtr d;
+                if (LsaGetLogonSessionData(luid, out d) != 0 || d == IntPtr.Zero) continue;
+                try {
+                    int us = IntPtr.Size == 8 ? 16 : 8;           // UNICODE_STRING
+                    int off = 4 + (IntPtr.Size == 8 ? 4 : 0) + 8;  // Size (+pad), LogonId
+                    off += 3 * us + 4 + 4;                          // 3 strings, LogonType, Session
+                    if (IntPtr.Size == 8) off = (off + 7) & ~7;
+                    IntPtr psid = Marshal.ReadIntPtr(d, off);
+                    if (psid == IntPtr.Zero) continue;
+                    if (new SecurityIdentifier(psid).Value == sid) found++;
+                } finally { LsaFreeReturnBuffer(d); }
+            }
+        } finally { LsaFreeReturnBuffer(list); }
+        return found;
+    }
+}
 public static class GlimFs {
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr sa, uint disp, uint flags, IntPtr tmpl);
@@ -260,9 +294,9 @@ public static class GlimFs {
     // inherit it; callers give each existing item that needs one its own.
     // With SeRestorePrivilege (on only for the write) an elevated admin can
     // do this on folders SYSTEM or TrustedInstaller own.
-    // Refused, never changed: a file with more than one hard link (its other
-    // names may be anywhere: HardLink) and a null DACL (everyone allowed; a
-    // deny alone would leave nobody else any access: NullDacl).
+    // Refused, never changed: a null or absent DACL (everyone allowed; a deny
+    // alone would leave nobody else any access: NullDacl). An item glim-agent
+    // owns gets Administrators as its owner in the same write (elevated).
     // An existing explicit deny for `sid` is merged into the new one (masks
     // and inheritance OR'd, inherit-only / no-propagate dropped), never
     // narrowed. 0 on success, else a Windows error code or a refusal.
@@ -292,14 +326,17 @@ public static class GlimFs {
     static int Rewrite(string path, string sid, uint mask, bool inherit, bool add) {
         bool hadRestore = SetPriv("SeRestorePrivilege", true);
         try {
-            IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+            IntPtr h = CreateFileW(Raw(path), READ_CONTROL | 0x40000 /* WRITE_DAC */ | (add ? 0x80000u /* WRITE_OWNER */ : 0u), 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);
+            if (h == BAD && add) h = CreateFileW(Raw(path), READ_CONTROL | 0x40000, 7, IntPtr.Zero, 3, BACKUP | REPARSE, IntPtr.Zero);   // not elevated: no owner change
             if (h == BAD) return Marshal.GetLastWin32Error();
             try {
-                BHFI fi;
-                if (!GetFileInformationByHandle(h, out fi)) return Marshal.GetLastWin32Error();
-                if ((fi.Attr & 0x10) == 0 && fi.Links > 1) return HardLink;
+                // Review 4 (M1): a hard-linked file is no longer refused. This
+                // write changes only this one DACL (shared by every name of the
+                // file) by adding glim-agent's deny; nothing is re-stamped, so
+                // its other names gain nothing. Refusing it let anyone keep
+                // setup failing with a planted link.
                 IntPtr o, g, d, sa, psd;
-                uint rc = GetSecurityInfo(h, 1, 4 /* DACL */, out o, out g, out d, out sa, out psd);
+                uint rc = GetSecurityInfo(h, 1, 5 /* OWNER | DACL */, out o, out g, out d, out sa, out psd);
                 if (rc != 0) return (int)rc;
                 byte[] sd;
                 try { int len = (int)GetSecurityDescriptorLength(psd); sd = new byte[len]; Marshal.Copy(psd, sd, 0, len); } finally { LocalFree(psd); }
@@ -325,7 +362,16 @@ public static class GlimFs {
                 if ((keep & ControlFlags.DiscretionaryAclAutoInherited) != 0) keep |= ControlFlags.DiscretionaryAclAutoInheritRequired;
                 var nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, null, null, null, acl);
                 var bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
-                if (!SetKernelObjectSecurity(h, 4 /* DACL */, bin)) return Marshal.GetLastWin32Error();
+                // An item glim-agent OWNS: its owner's implicit right to change
+                // the DACL beats any deny (review 4 M1), so the owner becomes
+                // Administrators, in the same write (SeRestorePrivilege).
+                uint info = 4;
+                if (add && r.Owner != null && r.Owner == me) {
+                    nsd = new RawSecurityDescriptor(keep | ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative, new SecurityIdentifier("S-1-5-32-544"), null, null, acl);
+                    bin = new byte[nsd.BinaryLength]; nsd.GetBinaryForm(bin, 0);
+                    info = 5;
+                }
+                if (!SetKernelObjectSecurity(h, info, bin)) return Marshal.GetLastWin32Error();
                 return 0;
             } finally { CloseHandle(h); }
         } finally { if (!hadRestore) SetPriv("SeRestorePrivilege", false); }

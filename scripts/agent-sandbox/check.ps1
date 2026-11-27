@@ -222,7 +222,7 @@ foreach ($x in $GlimPathUnresolved) {
     Write-Host "NOT VERIFIED  PATH entry that doesn't resolve to a real folder: $x" -ForegroundColor Yellow
     $script:incomplete = $true
 }
-$targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE)
+$targets = @(Get-GlimLockTargets -OwnerProfile $env:USERPROFILE -AgentSid $sid)
 foreach ($l in $GlimLinkFindings) { Report $false "no link that all users can change: $l" }
 foreach ($t in $targets) {
     $mustNotWrite[$t.Path.ToLowerInvariant()] = $t.Path
