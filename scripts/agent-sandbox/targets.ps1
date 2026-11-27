@@ -312,8 +312,14 @@ function Get-GlimLockTargets([string]$OwnerProfile, [switch]$Quick, [string]$Age
         try {
             foreach ($root in @("$env:SystemRoot", "$env:ProgramFiles", "${env:ProgramFiles(x86)}", "$env:ProgramW6432") | Where-Object { $_ } | Sort-Object -Unique) {
                 if (-not (Test-Path -LiteralPath $root)) { continue }
+                # The root itself too (the walk starts below it).
+                $e0 = 0; $sd0 = [GlimFs]::ReadSd($root, [ref]$e0)
+                if ($null -eq $sd0) { $x = "$root (permissions unreadable)"; if (-not $GlimUnlistable.Contains($x)) { $GlimUnlistable.Add($x) } }
+                elseif ($chk.Granted($sd0) -band $GlimWrite) { Add-Target $root 'folder' "$AgentName can write it" }
                 $r = [GlimFs]::Walk($root, 'access', $null, [uint32]$GlimWrite, $chk)
                 foreach ($u in $r.Unlistable) { if (-not $GlimUnlistable.Contains($u)) { $GlimUnlistable.Add($u) } }
+                # Items whose permissions couldn't be read: reported (not verified), never dropped.
+                foreach ($u in $r.Unreadable) { $x = "$u (permissions unreadable)"; if (-not $GlimUnlistable.Contains($x)) { $GlimUnlistable.Add($x) } }
                 $hits = for ($i = 0; $i -lt $r.Hits.Count; $i++) { [pscustomobject]@{ Path = $r.Hits[$i]; Dir = $r.HitIsDir[$i] } }
                 foreach ($h in @($hits | Sort-Object { $_.Path.Length })) {
                     $covered = $false
